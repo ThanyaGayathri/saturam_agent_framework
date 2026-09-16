@@ -109,6 +109,47 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.0 — 2026-09-16 — dashboards: composed charts, per-tile CRUD (**breaking**)
+
+Agreed by: product (nandha-saturam). **Breaking, not additive** -- flagged in round-1 review
+of the PR that introduced it (#281), which shipped this exact rename against an unchanged
+`info.version` for a day; this entry is that fix, landing before the PR merges to `main`.
+
+- **`DashboardSuggestion.tiles` → `charts`, type changed `DashboardTileSuggestion[]` →
+  `DashboardChartSuggestion[]`.** A strictly-typed client built against 1.1.8's `tiles` field
+  breaks. The dashboard-suggestion agent no longer only selects a KPI identifier from a closed
+  list (1.1.8's whole design) -- it is shown the selected metrics' definitions and the
+  semantic layer's tables/columns/joins behind them, and composes the chart a purpose needs: a
+  metric's own SQL reused as-is (`source: kpi`, unchanged tile shape) or a query composed
+  across the tables (`source: query`, new). `DashboardTileSuggestion` is removed;
+  `DashboardChartSuggestion` carries `title`, `chart`, `source`, `kpi_identifier`/`query`,
+  `description`, `rationale`, and a `guard` verdict (`ok`/`rewritten`/`refused`, with detail)
+  from the warehouse read guard every composed query passes before the caller sees it, plus an
+  optional bounded `preview` (columns/rows/duration).
+- **`Tile`/`TileWrite`** gain `source` (`kpi`|`query`, default `kpi`), `query` (a new
+  `TileQuery`: `sql`, `dialect`, `source_tables`, `x`/`y` `ChartAxis`, `series_by`),
+  `description` and `rationale` -- all additive, all defaulted, so a pre-1.2.0 tile JSON
+  reads back unchanged as `source: kpi`. `kpi_identifier` on `Tile` is now nullable (null on a
+  `query` tile) -- additive in the loosening direction, but a caller that assumed it always
+  present should check `source` first.
+- **New routes, all additive:** `POST/PATCH/DELETE /dashboards/{id}/tiles[/{tile_id}]` (a
+  tile keeps its id across an edit instead of every write reminting every tile's id -- also a
+  behaviour change on the *existing* whole-array `PATCH`, worth knowing even though no schema
+  changed: `TileWrite.id`, optional, is honoured when a client sends one); `POST
+  /dashboards/queries/preview` (guard + bounded run, nothing stored); `POST
+  /dashboards/{id}/refresh` (recompute every `query` tile now).
+- **`DashboardSuggestionRunRequest`** gains `kpi_identifiers`, `table_names`, `chart_budget`
+  (additive, all optional) -- what the agent reads as context, not a KPI list it must tile one
+  for one. **`DashboardSuggestionRun`** gains `stage` (additive, nullable) for progress while
+  `running`.
+- **`Column`** (the semantic-layer schema) gains `concept`, `meaning`, `joinable` (additive) --
+  already on the domain dataclass (`contracts/semantic.py`, contract 1.2.0 there predates this
+  one) but never mirrored onto the wire shape until now. **`GET /semantic/tables` and `GET
+  /semantic/tables/{table_name}`** are mounted on the real router for the first time (no
+  schema change -- they were already contracted, stub-only); a personal-data column's
+  `sampled_values` are stripped over this surface regardless of scope, since real observed
+  values are not a description of the data and were never meant to be readable this way.
+
 ## 1.1.8 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
-import { labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
+import { REFRESH_OPTIONS, labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
 import {
  addDashboardTile,
  deleteDashboardApi,
@@ -36,7 +37,19 @@ export default function DashboardView() {
  const [busy, setBusy] = useState(false);
  const [editingTileId, setEditingTileId] = useState(null);
  const [addPrompt, setAddPrompt] = useState("");
- const [addingBlank, setAddingBlank] = useState(false);
+ // Holds the draft chart object once the person hits Enter on the add-chart bar, `null`
+ // otherwise. Never POSTed directly (round-1 review, finding #4: this used to build a
+ // `TileWrite` straight from the raw prompt text -- with an empty `sql` and no `position`,
+ // guaranteed to 422 both client- and server-side) -- it only opens `ChartEditorPanel` on a
+ // local draft, exactly like the empty-Enter case already did; `onSave` there is the one
+ // place that ever calls `addDashboardTile`, once the person has written and (for a `query`
+ // chart) previewed real SQL.
+ const [addingChart, setAddingChart] = useState(null);
+ // The refresh-schedule cadence picked but not yet confirmed -- `null` means the select just
+ // shows `dashboard.refresh_schedule`. Kept separate from `dashboard` so Cancel is a no-op,
+ // not a second write to undo the first (reapplies #272's editable-schedule control, silently
+ // reverted to read-only text by this PR per round-1 review's issue-level comment).
+ const [pendingSchedule, setPendingSchedule] = useState(null);
 
  // `dashboardId` this component is currently showing, readable inside async callbacks that
  // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
@@ -61,6 +74,12 @@ export default function DashboardView() {
  useEffect(() => {
   let cancelled = false;
   setDashboardState({ status: "loading", dashboard: null, error: null });
+  // A pending/in-flight edit belongs to the dashboard being left, not the one being opened --
+  // without this, an unconfirmed schedule pick survives a back/forward navigation (no `key`
+  // on this route, so the component isn't guaranteed to remount) and the confirm modal
+  // reopens on the new dashboard showing the old one's leftover value.
+  setPendingSchedule(null);
+  setBusy(false);
   // Both requests only need `dashboardId`, so they fire together rather than sequentially
   // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
   fetchDashboard(dashboardId)
@@ -129,6 +148,42 @@ export default function DashboardView() {
   }
  };
 
+ // Picking a new schedule opens a confirmation modal rather than saving straight away (the
+ // change affects every future refresh, not just this view) -- `cancelScheduleChange` and
+ // `confirmScheduleChange` below are what it calls.
+ const handleScheduleChange = (e) => {
+  const next = e.target.value;
+  // Always set, never conditionally skipped: re-selecting the dashboard's current value must
+  // clear a stale `pendingSchedule` from an earlier, since-abandoned pick, not leave the
+  // select/modal stuck showing it.
+  setPendingSchedule(next === dashboard.refresh_schedule ? null : next);
+ };
+
+ const cancelScheduleChange = () => setPendingSchedule(null);
+
+ const confirmScheduleChange = async () => {
+  const refreshSchedule = pendingSchedule;
+  // Staleness guard: a PATCH that resolves after the person has navigated to a different
+  // dashboard must not apply its (now stale) result on top of that one's state.
+  const dashboardIdAtCall = dashboard.id;
+  setPendingSchedule(null);
+  setActionError(null);
+  setBusy(true);
+  try {
+   const updated = await updateDashboardApi(dashboard.id, {
+    name: dashboard.name,
+    refresh_schedule: refreshSchedule,
+   });
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+   setDashboardState({ status: "ready", dashboard: updated, error: null });
+  } catch (err) {
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+   setActionError(err?.message || "Could not change the schedule.");
+  } finally {
+   setBusy(false);
+  }
+ };
+
  const saveTileEdit = async (updated) => {
   setActionError(null);
   setBusy(true);
@@ -178,31 +233,17 @@ export default function DashboardView() {
   }
  };
 
- const addChartFromPrompt = async () => {
+ const addChartFromPrompt = () => {
   const text = addPrompt.trim();
-  if (!text) {
-   setAddingBlank(true);
-   return;
-  }
-  setActionError(null);
-  setBusy(true);
-  try {
-   const saved = await addDashboardTile(dashboard.id, {
-    source: "query",
-    chart: "table",
-    title: text,
-    query: { sql: "" },
-   });
-   setDashboardState({ status: "ready", dashboard: saved, error: null });
-   setAddPrompt("");
-   loadData(dashboard.id);
-   const added = saved.tiles[saved.tiles.length - 1];
-   if (added) setEditingTileId(added.id);
-  } catch (err) {
-   setActionError(err?.message || "Could not add that chart.");
-  } finally {
-   setBusy(false);
-  }
+  setAddPrompt("");
+  setAddingChart({
+   id: "__new__",
+   title: text || "New chart",
+   chart: "table",
+   source: "query",
+   query: { sql: "" },
+   description: "",
+  });
  };
 
  // The semantic layer (Neo4j) and warehouse dependencies behind `/data` currently surface as a
@@ -226,7 +267,17 @@ export default function DashboardView() {
      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
       <span className="inline-flex items-center gap-1">
        <RefreshCw size={11} />
-       {labelForRefresh(dashboard.refresh_schedule)}
+       <select
+        aria-label="Refresh schedule"
+        value={pendingSchedule ?? dashboard.refresh_schedule}
+        onChange={handleScheduleChange}
+        disabled={busy}
+        className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
+       >
+        {REFRESH_OPTIONS.map((o) => (
+         <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+       </select>
       </span>
       <span>{dashboard.tiles.length} chart{dashboard.tiles.length === 1 ? "" : "s"}</span>
      </p>
@@ -326,6 +377,32 @@ export default function DashboardView() {
     query on open.
    </p>
 
+   {pendingSchedule && (
+    <Modal title="Change refresh schedule?" onClose={cancelScheduleChange}>
+     <p className="text-sm text-text-secondary">
+      This dashboard will refresh{" "}
+      <span className="font-semibold text-text-primary">{labelForRefresh(pendingSchedule)}</span>{" "}
+      from now on.
+     </p>
+     <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+      <button
+       type="button"
+       onClick={cancelScheduleChange}
+       className="rounded-lg px-3.5 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
+      >
+       Cancel
+      </button>
+      <button
+       type="button"
+       onClick={confirmScheduleChange}
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+      >
+       Save schedule
+      </button>
+     </div>
+    </Modal>
+   )}
+
    {editingTile && (
     <ChartEditorPanel
      chart={editingTile}
@@ -335,17 +412,17 @@ export default function DashboardView() {
     />
    )}
 
-   {addingBlank && !editingTile && (
+   {addingChart && !editingTile && (
     <ChartEditorPanel
-     chart={{ id: "__new__", title: "New chart", chart: "table", source: "query", query: { sql: "" }, description: "" }}
-     onClose={() => setAddingBlank(false)}
+     chart={addingChart}
+     onClose={() => setAddingChart(null)}
      onSave={async (chart) => {
       setBusy(true);
       try {
        const write = tileWriteFromChart(chart, dashboard.tiles.length);
        const saved = await addDashboardTile(dashboard.id, write);
        setDashboardState({ status: "ready", dashboard: saved, error: null });
-       setAddingBlank(false);
+       setAddingChart(null);
        loadData(dashboard.id);
       } catch (err) {
        setActionError(err?.message || "Could not add that chart.");

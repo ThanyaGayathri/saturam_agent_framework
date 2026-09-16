@@ -7,6 +7,9 @@ its allow-list is faked here, the way `test_r6_sql_guard*.py` fakes it.
 
 from __future__ import annotations
 
+import asyncio
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -16,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from egpt_retail.api import models as wire
 from egpt_retail.api.routers import dashboards as dashboards_module
+from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.dashboards import (
     AxisKind,
     ChartAxis,
@@ -26,6 +30,7 @@ from egpt_retail.contracts.dashboards import (
     TileQuery,
     TileSource,
 )
+from egpt_retail.dashboards import queries as queries_module
 from egpt_retail.dashboards.data import query_tile_data
 from egpt_retail.dashboards.queries import check_query
 from egpt_retail.dashboards.query_results import QueryResultRecord
@@ -232,6 +237,44 @@ def test_check_query_refuses_personal_data_outside_the_select_list():
     assert "outside the SELECT list" in verdict.detail
 
 
+def test_check_query_refuses_select_star_hidden_inside_a_cte():
+    """Round-1 review, finding #1 (critical): `_alias_map` never resolved a CTE alias back to
+    its real table, so `WITH s AS (SELECT * FROM silver.customers) SELECT s.email FROM s`
+    passed with `customer.email` never attributed to `customers` -- reproduced verbatim from
+    the review and confirmed refused now that the star check scans the whole tree rather than
+    only the outer projection."""
+    verdict = check_query(
+        "WITH s AS (SELECT * FROM silver.customers) SELECT s.email FROM s LIMIT 10",
+        guard=_guard(),
+        personal_data=_personal,
+    )
+    assert verdict.status == "refused"
+    assert "selects `*`" in verdict.detail
+    assert "customers.email" in verdict.detail
+
+
+def test_check_query_refuses_select_star_hidden_inside_a_derived_table():
+    """The subquery-in-FROM variant of the same bypass, also reproduced verbatim."""
+    verdict = check_query(
+        "SELECT sub.email FROM (SELECT * FROM silver.customers) sub LIMIT 10",
+        guard=_guard(),
+        personal_data=_personal,
+    )
+    assert verdict.status == "refused"
+    assert "selects `*`" in verdict.detail
+
+
+def test_check_query_still_allows_select_star_over_a_table_with_no_personal_data_anywhere():
+    """The blanket star refusal must not fire on a query that reads no personal data at all,
+    including through a CTE."""
+    verdict = check_query(
+        "WITH p AS (SELECT * FROM silver.products) SELECT * FROM p LIMIT 10",
+        guard=_guard(),
+        personal_data=_personal,
+    )
+    assert verdict.status == "ok"
+
+
 def test_check_query_refuses_personal_data_hidden_in_a_cte():
     verdict = check_query(
         "WITH c AS (SELECT email AS e FROM silver.customers) SELECT e FROM c LIMIT 10",
@@ -247,7 +290,8 @@ def test_check_query_refuses_select_star_over_a_table_with_personal_data_only():
         "SELECT * FROM silver.orders LIMIT 10", guard=_guard(), personal_data=_personal
     )
     assert refused.status == "refused"
-    assert "SELECT *" in refused.detail
+    assert "selects `*`" in refused.detail
+    assert "orders.customer_email" in refused.detail
     allowed = check_query(
         "SELECT * FROM silver.products LIMIT 10",
         guard=_guard(),
@@ -534,3 +578,169 @@ def test_patching_a_kpi_tile_with_a_query_detaches_it_into_a_query_tile():
     assert patched.source is TileSource.QUERY
     assert patched.kpi_identifier is None
     assert patched.query.source_tables == frozenset({"orders"})
+
+
+# ---------------------------------------------------------------------------
+# Router-level fixes: duplicate tile ids, scoped recompute (round-1 review, #8/#11)
+# ---------------------------------------------------------------------------
+
+
+def test_reject_duplicate_tile_ids_raises_on_a_repeated_id():
+    tiles = [
+        _query_tile(id="tl_a"),
+        _query_tile(id="tl_b"),
+        _query_tile(id="tl_a"),
+    ]
+    with pytest.raises(dashboards_module.DashboardValidationError, match="tl_a"):
+        dashboards_module._reject_duplicate_tile_ids(tiles)
+
+
+def test_reject_duplicate_tile_ids_passes_distinct_ids():
+    tiles = [_query_tile(id="tl_a"), _query_tile(id="tl_b")]
+    dashboards_module._reject_duplicate_tile_ids(tiles)  # must not raise
+
+
+def test_changed_query_tile_ids_flags_new_and_edited_query_tiles_only():
+    before = _dashboard(
+        _query_tile(
+            id="tl_a", query=_query(sql="SELECT wk FROM silver.stock_level LIMIT 1")
+        ),
+        _query_tile(id="tl_b"),
+    )
+    after = [
+        # tl_a's query text changed -> flagged.
+        _query_tile(
+            id="tl_a",
+            query=_query(sql="SELECT wk FROM silver.stock_level LIMIT 5"),
+        ),
+        # tl_b unchanged -> not flagged.
+        _query_tile(id="tl_b"),
+        # tl_c is new -> flagged.
+        _query_tile(id="tl_c"),
+        # A kpi tile is never a candidate for recompute at all.
+        Tile(
+            id="tl_k",
+            kpi_identifier="some__kpi",
+            chart=ChartKind.NUMBER,
+            position=TilePosition(x=0, y=0, w=3, h=2),
+        ),
+    ]
+    assert set(dashboards_module._changed_query_tile_ids(before, after)) == {
+        "tl_a",
+        "tl_c",
+    }
+
+
+def test_changed_query_tile_ids_is_empty_when_nothing_about_any_query_changed():
+    before = _dashboard(_query_tile(id="tl_a"))
+    after = [_query_tile(id="tl_a")]  # same id, same query
+    assert dashboards_module._changed_query_tile_ids(before, after) == []
+
+
+# ---------------------------------------------------------------------------
+# arefresh_query_tiles: genuine concurrency (round-1 review, finding #12)
+# ---------------------------------------------------------------------------
+
+
+class _NoTablesReader:
+    def get_table(self, name, *, include_proposed=False):
+        return None
+
+    async def aget_table(self, name, *, include_proposed=False):
+        return None
+
+
+class _RecordingResults:
+    def __init__(self):
+        self.written = {}
+
+    async def aput(
+        self, dashboard_id, tile_id, *, columns, rows, duration_ms, error, sql
+    ):
+        record = QueryResultRecord(
+            dashboard_id=dashboard_id,
+            tile_id=tile_id,
+            computed_at=datetime.now(timezone.utc),
+            columns=tuple(columns),
+            rows=tuple(rows),
+            duration_ms=duration_ms,
+            error=error,
+            sql=sql,
+        )
+        self.written[tile_id] = record
+        return record
+
+
+@pytest.mark.anyio
+async def test_arefresh_query_tiles_costs_max_duration_not_sum_across_tiles(
+    monkeypatch,
+):
+    """The sync `refresh_query_tiles` this replaced (for router callers) ran every tile's
+    check-then-query serially -- wall-clock cost scaled with `sum(duration)` across tiles.
+    Simulates two tiles each with a 150ms warehouse round trip and asserts the concurrent
+    version costs roughly one of them, not both, with genuine overlap (not just fast enough
+    sequential calls to coincidentally land under the threshold)."""
+
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _NoTablesReader()
+
+    monkeypatch.setattr(queries_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        queries_module, "build_warehouse_read_guard", lambda reader: _guard()
+    )
+
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        queries_module, "build_query_engine", lambda settings: _FakeEngine()
+    )
+
+    async def _fake_acheck_query(
+        sql, *, guard, context_tables=None, personal_data=None
+    ):
+        return queries_module.QueryVerdict(
+            status="ok", detail="", sql=sql, tables=("stock_level",)
+        )
+
+    events = []
+
+    async def _fake_arun_query(engine, sql, *, limit, statement_timeout_ms):
+        events.append(("start", sql))
+        await asyncio.sleep(0.15)
+        events.append(("end", sql))
+        return ["value"], [{"value": 1}], 150
+
+    monkeypatch.setattr(queries_module, "acheck_query", _fake_acheck_query)
+    monkeypatch.setattr(queries_module, "arun_query", _fake_arun_query)
+
+    dashboard = _dashboard(
+        _query_tile(
+            id="tl_a",
+            query=_query(sql="SELECT 1 AS value FROM silver.stock_level LIMIT 1"),
+        ),
+        _query_tile(
+            id="tl_b",
+            query=_query(sql="SELECT 2 AS value FROM silver.stock_level LIMIT 1"),
+        ),
+    )
+    results = _RecordingResults()
+
+    started = time.monotonic()
+    written = await queries_module.arefresh_query_tiles(
+        dashboard, RetailSettings(), results
+    )
+    elapsed = time.monotonic() - started
+
+    assert set(written) == {"tl_a", "tl_b"}
+    assert set(results.written) == {"tl_a", "tl_b"}
+    assert elapsed < 0.28, (
+        "two 150ms tiles should cost ~150ms concurrently, not ~300ms serially"
+    )
+    starts = [i for i, (kind, _) in enumerate(events) if kind == "start"]
+    ends = [i for i, (kind, _) in enumerate(events) if kind == "end"]
+    assert max(starts) < min(ends), (
+        "both queries must be in flight at once, not merely fast"
+    )

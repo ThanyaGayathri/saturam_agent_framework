@@ -48,6 +48,9 @@ export default function DashboardBuilderStep({
  notReadyCount = 0,
 }) {
  const [editingId, setEditingId] = useState(null);
+ // A not-yet-added chart's draft, or `null`. Distinct from `editingId`/`editingChart` below,
+ // which only ever point at a chart already in `charts` -- see `addBlankQueryChart`'s comment.
+ const [addingChart, setAddingChart] = useState(null);
  const canSubmit = charts.length > 0 && !submitting;
  const editingChart = editingId ? charts.find((c) => c.id === editingId) : null;
 
@@ -69,21 +72,22 @@ export default function DashboardBuilderStep({
   ]);
  };
 
+ // A brand-new chart is never added to `charts` until its editor is actually saved (round-1
+ // review, finding #10): pushing it in immediately, as this used to, left an orphaned
+ // blank-SQL draft behind on Cancel -- invisible on this screen (nothing renders `addingChart`
+ // as a tile), but still present in `charts` and still sent on "Create dashboard", where its
+ // empty `sql` 422s the *entire* request with no visible connection to the chart the person
+ // cancelled. `addingChart` mirrors `DashboardView.jsx`'s own `addingChart` draft-before-save
+ // pattern for the same reason.
  const addBlankQueryChart = () => {
-  const id = newChartId();
-  setCharts([
-   ...charts,
-   {
-    id,
-    title: "New chart",
-    chart: "table",
-    source: "query",
-    query: { sql: "", source_tables: [] },
-    description: "",
-    guard: { status: "ok", detail: "" },
-   },
-  ]);
-  setEditingId(id);
+  setAddingChart({
+   id: newChartId(),
+   title: "New chart",
+   chart: "table",
+   source: "query",
+   query: { sql: "", source_tables: [] },
+   description: "",
+  });
  };
 
  const selectedIdentifiers = new Set(
@@ -283,6 +287,17 @@ export default function DashboardBuilderStep({
      {submitting ? "Creating…" : "Create dashboard"}
     </button>
    </div>
+
+   {addingChart && !editingChart && (
+    <ChartEditorPanel
+     chart={addingChart}
+     onClose={() => setAddingChart(null)}
+     onSave={(saved) => {
+      setCharts([...charts, saved]);
+      setAddingChart(null);
+     }}
+    />
+   )}
 
    {editingChart && (
     <ChartEditorPanel

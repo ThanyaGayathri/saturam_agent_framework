@@ -86,11 +86,11 @@ from egpt_retail.contracts.semantic import (
 from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.dashboards.data import read_dashboard_data
 from egpt_retail.dashboards.queries import (
+    arefresh_query_tiles,
     build_query_engine,
     check_query,
     personal_data_columns,
     preview_query,
-    refresh_query_tiles,
 )
 from egpt_retail.dashboards.query_results import (
     DashboardQueryResultStore,
@@ -231,7 +231,25 @@ def _check_query_tiles(
     """Run every ``query`` tile (or just the ids in ``only``) through the guard. A refusal
     raises :class:`DashboardValidationError`; a pass returns the tiles with the statement
     the guard cleared (its rewrite, when it made one) and ``source_tables`` as the guard
-    parsed them -- what gets stored is exactly what will run."""
+    parsed them -- what gets stored is exactly what will run.
+
+    **No ``context_tables`` is passed here, by design (round-1 review, finding #5).**
+    ``context_tables`` (see :func:`~egpt_retail.dashboards.queries.check_query`) narrows the
+    guard's own semantic-layer allow-list further, to a specific set someone committed to in
+    advance -- meaningful for the compose agent (:func:`_build_dashboard_suggestion`'s
+    ``_check`` closure), which is shown only the tables a person selected as this run's
+    context and must not wander past them even though the guard's allow-list would let it.
+    A hand-written or hand-edited tile has no equivalent prior commitment to narrow against:
+    the boundary every write already gets, human or agent, identical and independent of this
+    function, is the guard's own semantic-layer allow-list (``build_warehouse_read_guard``) --
+    passing ``tile.query.source_tables`` here would be tautological (that field is *derived
+    from* the SQL by :func:`_query_from_wire`/the guard's own parse, never an independent
+    constraint), and inventing a narrower one with no real "what was this person shown" backing
+    it would be theater, not a check. The one place a comparable, genuine prior commitment
+    exists for a human editor -- the chart editor's own schema pane, populated from whatever
+    the chart already declared -- narrows its own ``POST /dashboards/queries/preview`` calls
+    client-side instead (``ChartEditorPanel.jsx``'s ``initialSourceTables``).
+    """
     wanted = set(only) if only is not None else None
     to_check = [
         t
@@ -272,18 +290,66 @@ def _compute_query_tiles(
     *,
     only: Optional[Sequence[str]] = None,
 ) -> None:
-    """Fill the cache for the dashboard's ``query`` tiles (or just ``only``) so they render
-    on the next open. Best-effort: a failure is logged and the tile reads as
-    ``never_computed`` until the next refresh -- the write it follows has already landed."""
+    """Fill the cache for the dashboard's ``query`` tiles (or just ``only``, when given --
+    an empty sequence means none, ``None`` means every query tile) so they render on the next
+    open. Best-effort: a failure is logged and the tile reads as ``never_computed`` until the
+    next refresh -- the write it follows has already landed."""
     if not any(t.source is TileSource.QUERY for t in dashboard.tiles):
+        return
+    if only is not None and not only:
         return
     try:
         with _open_query_results(settings) as results:
-            refresh_query_tiles(dashboard, settings, results, only=only)
+            # `arefresh_query_tiles` runs every tile's guard check and warehouse round trip
+            # concurrently (round-1 review, finding #12: the sync `refresh_query_tiles` this
+            # replaced was strictly serial, costing `sum(duration)` across tiles instead of
+            # `max(duration)`). `asyncio.run` is safe here: every caller of this function is
+            # a plain `def` route FastAPI already runs off its own worker thread, so there is
+            # no event loop on this thread for `asyncio.run` to collide with.
+            asyncio.run(arefresh_query_tiles(dashboard, settings, results, only=only))
     except Exception:
         log_warning(
             f"dashboard {dashboard.id}: query tiles could not be computed: "
             f"{traceback.format_exc(limit=3)}"
+        )
+
+
+def _changed_query_tile_ids(before: Dashboard, tiles: Sequence[Tile]) -> List[str]:
+    """Which of ``tiles``' ids are new, or whose ``query`` actually changed, relative to
+    ``before`` -- what a whole-array write's recompute should scope to instead of every
+    ``query`` tile unconditionally (round-1 review, finding #11: a whole-array PATCH that
+    merely renames the dashboard or repositions tiles was re-running every query tile against
+    the warehouse). A tile whose ``source``/``chart``/``title``/position changed but whose
+    ``query`` did not needs no recompute -- its cached rows are still exactly right."""
+    previous = {t.id: t for t in before.tiles}
+    changed: List[str] = []
+    for tile in tiles:
+        if tile.source is not TileSource.QUERY:
+            continue
+        prior = previous.get(tile.id)
+        if prior is None or prior.query != tile.query:
+            changed.append(tile.id)
+    return changed
+
+
+def _remove_orphaned_query_results(
+    dashboard_id: str, removed_tile_ids: Sequence[str], settings: RetailSettings
+) -> None:
+    """Delete the cached result of every id in ``removed_tile_ids``. The dedicated
+    ``DELETE /dashboards/{id}/tiles/{tile_id}`` route already does this for a single removal;
+    this closes the same gap for a whole-array write that drops a tile by omitting it from the
+    array rather than calling that route -- previously left as an unbounded, silently
+    accumulating cache row (round-1 review, finding #11)."""
+    if not removed_tile_ids:
+        return
+    try:
+        with _open_query_results(settings) as results:
+            for tile_id in removed_tile_ids:
+                results.delete(dashboard_id, tile_id)
+    except Exception:
+        log_warning(
+            f"dashboard {dashboard_id}: cached result(s) of removed tile(s) "
+            f"{sorted(removed_tile_ids)} not cleaned up: {traceback.format_exc(limit=3)}"
         )
 
 
@@ -837,10 +903,37 @@ def list_dashboards(
     return [_dashboard_out(d) for d in store.list_visible_to(_owner(request))]
 
 
+def _reject_duplicate_tile_ids(tiles: Sequence[Tile]) -> None:
+    """422 if the same tile ``id`` appears twice in one whole-array write.
+
+    ``add_dashboard_tile`` already 409s a new tile whose id collides with an *existing* one
+    (``current.tile(tile.id) is not None``), but nothing catches two entries of the *same*
+    payload sharing an id -- neither dataclass's ``__post_init__``, nor
+    ``store.create``/``store.update``. Traced through ``refresh_query_tiles``: two ``query``
+    tiles with the same id in one payload both persist in the stored JSON array, but
+    ``written[tile.id] = ...`` in the refresh loop means whichever is processed last silently
+    wins the one cache row for that id -- the other tile's real result is dropped even though
+    the tile itself is still there. Caught here, once, for both whole-array write routes
+    (``create_dashboard``, the whole-array branch of ``update_dashboard``) rather than in the
+    domain layer, since a duplicate *within one request* is a client-input shape problem, not a
+    invariant either ``Tile`` or ``Dashboard`` can see on their own (each tile is valid in
+    isolation; it is the pair that collides).
+    """
+    seen: set = set()
+    for tile in tiles:
+        if tile.id in seen:
+            raise DashboardValidationError(
+                f"tile id {tile.id!r} appears more than once in this write; every tile "
+                "needs its own id."
+            )
+        seen.add(tile.id)
+
+
 def _validated_tiles(tiles: List[Tile], settings: RetailSettings) -> List[Tile]:
-    """Both gates, in order: KPI readiness for ``kpi`` tiles, the guard for ``query`` tiles.
-    Either refusal is a 422."""
+    """Both gates, in order: no duplicate ids within the payload, KPI readiness for ``kpi``
+    tiles, the guard for ``query`` tiles. Any refusal is a 422."""
     try:
+        _reject_duplicate_tile_ids(tiles)
         _check_tiles_ready(tiles, settings)
         return _check_query_tiles(tiles, settings)
     except DashboardValidationError as exc:
@@ -990,6 +1083,11 @@ def update_dashboard(
     tiles: Any = UNSET
     if body.tiles is not None:
         tiles = _validated_tiles([_tile_from_write(t) for t in body.tiles], settings)
+    # Read before the write, so the recompute below can be scoped to only the query tiles
+    # whose `query` actually changed, and any tile dropped from the array can have its cached
+    # result cleaned up rather than orphaned. `None` (not fetched) when `tiles` was not sent at
+    # all -- nothing about the tile set can have changed, so there is nothing to diff.
+    before = store.get(dashboard_id) if body.tiles is not None else None
 
     try:
         dashboard = store.update(
@@ -1020,8 +1118,12 @@ def update_dashboard(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if dashboard is None:
         raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
-    if tiles is not UNSET:
-        _compute_query_tiles(dashboard, settings)
+    if tiles is not UNSET and before is not None:
+        _compute_query_tiles(
+            dashboard, settings, only=_changed_query_tile_ids(before, tiles)
+        )
+        removed = {t.id for t in before.tiles} - {t.id for t in dashboard.tiles}
+        _remove_orphaned_query_results(dashboard_id, sorted(removed), settings)
     return _dashboard_out(dashboard)
 
 
@@ -1080,7 +1182,10 @@ async def refresh_dashboard(
 
     def _refresh() -> Dict[str, QueryResultRecord]:
         with _open_query_results(settings) as results:
-            refresh_query_tiles(dashboard, settings, results)
+            # Concurrent across tiles -- see `_compute_query_tiles`'s comment on the same
+            # call. `_refresh` runs off the event loop (via `asyncio.to_thread` below), so
+            # `asyncio.run` here is safe.
+            asyncio.run(arefresh_query_tiles(dashboard, settings, results))
             return results.get_many(dashboard.id)
 
     try:

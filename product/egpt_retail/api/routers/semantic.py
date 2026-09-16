@@ -340,7 +340,17 @@ def _column_out(column: Column) -> wire.Column:
         is_key=column.is_key,
         is_personal_data=column.is_personal_data,
         description=column.description,
-        sampled_values=list(column.sampled_values),
+        # A personal-data column's real observed values never leave the semantic layer over
+        # this read-only surface (round-1 review, finding #2): the compose agent's own prompt
+        # renderer omits such a column entirely (`skills/dashboard_suggestion.py`'s
+        # `_render_tables`, `if column.is_personal_data: continue`), but this endpoint's own
+        # docstring promises the chart editor "the same table and column descriptions the
+        # compose agent was shown" -- and the editor's schema pane wants the column to still
+        # appear, with `is_personal_data=True`, so it can render its "blocked" pill (unlike the
+        # agent, which never sees it at all). Keeping the column but stripping only the field
+        # that is actual data rather than a description of it satisfies both: nothing sees a
+        # real value, and the viewer still sees the column exists and why it's withheld.
+        sampled_values=[] if column.is_personal_data else list(column.sampled_values),
         status=wire.ProposalStatus(column.status.value),
         concept=column.concept,
         meaning=column.meaning,

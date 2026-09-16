@@ -32,9 +32,11 @@ function chartFromSuggestion(chart, index) {
 /**
  * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style
  * metrics-and-purpose step feeding a dashboard-composition run, or straight into the shared
- * review/builder step. `rows`, when given non-empty (the existing call site from
- * `KpiDiscoveryPage.jsx`, selecting metrics from the discovery grid), skips the mode picker
- * entirely and opens straight into the manual builder, one chart per metric.
+ * review/builder step. One flow for both entry points -- `DashboardsPage.jsx`'s plain "Create
+ * dashboard" button and `KpiDiscoveryPage.jsx`'s "create from selection" -- so `rows`, when
+ * given non-empty, no longer skips the mode picker (round-1 review comment: this PR had
+ * silently reverted #272's fix reintroducing that skip); it only seeds `initialCharts`/
+ * `purposeMetrics`, the starting point either path resets back to.
  *
  * `onCreate({ name, refresh, charts, businessAreaFilter })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
@@ -45,27 +47,30 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   () => (rows || []).filter((r) => kpiIsWireReady(r.kpi)),
   [rows],
  );
- const hasInitialRows = initialRows.length > 0;
  const notReadyCount = (rows || []).length - initialRows.length;
+ const initialMetrics = useMemo(() => initialRows.map((r) => metricFromKpi(r.kpi)), [initialRows]);
+ const initialCharts = useMemo(
+  () =>
+   initialRows.map((r, i) => ({
+    id: `manual_${i}`,
+    title: r.kpi.name || "",
+    chart: "number",
+    source: "kpi",
+    kpi_identifier: r.kpi.identifier,
+    description: r.kpi.description || "",
+    guard: { status: "ok", detail: "" },
+   })),
+  [initialRows],
+ );
 
- const [step, setStep] = useState(hasInitialRows ? "builder" : "mode");
+ const [step, setStep] = useState("mode");
  const [mode, setMode] = useState(null);
 
  const [name, setName] = useState("");
  const [refresh, setRefresh] = useState(DEFAULT_REFRESH_SCHEDULE);
- const [purposeMetrics, setPurposeMetrics] = useState(() => initialRows.map((r) => metricFromKpi(r.kpi)));
+ const [purposeMetrics, setPurposeMetrics] = useState(initialMetrics);
  const [extraTables, setExtraTables] = useState([]);
- const [charts, setCharts] = useState(() =>
-  initialRows.map((r, i) => ({
-   id: `manual_${i}`,
-   title: r.kpi.name || "",
-   chart: "number",
-   source: "kpi",
-   kpi_identifier: r.kpi.identifier,
-   description: r.kpi.description || "",
-   guard: { status: "ok", detail: "" },
-  })),
- );
+ const [charts, setCharts] = useState(initialCharts);
  const [businessAreaFilter, setBusinessAreaFilter] = useState(null);
  const [aiSuggested, setAiSuggested] = useState(false);
  const [purpose, setPurpose] = useState("");
@@ -161,6 +166,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      refreshOptions={REFRESH_OPTIONS}
      mode={mode}
      setMode={setMode}
+     preselectedCount={initialRows.length}
      onCancel={onCancel}
      onContinue={() => setStep(mode === "ai" ? "ai-purpose" : "builder")}
     />
@@ -207,20 +213,33 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      readyKpis={readyKpis}
      aiSuggested={aiSuggested}
      contextSummary={contextSummary}
-     notReadyCount={hasInitialRows ? notReadyCount : 0}
+     notReadyCount={initialRows.length > 0 ? notReadyCount : 0}
      onBack={
       aiSuggested
        ? () => {
+          // Abandoning the AI suggestion reverts to the preselected metrics, not whatever it
+          // last generated -- otherwise a later "Change mode" -> Manual carries the abandoned
+          // result's charts/name/filter into what should be a fresh manual flow.
           setAiSuggested(false);
           suggestionRun.reset();
+          setCharts(initialCharts);
+          setName("");
+          setBusinessAreaFilter(null);
+          setContextSummary(null);
           setStep("ai-purpose");
          }
        : undefined
      }
      onChangeMode={
-      !hasInitialRows && !aiSuggested
+      !aiSuggested
        ? () => {
           setMode(null);
+          setCharts(initialCharts);
+          setPurposeMetrics(initialMetrics);
+          setExtraTables([]);
+          setName("");
+          setBusinessAreaFilter(null);
+          setContextSummary(null);
           setStep("mode");
          }
        : undefined

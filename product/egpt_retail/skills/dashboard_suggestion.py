@@ -287,7 +287,15 @@ def _reconcile_axes(
     what those are. An axis naming a column the result lacks would render nothing, so it is
     dropped and noted; when every y axis is gone, the last non-x column stands in."""
     if not columns:
-        return query.x, list(query.y), query.series_by, []
+        early_notes = (
+            [
+                f"series_by {query.series_by!r} was proposed but multi-series charts aren't "
+                "rendered yet; showing a single series instead."
+            ]
+            if query.series_by is not None
+            else []
+        )
+        return query.x, list(query.y), None, early_notes
     have = {c.lower() for c in columns}
     notes: List[str] = []
     x = query.x if query.x is None or query.x.column.lower() in have else None
@@ -301,10 +309,17 @@ def _reconcile_axes(
         candidates = [c for c in columns if x is None or c.lower() != x.column.lower()]
         if candidates:
             y = [AxisDraft(column=candidates[-1])]
-    series_by = query.series_by
-    if series_by is not None and series_by.lower() not in have:
-        notes.append(f"series_by {series_by!r} is not a result column")
-        series_by = None
+    # Multi-series charts aren't rendered on either path yet (`dashboards/data.py`'s
+    # `query_tile_data`, `storage/dashboards.js`'s `tileDataFromPreview` -- round-1 review,
+    # finding #13): forced to null here rather than shipping a chart whose axis metadata
+    # promises a split the render side can't produce, which would otherwise render as a flat,
+    # unsplit series with no indication anything was dropped.
+    series_by = None
+    if query.series_by is not None:
+        notes.append(
+            f"series_by {query.series_by!r} was proposed but multi-series charts aren't "
+            "rendered yet; showing a single series instead."
+        )
     return x, y, series_by, notes
 
 
@@ -344,15 +359,23 @@ def assemble(
     """
     vocabularies = vocabularies or load_vocabulary_set()
     context = context or SuggestionContext(kpis=tuple(ready_kpis))
-    by_identifier = {kpi.identifier: kpi for kpi in ready_kpis}
+    # Scoped to `context.kpis` -- the subset the prompt actually rendered (`_render_kpis`) --
+    # not the wider `ready_kpis` argument. A `kpi`-sourced chart may only reuse a metric the
+    # model was shown; validating against the full registry instead would let a chart name any
+    # ready KPI anywhere in the deployment, never shown to the model and never selected by the
+    # caller, and still pass. `ready_kpis` itself is unused below now that `context` carries
+    # the narrower set every caller (including the `context=None` fallback above) resolves to.
+    by_identifier = {kpi.identifier: kpi for kpi in context.kpis}
 
     charts: List[wire.DashboardChartSuggestion] = []
     dropped: List[str] = []
     seen: set = set()
     extra_notes: List[str] = []
     key: Tuple[Any, ...]
+    over_budget = max(0, len(response.charts) - context.budget)
+    drafts = response.charts[: context.budget]
 
-    for draft in response.charts:
+    for draft in drafts:
         title = draft.title.strip() or "Untitled chart"
         chart_kind = wire.ChartKind(draft.chart)
 
@@ -361,7 +384,8 @@ def assemble(
             definition = by_identifier.get(identifier)
             if definition is None:
                 dropped.append(
-                    f"{title!r}: {identifier or '<none>'!r} is not a registered, ready KPI"
+                    f"{title!r}: {identifier or '<none>'!r} is not among the metrics "
+                    "selected for this run"
                 )
                 continue
             key = ("kpi", identifier, draft.chart, draft.grain_value)
@@ -446,6 +470,13 @@ def assemble(
                 guard=guard,
                 preview=preview_out,
             )
+        )
+
+    if over_budget:
+        extra_notes.append(
+            f"the model proposed {len(response.charts)} charts, above the budget of "
+            f"{context.budget}; the last {over_budget} were dropped without being checked "
+            "or previewed"
         )
 
     filters: List[wire.DashboardFilter] = []

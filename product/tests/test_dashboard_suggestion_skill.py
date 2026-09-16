@@ -442,3 +442,65 @@ def test_summarise_drafts_counts_each_source():
         "kpi": 1,
         "query": 2,
     }
+
+
+# ---------------------------------------------------------------------------
+# Round-1 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_assemble_drops_a_kpi_chart_naming_a_ready_kpi_outside_the_selected_context():
+    """Finding #6 (major): `by_identifier` used to be built from the whole `ready_kpis`
+    argument, not `context.kpis` -- the narrower, caller-selected subset the prompt actually
+    rendered. A chart naming any ready KPI anywhere in the deployment, never shown to the
+    model and never selected by the caller, must not pass validation."""
+    selected = _kpi()
+    outside_context = _kpi(
+        identifier="unrelated__other_metric", name="Unrelated metric"
+    )
+    draft = _draft(
+        charts=[
+            _kpi_chart(kpi_identifier="unrelated__other_metric", title="Sneaked in")
+        ]
+    )
+    # Both KPIs are genuinely `ready` (in `ready_kpis`); only `selected` was ever shown to the
+    # model (`context.kpis`).
+    report = dsg.assemble(
+        draft,
+        ready_kpis=[selected, outside_context],
+        context=_context(kpis=(selected,)),
+    )
+    assert report.suggestion.charts == []
+    assert "Sneaked in" in report.dropped[0]
+    assert "not among the metrics selected for this run" in report.dropped[0]
+
+
+def test_assemble_truncates_charts_beyond_the_context_budget():
+    """Finding #7 (major): `chart_budget` was prompt-text advisory only -- nothing capped how
+    many drafted charts were actually checked/previewed. The excess must be dropped before
+    `check`/`preview` ever run on it (never checked, never previewed), and noted."""
+    check_calls = []
+
+    def _counting_check(sql, tables):
+        check_calls.append(sql)
+        return _Verdict("ok", "", sql)
+
+    charts = [
+        _query_chart(
+            title=f"chart {i}",
+            query=dsg.ChartQueryDraft(
+                sql=f"SELECT {i} AS n FROM silver.stock_level LIMIT 1",
+            ),
+        )
+        for i in range(5)
+    ]
+    report = dsg.assemble(
+        _draft(charts=charts),
+        ready_kpis=[_kpi()],
+        context=_context(chart_budget=2),
+        check=_counting_check,
+    )
+    assert len(report.suggestion.charts) == 2
+    assert len(check_calls) == 2, "an over-budget chart must never reach check()"
+    assert "proposed 5 charts, above the budget of 2" in report.suggestion.notes
+    assert "3 were dropped" in report.suggestion.notes

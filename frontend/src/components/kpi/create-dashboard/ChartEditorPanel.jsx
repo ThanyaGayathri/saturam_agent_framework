@@ -70,6 +70,14 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
 
  const isQuery = detached;
  const sourceTables = isQuery ? preview?.guard?.tables || chart.query?.source_tables || [] : chart.query?.source_tables || [];
+ // What this chart already declared as its tables when the editor opened, before any edit --
+ // narrows the preview's own guard check to that set (round-1 review, finding #5: the client
+ // never passed a table scope at all, so a preview here checked against the entire semantic
+ // layer regardless of what the chart's own schema pane claimed it may read). Left `undefined`
+ // for a brand-new or just-detached chart (nothing declared yet to narrow to) rather than an
+ // empty array -- the backend reads an *empty* `table_names` as "no table is in scope", which
+ // would refuse the very first preview outright rather than leaving it unscoped.
+ const [initialSourceTables] = useState(chart.query?.source_tables || []);
 
  useEffect(() => {
   let cancelled = false;
@@ -86,21 +94,46 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [JSON.stringify(sourceTables)]);
 
+ // The SQL this editor opened with -- already live (persisted and previously validated) or,
+ // for a brand-new/just-detached chart, empty. Trusted as-is regardless of `guard`, so editing
+ // an unrelated field (the title, the description) on an otherwise-untouched chart never
+ // requires a fresh preview. `previewedSql` is the text of the most recent `runPreview()` call
+ // this session, or `null` before the first one. Together these are what `canSave` checks
+ // (round-1 review, finding #9): editing `sql` away from both leaves neither satisfied, so
+ // Save is blocked until a fresh preview backs the new text -- closing the gap where editing
+ // SQL after a preview left the old "Guard ok" pill showing, and Save persisted the new text
+ // alongside a verdict that was never actually checked against it. The backend re-validates on
+ // every write regardless (a stale-but-saved refusal would still 422), so this is a UI-trust
+ // fix, not a security one -- but the pill claiming "checked" for unchecked SQL is the bug.
+ const originalSql = chart.query?.sql || "";
+ const [previewedSql, setPreviewedSql] = useState(null);
+
  const runPreview = async () => {
   setRunning(true);
   try {
-   const result = await previewDashboardQuery({ sql });
+   const result = await previewDashboardQuery(
+    { sql },
+    initialSourceTables.length ? { tableNames: initialSourceTables } : {},
+   );
    setPreview(result);
    setGuard(result.guard);
   } catch (err) {
    setGuard({ status: "refused", detail: err?.detail || err?.message || "The preview could not run." });
    setPreview(null);
   } finally {
+   setPreviewedSql(sql);
    setRunning(false);
   }
  };
 
+ const sqlIsOriginal = sql === originalSql;
+ const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
+ const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
+ const canSave =
+  !isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running);
+
  const save = () => {
+  if (!canSave) return;
   const base = {
    ...chart,
    title,
@@ -148,7 +181,15 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
       <button
        type="button"
        onClick={save}
-       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
+       disabled={!canSave}
+       title={
+        !canSave && isQuery
+         ? sql.trim().length === 0
+           ? "Write a query before saving."
+           : "Run the preview again -- the query changed since it was last checked."
+         : undefined
+       }
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
        Save chart
       </button>

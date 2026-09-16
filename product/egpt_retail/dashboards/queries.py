@@ -7,9 +7,12 @@ through the *same* guard every other retail read does (``app/sql_guard.py``'s
 schemas limited to silver and gold). This module adds the three checks a person-facing chart
 needs on top of that guard, and makes each of them visible as a verdict rather than silent:
 
-* **Scope.** The statement may only read the tables the caller put in context (the selected
-  metrics' tables plus what they widened to). Outside that set is ``refused`` even when the
-  semantic layer would allow it -- the review screen said "tables this chart may read".
+* **Scope**, when the caller narrows to one (``context_tables``, optional): the statement may
+  only read tables in that set. Outside it is ``refused`` even when the semantic layer would
+  allow it. Meaningful when someone has committed to a set in advance -- the compose agent's
+  selected metrics and tables, or a chart editor's schema pane -- not a blanket restriction
+  every caller opts into; see ``api/routers/dashboards.py``'s ``_check_query_tiles`` for which
+  write paths do and why.
 * **Personal data.** A column the semantic layer marks ``is_personal_data`` is dropped from
   the outermost projection (``rewritten``, the detail names it) and refused anywhere else --
   a filter, a join key, a subquery -- because a value that never reaches the result can still
@@ -159,6 +162,27 @@ def _personal_hits(
     return sorted(set(hits))
 
 
+def _has_any_star(statement: exp.Expression) -> bool:
+    """Whether the statement selects ``*`` anywhere -- the outer projection, a CTE body, or a
+    derived table's own ``SELECT``.
+
+    ``exp.Select.expressions`` only holds that one node's own projection list, so a check that
+    looks only at the outer statement's ``expressions`` is blind to a star nested inside a
+    ``WITH ... AS (...)`` or a subquery in ``FROM`` -- exactly the gap
+    ``WITH s AS (SELECT * FROM silver.customers) SELECT s.email FROM s`` exploits: the alias
+    ``s`` is never resolved back to ``customers``, so the outer ``s.email`` reference is
+    invisible to the per-column checks below, and the inner ``SELECT *`` produces no ``Column``
+    node for the "outside the projection" walk to catch either. This looks at every nested
+    ``SELECT`` in the tree instead.
+    """
+    return any(
+        isinstance(e, exp.Star)
+        or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star))
+        for select in statement.find_all(exp.Select)
+        for e in select.expressions
+    )
+
+
 def _apply_personal_data_rule(
     statement: exp.Expression, personal: Mapping[str, FrozenSet[str]]
 ) -> Tuple[Optional[str], List[str]]:
@@ -169,6 +193,25 @@ def _apply_personal_data_rule(
         return None, []
     aliases = _alias_map(statement)
 
+    # A `*` anywhere in the statement -- not just the outer projection -- makes column-level
+    # attribution impossible to verify: it could expand to a personal-data column through a
+    # CTE or subquery alias this module cannot resolve back to the real table (see
+    # `_has_any_star`'s docstring). Refused outright and conservatively whenever *any* table
+    # this statement reads carries personal data, not narrowed to which nested SELECT the star
+    # belongs to -- pinning it down precisely has the same alias-resolution problem this check
+    # exists to route around, and a false refusal here is recoverable; a missed leak is not.
+    if _has_any_star(statement):
+        withheld = sorted(
+            f"{table}.{name}" for table, names in personal.items() for name in names
+        )
+        return (
+            "This statement selects `*` (in the outer query, a CTE, or a subquery) while "
+            f"reading table(s) with personal-data column(s) ({', '.join(withheld)}); `*` "
+            "makes column-level attribution impossible to verify, so it is refused rather "
+            "than guessed. Name the columns you need instead.",
+            [],
+        )
+
     if not isinstance(statement, exp.Select):
         # A UNION or a bare VALUES has no single projection to edit; refuse on any hit.
         hits = _personal_hits(statement.find_all(exp.Column), aliases, personal)
@@ -178,19 +221,6 @@ def _apply_personal_data_rule(
                 [],
             )
         return None, []
-
-    if any(isinstance(e, exp.Star) for e in statement.expressions) or any(
-        isinstance(e, exp.Column) and isinstance(e.this, exp.Star)
-        for e in statement.expressions
-    ):
-        withheld = sorted(
-            f"{table}.{name}" for table, names in personal.items() for name in names
-        )
-        return (
-            "SELECT * over a table with personal-data column(s) "
-            f"({', '.join(withheld)}); name the columns you need instead.",
-            [],
-        )
 
     kept: List[exp.Expression] = []
     dropped: List[str] = []
@@ -668,6 +698,33 @@ def _refresh_one(
     )
 
 
+async def _arun_one(
+    tile: Tile, reader: SemanticRead, guard: SQLGuard, engine: Engine
+) -> Tuple[List[str], List[Dict[str, Any]], int, Optional[str], str]:
+    """One tile's guard check plus, if it passes, its warehouse round trip -- no write. The
+    concurrent half of :func:`arefresh_query_tiles`: every tile's check and query run at once
+    through this, and the caller serialises only the cheap part (the cache write) afterward."""
+    assert tile.query is not None  # a query tile, by construction
+    verdict = await acheck_query(
+        tile.query.sql,
+        guard=guard,
+        context_tables=tile.query.source_tables,
+        personal_data=lambda tables: personal_data_columns(reader, tables),
+    )
+    if not verdict.runnable:
+        return [], [], 0, f"guard refused: {verdict.detail}", verdict.sql
+    try:
+        columns, rows, duration = await arun_query(
+            engine,
+            verdict.sql,
+            limit=guard.row_cap,
+            statement_timeout_ms=guard.statement_timeout_ms,
+        )
+    except Exception as exc:
+        return [], [], 0, _first_line(exc), verdict.sql
+    return columns, rows, duration, None, verdict.sql
+
+
 async def arefresh_query_tiles(
     dashboard: Dashboard,
     settings: RetailSettings,
@@ -675,7 +732,42 @@ async def arefresh_query_tiles(
     *,
     only: Optional[Iterable[str]] = None,
 ) -> Dict[str, QueryResultRecord]:
-    """Async variant."""
-    return await asyncio.to_thread(
-        refresh_query_tiles, dashboard, settings, results, only=only
-    )
+    """Every ``query`` tile's guard check and warehouse round trip, concurrently
+    (:func:`asyncio.gather` over :func:`_arun_one`) -- wall-clock cost is ``max(duration)``
+    across tiles rather than the sync :func:`refresh_query_tiles`'s ``sum(duration)``. Writing
+    each result to ``results`` stays serial regardless of the gather above: a
+    ``DashboardQueryResultStore`` holds one Postgres connection, which is not safe to use from
+    more than one coroutine/thread at once, and a write is cheap next to a warehouse round
+    trip, so serialising it costs nothing worth gathering for.
+    """
+    wanted = set(only) if only is not None else None
+    tiles = [
+        t
+        for t in dashboard.tiles
+        if t.source is TileSource.QUERY and (wanted is None or t.id in wanted)
+    ]
+    written: Dict[str, QueryResultRecord] = {}
+    if not tiles:
+        return written
+
+    with open_semantic_reader(settings) as reader:
+        guard = build_warehouse_read_guard(reader)
+        engine = build_query_engine(settings)
+        try:
+            outcomes = await asyncio.gather(
+                *(_arun_one(tile, reader, guard, engine) for tile in tiles)
+            )
+        finally:
+            engine.dispose()
+
+    for tile, (columns, rows, duration, error, sql) in zip(tiles, outcomes):
+        written[tile.id] = await results.aput(
+            dashboard.id,
+            tile.id,
+            columns=columns,
+            rows=rows,
+            duration_ms=duration,
+            error=error,
+            sql=sql,
+        )
+    return written
