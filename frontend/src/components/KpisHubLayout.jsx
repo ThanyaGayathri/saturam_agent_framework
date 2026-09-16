@@ -1,7 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useMemo } from "react";
 import { useKpiRegistry } from "../hooks/useKpiRegistry";
-import { catalogStats } from "../domain/kpi-data-catalog";
 import TourLaunchButton from "../tours/TourLaunchButton";
 import {
   catalogPageShell,
@@ -20,11 +19,6 @@ const TAB_ACTIVE = "text-primary";
 const TAB_IDLE = "text-text-muted hover:text-text-secondary";
 const TAB_UNDERLINE_ACTIVE = "bg-primary";
 const TAB_UNDERLINE_IDLE = "bg-transparent";
-
-const TAB_COUNT_BASE = "rounded-full px-2 py-0.5 text-[11px] font-medium";
-const TAB_COUNT_ACTIVE =
-  "bg-primary-light text-primary dark:bg-surface-tertiary dark:text-primary dark:ring-1 dark:ring-primary/30";
-const TAB_COUNT_IDLE = "bg-surface-secondary text-text-muted dark:bg-surface/[0.08]";
 
 const TAB_COPY = {
   discover: {
@@ -51,7 +45,7 @@ const TAB_COPY = {
   dashboard: {
     title: "KPI health",
     description:
-      "View health, trends, and AI-flagged signals for enabled KPIs. Open linked actions in Co-Pilot, Monitor, or the use case builder when you are ready.",
+      "View health and trends for enabled KPIs. Open Monitor for the live ops view when you are ready.",
     tourId: "kpi-dashboard",
     tourLabel: "Take a quick KPI Dashboard tour",
   },
@@ -79,8 +73,6 @@ export default function KpisHubLayout() {
   const navigate = useNavigate();
   const { data, hydrated } = useKpiRegistry();
   const { total } = useMemo(() => flattenKpiCount(data?.categories), [data?.categories]);
-  const { datasetCount } = catalogStats();
-  const activeAnomalies = 3;
 
   const tab = tabKeyFromPath(pathname);
   const { title, description, tourId, tourLabel } = TAB_COPY[tab];
@@ -126,25 +118,8 @@ export default function KpisHubLayout() {
               </>
             )}
           </NavLink>
-          <NavLink
-            to="/kpis/gallery"
-            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
-          >
-            {({ isActive }) => (
-              <>
-                Data catalog
-                <span className={`${TAB_COUNT_BASE} ${isActive ? TAB_COUNT_ACTIVE : TAB_COUNT_IDLE}`}>
-                  {datasetCount} datasets
-                </span>
-                <span
-                  aria-hidden
-                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
-                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
-                  }`}
-                />
-              </>
-            )}
-          </NavLink>
+          {/* The Data catalog tab (`/kpis/gallery`) is hidden for now; the route itself still
+              resolves, so a direct link keeps working and the header copy above still matches. */}
           <NavLink
             to="/kpis/dashboards"
             className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
@@ -168,9 +143,6 @@ export default function KpisHubLayout() {
             {({ isActive }) => (
               <>
                 KPI health
-                <span className={`${TAB_COUNT_BASE} ${isActive ? TAB_COUNT_ACTIVE : TAB_COUNT_IDLE}`}>
-                  {activeAnomalies} active
-                </span>
                 <span
                   aria-hidden
                   className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${

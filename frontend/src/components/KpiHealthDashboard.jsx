@@ -5,13 +5,11 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowUpRight,
-  BarChart2,
   DollarSign,
   Gauge,
   Minus,
   Package,
   ShoppingCart,
-  Sparkles,
   TrendingDown,
   TrendingUp,
   Truck,
@@ -19,12 +17,8 @@ import {
 } from "lucide-react";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
-import { loadUseCaseCatalog, saveUseCaseCatalog } from "../storage/use-cases-catalog";
-import { openCatalogUseCaseInBuilderChat } from "../domain/open-use-case-from-catalog";
 import { getUseCasesForRole } from "../domain/featured-use-cases";
 import { getKpiNamesForCatalogId } from "../domain/kpi-usecase-links";
-import { getSeedDecisionCardsForCatalog } from "../domain/decision-cards-catalog";
-import { COPILOT_DECISIONS_KEY } from "../storage/keys";
 import { DemoAreaSpark, formatChartNumber } from "./shared/DemoSparkCharts";
 import { fetchKpiList, fetchKpiHealth, fetchKpiSeries, computeKpi } from "../services/kpis-api";
 import KpiTrend, { formatKpiValue, sameDimension } from "./kpi/KpiTrend";
@@ -110,21 +104,6 @@ const ANOMALIES = [
     copilotQuery: "kpi-dashboard",
   },
 ];
-
-const SEVERITY_META = {
-  critical: {
-    accent: "bg-status-critical-accent",
-    chipBg: "bg-status-critical-light dark:bg-status-critical/15",
-    chipText: "text-status-critical",
-    label: "Critical",
-  },
-  warning: {
-    accent: "bg-status-warning-dot",
-    chipBg: "bg-status-warning-light dark:bg-status-warning/15",
-    chipText: "text-status-warning dark:text-status-warning-accent",
-    label: "Warning",
-  },
-};
 
 /** Lookup for known KPI names. Anything not here falls back to Activity. */
 const KPI_ICON_BY_NAME = {
@@ -257,8 +236,8 @@ function Spark({ data, stroke }) {
 
 export default function KpiHealthDashboard() {
   const navigate = useNavigate();
-  const { profileId, role, storageKeys } = useDemoProfile();
-  const { entries: catalogEntries, setData: setCatalogData } = useUseCaseCatalog();
+  const { profileId, role } = useDemoProfile();
+  const { entries: catalogEntries } = useUseCaseCatalog();
   const [range, setRange] = useState("7d");
   const days = range === "30d" ? 30 : 7;
 
@@ -352,15 +331,6 @@ export default function KpiHealthDashboard() {
     kpiByName,
     healthState.byIdentifier,
   ]);
-
-  // Anomaly feed follows the role: only surface anomalies whose KPI is in the
-  // shortlist above. If none intersect, fall back to all anomalies so the demo
-  // still shows the pattern rather than an empty feed.
-  const scopedAnomalies = useMemo(() => {
-    const names = new Set(summaryCards.map((c) => c.name));
-    const matched = ANOMALIES.filter((a) => names.has(a.kpiName));
-    return matched.length ? matched : ANOMALIES;
-  }, [summaryCards]);
 
   // One KPI's series (`GET /kpis/{id}/series`), keyed by identifier and shared between the
   // summary cards' sparklines and the trend panel below -- both read the same `days` window,
@@ -488,79 +458,6 @@ export default function KpiHealthDashboard() {
   const trendIdentifier = effectiveTrendCard?.identifier || null;
   const trendSeries = trendIdentifier ? seriesById[trendIdentifier] : null;
 
-  const openPlaygroundExploration = (useCaseId) => {
-    const cat = loadUseCaseCatalog(storageKeys.USE_CASE_CATALOG, profileId);
-    const entry = cat.entries?.find((e) => e.id === useCaseId);
-    if (entry) openCatalogUseCaseInBuilderChat(navigate, entry);
-  };
-
-  /**
-   * Approve + run: promote the seed use case to a user-active catalog entry so
-   * it shows up under User built use cases, then jump into the Co-Pilot decision
-   * feed with the anomaly context.
-   */
-  const activateAndReview = (a) => {
-    // Update the hook's state so its save effect persists to localStorage AND
-    // any other consumer of useUseCaseCatalog (e.g. the Gallery page) picks up
-    // the new status without waiting for a full remount.
-    setCatalogData((prev) => {
-      const found = (prev.entries || []).some((e) => e.id === a.useCaseId);
-      if (!found) return prev;
-      return {
-        ...prev,
-        entries: prev.entries.map((e) =>
-          e.id === a.useCaseId
-            ? { ...e, source: "user", status: "active", updatedAt: new Date().toISOString() }
-            : e
-        ),
-      };
-    });
-    // Belt-and-suspenders: also write directly, in case the Copilot page mounts
-    // before the hook's save effect flushes.
-    let useCaseTitle = "";
-    try {
-      const cat = loadUseCaseCatalog(storageKeys.USE_CASE_CATALOG, profileId);
-      const entry = (cat.entries || []).find((e) => e.id === a.useCaseId);
-      useCaseTitle = entry?.title || "";
-      if (entry) {
-        saveUseCaseCatalog(
-          {
-            ...cat,
-            entries: cat.entries.map((e) =>
-              e.id === a.useCaseId
-                ? { ...e, source: "user", status: "active", updatedAt: new Date().toISOString() }
-                : e
-            ),
-          },
-          storageKeys.USE_CASE_CATALOG
-        );
-      }
-    } catch {
-      /* ignore */
-    }
-    // Seed decision cards for THIS use case if none exist yet, so the Co-Pilot
-    // feed shows only the actions tied to the anomaly's workflow — not the
-    // mixed queue from prior activations.
-    try {
-      const raw = localStorage.getItem(COPILOT_DECISIONS_KEY);
-      const all = raw ? JSON.parse(raw) : [];
-      const alreadySeeded = all.some((c) => c.useCaseId === a.useCaseId);
-      if (!alreadySeeded) {
-        const seeded = getSeedDecisionCardsForCatalog(a.useCaseId, useCaseTitle);
-        if (seeded.length > 0) {
-          localStorage.setItem(COPILOT_DECISIONS_KEY, JSON.stringify([...all, ...seeded]));
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    // Pass useCaseId so the feed filters to just this workflow's decisions,
-    // not the entire pending queue across every activated use case.
-    navigate(
-      `/copilot/decisions?source=${encodeURIComponent(a.copilotQuery)}&anomaly=${encodeURIComponent(a.id)}&useCaseId=${encodeURIComponent(a.useCaseId)}`
-    );
-  };
-
   if (registryState.status === "loading") {
     return <p className="text-sm text-text-secondary">Loading dashboard…</p>;
   }
@@ -568,7 +465,7 @@ export default function KpiHealthDashboard() {
   return (
     <div className="w-full min-w-0">
       <p className="mb-4 text-sm text-text-secondary">
-        Track KPIs added via "Add to my metrics" in Discovery. Automate responses from the anomaly feed below.
+        Track KPIs added via "Add to my metrics" in Discovery.
       </p>
       {registryState.status === "error" && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
@@ -714,7 +611,7 @@ export default function KpiHealthDashboard() {
         })}
       </div>
 
-      {/* Trend + anomaly feed (stacked rows, full width) */}
+      {/* Trend (full width) */}
       <div className="flex w-full min-w-0 flex-col gap-6">
         {/* Trend analysis */}
         <div className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-default p-5 shadow-sm" data-tour-kpi-dash="trend">
@@ -776,87 +673,6 @@ export default function KpiHealthDashboard() {
               Open Monitor for live ops view
               <ArrowUpRight size={13} />
             </button>
-          </div>
-        </div>
-
-        {/* AI anomaly feed */}
-        <div
-          className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-default shadow-sm"
-          data-tour-kpi-dash="anomalies"
-        >
-          <div className="shrink-0 border-b border-border bg-gradient-to-b from-surface-page-top to-surface px-4 pb-3 pt-4 sm:px-5 sm:pt-5 dark:from-surface-secondary dark:to-surface">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-2.5">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-light to-primary-light/80 text-primary shadow-sm ring-1 ring-primary/25 dark:from-primary/25 dark:to-primary/15 dark:ring-primary/30">
-                  <Sparkles size={18} strokeWidth={1.75} aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-[15px] font-semibold tracking-tight text-text-primary">AI anomaly feed</h3>
-                  <p className="mt-0.5 text-[12px] leading-relaxed text-text-secondary">
-                    Signals linked to library use cases for follow-up
-                  </p>
-                </div>
-              </div>
-              <span className="shrink-0 rounded-full border border-status-warning-border/80 bg-status-warning-light px-2.5 py-1 text-[11px] font-bold tabular-nums text-status-warning shadow-sm dark:bg-status-warning/15">
-                {scopedAnomalies.length} open
-              </span>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 grid grid-cols-1 gap-4 p-3 sm:p-4 md:grid-cols-2 xl:grid-cols-3 md:gap-4">
-            {scopedAnomalies.map((a) => {
-              const sev = SEVERITY_META[a.severity] || SEVERITY_META.warning;
-              return (
-                <div
-                  key={a.id}
-                  className="group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface-secondary shadow-sm ring-1 ring-border transition hover:border-border-light hover:bg-surface-default hover:shadow-md dark:bg-surface-default"
-                >
-                  <span className={`absolute inset-y-0 left-0 w-[3px] ${sev.accent}`} aria-hidden />
-                  <div className="pl-3.5 pr-3 py-3 sm:pl-4 sm:pr-3.5 sm:py-3.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span
-                        className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${sev.chipBg} ${sev.chipText}`}
-                      >
-                        <AlertCircle size={10} className="opacity-90" />
-                        {sev.label}
-                      </span>
-                      <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/30 bg-surface-default px-1.5 py-0.5 text-primary">
-                        <BarChart2 size={10} className="shrink-0" aria-hidden />
-                        <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-primary">
-                          {a.kpiName}
-                        </span>
-                      </span>
-                    </div>
-                    <p className="mt-2 text-[13px] font-semibold leading-snug text-text-primary">{a.alert}</p>
-                    <div className="mt-2 rounded-lg border border-primary/25 bg-gradient-to-b from-surface to-primary-light px-2.5 py-2 dark:from-surface-secondary dark:to-primary/15">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-primary">AI insight</p>
-                      <p className="mt-0.5 text-[12px] leading-relaxed text-text-primary">{a.insight}</p>
-                    </div>
-                    <p className="mt-2 text-[12px] leading-relaxed text-text-secondary">
-                      <span className="font-semibold text-text-primary">Suggested: </span>
-                      {a.workflow}
-                    </p>
-                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-dashed border-border pt-2.5">
-                      <button
-                        type="button"
-                        onClick={() => openPlaygroundExploration(a.useCaseId)}
-                        className="inline-flex items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-primary transition hover:bg-primary-light-hover"
-                      >
-                        Explore
-                        <ArrowUpRight size={12} className="opacity-80" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => activateAndReview(a)}
-                        className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-primary-hover sm:px-3"
-                      >
-                        Approve and run
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
