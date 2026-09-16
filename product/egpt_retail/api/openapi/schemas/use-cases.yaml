@@ -880,3 +880,17 @@ ProbeResult:
     passed: {type: boolean}
     reason: {type: string}
     elapsed_ms: {type: integer}
+
+GoldenCaseUpdate:
+  type: object
+  description: |
+    Fields a person may change on a case (1.6.0). Absent fields are left alone; an explicit
+    null `expected` clears the expectation.
+  properties:
+    label: {type: string}
+    sender: {type: string}
+    subject: {type: string}
+    expected:
+      oneOf:
+        - $ref: './use-cases.yaml#/CaseExpected'
+        - type: "null"

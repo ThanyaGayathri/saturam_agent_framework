@@ -297,6 +297,19 @@ class Source1(Enum):
     generated = "generated"
 
 
+class GoldenCaseUpdate(BaseModel):
+    """
+    Fields a person may change on a case (1.6.0). Absent fields are left alone; an explicit
+    null `expected` clears the expectation.
+
+    """
+
+    label: str | None = None
+    sender: str | None = None
+    subject: str | None = None
+    expected: CaseExpected | None = None
+
+
 class GoldenCaseWrite(BaseModel):
     label: str
     sender: str | None = Field(

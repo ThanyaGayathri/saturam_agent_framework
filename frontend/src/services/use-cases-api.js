@@ -153,3 +153,8 @@ export function acceptGoldenCaseOutput(useCaseId, caseId, { signal } = {}) {
 export function runUseCasePreflightProbe(useCaseId, probe, { signal } = {}) {
   return apiJson(`/use-cases/${enc(useCaseId)}/preflight/${enc(probe)}`, "POST", undefined, { signal });
 }
+
+/** Change a case's label, sender or expected output (K19). */
+export function updateGoldenCase(useCaseId, caseId, body, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/cases/${enc(caseId)}`, "PATCH", body, { signal });
+}

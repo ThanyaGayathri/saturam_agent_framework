@@ -529,6 +529,39 @@ async def create_golden_case(
     return _case_out(case)
 
 
+@router.patch(
+    "/use-cases/{use_case_id}/cases/{case_id}", response_model=wire.GoldenCase
+)
+async def update_golden_case(
+    use_case_id: str,
+    case_id: str,
+    body: wire.GoldenCaseUpdate,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> wire.GoldenCase:
+    case = await service.store.aget_case(case_id)
+    if case is None or case.get("use_case_id") != use_case_id:
+        raise HTTPException(
+            status_code=404, detail=f"No case {case_id!r} for use case {use_case_id!r}."
+        )
+    fields: Dict[str, Any] = {}
+    for key in ("label", "sender", "subject"):
+        value = getattr(body, key)
+        if value is not None:
+            fields[key] = value
+    if "expected" in body.model_fields_set:
+        fields["expected"] = (
+            body.expected.model_dump(mode="json", exclude_none=True)
+            if body.expected
+            else None
+        )
+        # A changed expectation is untested until the next run says otherwise.
+        fields["last_status"] = "untested"
+    updated = await service.store.aupdate_case(case_id, **fields)
+    assert updated is not None
+    return _case_out(updated)
+
+
 @router.delete("/use-cases/{use_case_id}/cases/{case_id}", status_code=204)
 async def delete_golden_case(
     use_case_id: str,

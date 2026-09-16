@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Inbox, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
 import PlatformRunPanel from "./PlatformRunPanel";
-import { acceptGoldenCaseOutput, createGoldenCase, deleteGoldenCase, fetchGoldenCases, fetchMailboxMessages } from "../../services/use-cases-api";
+import { acceptGoldenCaseOutput, createGoldenCase, deleteGoldenCase, fetchGoldenCases, fetchMailboxMessages, updateGoldenCase } from "../../services/use-cases-api";
+import { findTemplate } from "../../domain/extraction-templates";
+import CaseExpectedEditor from "./CaseExpectedEditor";
 
 /**
  * The three ways a rehearsal gets its documents (K19): chosen messages from the connected
@@ -17,20 +19,24 @@ const TABS = [
 ];
 const STATUS = { pass: "bg-status-success-light text-status-success", fail: "bg-status-critical-light text-status-critical", untested: "bg-surface-secondary text-text-secondary" };
 
-function CaseList({ cases, selected, onToggle, onDelete, onAccept, emptyText }) {
+function CaseList({ cases, selected, onToggle, onDelete, onAccept, onSetExpected, editing, setEditing, spec, template, emptyText }) {
  if (!cases.length) return <p className="text-sm text-text-muted">{emptyText}</p>;
  return (
   <ul className="divide-y divide-border rounded-lg border border-border">
    {cases.map((c) => (
-    <li key={c.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-     <input type="checkbox" checked={selected.has(c.id)} onChange={() => onToggle(c.id)} aria-label={c.label} />
-     <FileText size={13} className="text-text-muted" />
-     <span className="font-medium text-text-primary">{c.label}</span>
-     <span className="text-xs text-text-muted">{c.sender ? `from ${c.sender}` : ""}</span>
-     <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS[c.last_status] || STATUS.untested}`}>{c.last_status}{c.expected ? "" : " · nothing expected yet"}</span>
-     {c.expected?.outcome && <span className="font-mono text-[11px] text-text-muted">expects {c.expected.outcome}</span>}
-     {onAccept && c.last_result?.observed && c.last_status !== "pass" && <button type="button" onClick={() => onAccept(c.id)} className="text-[11px] font-semibold text-primary hover:underline">Accept last output as expected</button>}
-     {onDelete && <button type="button" onClick={() => onDelete(c.id)} className="text-text-muted hover:text-status-critical" aria-label={`Remove ${c.label}`}><Trash2 size={12} /></button>}
+    <li key={c.id} className="px-3 py-2 text-sm">
+     <div className="flex flex-wrap items-center gap-2">
+      <input type="checkbox" checked={selected.has(c.id)} onChange={() => onToggle(c.id)} aria-label={c.label} />
+      <FileText size={13} className="text-text-muted" />
+      <span className="font-medium text-text-primary">{c.label}</span>
+      <span className="text-xs text-text-muted">{c.sender ? `from ${c.sender}` : ""}</span>
+      <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS[c.last_status] || STATUS.untested}`}>{c.last_status}{c.expected ? "" : " · nothing expected yet"}</span>
+      {c.expected?.outcome && <span className="font-mono text-[11px] text-text-muted" title={JSON.stringify(c.expected.extracted || {})}>expects {c.expected.outcome}{c.expected.extracted && Object.keys(c.expected.extracted).length ? ` · ${Object.keys(c.expected.extracted).length} value(s)` : ""}</span>}
+      {onSetExpected && <button type="button" onClick={() => setEditing(editing === c.id ? null : c.id)} className="text-[11px] font-semibold text-primary hover:underline">{c.expected ? "Edit expected" : "Set expected"}</button>}
+      {onAccept && c.last_result?.observed && c.last_status !== "pass" && <button type="button" onClick={() => onAccept(c.id)} className="text-[11px] font-semibold text-primary hover:underline">Accept last output as expected</button>}
+      {onDelete && <button type="button" onClick={() => onDelete(c.id)} className="text-text-muted hover:text-status-critical" aria-label={`Remove ${c.label}`}><Trash2 size={12} /></button>}
+     </div>
+     {editing === c.id && <CaseExpectedEditor spec={spec} template={template} caseRow={c} onSave={(expected) => { onSetExpected(c.id, expected); setEditing(null); }} onCancel={() => setEditing(null)} />}
     </li>
    ))}
   </ul>
@@ -80,6 +86,9 @@ export default function RehearsalSources({ spec, ensureUseCase }) {
  };
  const remove = async (caseId) => { await deleteGoldenCase(useCaseId, caseId); await refreshCases(); };
  const accept = async (caseId) => { try { await acceptGoldenCaseOutput(useCaseId, caseId); await refreshCases(); } catch (err) { setNote(err?.detail || err?.message || "Could not accept."); } };
+ const setExpected = async (caseId, expected) => { try { await updateGoldenCase(useCaseId, caseId, { expected }); await refreshCases(); } catch (err) { setNote(err?.detail || err?.message || "Could not save the expected output."); } };
+ const [editing, setEditing] = useState(null);
+ const template = findTemplate(spec);
  const summary = (list) => { const withExpected = list.filter((c) => c.expected); const pass = withExpected.filter((c) => c.last_status === "pass").length; const fail = withExpected.filter((c) => c.last_status === "fail").length; return { withExpected: withExpected.length, pass, fail }; };
 
  const panelFor = (source, ids, label) => (
@@ -143,7 +152,7 @@ export default function RehearsalSources({ spec, ensureUseCase }) {
 
    {tab === "uploads" && (
     <div className="mt-3 space-y-3">
-     <p className="text-sm text-text-secondary">Your own documents, as golden cases. Run them, look at the output, accept it as what this document should always produce. They are re-run whenever the template, guardrails or mapping change, and their pass rate gates activation.</p>
+     <p className="text-sm text-text-secondary">Your own documents, as golden cases. Two ways to say what each should produce: type it first with "Set expected", or run it, look at the output, and accept it. They are re-run whenever the template, guardrails or mapping change, and their pass rate gates activation.</p>
      <div className="flex flex-wrap items-center gap-2">
       <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={(e) => { onFiles([...(e.target.files || [])]); e.target.value = ""; }} />
       <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-semibold text-text-secondary hover:border-primary hover:text-primary"><Upload size={12} /> Upload PDFs</button>
@@ -151,7 +160,7 @@ export default function RehearsalSources({ spec, ensureUseCase }) {
       <span className="text-[11px] text-text-muted">The sender's domain is how the customer is found; leave it empty to test the unknown-sender path.</span>
      </div>
      {uploaded.length > 0 && (() => { const s = summary(uploaded); return <p className="text-xs text-text-secondary">{uploaded.length} uploaded · {s.withExpected} with expected output · {s.pass} pass · {s.fail} fail</p>; })()}
-     <CaseList cases={uploaded} selected={pickedCases} onToggle={togglePicked(pickedCases, setPickedCases)} onDelete={remove} onAccept={accept} emptyText="No documents uploaded yet." />
+     <CaseList cases={uploaded} selected={pickedCases} onToggle={togglePicked(pickedCases, setPickedCases)} onDelete={remove} onAccept={accept} onSetExpected={setExpected} editing={editing} setEditing={setEditing} spec={spec} template={template} emptyText="No documents uploaded yet." />
      {panelFor("uploads", null, pickedCases.size ? "Rehearse selected" : "Rehearse all uploaded")}
     </div>
    )}
@@ -160,7 +169,7 @@ export default function RehearsalSources({ spec, ensureUseCase }) {
     <div className="mt-3 space-y-3">
      <p className="text-sm text-text-secondary">Documents the platform invents from the template's own fields and your master data: a few clean ones, one per guardrail that trips it, one the resolver cannot place, one scanned copy. Each carries the outcome it expects. Useful on day one, before any real document; proof of the mechanics, not of a real supplier's layout.</p>
      {generated.length > 0 && (() => { const s = summary(generated); return <p className="text-xs text-text-secondary">{generated.length} generated · {s.pass} pass · {s.fail} fail{s.withExpected - s.pass - s.fail ? ` · ${s.withExpected - s.pass - s.fail} not run yet` : ""}</p>; })()}
-     <CaseList cases={generated} selected={pickedCases} onToggle={togglePicked(pickedCases, setPickedCases)} onDelete={remove} onAccept={accept} emptyText="Nothing generated yet; the first run generates the set." />
+     <CaseList cases={generated} selected={pickedCases} onToggle={togglePicked(pickedCases, setPickedCases)} onDelete={remove} onAccept={accept} onSetExpected={setExpected} editing={editing} setEditing={setEditing} spec={spec} template={template} emptyText="Nothing generated yet; the first run generates the set." />
      {panelFor("generated", null, generated.length ? (pickedCases.size ? "Rehearse selected" : "Rehearse the generated set") : "Generate the samples and rehearse")}
     </div>
    )}
