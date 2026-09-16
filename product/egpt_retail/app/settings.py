@@ -308,6 +308,13 @@ class RetailSettings(BrandedSettings):
         "model call is not interrupted -- it finishes on its own and its result is discarded "
         "-- so this bounds what the caller waits for, not what the deployment spends.",
     )
+    retail_suggestion_replay: Optional[str] = Field(
+        default=None,
+        description="DEMO/TESTING ONLY -- never set in a real deployment. Path to a saved "
+        "KpiSuggestionList JSON (EGPT_RETAIL_SUGGESTION_REPLAY); when set, a suggestion run "
+        "returns it instead of calling the model, so a demo can be rehearsed without spending "
+        "model credit. Unset (the default) runs the agents.",
+    )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,
         description="Seconds between consolidator ticks in loop mode (EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL).",

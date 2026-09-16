@@ -1057,6 +1057,187 @@ def test_list_kpi_suggestions_nulls_proposed_sql_when_include_sql_is_false(
 
 
 # ---------------------------------------------------------------------------
+# retail_suggestion_replay -- demo/testing rehearsal without a live model call
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_replay_returns_the_saved_file_without_calling_the_model(
+    monkeypatch, tmp_path
+):
+    """`retail_suggestion_replay` short-circuits before `run_suggestions` is ever reached --
+    patched here to raise, so this test fails loudly if the replay branch stops short-
+    circuiting rather than silently falling through to a real (test-breaking) model call."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("run_suggestions must not run while replay is set")
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _must_not_be_called)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_still_applies_the_business_area_filter_and_sql_gate(
+    monkeypatch, tmp_path
+):
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[
+            _suggestion(
+                identifier="a",
+                business_area="supply_chain",
+                proposed_sql="SELECT 1 FROM supplier_deliveries",
+            ),
+            _suggestion(identifier="b", business_area="marketing"),
+        ],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area="supply_chain",
+        include_sql=False,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+    assert result.suggestions[0].proposed_sql is None
+
+
+def test_suggestion_replay_skips_the_phase_sleeps_when_on_phase_is_none(
+    monkeypatch, tmp_path
+):
+    """The deprecated sync `GET /kpis/suggestions` route calls `_list_kpi_suggestions` with no
+    `on_phase` at all, so there is no run panel for the phase pauses to animate. With replay set,
+    the sleep loop must be skipped entirely rather than blocking ~8.5s for nothing."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_sleep(_seconds):
+        raise AssertionError("time.sleep must not run when on_phase is None")
+
+    monkeypatch.setattr(time, "sleep", _must_not_sleep)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        on_phase=None,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_reports_phases_in_order_when_on_phase_is_given(
+    monkeypatch, tmp_path
+):
+    """The mirror of the skip test above: with a real callback, replay must still report the
+    three phases in the same order a live run would (`kpis.py`'s `on_phase(phase)` before
+    `time.sleep(pause)`, `[READING, PROPOSING, CHECKING]`) -- the actual mechanism that makes a
+    replayed run "behave exactly as it would on a live run" per this PR's description."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    seen: list[SuggestionRunPhase] = []
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        on_phase=seen.append,
+    )
+
+    assert seen == [
+        SuggestionRunPhase.READING,
+        SuggestionRunPhase.PROPOSING,
+        SuggestionRunPhase.CHECKING,
+    ]
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_drops_a_suggestion_already_in_the_registry(
+    monkeypatch, tmp_path
+):
+    """The live path drops a draft already in the registry (K12's `assemble`,
+    `known_identifiers=existing`). A replayed file is a static snapshot that cannot know about
+    adoptions made since it was captured, so the same drop must be redone against the current
+    registry -- otherwise replaying after adopting one of the replayed suggestions would show
+    that same KPI again as a fresh "ready" proposal, which a live run can never do."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[
+            _suggestion(identifier="a", business_area="supply_chain"),
+            _suggestion(identifier="b", business_area="supply_chain"),
+        ],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(_kpi(identifier="a"),),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["b"]
+
+
+def test_suggestion_replay_raises_safely_on_a_malformed_file(tmp_path):
+    """A malformed/unreadable `retail_suggestion_replay` file must not raise a bare
+    `json.JSONDecodeError` or pydantic `ValidationError` -- both are `ValueError` subclasses,
+    and `_describe_failure` passes any `ValueError` through to a run's `error` field verbatim,
+    reserved for `_drafts_of`'s own deliberate reader-facing refusal. Parse/validation text off
+    a misconfigured file is not that, so it must come out as something else -- here, not a
+    `ValueError` at all -- so `_describe_failure` falls back to its type-only summary."""
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text("not valid json")
+
+    with pytest.raises(Exception) as excinfo:
+        _list_kpi_suggestions(
+            RetailSettings(retail_suggestion_replay=str(replay_path)),
+            definitions=(),
+            vocabularies=_VOCABULARIES,
+            business_area=None,
+            include_sql=True,
+        )
+
+    assert not isinstance(excinfo.value, ValueError)
+
+
+# ---------------------------------------------------------------------------
 # _cached_suggestion_agents -- Finding 4 (PR #242 review): CLAUDE.md says never create agents
 # in loops; every real request was building two fresh `Agent`s from scratch.
 # ---------------------------------------------------------------------------

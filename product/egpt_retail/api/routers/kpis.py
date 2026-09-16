@@ -67,11 +67,13 @@ import asyncio
 import json
 import re
 import threading
+import time
 import traceback
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -89,6 +91,7 @@ from egpt.os.scopes import has_required_scopes
 from egpt.utils.log import log_error, log_warning
 from egpt.workflow.types import StepInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 from sqlalchemy.engine import Engine
 
 from egpt_retail.api import models as wire
@@ -582,6 +585,22 @@ def _filter_suggestions(
     return [s for s in suggestions if s.business_area == business_area]
 
 
+def _finalize_suggestions(
+    suggestions: Sequence[wire.KpiSuggestion],
+    business_area: Optional[str],
+    include_sql: bool,
+) -> list[wire.KpiSuggestion]:
+    """The narrowing every suggestion list gets before it reaches the wire -- the area filter,
+    then the same ``include_sql`` SQL gate ``_kpi_out`` applies to ``Kpi.sql``. Shared by
+    ``_list_kpi_suggestions``'s live and replay branches so the two rules can't drift apart
+    from being hand-copied into only one of them.
+    """
+    suggestions = _filter_suggestions(suggestions, business_area)
+    if not include_sql:
+        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+    return suggestions
+
+
 def _suggestion_notes(run: SuggestionRun) -> str:
     """``SuggestionRun.notes`` (e.g. "no domain prose reached the agents: ...", which
     ``run_suggestions`` always appends here since this route never passes ``knowledge=``/
@@ -723,6 +742,51 @@ def _list_kpi_suggestions(
     need to widen the cache lock around two live model calls.
     """
     business_area = _validated_business_area(business_area, vocabularies)
+    if settings.retail_suggestion_replay:
+        # DEMO/TESTING ONLY: replay a saved result instead of calling the model. The phases
+        # are still reported, a few seconds apart, so the page's run panel behaves as it
+        # would on a real run. `retail_suggestion_replay` is unset in every real deployment
+        # (its own description says so); this branch is inert unless someone sets it.
+        replay_path = Path(settings.retail_suggestion_replay)
+        try:
+            replayed = wire.KpiSuggestionList.model_validate_json(
+                replay_path.read_text()
+            )
+        except (OSError, ValidationError) as exc:
+            # `_describe_failure` passes a bare `ValueError` through verbatim -- reserved for
+            # `_drafts_of`'s own reader-facing refusal -- and summarizes anything else by type
+            # only. A malformed/unreadable replay file is not that deliberate a refusal, so
+            # this re-raises as something `_describe_failure` treats the safe way instead of
+            # leaking a file path or schema details to any `kpis:read` caller.
+            raise RuntimeError(
+                "retail_suggestion_replay file could not be loaded"
+            ) from exc
+        # The pauses exist to give the run panel time to show each phase; with no callback
+        # there is no panel to animate (the deprecated sync route passes none), so skip them.
+        if on_phase is not None:
+            for phase, pause in (
+                (SuggestionRunPhase.READING, 2.0),
+                (SuggestionRunPhase.PROPOSING, 5.0),
+                (SuggestionRunPhase.CHECKING, 1.5),
+            ):
+                on_phase(phase)
+                time.sleep(pause)
+        # The live path drops a draft already in the registry (K12's `assemble`,
+        # `known_identifiers=existing`) so a suggestion never reoffers something already
+        # adopted. A replayed file is static and knows nothing about adoptions made since it
+        # was captured, so the same drop is redone here against the current registry snapshot
+        # -- otherwise replaying after adopting one of the replayed suggestions would show
+        # that same KPI again as a fresh "ready" proposal, something a live run can't do.
+        known_identifiers = {
+            definition.identifier.lower() for definition in definitions
+        }
+        fresh = [
+            s
+            for s in replayed.suggestions
+            if s.identifier.lower() not in known_identifiers
+        ]
+        suggestions = _finalize_suggestions(fresh, business_area, include_sql)
+        return replayed.model_copy(update={"suggestions": suggestions})
     if agents is not None:
         resolved_agents = agents
     else:
@@ -749,9 +813,9 @@ def _list_kpi_suggestions(
             focus_areas=focus_areas,
             on_phase=on_phase,
         )
-    suggestions = _filter_suggestions(run.kpis.suggestions, business_area)
-    if not include_sql:
-        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+    suggestions = _finalize_suggestions(
+        run.kpis.suggestions, business_area, include_sql
+    )
     return wire.KpiSuggestionList(
         suggestions=suggestions,
         notes=_suggestion_notes(run),
