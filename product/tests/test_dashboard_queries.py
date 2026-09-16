@@ -533,6 +533,42 @@ def test_add_tile_409s_when_the_id_is_already_taken(monkeypatch):
     assert response.status_code == 409
 
 
+def test_add_tile_twice_with_no_client_id_mints_two_distinct_ids_each_time(monkeypatch):
+    """Round-2 review, finding #1 (major): the frontend's "add a chart by prompt" fix used to
+    send a hardcoded placeholder id on every such add, which -- because `_tile_from_write`'s
+    `write.id or f"tl_{...}"` only mints a fresh id when the client sent none -- persisted
+    literally and 409'd the *second* add to the same dashboard. The frontend fix is to never
+    send an `id` at all for a prompt-added chart; this is the server-side half of that
+    invariant: two consecutive adds with no client id must each get their own real id, never
+    collide, and never 409."""
+    # DB-free: the guard itself (a real semantic reader, a real warehouse) is exercised by
+    # `check_query`'s own unit tests above; this test is only about id-minting behaviour.
+    monkeypatch.setattr(
+        dashboards_module,
+        "_check_query_tiles",
+        lambda tiles, settings, only=None: list(tiles),
+    )
+    store = _FakeDashboardStore(_dashboard())
+    body = {
+        "source": "query",
+        "query": {"sql": "SELECT count(*) AS n FROM silver.stock_level LIMIT 1"},
+        "chart": "number",
+        "position": {"x": 0, "y": 0, "w": 3, "h": 2},
+        "title": "First",
+    }
+    with _client(monkeypatch, store) as client:
+        first = client.post("/dashboards/dsh_1/tiles", json=body)
+        second = client.post(
+            "/dashboards/dsh_1/tiles", json={**body, "title": "Second"}
+        )
+
+    assert first.status_code == 201 and second.status_code == 201
+    ids = [t["id"] for t in second.json()["tiles"]]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2, "each no-id add must mint its own id, never reuse one"
+    assert all(i and i != "__new__" for i in ids)
+
+
 def test_tile_write_for_a_query_tile_derives_source_tables_from_the_sql():
     write = wire.TileWrite(
         source=wire.TileSource.query,
@@ -744,3 +780,70 @@ async def test_arefresh_query_tiles_costs_max_duration_not_sum_across_tiles(
     assert max(starts) < min(ends), (
         "both queries must be in flight at once, not merely fast"
     )
+
+
+@pytest.mark.anyio
+async def test_arefresh_query_tiles_isolates_one_tiles_unexpected_exception(
+    monkeypatch,
+):
+    """Round-2 review, finding #2 (major): only `arun_query`'s failure was caught inside
+    `_arun_one`; an unguarded exception from `acheck_query` (e.g. a semantic-layer hiccup
+    inside its `personal_data` callback) propagated out of the gathered task, out of
+    `asyncio.gather` (no `return_exceptions=True`), discarding every other tile's
+    already-computed result along with it -- including one whose check and warehouse round
+    trip had already succeeded. `tl_bad`'s check raises; `tl_good`'s result must still be
+    written."""
+
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _NoTablesReader()
+
+    monkeypatch.setattr(queries_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        queries_module, "build_warehouse_read_guard", lambda reader: _guard()
+    )
+
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        queries_module, "build_query_engine", lambda settings: _FakeEngine()
+    )
+
+    async def _fake_acheck_query(
+        sql, *, guard, context_tables=None, personal_data=None
+    ):
+        if "bad" in sql:
+            raise RuntimeError("semantic layer hiccup")
+        return queries_module.QueryVerdict(
+            status="ok", detail="", sql=sql, tables=("stock_level",)
+        )
+
+    async def _fake_arun_query(engine, sql, *, limit, statement_timeout_ms):
+        return ["value"], [{"value": 1}], 10
+
+    monkeypatch.setattr(queries_module, "acheck_query", _fake_acheck_query)
+    monkeypatch.setattr(queries_module, "arun_query", _fake_arun_query)
+
+    dashboard = _dashboard(
+        _query_tile(
+            id="tl_good",
+            query=_query(sql="SELECT 1 AS value FROM silver.stock_level LIMIT 1"),
+        ),
+        _query_tile(
+            id="tl_bad",
+            query=_query(sql="SELECT bad AS value FROM silver.stock_level LIMIT 1"),
+        ),
+    )
+    results = _RecordingResults()
+
+    written = await queries_module.arefresh_query_tiles(
+        dashboard, RetailSettings(), results
+    )
+
+    assert set(written) == {"tl_good", "tl_bad"}
+    assert results.written["tl_good"].error is None
+    assert results.written["tl_good"].rows == ({"value": 1},)
+    assert results.written["tl_bad"].error is not None
+    assert "semantic layer hiccup" in results.written["tl_bad"].error

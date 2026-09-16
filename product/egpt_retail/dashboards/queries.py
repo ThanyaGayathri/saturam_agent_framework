@@ -703,14 +703,27 @@ async def _arun_one(
 ) -> Tuple[List[str], List[Dict[str, Any]], int, Optional[str], str]:
     """One tile's guard check plus, if it passes, its warehouse round trip -- no write. The
     concurrent half of :func:`arefresh_query_tiles`: every tile's check and query run at once
-    through this, and the caller serialises only the cheap part (the cache write) afterward."""
+    through this, and the caller serialises only the cheap part (the cache write) afterward.
+
+    Every exception this coroutine could raise is caught and turned into this tile's own
+    ``error`` string instead (round-2 review, finding #2): ``asyncio.gather`` has no
+    ``return_exceptions=True``, so one tile's unguarded exception would otherwise propagate
+    out of the gather before the write loop after it ever ran -- discarding every other
+    tile's already-computed result along with it, including ones whose check and warehouse
+    round trip had already succeeded. The serial version this replaced wrote each tile's
+    result as it completed, so one failure could never erase an earlier success; this keeps
+    that guarantee under real concurrency.
+    """
     assert tile.query is not None  # a query tile, by construction
-    verdict = await acheck_query(
-        tile.query.sql,
-        guard=guard,
-        context_tables=tile.query.source_tables,
-        personal_data=lambda tables: personal_data_columns(reader, tables),
-    )
+    try:
+        verdict = await acheck_query(
+            tile.query.sql,
+            guard=guard,
+            context_tables=tile.query.source_tables,
+            personal_data=lambda tables: personal_data_columns(reader, tables),
+        )
+    except Exception as exc:
+        return [], [], 0, _first_line(exc), tile.query.sql
     if not verdict.runnable:
         return [], [], 0, f"guard refused: {verdict.detail}", verdict.sql
     try:

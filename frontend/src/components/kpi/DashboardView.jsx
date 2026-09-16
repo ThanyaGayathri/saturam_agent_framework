@@ -236,8 +236,14 @@ export default function DashboardView() {
  const addChartFromPrompt = () => {
   const text = addPrompt.trim();
   setAddPrompt("");
+  // No `id` here (round-2 review, finding #1): `tileWriteFromChart` sends whatever `id` a
+  // chart carries, and `_tile_from_write`'s `write.id or f"tl_{...}"` only mints a fresh one
+  // when the client sent none -- a hardcoded placeholder here (this used to be `"__new__"`)
+  // reused that exact literal id on every add-by-prompt call, so the *second* one on any
+  // given dashboard collided with the first and 409'd permanently. Leaving `id` unset lets
+  // the server mint a real one every time, same as the empty-Enter blank-chart path already
+  // did (it never set one either).
   setAddingChart({
-   id: "__new__",
    title: text || "New chart",
    chart: "table",
    source: "query",
