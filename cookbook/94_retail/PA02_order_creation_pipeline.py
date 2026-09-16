@@ -373,7 +373,7 @@ def _already_seeded(mailbox: Any) -> set:
     return subjects
 
 
-def seed_mailbox(batch: Optional[str] = None) -> int:
+def seed_mailbox(batch: Optional[str] = None, only: Optional[List[str]] = None) -> int:
     """Send the sample emails to the inbox. Idempotent: subjects already there are skipped,
     and a temporary SMTP refusal (Gmail's 421 rate limit) is retried on a fresh connection
     after a pause rather than aborting the batch part-way."""
@@ -399,6 +399,8 @@ def seed_mailbox(batch: Optional[str] = None) -> int:
     skipped = 0
     try:
         for message in sample_messages(batch=batch):
+            if only and message.id[1:5].upper() not in only:
+                continue
             if message.subject in present:
                 skipped += 1
                 continue
@@ -526,6 +528,10 @@ def main() -> int:
         help="with --seed-mailbox: a suffix for every PO number and subject (B2), so a second seeding carries new orders",
     )
     parser.add_argument(
+        "--only",
+        help="with --seed-mailbox: send only these sample ids, comma-separated (E-01,E-14)",
+    )
+    parser.add_argument(
         "--seed-mailbox",
         action="store_true",
         help="send the sixteen sample emails to the Gmail inbox",
@@ -554,7 +560,10 @@ def main() -> int:
     if args.rollback:
         return rollback(args.rollback)
     if args.seed_mailbox:
-        return seed_mailbox(args.batch)
+        return seed_mailbox(
+            args.batch,
+            [x.strip().upper() for x in args.only.split(",")] if args.only else None,
+        )
     if args.live:
         _load_env("azure_key.env")
         # Live always extracts with the model: the expected extraction only exists for the
