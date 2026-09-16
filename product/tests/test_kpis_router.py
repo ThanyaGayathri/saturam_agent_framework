@@ -999,6 +999,7 @@ def _fake_run_suggestions(kpi_suggestions):
         agents,
         focus_areas=(),
         on_phase=None,
+        request=None,
     ):
         return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
 
@@ -1358,6 +1359,7 @@ def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_orig
         agents,
         focus_areas=(),
         on_phase=None,
+        request=None,
     ):
         captured_agents["agents"] = agents
         return _FakeSuggestionRunWithSuggestions([])
@@ -1645,13 +1647,14 @@ class _FakeRunStore:
         #: What `typical_duration()` answers; a test sets it to stand for history.
         self.typical = None
 
-    def create(self, business_area, business_areas=()):
+    def create(self, business_area, business_areas=(), ask=None):
         record = SuggestionRunRecord(
             identifier=f"sr_{len(self.rows) + 1}",
             status=SuggestionRunStatus.QUEUED,
             business_area=business_area,
             created_at=datetime.now(timezone.utc),
             business_areas=tuple(business_areas),
+            ask=ask,
         )
         self.rows[record.identifier] = record
         return record
@@ -1743,6 +1746,7 @@ def _suggesting(suggestions, *, notes=""):
         include_sql,
         focus_areas=(),
         on_phase=None,
+        ask=None,
     ):
         return wire_models.KpiSuggestionList(
             suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.0"
@@ -1801,6 +1805,7 @@ def test_start_kpi_suggestion_run_with_no_body_runs_across_every_area(monkeypatc
         include_sql,
         focus_areas=(),
         on_phase=None,
+        ask=None,
     ):
         captured["business_area"] = business_area
         captured["include_sql"] = include_sql
@@ -2045,6 +2050,7 @@ def test_start_kpi_suggestion_run_hands_the_focus_to_the_pipeline_and_echoes_it(
         include_sql,
         focus_areas=(),
         on_phase=None,
+        ask=None,
     ):
         captured["focus_areas"] = tuple(focus_areas)
         captured["business_area"] = business_area
@@ -2092,9 +2098,85 @@ def test_start_kpi_suggestion_run_with_no_focus_sends_none_and_echoes_an_empty_l
     with _run_client(monkeypatch, store) as client:
         started = client.post("/kpis/suggestions", json={})
         assert started.json()["business_areas"] == []
+        assert started.json()["ask"] is None
         _drain(client)
 
     assert captured == {"focus_areas": ()}
+
+
+# ---------------------------------------------------------------------------
+# Contract 1.2.3: `ask`, the customer's request in their own words ("Add KPI" -> AI
+# generated). It reaches the pipeline as `ask`, is echoed on the row, and a blank one reads
+# as absent -- the same run as no request at all.
+# ---------------------------------------------------------------------------
+
+
+def test_start_kpi_suggestion_run_hands_the_ask_to_the_pipeline_and_echoes_it(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(settings, *, focus_areas=(), ask=None, **kwargs):
+        captured["focus_areas"] = tuple(focus_areas)
+        captured["ask"] = ask
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post(
+            "/kpis/suggestions",
+            json={
+                "business_areas": ["sales"],
+                "ask": "  How many quotes turn into\n\n deals, by brand?  ",
+            },
+        )
+        assert started.status_code == 202
+        # echoed normalised: whitespace collapsed, ends trimmed -- what the message carries
+        assert started.json()["ask"] == "How many quotes turn into deals, by brand?"
+        run_id = started.json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert captured == {
+        "focus_areas": ("sales",),
+        "ask": "How many quotes turn into deals, by brand?",
+    }
+    assert polled["ask"] == "How many quotes turn into deals, by brand?"
+
+
+def test_start_kpi_suggestion_run_treats_a_blank_ask_as_no_ask(monkeypatch):
+    captured = {}
+
+    def _fake_helper(settings, *, ask=None, **kwargs):
+        captured["ask"] = ask
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions", json={"ask": "   \n\t "})
+        assert started.status_code == 202
+        assert started.json()["ask"] is None
+        _drain(client)
+
+    assert captured == {"ask": None}
+
+
+def test_start_kpi_suggestion_run_422s_on_an_overlong_ask_before_any_row_exists(
+    monkeypatch,
+):
+    store = _FakeRunStore()
+    with _run_client(monkeypatch, store) as client:
+        response = client.post("/kpis/suggestions", json={"ask": "x" * 2001})
+    assert response.status_code == 422
+    assert store.rows == {}
 
 
 def test_start_kpi_suggestion_run_422s_on_an_unknown_focus_area_before_any_row_exists(

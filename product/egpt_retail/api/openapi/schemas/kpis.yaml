@@ -234,6 +234,16 @@ KpiSuggestionRunRequest:
       description: The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.
       items:
         $ref: './common.yaml#/BusinessAreaId'
+    ask:
+      type: [string, "null"]
+      maxLength: 2000
+      description: |
+        What the customer wants to measure, in their own words ("Add KPI" -> AI generated).
+        Handed to the agents as the request to answer first, after the focus and before the
+        standing ask -- a steer, never a filter: what comes back is still every metric the data
+        supports, judged and stamped exactly as an unprompted run's would be, so a request the
+        harvest cannot back produces no invented metric, only the agent's note saying so.
+        Whitespace-only reads as absent.
 
 KpiSuggestionRun:
   type: object
@@ -263,6 +273,9 @@ KpiSuggestionRun:
       description: The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.
       items:
         $ref: './common.yaml#/BusinessAreaId'
+    ask:
+      type: [string, "null"]
+      description: The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.
     created_at:
       $ref: './common.yaml#/Timestamp'
     started_at:

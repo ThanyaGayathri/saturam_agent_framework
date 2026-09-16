@@ -151,7 +151,18 @@ function IdleBar({ onStart }) {
  );
 }
 
-function RunningPanel({ phase, elapsed, typicalDuration, onCancel }) {
+/** The request a steered run was started with ("Add KPI" -> AI generated, contract 1.2.3),
+ * quoted back so the person sees the run is answering *their* words, not the standing ask. */
+function AskLine({ ask }) {
+ if (!ask) return null;
+ return (
+  <p className="mt-1 text-[13px] leading-snug text-text-secondary">
+   For: <q className="italic text-text-primary">{ask}</q>
+  </p>
+ );
+}
+
+function RunningPanel({ phase, elapsed, typicalDuration, ask, onCancel }) {
  // A `queued` row, or a `running` one that has not reported a stage yet, reads as the first
  // stage: from where the person sits, the run has started and is reading.
  const activeIndex = Math.max(
@@ -193,7 +204,10 @@ function RunningPanel({ phase, elapsed, typicalDuration, onCancel }) {
       <Sparkles size={18} className="animate-pulse text-status-info" />
      </div>
      <div>
-      <div className="text-[15px] font-semibold text-text-primary">Finding KPIs in your data</div>
+      <div className="text-[15px] font-semibold text-text-primary">
+       {ask ? "Finding KPIs for your request" : "Finding KPIs in your data"}
+      </div>
+      <AskLine ask={ask} />
       <div className="mt-0.5 text-[13px] text-text-secondary">{expectation}</div>
      </div>
     </div>
@@ -216,7 +230,7 @@ function RunningPanel({ phase, elapsed, typicalDuration, onCancel }) {
  );
 }
 
-function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, onDismiss, onStart }) {
+function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask, onDismiss, onStart }) {
  const total = suggestions.length;
  const ready = suggestions.filter((s) => s?.feasibility?.verdict === "ready").length;
  const notReady = total - ready;
@@ -259,6 +273,11 @@ function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, onD
      {at ? `Finished ${at}` : "Just now"}
      {shortId ? ` · run ${shortId}` : ""}
     </span>
+    {ask && (
+     <span className="basis-full text-xs text-text-secondary">
+      For: <q className="italic text-text-primary">{ask}</q>
+     </span>
+    )}
    </div>
    <div className="flex items-center gap-2.5">
     <QuietButton onClick={onDismiss}>Dismiss</QuietButton>
@@ -294,6 +313,7 @@ export default function SuggestionRunPanel({ run, elapsed, onStart, onCancel, on
     phase={run.phase}
     elapsed={elapsed}
     typicalDuration={run.typicalDuration}
+    ask={run.ask}
     onCancel={onCancel}
    />
   );
@@ -307,6 +327,7 @@ export default function SuggestionRunPanel({ run, elapsed, onStart, onCancel, on
     startedAt={run.serverStartedAt}
     finishedAt={run.serverFinishedAt}
     clientSeconds={run.clientSeconds}
+    ask={run.ask}
     onDismiss={onDismiss}
     onStart={onStart}
    />

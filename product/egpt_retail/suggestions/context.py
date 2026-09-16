@@ -222,13 +222,35 @@ def render_focus(focus_areas: Optional[Sequence[str]]) -> str:
     )
 
 
+def render_request(request: Optional[str]) -> str:
+    """The paragraph that carries what the customer asked for, in their own words (contract
+    1.2.3, the discovery page's "Add KPI" -> AI generated). Empty when there is none, so the
+    message is exactly what it was before requests existed.
+
+    Like :func:`render_focus`, a steer and not a filter: the agent answers the request first,
+    but everything it proposes is still judged, stamped and checked downstream as an
+    unprompted proposal would be. Quoted so the agent reads it as the customer's words, not
+    as an instruction from the deployment; the skill's own rules say what to do with it."""
+    text = " ".join((request or "").split())
+    if not text:
+        return ""
+    return (
+        "request: the customer asked, in their own words: "
+        f'"{text}". Propose what answers this first and most thoroughly, and say in each '
+        "rationale how it does. If the harvest cannot support what was asked, do not invent "
+        "a metric for it: say so in notes, and still propose what the data does support.\n\n"
+    )
+
+
 def render_context(
     context: SuggestionContext,
     *,
     ask: str,
     focus_areas: Optional[Sequence[str]] = None,
+    request: Optional[str] = None,
 ) -> str:
-    """The message both agents receive: harvest, concepts, prose, the focus, then the ask."""
+    """The message both agents receive: harvest, concepts, prose, the focus, the customer's
+    request (if any), then the ask."""
     prose = (
         "\n\n".join(f"[{concept}] {text}" for concept, text in context.prose)
         or "(no domain prose retrieved)"
@@ -238,5 +260,6 @@ def render_context(
         f"concepts in this deployment:\n{context.concepts_text or '(none)'}\n\n"
         f"domain prose, retrieved for those concepts:\n{prose}\n\n"
         f"{render_focus(focus_areas)}"
+        f"{render_request(request)}"
         f"{ask}"
     )

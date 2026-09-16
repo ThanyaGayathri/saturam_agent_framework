@@ -447,6 +447,11 @@ class KpiSuggestionRunRequest(BaseModel):
         None,
         description="The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
     )
+    ask: str | None = Field(
+        None,
+        description="What the customer wants to measure, in their own words (\"Add KPI\" -> AI generated).\nHanded to the agents as the request to answer first, after the focus and before the\nstanding ask -- a steer, never a filter: what comes back is still every metric the data\nsupports, judged and stamped exactly as an unprompted run's would be, so a request the\nharvest cannot back produces no invented metric, only the agent's note saying so.\nWhitespace-only reads as absent.\n",
+        max_length=2000,
+    )
 
 
 class KpiSuggestionRunStatus(Enum):
@@ -1683,6 +1688,10 @@ class KpiSuggestionRun(BaseModel):
     business_areas: list[str] | None = Field(
         [],
         description="The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
+    )
+    ask: str | None = Field(
+        None,
+        description="The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.",
     )
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None

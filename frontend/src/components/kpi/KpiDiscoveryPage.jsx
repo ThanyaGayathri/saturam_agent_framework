@@ -10,6 +10,7 @@ import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
 import SuggestionRunPanel from "./SuggestionRunPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
+import AddKpiModal from "./add-kpi/AddKpiModal";
 import { buildDashboardWritePayload } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
 import { rowFromSuggestion } from "./suggested-candidates";
@@ -41,6 +42,9 @@ const IDLE_SUGGESTION_STATE = {
  notes: "",
  error: null,
  runId: null,
+ // The request a steered run was started with ("Add KPI" -> AI generated, contract 1.2.3);
+ // null for a plain "Suggest KPIs" run. Echoed by the row, so a restore recovers it too.
+ ask: null,
  startedAt: null,
  phase: null,
  typicalDuration: null,
@@ -84,6 +88,10 @@ const FOCUS_KEY = "retailgpt:kpi-focus-areas";
 // localStorage, because a run id is also worth sharing/bookmarking ("here's what it found"),
 // and it composes with browser back/forward the way local storage cannot.
 const RUN_PARAM = "run";
+// `?add=1` opens the "Add KPI" modal. In the URL rather than state because the button that
+// opens it lives in the hub header (`KpisHubLayout.jsx`), outside this page; and, like `?run=`,
+// it composes with back/forward -- closing the modal is a `replace`, so Back never reopens it.
+const ADD_PARAM = "add";
 
 export default function KpiDiscoveryPage() {
  const navigate = useNavigate();
@@ -361,6 +369,7 @@ export default function KpiDiscoveryPage() {
   runId: run.id || prev.runId,
   phase: run.phase ?? prev.phase,
   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+  ask: run.ask ?? prev.ask,
  });
 
  // Poll one run to a terminal state (#254). Shared by a fresh click (`runSuggestions`) and a
@@ -458,12 +467,15 @@ export default function KpiDiscoveryPage() {
 
  // Start a run, then watch it. Same "one AbortController for the whole loop" rule as
  // `watchRun` -- a second click here cancels wherever the previous run's watch happened to be.
- const runSuggestions = () => {
+ // `options.ask` is the request a steered run carries ("Add KPI" -> AI generated); the panel's
+ // own buttons call this with a click event, which has no `ask` and so starts a plain run.
+ const runSuggestions = (options) => {
+  const ask = options && typeof options.ask === "string" && options.ask.trim() ? options.ask.trim() : null;
   const controller = beginWatch();
   const startedAt = Date.now();
-  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
+  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt, ask });
 
-  startKpiSuggestionRun(suggestBusinessAreas, { signal: controller.signal })
+  startKpiSuggestionRun(suggestBusinessAreas, { ask, signal: controller.signal })
    .then((run) => {
     if (controller.signal.aborted) return;
     if (!run?.id) {
@@ -612,6 +624,30 @@ export default function KpiDiscoveryPage() {
     });
    });
  };
+
+ // What a manually defined KPI ("Add KPI" -> define it myself) does once `POST /kpis` lands:
+ // the same three things an adopt does after its create -- into the registry list, its panel
+ // open on the new row (the value is the reason to look), and today's value computed now for
+ // a scalar. Kept apart from `handleAdopt` because there is no suggestion to drop.
+ const absorbCreatedKpi = (created) => {
+  setRealKpiState((prev) => ({ ...prev, kpis: [...prev.kpis, created] }));
+  setDetailRow(rowFromRegistryKpi(created, Number.MAX_SAFE_INTEGER));
+  if (created.result_shape !== "rowset") computeSeries(created.identifier);
+ };
+
+ const addKpiOpen = params.get(ADD_PARAM) === "1";
+ const closeAddKpi = () => {
+  if (!params.has(ADD_PARAM)) return;
+  params.delete(ADD_PARAM);
+  setParams(params, { replace: true });
+ };
+ const focusAreaLabels = useMemo(
+  () =>
+   (suggestBusinessAreas || [])
+    .map((id) => areaState.areas.find((a) => a.id === id)?.label || id)
+    .filter(Boolean),
+  [suggestBusinessAreas, areaState.areas]
+ );
 
  const handleRemove = (row) => {
   const identifier = row?.kpi?.identifier;
@@ -867,6 +903,23 @@ export default function KpiDiscoveryPage() {
     </p>
    )}
 
+
+   {addKpiOpen && (
+    <AddKpiModal
+     areas={areaState.areas}
+     focusAreaLabels={focusAreaLabels}
+     onClose={closeAddKpi}
+     onStartAi={(ask) => {
+      closeAddKpi();
+      runSuggestions({ ask });
+     }}
+     onCreateManual={async (body) => {
+      const created = await createKpi(body);
+      closeAddKpi();
+      absorbCreatedKpi(created);
+     }}
+    />
+   )}
 
    {pendingRows && (
     <CreateDashboardModal

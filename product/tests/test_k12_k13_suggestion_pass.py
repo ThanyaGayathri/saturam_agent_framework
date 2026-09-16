@@ -209,7 +209,13 @@ USE_CASE_DRAFTS = k13.UseCaseSuggestionDraftSet(
 
 
 def _run(
-    *, dry_run=False, proposals=None, knowledge=None, focus_areas=None, on_phase=None
+    *,
+    dry_run=False,
+    proposals=None,
+    knowledge=None,
+    focus_areas=None,
+    on_phase=None,
+    request=None,
 ):
     kpi_agent, use_case_agent = FakeAgent(KPI_DRAFTS), FakeAgent(USE_CASE_DRAFTS)
     run = run_suggestions(
@@ -222,6 +228,7 @@ def _run(
         dry_run=dry_run,
         focus_areas=focus_areas,
         on_phase=on_phase,
+        request=request,
     )
     return run, kpi_agent, use_case_agent
 
@@ -481,6 +488,34 @@ def test_no_focus_leaves_the_message_exactly_as_before():
     assert "focus:" not in kpi_agent.messages[-1]
     _, kpi_agent, _ = _run(dry_run=True, focus_areas=[])
     assert "focus:" not in kpi_agent.messages[-1]
+
+
+def test_a_customer_request_reaches_both_agents_between_the_focus_and_the_ask():
+    """Contract 1.2.3: what the customer asked for, quoted in their own words, goes into the
+    message once -- after the focus, before the ask -- as the thing to answer first. Nothing
+    about what comes back is filtered by it: both agents still return their drafts."""
+    run, kpi_agent, use_case_agent = _run(
+        dry_run=True,
+        focus_areas=["sales"],
+        request="  How many quotes turn into\n deals,   by brand? ",
+    )
+    for agent in (kpi_agent, use_case_agent):
+        message = agent.messages[-1]
+        assert (
+            'request: the customer asked, in their own words: "How many quotes turn into '
+            'deals, by brand?".' in message
+        )
+        assert message.index("focus:") < message.index("request:")
+        assert message.index("request:") < message.index("Propose the")
+        assert message.count("request:") == 1
+    assert run.kpis.suggestions and run.use_cases.suggestions
+
+
+def test_no_request_leaves_the_message_exactly_as_before():
+    _, kpi_agent, _ = _run(dry_run=True)
+    assert "request:" not in kpi_agent.messages[-1]
+    _, kpi_agent, _ = _run(dry_run=True, request="   ")
+    assert "request:" not in kpi_agent.messages[-1]
 
 
 # --- phases ----------------------------------------------------------------------------
