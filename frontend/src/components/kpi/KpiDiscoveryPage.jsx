@@ -577,6 +577,11 @@ export default function KpiDiscoveryPage() {
     result_shape: suggestion.result_shape,
     sql: suggestion.proposed_sql,
     source_tables: suggestion.derived_from_tables || [],
+    // The two suggestion-era sentences the panel shows ("Why the model proposed it" / "What
+    // value it provides") go into the registry with the KPI, so the panel keeps saying them
+    // after adopt -- on reload and for every viewer -- instead of only for this session.
+    rationale: suggestion.rationale ?? null,
+    business_value: suggestion.business_value ?? null,
    },
    { signal: controller.signal }
   )
@@ -746,6 +751,10 @@ export default function KpiDiscoveryPage() {
    identifier: k.identifier,
    feasibility: k.feasibility,
    resultShape: k.result_shape,
+   // Null for a hand-authored KPI or one adopted before the registry kept them; the panel
+   // renders the section only when at least one is present.
+   rationale: k.rationale || "",
+   businessValue: k.business_value || "",
    fromRegistry: true,
    // Carried through only so an edit (`handleUpdateKpi` below) can resend the required fields
    // `PATCH /kpis/{id}` demands every time -- not shown anywhere in the panel itself.

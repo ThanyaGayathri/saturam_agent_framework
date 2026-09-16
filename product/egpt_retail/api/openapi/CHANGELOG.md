@@ -109,6 +109,23 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.2 — 2026-09-17 — kpis: `Kpi.rationale`, `Kpi.business_value` kept after adopt (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two new, nullable, non-required fields on
+`Kpi` and `KpiWrite` -- so no negotiation and no major bump.
+
+- **`Kpi.rationale`, `Kpi.business_value`** (string or null, not required) and the same two on
+  **`KpiWrite`**. 1.1.10 gave a *suggestion* its "why the model proposed it" and "what value it
+  provides" text, and the discovery panel shows both -- until the customer clicks "Add to my
+  metrics", at which point the panel switches to the registry row and both vanish, because the
+  registry never had anywhere to keep them. Adopt now resends them on `KpiWrite` and the
+  registry stores them, so the panel says the same thing about a KPI after it is governed as it
+  did while it was a proposal, on every later visit and for every viewer. Presentation only,
+  like `unit`/`industry_benchmark`: neither participates in feasibility or execution, and an
+  update that omits them carries the stored value forward the way every optional `KpiWrite`
+  field does. Nullable and outside `required` rather than a breaking bump: a KPI authored by
+  hand, or adopted before this field existed, reads back with both `null`.
+
 ## 1.2.1 — 2026-09-16 — merge: reconcile with `fix/dashboard-suggestion-routing` (additive)
 
 Agreed by: product (nandha-saturam). Additive on top of 1.2.0 -- the dashboards work below was

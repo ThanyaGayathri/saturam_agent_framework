@@ -169,6 +169,11 @@ def test_kpi_out_presentation_fields_default_sensibly_when_unset():
     assert wire.level is None
     assert wire.unit == ""
     assert wire.industry_benchmark == ""
+    # Contract 1.2.2: unlike the strings above, these two are null on the wire when unset --
+    # a hand-authored KPI has no "why the model proposed it", and "" would read as an
+    # empty sentence rather than the absence of one.
+    assert wire.rationale is None
+    assert wire.business_value is None
     assert wire.active is True
     assert wire.source.value == "customer"
     assert wire.dataset_ids is None
@@ -182,6 +187,8 @@ def test_kpi_out_maps_every_b2_presentation_field_when_set():
         level=KpiLevel.OPERATIONAL,
         unit="%",
         industry_benchmark=">95%",
+        rationale="Derived from rfq_quote's status column.",
+        business_value="Tells you whether quoting effort turns into revenue.",
         active=False,
         source=KpiOrigin.SHIPPED,
         dataset_ids=("ds_1", "ds_2"),
@@ -194,6 +201,8 @@ def test_kpi_out_maps_every_b2_presentation_field_when_set():
     assert wire.level.value == "operational"
     assert wire.unit == "%"
     assert wire.industry_benchmark == ">95%"
+    assert wire.rationale == "Derived from rfq_quote's status column."
+    assert wire.business_value == "Tells you whether quoting effort turns into revenue."
     assert wire.active is False
     assert wire.source.value == "shipped"
     assert wire.dataset_ids == ["ds_1", "ds_2"]
@@ -400,6 +409,8 @@ def test_kpi_from_write_maps_required_and_optional_fields():
         level=wire_models.KpiLevel.operational,
         unit="%",
         industry_benchmark=">95%",
+        rationale="Derived from rfq_quote's status column.",
+        business_value="Tells you whether quoting effort turns into revenue.",
         active=False,
         dataset_ids=["ds_1"],
         process_ids=["sc_1"],
@@ -410,6 +421,8 @@ def test_kpi_from_write_maps_required_and_optional_fields():
     assert kpi.level.value == "operational"
     assert kpi.unit == "%"
     assert kpi.industry_benchmark == ">95%"
+    assert kpi.rationale == "Derived from rfq_quote's status column."
+    assert kpi.business_value == "Tells you whether quoting effort turns into revenue."
     assert kpi.active is False
     assert kpi.source is KpiOrigin.CUSTOMER
     assert kpi.dataset_ids == ("ds_1",)
@@ -461,6 +474,8 @@ def test_kpi_from_write_carries_forward_omitted_optional_fields_on_update():
         level=KpiLevel.OPERATIONAL,
         unit="%",
         industry_benchmark=">95%",
+        rationale="Derived from rfq_quote's status column.",
+        business_value="Tells you whether quoting effort turns into revenue.",
         active=False,
         dataset_ids=("ds_1",),
         process_ids=("sc_1",),
@@ -474,6 +489,10 @@ def test_kpi_from_write_carries_forward_omitted_optional_fields_on_update():
     assert kpi.level is KpiLevel.OPERATIONAL
     assert kpi.unit == "%"
     assert kpi.industry_benchmark == ">95%"
+    # The panel's description/SQL edit form resends only the required fields (see
+    # `handleUpdateKpi` in KpiDiscoveryPage.jsx) -- an edit must not wipe the adopt-time text.
+    assert kpi.rationale == "Derived from rfq_quote's status column."
+    assert kpi.business_value == "Tells you whether quoting effort turns into revenue."
     assert kpi.active is False  # not silently reset to the True default
     assert kpi.dataset_ids == ("ds_1",)
     assert kpi.process_ids == ("sc_1",)

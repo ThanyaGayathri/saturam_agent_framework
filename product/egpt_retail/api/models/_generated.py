@@ -2185,6 +2185,14 @@ class Kpi(BaseModel):
     level: KpiLevel | None = None
     unit: str | None = ""
     industry_benchmark: str | None = ""
+    rationale: str | None = Field(
+        None,
+        description="Why the model proposed this KPI -- the sentence naming the tables or concepts it derives from, carried over from `KpiSuggestion.rationale` when the KPI was adopted. Null on a KPI authored by hand or adopted before this field existed.",
+    )
+    business_value: str | None = Field(
+        None,
+        description="What tracking this KPI lets someone decide or catch, carried over from `KpiSuggestion.business_value` on adopt. Null on a KPI authored by hand or adopted before this field existed.",
+    )
     active: bool
     source: KpiOrigin
     dataset_ids: list[str] | None = None
@@ -2271,6 +2279,14 @@ class KpiWrite(BaseModel):
     level: KpiLevel | None = None
     unit: str | None = None
     industry_benchmark: str | None = None
+    rationale: str | None = Field(
+        None,
+        description="The suggestion's `rationale`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
+    business_value: str | None = Field(
+        None,
+        description="The suggestion's `business_value`, resent verbatim on adopt. Optional, carried forward on update when omitted.",
+    )
     active: bool | None = None
     dataset_ids: list[str] | None = None
     process_ids: list[str] | None = None

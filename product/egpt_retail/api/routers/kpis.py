@@ -269,6 +269,8 @@ def _kpi_out(
         level=wire.KpiLevel(kpi.level.value) if kpi.level else None,
         unit=kpi.unit or "",
         industry_benchmark=kpi.industry_benchmark or "",
+        rationale=kpi.rationale,
+        business_value=kpi.business_value,
         active=kpi.active,
         source=wire.KpiOrigin(kpi.source.value),
         # `or None` makes an explicit `dataset_ids=[]` indistinguishable on the wire from a
@@ -407,6 +409,8 @@ def _kpi_from_write(
         industry_benchmark=_carried(
             write.industry_benchmark, "industry_benchmark", None
         ),
+        rationale=_carried(write.rationale, "rationale", None),
+        business_value=_carried(write.business_value, "business_value", None),
         active=active,
         source=existing.source if existing is not None else KpiOrigin.CUSTOMER,
         dataset_ids=dataset_ids,
