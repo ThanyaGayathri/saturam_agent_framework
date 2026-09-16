@@ -15,17 +15,33 @@ connect to, and ``run_parameters`` is where a configured source becomes a connec
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.use_case import UseCaseTemplate
 from egpt_retail.orchestration.compiler import CompiledWorkflow, compile_workflow
+from egpt_retail.documents.golden import (
+    GENERATED_CASE_SOURCE,
+    case_to_message,
+    generate_cases,
+    score_case,
+)
+from egpt_retail.documents.guardrails import rules_from
+from egpt_retail.documents.mailbox import fetch_messages, filter_from, mailbox_from
+from egpt_retail.documents.samples import (
+    expected_extraction,
+    expected_outcome,
+    sample_master_data,
+    sample_messages,
+)
+from egpt_retail.documents.templates import template_from
 from egpt_retail.usecases.credentials import CredentialUnavailable, resolve_credentials
 from egpt_retail.usecases.runtime import (
     build_extraction_agent,
@@ -284,6 +300,27 @@ class UseCaseService:
                     ),
                 )
             )
+            golden = self.golden_summary(use_case_id)
+            if golden["with_expected"]:
+                checks.append(
+                    (
+                        "golden_cases",
+                        golden["failed"] == 0 or mode == "rehearse",
+                        f"{golden['passed']} of {golden['with_expected']} golden cases pass"
+                        + (
+                            f", {golden['failed']} failing: "
+                            + ", ".join(str(f["label"]) for f in golden["failing"][:3])
+                            if golden["failed"]
+                            else ""
+                        )
+                        + (
+                            f", {golden['untested']} not run yet"
+                            if golden["untested"]
+                            else ""
+                        )
+                        + ".",
+                    )
+                )
         return self._preflight_result(use_case_id, checks)
 
     async def apreflight(
@@ -355,7 +392,12 @@ class UseCaseService:
         return build_extraction_agent(model, agent_id=agent_id, template_id=template_id)
 
     def build_run_options(
-        self, row: Mapping[str, Any], *, run_id: str, mode: str
+        self,
+        row: Mapping[str, Any],
+        *,
+        run_id: str,
+        mode: str,
+        request: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         """The ``additional_data`` for one run: parameters resolved, side effects held for a
         rehearsal, the sample set injected where the template has one."""
@@ -383,16 +425,11 @@ class UseCaseService:
             mode == "rehearse"
             and compiled.get("template") == UseCaseTemplate.DOCUMENT_TO_RECORD.value
         ):
-            from egpt_retail.documents.samples import (
-                expected_extraction,
-                sample_master_data,
-                sample_messages,
-            )
-
-            # A rehearsal reads the real mailbox when one is connected -- "what would happen
-            # to the emails that are there now", with every write held -- and falls back to the
-            # sample set only when no mailbox resolves. The mailbox is never flagged and the
-            # processed-id ledger is not consulted, so a rehearsal always shows the whole inbox.
+            # What a rehearsal runs over (K19). Chosen messages from the connected mailbox
+            # (writes held, nothing flagged, the processed-id ledger not consulted); the use
+            # case's own golden cases; or the generated set. Absent: the mailbox when one
+            # resolves and a model can read it, else the generated set.
+            request = dict(request or {})
             try:
                 resolve_credentials(
                     options.get("source mailbox") or {},
@@ -407,15 +444,45 @@ class UseCaseService:
                 self._agent_factory is not None
                 and self._agent_factory("extraction", "probe", "purchase_order") is None
             )
-            if not mailbox_available or not model_available:
-                options["messages"] = sample_messages()
-                options["rehearsal_source"] = "sample set"
-            else:
-                options["rehearsal_source"] = "mailbox"
-            if not model_available:
-                options["extractor"] = lambda document: expected_extraction(
-                    str(document["message"]["id"])[1:5].upper()
+            source = str(request.get("source") or "")
+            if not source:
+                source = (
+                    "mailbox" if mailbox_available and model_available else "generated"
                 )
+            if source == "mailbox" and not mailbox_available:
+                source = "generated"
+            if source == "mailbox":
+                options["rehearsal_source"] = "mailbox"
+                if request.get("message_ids"):
+                    options["message_ids"] = [str(i) for i in request["message_ids"]]
+            else:
+                cases = self.cases_for_rehearsal(
+                    row, source=source, case_ids=request.get("case_ids")
+                )
+                options["messages"] = [case_to_message(c) for c in cases]
+                options["rehearsal_source"] = (
+                    "cases" if source == "cases" else "generated"
+                )
+                options["rehearsal_case_ids"] = [c["id"] for c in cases]
+                if not model_available:
+                    # The curated purchase-order set carries its expected extraction, so a
+                    # deployment without a model still rehearses those; a case the person
+                    # uploaded cannot be read without one and fails at Extract, honestly.
+                    sample_ids = {
+                        f"<{c['id']}@cases>": (c.get("expected") or {}).get("sample_id")
+                        for c in cases
+                    }
+
+                    def stand_in(document: Mapping[str, Any]) -> Mapping[str, Any]:
+                        sample_id = sample_ids.get(str(document["message"]["id"]))
+                        if not sample_id:
+                            raise RuntimeError(
+                                "no extraction model is configured, and this case has no "
+                                "expected extraction to stand in for one"
+                            )
+                        return expected_extraction(str(sample_id))
+
+                    options["extractor"] = stand_in
             try:
                 resolve_credentials(
                     options.get("write target") or {},
@@ -427,10 +494,150 @@ class UseCaseService:
                 options["write target"] = {"type": "salesforce"}
         return options
 
+    def cases_for_rehearsal(
+        self,
+        row: Mapping[str, Any],
+        *,
+        source: str,
+        case_ids: Optional[Sequence[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """The stored cases a rehearsal runs: the ones asked for, or every one; for the
+        generated source, the generated ones -- created now when the use case has none."""
+        use_case_id = str(row["id"])
+        cases = self.store.list_cases(use_case_id)
+        if source == "generated":
+            generated = [c for c in cases if c.get("source") == GENERATED_CASE_SOURCE]
+            if not generated:
+                for raw in self.generate_cases(row):
+                    generated.append(
+                        self.store.create_case(
+                            use_case_id=use_case_id,
+                            label=raw["label"],
+                            document_b64=raw["document_b64"],
+                            sender=raw["sender"],
+                            subject=raw["subject"],
+                            filename=raw["filename"],
+                            source=GENERATED_CASE_SOURCE,
+                            expected=raw["expected"],
+                        )
+                    )
+            cases = generated
+        if case_ids:
+            wanted = {str(i) for i in case_ids}
+            cases = [c for c in cases if c["id"] in wanted]
+        return cases
+
+    def generate_cases(self, row: Mapping[str, Any]) -> List[Dict[str, Any]]:
+        """Cases the platform invents for this use case: the curated sixteen for the shipped
+        purchase-order template, the field-driven generator for any other."""
+        compiled = row.get("compiled") or {}
+        parameters = (
+            compiled.get("parameters")
+            or (row.get("spec") or {}).get("parameters")
+            or {}
+        )
+        template = template_from(
+            parameters.get("extraction template") or "purchase_order"
+        )
+        if template.id == "purchase_order":
+            out = []
+            for message in sample_messages():
+                sample_id = message.id[1:5].upper()
+                attachment = message.attachments[0]
+                expected = expected_extraction(sample_id)
+                out.append(
+                    {
+                        "label": f"{sample_id}: {message.subject}",
+                        "sender": message.sender,
+                        "subject": message.subject,
+                        "filename": attachment.filename,
+                        "document_b64": base64.b64encode(attachment.data).decode(
+                            "ascii"
+                        ),
+                        "expected": {
+                            "sample_id": sample_id,
+                            "outcome": expected_outcome(sample_id),
+                            "extracted": {
+                                k: expected[k]
+                                for k in (
+                                    "po_number",
+                                    "customer_name",
+                                    "due_date",
+                                    "order_total",
+                                )
+                            },
+                            "line_count": len(expected["lines"]),
+                        },
+                    }
+                )
+            return out
+        master = self._master_rows_for(parameters)
+        return generate_cases(
+            template, master, rules_from(parameters.get("guardrails") or "all")
+        )
+
+    def _master_rows_for(self, parameters: Mapping[str, Any]) -> Dict[str, Any]:
+        """Master data for generating cases: the org's when it resolves, the sample set's
+        otherwise."""
+        target = parameters.get("write target")
+        source: Mapping[str, Any] = target if isinstance(target, Mapping) else {}
+        try:
+            credentials = resolve_credentials(
+                source, kind="salesforce", environ=self._environ
+            )
+            from egpt_retail.documents.salesforce import client_from, load_master_data
+
+            client = client_from(credentials)
+            try:
+                return load_master_data(client)
+            finally:
+                client.close()
+        except (
+            Exception
+        ):  # no org reachable: the sample master data is honest enough to generate from
+            return sample_master_data()
+
+    def list_mailbox_messages(self, use_case_id: str) -> List[Dict[str, Any]]:
+        """The messages in the connected mailbox that match the use case's filter, without
+        bodies or attachment bytes: what the person picks a rehearsal from."""
+        row = self.store.get(use_case_id)
+        if row is None:
+            raise NotFound(use_case_id)
+        compiled = row.get("compiled") or {}
+        parameters = (
+            compiled.get("parameters")
+            or (row.get("spec") or {}).get("parameters")
+            or {}
+        )
+        options = run_parameters(parameters, environ=self._environ, strict=True)
+        mailbox = mailbox_from(options.get("source mailbox"))
+        messages = fetch_messages(
+            mailbox,
+            filter_from(options.get("message filter")),
+            mark_seen=False,
+            headers_only=True,
+        )
+        processed = set(self.store.processed_message_ids(use_case_id))
+        return [
+            {**m.as_dict(with_data=False), "processed_before": m.id in processed}
+            for m in messages
+        ]
+
+    async def alist_mailbox_messages(self, use_case_id: str) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self.list_mailbox_messages, use_case_id)
+
     def start_run(
-        self, use_case_id: str, *, mode: str = "live", trigger: str = "manual"
+        self,
+        use_case_id: str,
+        *,
+        mode: str = "live",
+        trigger: str = "manual",
+        request: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create the run row and return it; ``execute`` does the work."""
+        """Create the run row and return it; ``execute`` does the work. ``request`` is what a
+        rehearsal runs over (K19): ``{"source": "mailbox" | "cases" | "generated",
+        "message_ids": [...], "case_ids": [...]}``; absent means the mailbox when one is
+        connected, else the generated set."""
         row = self.store.get(use_case_id)
         if row is None:
             raise NotFound(use_case_id)
@@ -468,13 +675,21 @@ class UseCaseService:
             use_case_version=int(row.get("version") or 0),
             trigger=trigger,
             mode=mode,
+            request=dict(request) if request else None,
         )
 
     async def astart_run(
-        self, use_case_id: str, *, mode: str = "live", trigger: str = "manual"
+        self,
+        use_case_id: str,
+        *,
+        mode: str = "live",
+        trigger: str = "manual",
+        request: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await asyncio.to_thread(
-            lambda: self.start_run(use_case_id, mode=mode, trigger=trigger)
+            lambda: self.start_run(
+                use_case_id, mode=mode, trigger=trigger, request=request
+            )
         )
 
     async def execute(self, run_id: str) -> Dict[str, Any]:
@@ -500,7 +715,9 @@ class UseCaseService:
                     role, agent_id, template_id
                 ),
             )
-            options = self.build_run_options(row, run_id=run_id, mode=mode)
+            options = self.build_run_options(
+                row, run_id=run_id, mode=mode, request=run.get("request")
+            )
             framework_run_id = str(uuid.uuid4())
             output = await workflow.arun(
                 input=f"{row['id']} {mode}",
@@ -512,6 +729,10 @@ class UseCaseService:
                 result["rehearsal_source"] = options["rehearsal_source"]
             provenance_ref = _provenance_of(output)
             summary = _summary_of(result)
+            if result is not None and options.get("rehearsal_case_ids"):
+                result["cases"] = await self._score_cases(
+                    run_id, options["rehearsal_case_ids"], result
+                )
             updated = await self.store.aupdate_run(
                 run_id,
                 status="succeeded",
@@ -532,6 +753,127 @@ class UseCaseService:
         assert updated is not None
         return updated
 
+    async def _score_cases(
+        self, run_id: str, case_ids: Sequence[str], result: Mapping[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Score every case the run carried and record the verdict on the case row."""
+        by_message: Dict[str, Mapping[str, Any]] = {}
+        for document in result.get("documents") or []:
+            by_message[str((document.get("message") or {}).get("id"))] = document
+        exceptions: Dict[str, Mapping[str, Any]] = {}
+        for row in result.get("exceptions") or []:
+            exceptions[str(row.get("message_id"))] = row
+        verdicts: List[Dict[str, Any]] = []
+        for case_id in case_ids:
+            case = await self.store.aget_case(case_id)
+            if case is None:
+                continue
+            message_id = f"<{case_id}@cases>"
+            document = by_message.get(message_id)
+            verdict = score_case(
+                case, document=document, exception=exceptions.get(message_id)
+            )
+            # What the run observed, so "accept this output as expected" has it to copy.
+            extracted = (document or {}).get("extracted") or {}
+            verdict["observed"] = {
+                "outcome": verdict["outcome"],
+                "extracted": {
+                    k: v for k, v in extracted.items() if k != "lines" and v is not None
+                },
+                "line_count": len(extracted.get("lines") or []),
+            }
+            await self.store.aupdate_case(
+                case_id,
+                last_run_id=run_id,
+                last_status=verdict["status"],
+                last_result=verdict,
+            )
+            verdicts.append({"case_id": case_id, "label": case.get("label"), **verdict})
+        return verdicts
+
+    def accept_case_output(self, case_id: str) -> Dict[str, Any]:
+        """Turn the case's last observed output into what it expects from now on."""
+        case = self.store.get_case(case_id)
+        if case is None:
+            raise NotFound(case_id)
+        observed = (case.get("last_result") or {}).get("observed")
+        if not observed:
+            raise ActivationRefused(
+                self._preflight_result(
+                    str(case["use_case_id"]),
+                    [
+                        (
+                            "case_run",
+                            False,
+                            "Run the case first; there is no output to accept yet.",
+                        )
+                    ],
+                )
+            )
+        expected = {
+            "outcome": observed.get("outcome"),
+            "extracted": dict(observed.get("extracted") or {}),
+            "line_count": observed.get("line_count"),
+        }
+        updated = self.store.update_case(
+            case_id,
+            expected=expected,
+            last_status="pass",
+            last_result={
+                **(case.get("last_result") or {}),
+                "status": "pass",
+                "expected_outcome": observed.get("outcome"),
+                "checks": [],
+            },
+        )
+        assert updated is not None
+        return updated
+
+    async def aaccept_case_output(self, case_id: str) -> Dict[str, Any]:
+        return await asyncio.to_thread(self.accept_case_output, case_id)
+
+    def spec_changed_materially(
+        self, before: Optional[Mapping[str, Any]], after: Mapping[str, Any]
+    ) -> bool:
+        """Whether a saved spec changes what a golden case would do: the template, the
+        guardrails, the mapping, the thresholds."""
+        keys = (
+            "extraction template",
+            "guardrails",
+            "target objects",
+            "match thresholds",
+            "created as",
+        )
+        old_params = (before or {}).get("parameters") or {}
+        new_params = after.get("parameters") or {}
+        return any(old_params.get(k) != new_params.get(k) for k in keys)
+
+    def golden_summary(self, use_case_id: str) -> Dict[str, Any]:
+        """Pass rate over the cases that carry expected values: what preflight shows."""
+        cases = self.store.list_cases(use_case_id)
+        expected = [c for c in cases if c.get("expected")]
+        passed = [c for c in expected if c.get("last_status") == "pass"]
+        failed = [c for c in expected if c.get("last_status") == "fail"]
+        untested = [c for c in expected if c.get("last_status") not in {"pass", "fail"}]
+        return {
+            "cases": len(cases),
+            "with_expected": len(expected),
+            "passed": len(passed),
+            "failed": len(failed),
+            "untested": len(untested),
+            "failing": [
+                {
+                    "id": c["id"],
+                    "label": c.get("label"),
+                    "detail": (c.get("last_result") or {}).get("checks"),
+                }
+                for c in failed
+            ],
+        }
+
+    async def agolden_summary(self, use_case_id: str) -> Dict[str, Any]:
+        return await asyncio.to_thread(self.golden_summary, use_case_id)
+
     def launch(self, run_id: str) -> asyncio.Task:
         """Execute in the background on the running loop; the task is kept so a caller (a
         test, a shutdown) can await it."""
@@ -544,6 +886,20 @@ class UseCaseService:
         pending = list(self._tasks.values())
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+
+
+def _is_curated(row: Mapping[str, Any]) -> bool:
+    """Whether the use case runs the shipped purchase-order template, whose generated set is
+    the curated sixteen with a known expected extraction."""
+    compiled = row.get("compiled") or {}
+    parameters = (
+        compiled.get("parameters") or (row.get("spec") or {}).get("parameters") or {}
+    )
+    value = parameters.get("extraction template") or "purchase_order"
+    try:
+        return template_from(value).id == "purchase_order"
+    except (KeyError, ValueError):
+        return False
 
 
 def _result_of(output: Any) -> Optional[Dict[str, Any]]:

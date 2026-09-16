@@ -29,6 +29,7 @@ from egpt_retail.app.db import pooled_control_plane_engine
 from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.plan import UnknownPlanRef, plan_from_config
+from egpt_retail.usecases.credentials import CredentialUnavailable
 from egpt_retail.usecases.ddl import apply_use_case_ddl
 from egpt_retail.usecases.service import ActivationRefused, NotFound, UseCaseService
 from egpt_retail.usecases.store import UseCaseStore
@@ -250,9 +251,27 @@ async def save_use_case_spec(
 ) -> wire.Spec:
     spec = body.model_dump(mode="json", exclude_none=True)
     spec["use_case_id"] = use_case_id
-    row = await service.store.aupdate(use_case_id, spec=spec)
-    if row is None:
+    before = await service.store.aget(use_case_id)
+    if before is None:
         raise _not_found(use_case_id)
+    row = await service.store.aupdate(use_case_id, spec=spec)
+    assert row is not None
+    # Regression (K19): a change to the template, the guardrails, the mapping or the
+    # thresholds re-runs every golden case in the background, so the preflight's
+    # golden_cases check reflects this spec, not the last one.
+    if service.spec_changed_materially(before.get("spec"), spec):
+        cases = await service.store.alist_cases(use_case_id)
+        if any(c.get("expected") for c in cases):
+            try:
+                run = await service.astart_run(
+                    use_case_id,
+                    mode="rehearse",
+                    trigger="regression",
+                    request={"source": "cases"},
+                )
+                service.launch(str(run["id"]))
+            except ActivationRefused:
+                pass  # the spec does not compile yet; preflight says so
     return wire.Spec.model_validate(row["spec"])
 
 
@@ -376,11 +395,20 @@ async def list_use_case_runs(
 async def trigger_use_case_run(
     use_case_id: str,
     mode: wire.RunMode = wire.RunMode.live,
+    body: Optional[wire.RunRequest] = None,
     service: UseCaseService = Depends(use_case_service),
     _: None = Depends(require_scopes("use-cases:write")),
 ) -> Any:
+    request = body.model_dump(mode="json", exclude_none=True) if body else None
+    if request and request.get("source") is not None:
+        request["source"] = wire.RehearsalSource(request["source"]).value
     try:
-        run = await service.astart_run(use_case_id, mode=mode.value, trigger="manual")
+        run = await service.astart_run(
+            use_case_id,
+            mode=mode.value,
+            trigger="manual",
+            request=request if mode is wire.RunMode.rehearse else None,
+        )
     except NotFound:
         raise _not_found(use_case_id)
     except ActivationRefused as exc:
@@ -402,3 +430,123 @@ async def get_use_case_run(
             status_code=404, detail=f"No run {run_id!r} for use case {use_case_id!r}."
         )
     return _run_out(row)
+
+
+# --- rehearsal sources and golden cases (K19) -------------------------------------------------
+
+
+def _case_out(row: Dict[str, Any]) -> wire.GoldenCase:
+    return wire.GoldenCase.model_validate(
+        {k: v for k, v in row.items() if k != "document_b64"}
+    )
+
+
+@router.get(
+    "/use-cases/{use_case_id}/mailbox/messages",
+    response_model=List[wire.MailboxMessage],
+)
+async def list_mailbox_messages(
+    use_case_id: str,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> List[wire.MailboxMessage]:
+    try:
+        rows = await service.alist_mailbox_messages(use_case_id)
+    except NotFound:
+        raise _not_found(use_case_id)
+    except CredentialUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # the mailbox itself refusing: unreachable, wrong password
+        raise HTTPException(
+            status_code=503, detail=f"The mailbox could not be read: {exc}"[:300]
+        )
+    return [wire.MailboxMessage.model_validate(r) for r in rows]
+
+
+@router.get("/use-cases/{use_case_id}/cases", response_model=List[wire.GoldenCase])
+async def list_golden_cases(
+    use_case_id: str,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> List[wire.GoldenCase]:
+    if await service.store.aget(use_case_id) is None:
+        raise _not_found(use_case_id)
+    return [_case_out(c) for c in await service.store.alist_cases(use_case_id)]
+
+
+@router.post(
+    "/use-cases/{use_case_id}/cases", response_model=wire.GoldenCase, status_code=201
+)
+async def create_golden_case(
+    use_case_id: str,
+    body: wire.GoldenCaseWrite,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> wire.GoldenCase:
+    if await service.store.aget(use_case_id) is None:
+        raise _not_found(use_case_id)
+    import base64
+
+    from egpt_retail.documents.reader import PDF_MAGIC
+
+    try:
+        data = base64.b64decode(body.document_b64)
+    except Exception:
+        raise HTTPException(status_code=422, detail="document_b64 is not valid base64")
+    if not data.startswith(PDF_MAGIC):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{body.filename or 'document.pdf'}: not a PDF (no %PDF header)",
+        )
+    case = await service.store.acreate_case(
+        use_case_id=use_case_id,
+        label=body.label,
+        document_b64=body.document_b64,
+        sender=body.sender or "",
+        subject=body.subject or body.label,
+        filename=body.filename or "document.pdf",
+        source="uploaded",
+        expected=body.expected.model_dump(mode="json", exclude_none=True)
+        if body.expected
+        else None,
+    )
+    return _case_out(case)
+
+
+@router.delete("/use-cases/{use_case_id}/cases/{case_id}", status_code=204)
+async def delete_golden_case(
+    use_case_id: str,
+    case_id: str,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> None:
+    case = await service.store.aget_case(case_id)
+    if case is None or case.get("use_case_id") != use_case_id:
+        raise HTTPException(
+            status_code=404, detail=f"No case {case_id!r} for use case {use_case_id!r}."
+        )
+    await service.store.adelete_case(case_id)
+    return None
+
+
+@router.post(
+    "/use-cases/{use_case_id}/cases/{case_id}/accept",
+    response_model=wire.GoldenCase,
+    responses={409: {"model": wire.PreflightResult}},
+)
+async def accept_golden_case_output(
+    use_case_id: str,
+    case_id: str,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> Any:
+    case = await service.store.aget_case(case_id)
+    if case is None or case.get("use_case_id") != use_case_id:
+        raise HTTPException(
+            status_code=404, detail=f"No case {case_id!r} for use case {use_case_id!r}."
+        )
+    try:
+        updated = await service.aaccept_case_output(case_id)
+    except ActivationRefused as exc:
+        return _preflight_response(exc.preflight, 409)
+    return _case_out(updated)

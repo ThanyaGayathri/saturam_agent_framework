@@ -30,7 +30,7 @@ export function explain(err) {
  return err?.detail || err?.message || String(err);
 }
 
-export default function PlatformRunPanel({ useCaseId, mode, label, description, beforeRun, disabled, disabledReason, createdAs, buttonLabel }) {
+export default function PlatformRunPanel({ useCaseId, mode, label, description, beforeRun, disabled, disabledReason, createdAs, buttonLabel, request, onFinished, onAccept, compact }) {
  const [run, setRun] = useState(null);
  const [error, setError] = useState(null);
  const [busy, setBusy] = useState(false);
@@ -46,8 +46,10 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
   setBusy(true); setError(null); setRun(null); setOpen(null);
   try {
    const id = beforeRun ? await beforeRun({ signal: ac.signal }) : useCaseId;
-   const finished = await runOnPlatform(id, mode, { signal: ac.signal, onTick: setRun });
+   const body = typeof request === "function" ? await request({ signal: ac.signal, useCaseId: id }) : request;
+   const finished = await runOnPlatform(id, mode, { signal: ac.signal, onTick: setRun, request: body || undefined });
    setRun(finished);
+   onFinished?.(finished);
   } catch (err) {
    if (err?.name !== "AbortError") setError(explain(err));
   } finally {
@@ -59,10 +61,10 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
  const live = mode === "live";
 
  return (
-  <section className="rounded-xl border border-border bg-surface p-4">
+  <section className={compact ? "" : "rounded-xl border border-border bg-surface p-4"}>
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
-     <h2 className="text-sm font-bold text-text-primary">{label}</h2>
+     {label && <h2 className="text-sm font-bold text-text-primary">{label}</h2>}
      {description && <p className="mt-1 text-sm text-text-secondary">{description}</p>}
     </div>
     <div className="flex items-center gap-2">
@@ -100,6 +102,24 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
      <p className="text-xs text-text-secondary">
       {run.result?.rehearsal_source === "mailbox" ? "Read from your mailbox as it is now, nothing flagged. " : run.result?.rehearsal_source === "sample set" ? "Over the built-in sample set (no mailbox or no extraction model was reachable). " : ""}{run.summary}{rows.notify ? ` · exceptions ${rows.notify.status === "sent" ? "emailed" : "composed for"} ${(rows.notify.to || []).join(", ")}` : ""}{rows.rollback?.points ? ` · ${rows.rollback.points} rollback point(s) recorded` : ""}{run.provenance_ref ? ` · provenance ${run.provenance_ref}` : ""}
      </p>
+     {Array.isArray(run.result?.cases) && run.result.cases.length > 0 && (
+      <div className="overflow-x-auto rounded-lg border border-border">
+       <table className="w-full min-w-[560px] text-sm">
+        <thead className="bg-surface-secondary text-[11px] uppercase tracking-wide text-text-muted"><tr><th className="px-3 py-2 text-left">Case</th><th className="px-3 py-2 text-left">Expected</th><th className="px-3 py-2 text-left">Got</th><th className="px-3 py-2 text-left">Verdict</th><th className="px-3 py-2" /></tr></thead>
+        <tbody>
+         {run.result.cases.map((v) => (
+          <tr key={v.case_id} className="border-t border-border">
+           <td className="px-3 py-2 text-text-primary">{v.label}</td>
+           <td className="px-3 py-2 font-mono text-xs text-text-secondary">{v.expected_outcome || "—"}</td>
+           <td className="px-3 py-2 font-mono text-xs text-text-secondary">{v.outcome}{v.detail ? <span className="ml-1 font-sans text-text-muted">· {v.detail}</span> : ""}</td>
+           <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${v.status === "pass" ? "bg-status-success-light text-status-success" : v.status === "fail" ? "bg-status-critical-light text-status-critical" : "bg-surface-secondary text-text-secondary"}`}>{v.status}</span>{v.status === "fail" && (v.checks || []).filter((c) => !c.passed).map((c) => <span key={c.name} className="ml-1.5 text-[11px] text-text-muted">{c.name}: {c.detail}</span>)}</td>
+           <td className="px-3 py-2 text-right">{onAccept && v.status !== "pass" && v.outcome !== "not_run" && <button type="button" onClick={() => onAccept(v.case_id)} className="text-[11px] font-semibold text-primary hover:underline">Accept as expected</button>}</td>
+          </tr>
+         ))}
+        </tbody>
+       </table>
+      </div>
+     )}
      {Object.keys(rows.byClass).length > 0 && (
       <ul className="flex flex-wrap gap-1.5">
        {Object.entries(rows.byClass).map(([k, n]) => <li key={k} className="rounded-md border border-border bg-surface-secondary px-2 py-0.5 font-mono text-[11px] text-text-primary">{k} <span className="text-status-critical">×{n}</span></li>)}

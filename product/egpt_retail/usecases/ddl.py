@@ -20,10 +20,19 @@ from typing import Tuple
 
 from sqlalchemy.engine import Engine
 
-__all__ = ["USE_CASES_TABLE", "RUNS_TABLE", "apply_use_case_ddl", "aapply_use_case_ddl"]
+__all__ = [
+    "USE_CASES_TABLE",
+    "RUNS_TABLE",
+    "CASES_TABLE",
+    "apply_use_case_ddl",
+    "aapply_use_case_ddl",
+]
 
 USE_CASES_TABLE = "retail_use_cases"
 RUNS_TABLE = "retail_use_case_runs"
+#: K19: golden cases -- a document the person supplied or the platform generated, with the
+#: outcome and values they expect, re-run whenever the use case changes.
+CASES_TABLE = "retail_use_case_cases"
 
 _DDL = (
     f"""
@@ -67,6 +76,27 @@ CREATE TABLE IF NOT EXISTS {RUNS_TABLE} (
 )
 """.strip(),
     f"CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_use_case_idx ON {RUNS_TABLE} (use_case_id, started_at DESC)",
+    # K19: what a rehearsal was asked to run over (source, message ids, case ids).
+    f"ALTER TABLE {RUNS_TABLE} ADD COLUMN IF NOT EXISTS request JSONB",
+    f"""
+CREATE TABLE IF NOT EXISTS {CASES_TABLE} (
+    id            TEXT PRIMARY KEY,
+    use_case_id   TEXT NOT NULL,
+    label         TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'uploaded',
+    sender        TEXT NOT NULL DEFAULT '',
+    subject       TEXT NOT NULL DEFAULT '',
+    filename      TEXT NOT NULL DEFAULT 'document.pdf',
+    document_b64  TEXT NOT NULL,
+    expected      JSONB,
+    last_run_id   TEXT,
+    last_status   TEXT NOT NULL DEFAULT 'untested',
+    last_result   JSONB,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+""".strip(),
+    f"CREATE INDEX IF NOT EXISTS {CASES_TABLE}_use_case_idx ON {CASES_TABLE} (use_case_id, created_at)",
 )
 
 
@@ -75,7 +105,7 @@ def apply_use_case_ddl(engine: Engine) -> Tuple[str, ...]:
     with engine.begin() as connection:
         for statement in _DDL:
             connection.exec_driver_sql(statement)
-    return (USE_CASES_TABLE, RUNS_TABLE)
+    return (USE_CASES_TABLE, RUNS_TABLE, CASES_TABLE)
 
 
 async def aapply_use_case_ddl(engine: Engine) -> Tuple[str, ...]:

@@ -55,8 +55,8 @@ export function pauseUseCase(useCaseId, { signal } = {}) {
 }
 
 /** `POST /use-cases/{id}/runs?mode=live|rehearse` - queue one run and get it back. */
-export function triggerUseCaseRun(useCaseId, mode = "live", { signal } = {}) {
-  return apiJson(`/use-cases/${enc(useCaseId)}/runs?mode=${enc(mode)}`, "POST", undefined, { signal });
+export function triggerUseCaseRun(useCaseId, mode = "live", { signal, request } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/runs?mode=${enc(mode)}`, "POST", request || undefined, { signal });
 }
 
 /** `GET /use-cases/{id}/runs/{run_id}`. */
@@ -127,4 +127,24 @@ export function describeTargetObject(target, object, { signal } = {}) {
 /** A record mapping proposed from names over the live fields (K18). */
 export function suggestRecordMapping({ template, parent, child, label }, { signal } = {}) {
   return apiJson("/record-mappings/suggest", "POST", { template, parent, child: child || null, label: label || undefined }, { signal });
+}
+
+
+/** The messages in the connected mailbox that match the use case's filter (K19). */
+export function fetchMailboxMessages(useCaseId, { signal } = {}) {
+  return apiGet(`/use-cases/${enc(useCaseId)}/mailbox/messages`, { signal });
+}
+
+/** Golden cases (K19): list, upload, delete, accept a run's output as expected. */
+export function fetchGoldenCases(useCaseId, { signal } = {}) {
+  return apiGet(`/use-cases/${enc(useCaseId)}/cases`, { signal });
+}
+export function createGoldenCase(useCaseId, body, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/cases`, "POST", body, { signal });
+}
+export function deleteGoldenCase(useCaseId, caseId, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/cases/${enc(caseId)}`, "DELETE", undefined, { signal });
+}
+export function acceptGoldenCaseOutput(useCaseId, caseId, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/cases/${enc(caseId)}/accept`, "POST", undefined, { signal });
 }

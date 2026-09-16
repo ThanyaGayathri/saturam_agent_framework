@@ -6,7 +6,7 @@ import { loadSpecDraft } from "../../domain/use-case-draft-spec";
 import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { syncUseCaseToPlatform } from "../../services/use-case-platform";
-import PlatformRunPanel from "./PlatformRunPanel";
+import RehearsalSources from "./RehearsalSources";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 
@@ -156,13 +156,7 @@ export default function UseCaseRehearseScreen() {
 
    {doc && (
     <>
-     <PlatformRunPanel
-      mode="rehearse"
-      label="Rehearse: what would happen to the emails in the mailbox right now"
-      description={`Runs the compiled workflow on the platform with every side effect held: the real extraction model, your master data, your guardrails, your mapping. It reads ${spec.mailbox || "the mailbox"} as it is now and flags nothing; nothing is written to ${spec.writeback || "the target"} and nothing is sent. Without a connected mailbox it runs over the built-in sample set instead.`}
-      beforeRun={rehearseOnPlatform}
-      createdAs={spec.createdAs}
-     />
+     <RehearsalSources spec={spec} ensureUseCase={rehearseOnPlatform} />
 
     </>
    )}

@@ -15,14 +15,14 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from egpt_retail.usecases.ddl import RUNS_TABLE, USE_CASES_TABLE
+from egpt_retail.usecases.ddl import CASES_TABLE, RUNS_TABLE, USE_CASES_TABLE
 
-__all__ = ["UseCaseStore", "new_use_case_id", "new_run_id"]
+__all__ = ["UseCaseStore", "new_use_case_id", "new_run_id", "new_case_id"]
 
 _USE_CASE_COLUMNS = (
     "id, title, description, business_area, status, source, level, autonomy, tags, version, "
@@ -30,7 +30,12 @@ _USE_CASE_COLUMNS = (
 )
 _RUN_COLUMNS = (
     "id, use_case_id, use_case_version, status, trigger, mode, started_at, finished_at, "
-    "framework_run_id, output_ref, provenance_ref, summary, blocked_reason, result, created_at"
+    "framework_run_id, output_ref, provenance_ref, summary, blocked_reason, result, request, "
+    "created_at"
+)
+_CASE_COLUMNS = (
+    "id, use_case_id, label, source, sender, subject, filename, document_b64, expected, "
+    "last_run_id, last_status, last_result, created_at, updated_at"
 )
 
 
@@ -40,6 +45,10 @@ def new_use_case_id() -> str:
 
 def new_run_id() -> str:
     return "run_" + uuid.uuid4().hex[:8]
+
+
+def new_case_id() -> str:
+    return "case_" + uuid.uuid4().hex[:8]
 
 
 def _now() -> datetime:
@@ -52,7 +61,16 @@ def _json(value: Any) -> Optional[str]:
 
 def _row(mapping: Any) -> Dict[str, Any]:
     row = dict(mapping)
-    for key in ("tags", "draft", "spec", "compiled", "result"):
+    for key in (
+        "tags",
+        "draft",
+        "spec",
+        "compiled",
+        "result",
+        "request",
+        "expected",
+        "last_result",
+    ):
         value = row.get(key)
         if isinstance(value, str):
             row[key] = json.loads(value)
@@ -200,13 +218,14 @@ class UseCaseStore:
         trigger: str = "manual",
         mode: str = "live",
         run_id: Optional[str] = None,
+        request: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         identifier = run_id or new_run_id()
         with self._engine.begin() as connection:
             connection.execute(
                 text(
-                    f"INSERT INTO {RUNS_TABLE} (id, use_case_id, use_case_version, status, trigger, mode) "
-                    "VALUES (:id, :use_case_id, :version, 'queued', :trigger, :mode)"
+                    f"INSERT INTO {RUNS_TABLE} (id, use_case_id, use_case_version, status, trigger, mode, request) "
+                    "VALUES (:id, :use_case_id, :version, 'queued', :trigger, :mode, CAST(:request AS jsonb))"
                 ),
                 {
                     "id": identifier,
@@ -214,6 +233,7 @@ class UseCaseStore:
                     "version": use_case_version,
                     "trigger": trigger,
                     "mode": mode,
+                    "request": _json(dict(request) if request else None),
                 },
             )
         found = self.get_run(identifier)
@@ -350,6 +370,122 @@ class UseCaseStore:
         return await asyncio.to_thread(
             lambda: self.processed_message_ids(use_case_id, limit=limit)
         )
+
+    # -- golden cases (K19) ---------------------------------------------------------------
+
+    def create_case(
+        self,
+        *,
+        use_case_id: str,
+        label: str,
+        document_b64: str,
+        sender: str = "",
+        subject: str = "",
+        filename: str = "document.pdf",
+        source: str = "uploaded",
+        expected: Optional[Mapping[str, Any]] = None,
+        case_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        identifier = case_id or new_case_id()
+        with self._engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"INSERT INTO {CASES_TABLE} (id, use_case_id, label, source, sender, subject, filename, document_b64, expected) "
+                    "VALUES (:id, :use_case_id, :label, :source, :sender, :subject, :filename, :document_b64, CAST(:expected AS jsonb))"
+                ),
+                {
+                    "id": identifier,
+                    "use_case_id": use_case_id,
+                    "label": label,
+                    "source": source,
+                    "sender": sender,
+                    "subject": subject,
+                    "filename": filename,
+                    "document_b64": document_b64,
+                    "expected": _json(dict(expected) if expected else None),
+                },
+            )
+        found = self.get_case(identifier)
+        assert found is not None
+        return found
+
+    async def acreate_case(self, **kwargs: Any) -> Dict[str, Any]:
+        return await asyncio.to_thread(lambda: self.create_case(**kwargs))
+
+    def get_case(self, case_id: str) -> Optional[Dict[str, Any]]:
+        with self._engine.connect() as connection:
+            result = (
+                connection.execute(
+                    text(f"SELECT {_CASE_COLUMNS} FROM {CASES_TABLE} WHERE id = :id"),
+                    {"id": case_id},
+                )
+                .mappings()
+                .first()
+            )
+        return _row(result) if result is not None else None
+
+    async def aget_case(self, case_id: str) -> Optional[Dict[str, Any]]:
+        return await asyncio.to_thread(self.get_case, case_id)
+
+    def list_cases(self, use_case_id: str) -> List[Dict[str, Any]]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    f"SELECT {_CASE_COLUMNS} FROM {CASES_TABLE} WHERE use_case_id = :use_case_id ORDER BY created_at"
+                ),
+                {"use_case_id": use_case_id},
+            ).mappings()
+            return [_row(r) for r in rows]
+
+    async def alist_cases(self, use_case_id: str) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self.list_cases, use_case_id)
+
+    def update_case(self, case_id: str, **fields: Any) -> Optional[Dict[str, Any]]:
+        allowed = {
+            "label",
+            "sender",
+            "subject",
+            "expected",
+            "last_run_id",
+            "last_status",
+            "last_result",
+        }
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"cannot update {sorted(unknown)}")
+        assignments = []
+        params: Dict[str, Any] = {"id": case_id, "updated_at": _now()}
+        for key, value in fields.items():
+            if key in {"expected", "last_result"}:
+                assignments.append(f"{key} = CAST(:{key} AS jsonb)")
+                params[key] = _json(value)
+            else:
+                assignments.append(f"{key} = :{key}")
+                params[key] = value
+        if assignments:
+            with self._engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"UPDATE {CASES_TABLE} SET {', '.join(assignments)}, updated_at = :updated_at WHERE id = :id"
+                    ),
+                    params,
+                )
+        return self.get_case(case_id)
+
+    async def aupdate_case(
+        self, case_id: str, **fields: Any
+    ) -> Optional[Dict[str, Any]]:
+        return await asyncio.to_thread(lambda: self.update_case(case_id, **fields))
+
+    def delete_case(self, case_id: str) -> bool:
+        with self._engine.begin() as connection:
+            deleted = connection.execute(
+                text(f"DELETE FROM {CASES_TABLE} WHERE id = :id"), {"id": case_id}
+            ).rowcount
+        return bool(deleted)
+
+    async def adelete_case(self, case_id: str) -> bool:
+        return await asyncio.to_thread(self.delete_case, case_id)
 
     def last_run(self, use_case_id: str) -> Optional[Dict[str, Any]]:
         runs = self.list_runs(use_case_id, limit=1)

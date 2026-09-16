@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import email
+import re
 import email.utils
 import imaplib
 import os
@@ -23,7 +24,7 @@ import smtplib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "MailboxConfig",
@@ -88,6 +89,8 @@ class Message:
     attachments: List[Attachment] = field(default_factory=list)
     #: The From header when it differs from ``sender`` (Reply-To won); empty otherwise.
     from_address: str = ""
+    #: The message size in bytes, known on a headers-only listing.
+    size: int = 0
 
     @property
     def sender_domain(self) -> str:
@@ -101,6 +104,7 @@ class Message:
             "subject": self.subject,
             "received_at": self.received_at,
             "from_address": self.from_address,
+            "size": self.size,
             "body_text": self.body_text,
             "attachments": [a.as_dict(with_data=with_data) for a in self.attachments],
         }
@@ -230,6 +234,16 @@ def parse_message(uid: str, raw: bytes) -> Message:
     )
 
 
+def _fetched_items(parts: Sequence[Any]) -> List[Tuple[bytes, bytes]]:
+    """``(meta, raw)`` per message from imaplib's FETCH response: the tuples carry the data,
+    the bare ``b")"`` separators between them do not."""
+    return [
+        (p[0] if isinstance(p[0], bytes) else bytes(str(p[0]), "ascii"), p[1])
+        for p in parts
+        if isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], bytes)
+    ]
+
+
 def _search_criteria(message_filter: MessageFilter) -> List[str]:
     criteria: List[str] = ["UNSEEN"] if message_filter.unseen_only else ["ALL"]
     if message_filter.since_days is not None:
@@ -246,6 +260,7 @@ def fetch_messages(
     *,
     mark_seen: bool = True,
     imap_factory: Any = None,
+    headers_only: bool = False,
 ) -> List[Message]:
     """New messages matching the filter, newest last. ``imap_factory(host)`` returns an
     object with ``imaplib.IMAP4_SSL``'s ``login``/``select``/``search``/``fetch``/``store``/
@@ -268,18 +283,36 @@ def fetch_messages(
             if u
         ][-message_filter.max_messages :]
         messages: List[Message] = []
-        for uid in uids:
-            status, parts = client.fetch(uid, "(BODY.PEEK[])")
+        # A listing (K19) reads headers only: forty messages with PDFs is twenty seconds
+        # of bodies nobody asked for. The size stands in for the attachment names.
+        what = "(RFC822.SIZE BODY.PEEK[HEADER])" if headers_only else "(BODY.PEEK[])"
+        # One FETCH per batch, not per message: each round trip to Gmail is about a second,
+        # and a listing of forty is a listing, not a twenty-second wait.
+        batch = 40 if headers_only else 8
+        for start in range(0, len(uids), batch):
+            chunk = uids[start : start + batch]
+            status, parts = client.fetch(",".join(chunk), what)
             if status != "OK" or not parts:
                 continue
-            raw = next(
-                (p[1] for p in parts if isinstance(p, tuple) and len(p) > 1), None
-            )
-            if raw is None:
-                continue
-            messages.append(parse_message(uid, raw))
-            if mark_seen:
-                client.store(uid, "+FLAGS", "\\Seen")
+            for meta, raw in _fetched_items(parts):
+                uid_match = re.match(rb"\s*(\d+)\s", meta)
+                uid = uid_match.group(1).decode() if uid_match else chunk[0]
+                message = parse_message(uid, raw)
+                if headers_only:
+                    size_match = re.search(rb"RFC822.SIZE (\d+)", meta)
+                    message = Message(
+                        id=message.id,
+                        sender=message.sender,
+                        subject=message.subject,
+                        received_at=message.received_at,
+                        body_text="",
+                        attachments=[],
+                        from_address=message.from_address,
+                        size=int(size_match.group(1)) if size_match else 0,
+                    )
+                messages.append(message)
+                if mark_seen and not headers_only:
+                    client.store(uid, "+FLAGS", "\\Seen")
         return messages
     finally:
         try:

@@ -822,6 +822,17 @@
         required: false
         schema:
           $ref: '../schemas/use-cases.yaml#/RunMode'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/RunRequest'
+          examples:
+            chosen_messages:
+              value: {source: mailbox, message_ids: ["<e-01@sample.northwind.example>", "<e-02@sample.northwind.example>"]}
+            golden_cases:
+              value: {source: cases}
     responses:
       "202":
         description: Queued. Poll the run.
@@ -897,3 +908,154 @@ x-egpt-responses:
         examples:
           not_found:
             value: {detail: "No use case 'uc_9999'.", code: not_found}
+
+/use-cases/{use_case_id}/mailbox/messages:
+  get:
+    tags: [use-cases]
+    operationId: listMailboxMessages
+    summary: The messages in the connected mailbox that match the use case's filter (1.6.0).
+    description: |
+      Read with the platform's credentials, nothing flagged; what a person picks a rehearsal
+      from. `processed_before` marks messages a live run already carried.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: Messages, newest last.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/MailboxMessage'
+            examples:
+              default:
+                value: [{id: "<e-01@sample.northwind.example>", sender: purchasing@bristolcoatings.example, sender_domain: bristolcoatings.example, from_address: kiruthiga@saturam.com, subject: "Northwind sample: PO 27012128", received_at: "2026-09-15T08:01:00+00:00", attachments: [{filename: 27012128.pdf, content_type: application/pdf, size: 2410}], processed_before: false}]
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "503":
+        description: No mailbox is connected, or it cannot be reached.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              no_mailbox:
+                value: {detail: "env:gmail: GMAIL_USER, GMAIL_APP_PASSWORD not set in the environment", code: mailbox_unavailable}
+/use-cases/{use_case_id}/cases:
+  get:
+    tags: [use-cases]
+    operationId: listGoldenCases
+    summary: The use case's golden cases (1.6.0).
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: Cases, oldest first.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: [{id: case_1a2b3c4d, use_case_id: uc_0007, label: "E-01: PO 27012128", source: generated, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: 27012128.pdf, expected: {outcome: created, extracted: {po_number: "27012128"}, line_count: 1}, last_status: pass, last_run_id: run_0042, last_result: {status: pass, outcome: created, expected_outcome: created, checks: [{name: outcome, passed: true, detail: "expected created, got created"}]}, created_at: "2026-09-16T05:00:00Z"}]
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  post:
+    tags: [use-cases]
+    operationId: createGoldenCase
+    summary: Upload a document as a golden case (1.6.0).
+    description: |
+      The document is stored with the use case and run by `POST .../runs?mode=rehearse` with
+      `source: cases`. Expected values may be supplied now or authored later by accepting a
+      run's output.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/GoldenCaseWrite'
+          examples:
+            default:
+              value: {label: "Bristol PO, March", sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, document_b64: JVBERi0xLjQK..., expected: null}
+    responses:
+      "201":
+        description: Stored.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: {id: case_5e6f7a8b, use_case_id: uc_0007, label: "Bristol PO, March", source: uploaded, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, expected: null, last_status: untested, last_run_id: null, last_result: null, created_at: "2026-09-16T05:00:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: The document is not a PDF.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_pdf:
+                value: {detail: "document.pdf: not a PDF (no %PDF header)", code: invalid_document}
+/use-cases/{use_case_id}/cases/{case_id}:
+  delete:
+    tags: [use-cases]
+    operationId: deleteGoldenCase
+    summary: Remove a golden case (1.6.0).
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: case_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Removed.
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+/use-cases/{use_case_id}/cases/{case_id}/accept:
+  post:
+    tags: [use-cases]
+    operationId: acceptGoldenCaseOutput
+    summary: Make the case's last output what it expects from now on (1.6.0).
+    description: |
+      The cheap way to author a golden record -- run the document, look at what came out,
+      accept it. The case passes until the use case changes and a re-run disagrees.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: case_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The case, now with expected values.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: {id: case_5e6f7a8b, use_case_id: uc_0007, label: "Bristol PO, March", source: uploaded, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, expected: {outcome: created, extracted: {po_number: "27012128", customer_name: "Bristol Coatings Ltd"}, line_count: 1}, last_status: pass, last_run_id: run_0043, last_result: {status: pass}, created_at: "2026-09-16T05:00:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: The case has not been run yet, so there is no output to accept.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/PreflightResult'
+            examples:
+              not_run:
+                value: {use_case_id: uc_0007, allowed: false, checks: [{name: case_run, passed: false, reason: "Run the case first; there is no output to accept yet."}], blocked_by: [case_run], checked_at: "2026-09-16T05:00:00Z"}

@@ -6120,3 +6120,48 @@ the mailbox (subjects prefixed "Northwind sample:"), 7 previewed, 9 exceptions, 
 real model.
 
 ---
+
+### K19 -- three rehearsal sources and golden cases (no cookbook file; router + interface)
+
+**Package:** K19, branch `usecase_processautomation`. Contract 1.6.0 (additive).
+
+**Status:** PASS (16 Sep 2026): unit tests DB-free, the flow against the live API, org, inbox
+and model, the three tabs in the browser.
+
+**Description:** The rehearse screen offers the three sources the owner's lead asked for, and
+the platform serves them through one `POST .../runs?mode=rehearse` with a `RunRequest`:
+*From the mailbox* lists the messages matching the filter (`GET .../mailbox/messages`, a
+headers-only, batched IMAP read: 40 messages in 4 s where the per-message read took 22 s)
+and runs the ones ticked; *Upload documents* stores PDFs as golden cases (`POST .../cases`)
+and runs them; *Generated samples* has the platform invent documents from the template's
+fields and the master data (`documents/golden.py` `generate_cases`: clean ones, one per
+enabled rule kind that trips it, one unplaceable item, one scanned copy -- the purchase-order
+template keeps its curated sixteen) and runs them. Every case is scored after a run
+(`score_case`: outcome, then each expected header value, then the line count) and the
+verdict kept on the case; "Accept as expected" (`POST .../cases/{id}/accept`) turns a run's
+observed output into the expected values. A saved spec that changes the template, the
+guardrails, the mapping or the thresholds starts a `regression` rehearsal over the cases in
+the background; preflight's `golden_cases` check shows the pass rate and blocks activation on
+a failure, and the interface's readiness screen shows the same.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+3): a rehearsal with no mailbox and no
+  model generates the curated sixteen as cases and all pass; a second rehearsal over two
+  chosen cases carries two; dropping guardrails on the spec starts a regression run and the
+  duplicate case fails with "expected DUPLICATE_PO, got created", after which activation is
+  refused with `golden_cases` among the blockers; an uploaded PDF is refused unless it is a
+  PDF, runs through a stand-in model, is `untested` until its output is accepted, and passes
+  after; a custom delivery-note template generates a set that trips every suggested rule.
+- Live: the mailbox tab listed 40 matching messages; two ticked ran in the platform in ~20 s
+  (2 received, 2 previewed, "read from your mailbox as it is now"); the generated tab created
+  the sixteen cases and ran them with the real model: 16 of 16 pass; the readiness screen
+  read "Golden cases: 16 of 16 pass"; cutting the guardrails to two on the spec started a
+  regression that finished in 50 s with 4 failing (E-09, E-11, E-12, E-13) and preflight said
+  so; restoring them ran another regression and 16 of 16 passed again.
+
+**Left open:** an uploaded case runs only with a model (there is no expected extraction to
+stand in); the generated set for a custom template is lexical (field names decide the values)
+and the model could draft more realistic ones; the mailbox listing shows sizes, not attachment
+names, because it reads headers only.
+
+---

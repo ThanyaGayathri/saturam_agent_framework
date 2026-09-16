@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowRight, Check, ShieldCheck, X } from "lucide-react";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
@@ -7,6 +7,7 @@ import { templateLabel } from "../../domain/extraction-templates";
 import { mappingLabel } from "../../domain/record-mappings";
 import { AUTONOMY, MASTER_DATA_ROLES, displayName } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
+import { fetchGoldenCases } from "../../services/use-cases-api";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
 
 /**
@@ -38,6 +39,15 @@ export default function UseCasePreflightScreen() {
  const level = AUTONOMY[spec.autonomy] || AUTONOMY.inform;
  const [acked, setAcked] = useState(() => new Set());
 
+ // Golden cases live on the platform (K19): their pass rate is a readiness check here, read
+ // once the use case has been synced (any rehearsal does that).
+ const [golden, setGolden] = useState(null);
+ useEffect(() => {
+  const id = spec.platform?.useCaseId;
+  if (!id || spec.template !== "document_to_record") return;
+  fetchGoldenCases(id).then(setGolden).catch(() => setGolden([]));
+ }, [spec.platform?.useCaseId, spec.template]);
+
  const checks = useMemo(() => {
   const spec_ = "/use-cases/builder/compose";
   if (spec.template === "document_to_record") {
@@ -57,6 +67,15 @@ export default function UseCasePreflightScreen() {
     { id: "exceptions", title: "Exceptions", level: /@/.test(spec.exceptionsTo || "") ? "pass" : "fail", detail: /@/.test(spec.exceptionsTo || "") ? `Anything the automation cannot complete goes to ${spec.exceptionsTo}, and to the Alerts page.` : "No exceptions address.", fix: /@/.test(spec.exceptionsTo || "") ? null : { label: "Set the exceptions address", to: spec_ } },
     { id: "pii", title: "Personal data", level: "warn", detail: "Buyer names and email addresses are read from the documents and written to the target as contacts. Allowed for order processing; acknowledge that this use case handles personal data.", fix: null },
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "No owner.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
+    ...(() => {
+     if (golden === null) return [{ id: "golden", title: "Golden cases", level: "warn", detail: spec.platform?.useCaseId ? "Reading the cases from the platform…" : "No rehearsal yet. Rehearse on the platform (step 5) to run the golden cases; their pass rate gates activation.", fix: null }];
+     const withExpected = golden.filter((c) => c.expected);
+     const pass = withExpected.filter((c) => c.last_status === "pass").length;
+     const fail = withExpected.filter((c) => c.last_status === "fail");
+     const untested = withExpected.length - pass - fail.length;
+     if (!withExpected.length) return [{ id: "golden", title: "Golden cases", level: "warn", detail: golden.length ? `${golden.length} case(s) uploaded, none with an expected output yet. Run them and accept their output on the rehearse screen.` : "No golden cases yet. Upload documents or generate samples on the rehearse screen; their pass rate gates activation.", fix: null }];
+     return [{ id: "golden", title: "Golden cases", level: fail.length ? "fail" : untested ? "warn" : "pass", detail: `${pass} of ${withExpected.length} pass${fail.length ? `; failing: ${fail.slice(0, 3).map((c) => c.label).join(", ")}${fail.length > 3 ? "…" : ""}` : ""}${untested ? `; ${untested} not run since the last change` : ""}.`, fix: fail.length ? { label: "See the failing cases", to: "/use-cases/builder/rehearse" } : null }];
+    })(),
     { id: "unattended", title: "Unattended action", level: spec.blastRadius && spec.rollback ? "warn" : "fail", detail: spec.blastRadius && spec.rollback ? `Change limit ${spec.blastRadius} per run; rollback plan "${spec.rollback}". Going live requires an admin.` : "Set the change limit and rollback plan.", fix: spec.blastRadius && spec.rollback ? null : { label: "Set the change limit and rollback plan", to: spec_ } },
    ];
   }
@@ -175,7 +194,7 @@ export default function UseCasePreflightScreen() {
    });
   }
   return out;
- }, [spec, level]);
+ }, [spec, level, golden]);
 
  const fails = checks.filter((c) => c.level === "fail");
  const warns = checks.filter((c) => c.level === "warn");

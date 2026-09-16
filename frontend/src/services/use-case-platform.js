@@ -41,8 +41,8 @@ export async function activateOnPlatform(spec, sources = [], { signal } = {}) {
 }
 
 /** Queue a run and poll it to the end. `onTick` sees each poll. */
-export async function runOnPlatform(useCaseId, mode, { signal, onTick } = {}) {
- const queued = await triggerUseCaseRun(useCaseId, mode, { signal });
+export async function runOnPlatform(useCaseId, mode, { signal, onTick, request } = {}) {
+ const queued = await triggerUseCaseRun(useCaseId, mode, { signal, request });
  onTick?.(queued);
  return pollUseCaseRun(useCaseId, queued.id, { signal, onTick });
 }

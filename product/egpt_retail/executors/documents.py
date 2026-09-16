@@ -105,6 +105,11 @@ async def receive_messages(step_input: StepInput) -> StepOutput:
         )
         source = "imap"
     fresh = [m for m in messages if m.id not in processed]
+    # A rehearsal over chosen messages: only the ids the person ticked (K19).
+    wanted = options.get("message_ids")
+    if wanted:
+        keep = {str(i) for i in wanted}
+        fresh = [m for m in fresh if m.id in keep]
     note_dataset_read(step_input, schema="mailbox", table=mailbox.user or source)
     content = {
         "messages": [m.as_dict(with_data=True) for m in fresh],

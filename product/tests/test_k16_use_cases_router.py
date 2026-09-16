@@ -26,7 +26,7 @@ from egpt_retail.usecases.service import (
     compiled_to_dict,
     normalise_schedule,
 )
-from egpt_retail.usecases.store import new_run_id, new_use_case_id
+from egpt_retail.usecases.store import new_case_id, new_run_id, new_use_case_id
 from egpt_retail.api.routers import extraction_templates as catalogue_module
 from egpt_retail.documents.guardrails import (
     PURCHASE_ORDER_RULES,
@@ -52,6 +52,7 @@ class FakeStore:
     def __init__(self) -> None:
         self.use_cases: Dict[str, Dict[str, Any]] = {}
         self.runs: Dict[str, Dict[str, Any]] = {}
+        self.cases: Dict[str, Dict[str, Any]] = {}
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
@@ -120,9 +121,11 @@ class FakeStore:
         trigger="manual",
         mode="live",
         run_id=None,
+        request=None,
     ):
         identifier = run_id or new_run_id()
         self.runs[identifier] = {
+            "request": dict(request) if request else None,
             "id": identifier,
             "use_case_id": use_case_id,
             "use_case_version": use_case_version,
@@ -212,6 +215,72 @@ class FakeStore:
 
     async def aprocessed_message_ids(self, i, **kw):
         return self.processed_message_ids(i, **kw)
+
+    # -- golden cases (K19) --
+
+    def create_case(
+        self,
+        *,
+        use_case_id,
+        label,
+        document_b64,
+        sender="",
+        subject="",
+        filename="document.pdf",
+        source="uploaded",
+        expected=None,
+        case_id=None,
+    ):
+        identifier = case_id or new_case_id()
+        self.cases[identifier] = {
+            "id": identifier,
+            "use_case_id": use_case_id,
+            "label": label,
+            "source": source,
+            "sender": sender,
+            "subject": subject,
+            "filename": filename,
+            "document_b64": document_b64,
+            "expected": dict(expected) if expected else None,
+            "last_run_id": None,
+            "last_status": "untested",
+            "last_result": None,
+            "created_at": self._now(),
+            "updated_at": self._now(),
+        }
+        return dict(self.cases[identifier])
+
+    def get_case(self, case_id):
+        row = self.cases.get(case_id)
+        return dict(row) if row else None
+
+    def list_cases(self, use_case_id):
+        return [dict(c) for c in self.cases.values() if c["use_case_id"] == use_case_id]
+
+    def update_case(self, case_id, **fields):
+        row = self.cases.get(case_id)
+        if row is None:
+            return None
+        row.update(fields)
+        return dict(row)
+
+    def delete_case(self, case_id):
+        return self.cases.pop(case_id, None) is not None
+
+    async def acreate_case(self, **kw):
+        return self.create_case(**kw)
+
+    async def aget_case(self, i):
+        return self.get_case(i)
+
+    async def alist_cases(self, i):
+        return self.list_cases(i)
+
+    async def aupdate_case(self, i, **kw):
+        return self.update_case(i, **kw)
+
+    async def adelete_case(self, i):
+        return self.delete_case(i)
 
 
 from egpt.workflow.types import StepInput, StepOutput  # noqa: E402
@@ -1259,3 +1328,219 @@ def test_targets_router_reads_live_metadata_and_suggests(monkeypatch) -> None:
         monkeypatch.delenv("SF_LOGIN_URL", raising=False)
         assert client.get("/targets/salesforce/objects").status_code == 503
         assert client.get("/targets/sap/objects").status_code == 404
+
+
+# --- K19: rehearsal sources and golden cases -------------------------------------------------------
+
+
+def test_generated_cases_run_score_and_gate_activation() -> None:
+    service = _service({})
+    with _client(service) as client:
+        use_case_id = _create_and_spec(client)
+        # No mailbox, no model: a rehearsal with no request runs the generated set.
+        queued = client.post(
+            f"/use-cases/{use_case_id}/runs", params={"mode": "rehearse"}
+        )
+        assert queued.status_code == 202
+        client.portal.call(service.await_runs)
+        run = client.get(f"/use-cases/{use_case_id}/runs/{queued.json()['id']}").json()
+        assert (
+            run["status"] == "succeeded"
+            and run["result"]["rehearsal_source"] == "generated"
+        )
+        cases = client.get(f"/use-cases/{use_case_id}/cases").json()
+        assert len(cases) == 16 and all(c["source"] == "generated" for c in cases)
+        assert {c["last_status"] for c in cases} == {"pass"}, [
+            c for c in cases if c["last_status"] != "pass"
+        ]
+        verdicts = {v["label"]: v for v in run["result"]["cases"]}
+        assert verdicts["E-09: PO 27012128 (resend)"]["outcome"] == "DUPLICATE_PO"
+        assert (
+            verdicts["E-01: PO 27012128"]["observed"]["extracted"]["po_number"]
+            == "27012128"
+        )
+        assert "document_b64" not in cases[0]
+
+        # A second rehearsal over two chosen cases runs only those.
+        chosen = [c["id"] for c in cases[:2]]
+        queued = client.post(
+            f"/use-cases/{use_case_id}/runs",
+            params={"mode": "rehearse"},
+            json={"source": "cases", "case_ids": chosen},
+        )
+        client.portal.call(service.await_runs)
+        run = client.get(f"/use-cases/{use_case_id}/runs/{queued.json()['id']}").json()
+        assert (
+            run["result"]["stats"]["received"] == 2
+            and [v["case_id"] for v in run["result"]["cases"]] == chosen
+        )
+
+        # Preflight shows the pass rate; drop a guardrail and the duplicate case fails.
+        service._environ = dict(ENV_WITH_CREDS, AZURE_OPENAI_API_KEY="k")
+        preflight = client.post(f"/use-cases/{use_case_id}/preflight").json()
+        golden = next(c for c in preflight["checks"] if c["name"] == "golden_cases")
+        assert golden["passed"] and golden["reason"].startswith(
+            "16 of 16 golden cases pass"
+        )
+
+        spec = client.get(f"/use-cases/{use_case_id}/spec").json()
+        spec["parameters"]["guardrails"] = [{"id": "unknown_sender"}]
+        service._environ = {}
+        assert (
+            client.put(f"/use-cases/{use_case_id}/spec", json=spec).status_code == 200
+        )
+        client.portal.call(service.await_runs)  # the regression run the change started
+        regression = client.get(f"/use-cases/{use_case_id}/runs").json()[0]
+        assert (
+            regression["trigger"] == "regression"
+            and regression["status"] == "succeeded"
+        )
+        cases = {
+            c["label"]: c for c in client.get(f"/use-cases/{use_case_id}/cases").json()
+        }
+        assert cases["E-09: PO 27012128 (resend)"]["last_status"] == "fail"
+        assert (
+            cases["E-09: PO 27012128 (resend)"]["last_result"]["checks"][0]["detail"]
+            == "expected DUPLICATE_PO, got created"
+        )
+        service._environ = dict(ENV_WITH_CREDS, AZURE_OPENAI_API_KEY="k")
+        refused = client.post(f"/use-cases/{use_case_id}/activate", json={"level": 4})
+        assert (
+            refused.status_code == 409
+            and "golden_cases" in refused.json()["blocked_by"]
+        )
+        assert (
+            "5 failing"
+            in next(c for c in refused.json()["checks"] if c["name"] == "golden_cases")[
+                "reason"
+            ]
+        )
+
+
+def test_uploaded_case_is_run_and_its_output_accepted_as_expected() -> None:
+    import base64
+
+    from egpt_retail.documents.samples import expected_extraction, sample_messages
+
+    service = _service({})
+    with _client(service) as client:
+        use_case_id = _create_and_spec(client)
+        message = sample_messages()[1]  # E-02
+        pdf = base64.b64encode(message.attachments[0].data).decode()
+        assert (
+            client.post(
+                f"/use-cases/{use_case_id}/cases",
+                json={
+                    "label": "x",
+                    "document_b64": base64.b64encode(b"hello").decode(),
+                },
+            ).status_code
+            == 422
+        )
+        created = client.post(
+            f"/use-cases/{use_case_id}/cases",
+            json={
+                "label": "Lycoming PO",
+                "sender": message.sender,
+                "subject": message.subject,
+                "filename": "177948.pdf",
+                "document_b64": pdf,
+            },
+        )
+        assert created.status_code == 201
+        case = created.json()
+        assert (
+            case["source"] == "uploaded"
+            and case["last_status"] == "untested"
+            and case["expected"] is None
+        )
+        # Nothing expected yet, nothing to accept.
+        assert (
+            client.post(
+                f"/use-cases/{use_case_id}/cases/{case['id']}/accept"
+            ).status_code
+            == 409
+        )
+
+        # Without a model an uploaded document cannot be read; with the sample stand-in it can.
+        # The test hands the service an extractor through the run options by faking the model.
+        service._agent_factory = lambda role, agent_id, template: _StandInAgent()
+        service._environ = {"AZURE_OPENAI_API_KEY": "k"}
+        queued = client.post(
+            f"/use-cases/{use_case_id}/runs",
+            params={"mode": "rehearse"},
+            json={"source": "cases"},
+        )
+        assert queued.status_code == 202, queued.text
+        client.portal.call(service.await_runs)
+        run = client.get(f"/use-cases/{use_case_id}/runs/{queued.json()['id']}").json()
+        assert run["status"] == "succeeded", run
+        verdict = run["result"]["cases"][0]
+        assert verdict["status"] == "untested" and verdict["outcome"] == "created"
+
+        accepted = client.post(
+            f"/use-cases/{use_case_id}/cases/{case['id']}/accept"
+        ).json()
+        assert (
+            accepted["last_status"] == "pass"
+            and accepted["expected"]["outcome"] == "created"
+        )
+        assert (
+            accepted["expected"]["extracted"]["po_number"]
+            == expected_extraction("E-02")["po_number"]
+        )
+        assert (
+            client.delete(f"/use-cases/{use_case_id}/cases/{case['id']}").status_code
+            == 204
+        )
+        assert client.get(f"/use-cases/{use_case_id}/cases").json() == []
+        assert (
+            client.get(f"/use-cases/{use_case_id}/mailbox/messages").status_code == 503
+        )
+
+
+class _StandInAgent:
+    """A model that answers with the sample set's expected extraction, keyed by the PO on
+    the page -- enough to read an uploaded copy of a sample document."""
+
+    async def arun(self, prompt: str) -> Any:
+        import re
+
+        from egpt_retail.documents.samples import SAMPLE_EMAILS, expected_extraction
+
+        match = re.search(r"PO Number: (\S+)", prompt)
+        po = match.group(1) if match else ""
+        sample = next(e["id"] for e in SAMPLE_EMAILS if e["po"] == po)
+        return type("R", (), {"content": expected_extraction(sample)})()
+
+    def run(self, prompt: str) -> Any:  # pragma: no cover - sync twin for the interface
+        import asyncio
+
+        return asyncio.run(self.arun(prompt))
+
+
+def test_generate_cases_for_a_custom_template_trips_every_rule() -> None:
+    from egpt_retail.documents.golden import generate_cases
+    from egpt_retail.documents.guardrails import suggest_rules
+    from egpt_retail.documents.samples import sample_master_data
+
+    template = template_from(CUSTOM_TEMPLATE)
+    cases = generate_cases(
+        template, sample_master_data(), suggest_rules(template), today=date(2026, 9, 16)
+    )
+    outcomes = [c["expected"]["outcome"] for c in cases]
+    assert outcomes[:3] == ["created"] * 3
+    assert {
+        "UNKNOWN_SENDER",
+        "DUPLICATE_REFERENCE",
+        "FIRST_TIME_ITEM",
+        "QUANTITY_ANOMALY",
+        "DATE_INVALID",
+        "RESTRICTED_ITEM",
+        "TOTAL_MISMATCH",
+        "PRODUCT_NOT_FOUND",
+        "SCANNED_DOCUMENT",
+    } <= set(outcomes)
+    assert cases[0]["expected"]["extracted"]["note_number"] == "DN-1001" and cases[0][
+        "sender"
+    ].endswith("bristolcoatings.example")
