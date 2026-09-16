@@ -29,7 +29,7 @@ exactness ``gold.kpi_value``'s ``numeric`` preserves matters for a KPI a custome
 figure, not for a bar's height.
 
 A ``query`` tile's result is cached in ``dashboard_query_result``
-(:mod:`egpt_retail.dashboards.query_results`) by :func:`refresh_query_tiles`, once when the
+(:mod:`egpt_retail.dashboards.query_results`) by :func:`arefresh_query_tiles`, once when the
 tile is written and again on ``POST /dashboards/{id}/refresh``; ``GET /dashboards/{id}/data``
 reads the cache and never calls :func:`run_query`.
 """
@@ -86,7 +86,6 @@ __all__ = [
     "check_query",
     "personal_data_columns",
     "preview_query",
-    "refresh_query_tiles",
     "run_query",
     "verdict_out",
 ]
@@ -608,94 +607,12 @@ async def apreview_query(
 
 
 # --- refresh (fill the cache) --------------------------------------------------------------
-
-
-def refresh_query_tiles(
-    dashboard: Dashboard,
-    settings: RetailSettings,
-    results: DashboardQueryResultStore,
-    *,
-    only: Optional[Iterable[str]] = None,
-) -> Dict[str, QueryResultRecord]:
-    """Run every ``query`` tile of ``dashboard`` (or just the ids in ``only``) through the
-    guard and the warehouse, and replace each cached result. A refusal or a warehouse error
-    is cached as the tile's ``error`` so the dashboard can say why, never raised past here.
-    Returns the records written, keyed by tile id.
-    """
-    wanted = set(only) if only is not None else None
-    tiles = [
-        t
-        for t in dashboard.tiles
-        if t.source is TileSource.QUERY and (wanted is None or t.id in wanted)
-    ]
-    written: Dict[str, QueryResultRecord] = {}
-    if not tiles:
-        return written
-
-    with open_semantic_reader(settings) as reader:
-        guard = build_warehouse_read_guard(reader)
-        engine = build_query_engine(settings)
-        try:
-            for tile in tiles:
-                written[tile.id] = _refresh_one(
-                    dashboard, tile, reader, guard, engine, results
-                )
-        finally:
-            engine.dispose()
-    return written
-
-
-def _refresh_one(
-    dashboard: Dashboard,
-    tile: Tile,
-    reader: SemanticRead,
-    guard: SQLGuard,
-    engine: Engine,
-    results: DashboardQueryResultStore,
-) -> QueryResultRecord:
-    assert tile.query is not None  # a query tile, by construction
-    verdict = check_query(
-        tile.query.sql,
-        guard=guard,
-        context_tables=tile.query.source_tables,
-        personal_data=lambda tables: personal_data_columns(reader, tables),
-    )
-    if not verdict.runnable:
-        return results.put(
-            dashboard.id,
-            tile.id,
-            columns=[],
-            rows=[],
-            duration_ms=0,
-            error=f"guard refused: {verdict.detail}",
-            sql=verdict.sql,
-        )
-    try:
-        columns, rows, duration = run_query(
-            engine,
-            verdict.sql,
-            limit=guard.row_cap,
-            statement_timeout_ms=guard.statement_timeout_ms,
-        )
-    except Exception as exc:
-        return results.put(
-            dashboard.id,
-            tile.id,
-            columns=[],
-            rows=[],
-            duration_ms=0,
-            error=_first_line(exc),
-            sql=verdict.sql,
-        )
-    return results.put(
-        dashboard.id,
-        tile.id,
-        columns=columns,
-        rows=rows,
-        duration_ms=duration,
-        error=None,
-        sql=verdict.sql,
-    )
+#
+# Round 1 replaced a strictly-serial sync `refresh_query_tiles`/`_refresh_one` pair with the
+# concurrent `arefresh_query_tiles`/`_arun_one` below (finding #12); round 3's review confirmed
+# by a repo-wide grep that the sync pair had zero remaining callers once both router call sites
+# moved to the async version, and it was deleted outright here rather than left as unreachable
+# code with its own unguarded-exception copy of round 2's finding #2 sitting unpatched inside it.
 
 
 async def _arun_one(
@@ -747,7 +664,8 @@ async def arefresh_query_tiles(
 ) -> Dict[str, QueryResultRecord]:
     """Every ``query`` tile's guard check and warehouse round trip, concurrently
     (:func:`asyncio.gather` over :func:`_arun_one`) -- wall-clock cost is ``max(duration)``
-    across tiles rather than the sync :func:`refresh_query_tiles`'s ``sum(duration)``. Writing
+    across tiles rather than a strictly serial loop's ``sum(duration)`` (round 1 had one; it
+    was deleted in round 3 once nothing called it any more). Writing
     each result to ``results`` stays serial regardless of the gather above: a
     ``DashboardQueryResultStore`` holds one Postgres connection, which is not safe to use from
     more than one coroutine/thread at once, and a write is cheap next to a warehouse round

@@ -301,11 +301,13 @@ def _compute_query_tiles(
     try:
         with _open_query_results(settings) as results:
             # `arefresh_query_tiles` runs every tile's guard check and warehouse round trip
-            # concurrently (round-1 review, finding #12: the sync `refresh_query_tiles` this
-            # replaced was strictly serial, costing `sum(duration)` across tiles instead of
-            # `max(duration)`). `asyncio.run` is safe here: every caller of this function is
-            # a plain `def` route FastAPI already runs off its own worker thread, so there is
-            # no event loop on this thread for `asyncio.run` to collide with.
+            # concurrently (round-1 review, finding #12: the strictly serial loop this
+            # replaced cost `sum(duration)` across tiles instead of `max(duration)`; that
+            # sync version was itself deleted in round 3 once both call sites here had moved
+            # to this one and nothing else called it). `asyncio.run` is safe here: every
+            # caller of this function is a plain `def` route FastAPI already runs off its
+            # own worker thread, so there is no event loop on this thread for `asyncio.run`
+            # to collide with.
             asyncio.run(arefresh_query_tiles(dashboard, settings, results, only=only))
     except Exception:
         log_warning(
@@ -909,7 +911,7 @@ def _reject_duplicate_tile_ids(tiles: Sequence[Tile]) -> None:
     ``add_dashboard_tile`` already 409s a new tile whose id collides with an *existing* one
     (``current.tile(tile.id) is not None``), but nothing catches two entries of the *same*
     payload sharing an id -- neither dataclass's ``__post_init__``, nor
-    ``store.create``/``store.update``. Traced through ``refresh_query_tiles``: two ``query``
+    ``store.create``/``store.update``. Traced through ``arefresh_query_tiles``: two ``query``
     tiles with the same id in one payload both persist in the stored JSON array, but
     ``written[tile.id] = ...`` in the refresh loop means whichever is processed last silently
     wins the one cache row for that id -- the other tile's real result is dropped even though

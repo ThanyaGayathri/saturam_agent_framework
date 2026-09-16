@@ -2,7 +2,7 @@
 
 The query-tile equivalent of gold. A ``kpi`` tile reads ``gold.kpi_<identifier>``, filled by
 the nightly materialisation; a ``query`` tile reads this table, filled by
-:func:`egpt_retail.dashboards.queries.refresh_query_tiles` -- once when the tile is written,
+:func:`egpt_retail.dashboards.queries.arefresh_query_tiles` -- once when the tile is written,
 then whenever ``POST /dashboards/{id}/refresh`` asks. Opening a dashboard reads a row here
 and never runs the tile's SQL, which is the build plan's rule for dashboards ("never a live
 aggregation") carried over to the new tile kind.
