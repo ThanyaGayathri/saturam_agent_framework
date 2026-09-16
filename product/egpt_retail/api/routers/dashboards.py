@@ -534,6 +534,16 @@ def _build_context(
     any two of those, and the join edges themselves. ``reader`` is a seam for a caller that
     already holds one; a bare call opens its own.
 
+    A caller who narrowed neither -- ``kpi_identifiers`` and ``table_names`` both empty --
+    gets every ready KPI as context instead of an empty one. Narrowing is opt-in: it exists
+    so a person composing from a chat prompt alone (no metric picked, no table added) still
+    gets a dashboard built from everything this deployment already knows how to compute,
+    rather than the empty-charts-with-a-note result an empty context deterministically
+    produces (the agent's own refusal rule, section 8 of ``dashboard_suggestion.md``). This
+    is what the pre-1.2.0 agent always did -- select from the whole ready registry, every
+    run; 1.2.0's narrower default now applies only once the caller has actually started
+    narrowing it themselves, by picking a metric or adding a table.
+
     Raises ``ValueError`` for an identifier outside the ready set -- readable, so the run
     row can carry it -- and lets ``SemanticReadError`` through for a graph that cannot
     answer, which is a different failure and must not look like an empty context.
@@ -544,7 +554,10 @@ def _build_context(
         raise ValueError(
             f"{unknown[0]} is not a registered, ready KPI and cannot be composed from."
         )
-    kpis = tuple(by_identifier[i] for i in sorted(set(kpi_identifiers)))
+    if kpi_identifiers or table_names:
+        kpis = tuple(by_identifier[i] for i in sorted(set(kpi_identifiers)))
+    else:
+        kpis = tuple(sorted(snapshot.ready_kpis, key=lambda k: k.identifier))
     names = {t.lower() for k in kpis for t in k.source_tables}
     names |= {t.strip().lower() for t in table_names if t.strip()}
 

@@ -456,3 +456,107 @@ def test_drafts_of_raises_when_the_agent_returns_something_other_than_the_draft_
 
     with pytest.raises(ValueError, match="DashboardSuggestionDraft expected"):
         dashboards_module._drafts_of(_FakeResponse(), dsg.DashboardSuggestionDraft)
+
+
+# ---------------------------------------------------------------------------
+# _build_context -- an unnarrowed run defaults to every ready KPI
+# ---------------------------------------------------------------------------
+
+
+class _FakeContextReader:
+    """Just enough of `SemanticRead` for `_build_context`'s own two calls (`get_table`,
+    `find_join_path`) -- no Neo4j, no join paths (irrelevant to what these tests assert)."""
+
+    def __init__(self, tables):
+        self._tables = tables
+
+    def get_table(self, name, *, include_proposed=False):
+        return self._tables.get(name)
+
+    def find_join_path(self, from_table, to_table):
+        return None
+
+
+def _table(name):
+    from egpt_retail.contracts.semantic import Table, TableRef
+
+    return Table(ref=TableRef(name=name, schema="silver"), columns=())
+
+
+def test_build_context_defaults_to_every_ready_kpi_when_nothing_is_selected():
+    """A person who types a purpose and picks no metric, adds no table, still gets a real
+    context to compose from -- the pre-1.2.0 agent's own default (select from the whole
+    ready registry) -- rather than the empty-charts-with-a-note an empty context otherwise
+    deterministically produces."""
+    kpi_a = _kpi(identifier="a__one")
+    kpi_b = _kpi(
+        identifier="b__two",
+        sql="SELECT count(*) FROM orders",
+        source_tables=frozenset({"orders"}),
+    )
+    snapshot = _DashboardSuggestionSnapshot(
+        ready_kpis=(kpi_a, kpi_b), vocabularies=_VOCABULARIES
+    )
+    reader = _FakeContextReader(
+        {"sessions": _table("sessions"), "orders": _table("orders")}
+    )
+
+    context = dashboards_module._build_context(
+        RetailSettings(),
+        snapshot,
+        kpi_identifiers=[],
+        table_names=[],
+        chart_budget=None,
+        reader=reader,
+    )
+
+    assert {k.identifier for k in context.kpis} == {"a__one", "b__two"}
+    assert context.table_names == frozenset({"sessions", "orders"})
+
+
+def test_build_context_stays_narrow_once_a_metric_is_selected():
+    """Selecting even one metric opts back into the narrower, deliberate scope -- unaffected
+    by the empty-selection default above."""
+    kpi_a = _kpi(identifier="a__one")
+    kpi_b = _kpi(
+        identifier="b__two",
+        sql="SELECT count(*) FROM orders",
+        source_tables=frozenset({"orders"}),
+    )
+    snapshot = _DashboardSuggestionSnapshot(
+        ready_kpis=(kpi_a, kpi_b), vocabularies=_VOCABULARIES
+    )
+    reader = _FakeContextReader({"sessions": _table("sessions")})
+
+    context = dashboards_module._build_context(
+        RetailSettings(),
+        snapshot,
+        kpi_identifiers=["a__one"],
+        table_names=[],
+        chart_budget=None,
+        reader=reader,
+    )
+
+    assert {k.identifier for k in context.kpis} == {"a__one"}
+
+
+def test_build_context_stays_narrow_when_only_a_table_is_added_with_no_metric():
+    """Adding a table alone (no metric picked) is still a deliberate narrowing choice, not
+    "nothing selected" -- `kpis` stays empty rather than falling back to every ready KPI."""
+    kpi_a = _kpi(identifier="a__one", source_tables=frozenset({"sessions"}))
+    snapshot = _DashboardSuggestionSnapshot(
+        ready_kpis=(kpi_a,), vocabularies=_VOCABULARIES
+    )
+    reader = _FakeContextReader({"orders": _table("orders")})
+
+    context = dashboards_module._build_context(
+        RetailSettings(),
+        snapshot,
+        kpi_identifiers=[],
+        table_names=["orders"],
+        chart_budget=None,
+        reader=reader,
+    )
+
+    assert context.kpis == ()
+    assert context.table_names == frozenset({"orders"})

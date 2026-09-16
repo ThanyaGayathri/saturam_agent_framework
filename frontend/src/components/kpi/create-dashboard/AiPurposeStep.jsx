@@ -86,7 +86,11 @@ export default function AiPurposeStep({
 
  const loaded = allTables.map((name) => tables[name]).filter(Boolean);
  const coverage = loaded.length ? coverageOf(loaded) : null;
- const canGenerate = purpose.trim().length > 0 && allTables.length > 0;
+ // Metrics and tables are context, not a requirement -- picking none is a real choice
+ // ("just consider everything"), not an incomplete form. The backend defaults an empty
+ // selection to every ready metric (and the tables behind them) rather than an empty
+ // context, so a bare purpose still composes something real.
+ const canGenerate = purpose.trim().length > 0;
 
  const openCatalogue = () => {
   setAddingTable(true);
@@ -119,9 +123,9 @@ export default function AiPurposeStep({
      <Sparkles size={13} />
     </div>
     <p className="pt-1 text-[15px] leading-relaxed text-text-primary">
-     Pick the metrics this dashboard is about, then tell me what you need to see. I'll read
-     those metrics and the tables behind them, and compose the charts — not just one per
-     metric.
+     Tell me what you need to see, and I'll compose the charts for it — not just one per
+     metric. Point me at specific metrics or tables if you want to scope it; leave both
+     empty and I'll consider everything this deployment already tracks.
     </p>
    </div>
 
@@ -203,7 +207,9 @@ export default function AiPurposeStep({
        </button>
       )}
       {allTables.length === 0 && (
-       <span className="text-text-muted">Pick a metric, or add a table, so there is something to compose from.</span>
+       <span className="text-text-muted">
+        Nothing picked — every ready metric and its tables are in scope.
+       </span>
       )}
      </div>
     </div>
