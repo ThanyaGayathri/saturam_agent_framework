@@ -1564,3 +1564,97 @@ def test_generate_cases_for_a_custom_template_trips_every_rule() -> None:
     assert cases[0]["expected"]["extracted"]["note_number"] == "DN-1001" and cases[0][
         "sender"
     ].endswith("bristolcoatings.example")
+
+
+# --- K20: execution health from the runs table ------------------------------------------------------
+
+
+def test_execution_health_reads_the_runs_and_names_the_trigger() -> None:
+    from datetime import timedelta
+
+    from egpt_retail.api.routers import monitoring as monitoring_module
+    from egpt_retail.usecases.health import execution_health, silent_schedules
+
+    service = _service({})
+    store = service.store
+    row = store.create(title="Order creation", description="d", business_area="sales")
+    store.update(row["id"], status="activated", version=2, schedule="every_15_minutes")
+    now = datetime.now(timezone.utc)
+    run = store.create_run(
+        use_case_id=row["id"], use_case_version=2, trigger="schedule", mode="live"
+    )
+    store.update_run(
+        run["id"],
+        status="succeeded",
+        finished_at=now,
+        summary="16 received, 7 created, 9 exception(s)",
+        result={
+            "documents": [{"written": {"status": "written"}}] * 7,
+            "exceptions": [{"class": "X"}] * 9,
+        },
+    )
+    failed = store.create_run(
+        use_case_id=row["id"], use_case_version=2, trigger="manual", mode="live"
+    )
+    store.update_run(
+        failed["id"], status="failed", finished_at=now, blocked_reason="IMAP down"
+    )
+    store.runs[failed["id"]]["started_at"] = now - timedelta(days=2)
+    store.runs[run["id"]]["started_at"] = now - timedelta(minutes=10)
+
+    health = execution_health(store, trigger="poller", now=now)
+    h = health["use_cases"][0]
+    assert (
+        h["runs_7d"] == 2
+        and h["failures_7d"] == 1
+        and h["created_7d"] == 7
+        and h["exceptions_7d"] == 9
+    )
+    assert h["last_run_status"] == "succeeded" and h["last_run_summary"].startswith(
+        "16 received"
+    )
+    assert (
+        h["schedule"] == "every_15_minutes"
+        and h["trigger"] == "poller"
+        and h["silent"] is False
+    )
+    assert h["next_expected_at"] == now - timedelta(minutes=10) + timedelta(minutes=15)
+
+    # Forty minutes after the last run, a fifteen-minute cadence is silent -- but only when
+    # something is supposed to fire it.
+    later = now + timedelta(minutes=30)
+    assert (
+        execution_health(store, trigger="poller", now=later)["use_cases"][0]["silent"]
+        is True
+    )
+    assert (
+        execution_health(store, trigger=None, now=later)["use_cases"][0]["silent"]
+        is False
+    )
+    quiet = silent_schedules(store, trigger="poller", now=later)
+    assert (
+        quiet[0]["use_case_id"] == row["id"] and "every 15 minutes" in quiet[0]["name"]
+    )
+    store.update(row["id"], status="paused")
+    assert (
+        execution_health(store, trigger="poller", now=later)["use_cases"][0]["silent"]
+        is False
+    )
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.authorization_enabled = False
+        return await call_next(request)
+
+    app.include_router(monitoring_module.router)
+    app.dependency_overrides[module.use_case_service] = lambda: service
+    app.dependency_overrides[monitoring_module.schedule_trigger] = lambda: "poller"
+    with TestClient(app) as client:
+        body = client.get("/monitoring/execution-health").json()
+        assert (
+            body["use_cases"][0]["use_case_id"] == row["id"]
+            and body["use_cases"][0]["status"] == "paused"
+        )
+        assert client.get("/monitoring/schedules/silent").json() == []

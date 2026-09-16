@@ -158,3 +158,27 @@ export function runUseCasePreflightProbe(useCaseId, probe, { signal } = {}) {
 export function updateGoldenCase(useCaseId, caseId, body, { signal } = {}) {
   return apiJson(`/use-cases/${enc(useCaseId)}/cases/${enc(caseId)}`, "PATCH", body, { signal });
 }
+
+/** The platform's use cases (K20). `source: user` is what the interface created. */
+export function listUseCases({ status, source, signal } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (source) params.set("source", source);
+  const query = params.toString();
+  return apiGet(`/use-cases${query ? `?${query}` : ""}`, { signal });
+}
+
+/** Execution health for every use case, from the platform's run history (K20). */
+export function fetchExecutionHealth({ signal } = {}) {
+  return apiGet("/monitoring/execution-health", { signal });
+}
+
+/** Schedules that should have fired and did not (K20). */
+export function fetchSilentSchedules({ signal } = {}) {
+  return apiGet("/monitoring/schedules/silent", { signal });
+}
+
+/** The spec the platform holds for a use case (K20), for editing it again. */
+export function fetchUseCaseSpec(useCaseId, { signal } = {}) {
+  return apiGet(`/use-cases/${enc(useCaseId)}/spec`, { signal });
+}

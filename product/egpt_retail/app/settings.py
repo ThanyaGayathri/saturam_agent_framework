@@ -258,6 +258,12 @@ class RetailSettings(BrandedSettings):
         "on Azure, a Step Functions task on AWS -- which calls POST /use-cases/{id}/runs instead. Off "
         "by default: a run is a write, and a switch nobody threw should not make one.",
     )
+    retail_schedule_trigger: Optional[str] = Field(
+        default=None,
+        description="What fires use-case schedules in this deployment, for the monitoring screen "
+        "(EGPT_RETAIL_SCHEDULE_TRIGGER): 'orchestrator' where a Logic App or Step Functions task "
+        "calls the run endpoint. Unset locally, where the in-process poller reports itself.",
+    )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
         description="Azure OpenAI chat deployment for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT). "

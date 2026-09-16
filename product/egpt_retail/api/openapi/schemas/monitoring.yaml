@@ -203,6 +203,34 @@ UseCaseExecutionHealth:
       description: Approval gates waiting on a person longer than their threshold.
     cost_7d:
       $ref: './monitoring.yaml#/ExecutionCost'
+    status:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseStatus'
+        - type: "null"
+      description: The use case's own status (1.7.0), so a paused one is not reported silent.
+    schedule:
+      type: [string, "null"]
+      description: The cadence it runs on (1.7.0), a `ScheduleCadence` value; null when it runs only on demand.
+    trigger:
+      type: [string, "null"]
+      description: "What fires the schedule where this platform runs (1.7.0): `poller` locally, `orchestrator` in the cloud, null when nothing does and the Run button is the only trigger."
+    next_expected_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+      description: When the schedule should next fire (1.7.0), from the last run and the cadence.
+    exceptions_7d:
+      type: integer
+      default: 0
+      description: Documents held with an exception across the last 7 days' live runs (1.7.0).
+    created_7d:
+      type: integer
+      default: 0
+      description: Records created across the last 7 days' live runs (1.7.0).
+    last_run_summary:
+      type: string
+      default: ""
+      description: The last run's one-line summary (1.7.0).
     error:
       oneOf:
         - type: string

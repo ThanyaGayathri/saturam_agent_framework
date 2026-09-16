@@ -6197,3 +6197,33 @@ form-computed rows follow a beat behind, and the progress is the platform's, not
 The "connected and readable" wording is now earned.
 
 ---
+
+### K20 -- the gallery and Monitor read the platform; execution health from the runs table
+
+**Package:** K20, branch `usecase_processautomation`. Contract 1.7.0 (additive).
+
+**Status:** PASS (16 Sep 2026): unit test, the live API, both screens in the browser.
+
+**Description:** "User built use cases" lists only what `GET /use-cases` holds -- the
+prototype's browser-side catalogue is gone from that screen -- with status, schedule, version
+and the last run on each card, and a use-case page (`/use-cases/platform/:id`) with Run now,
+Pause / Resume, Edit (reopens the builder on the platform's spec through
+`specFromPlatform`), and the run history with each run's own result. Monitor's "Use case
+execution" is a table from the new real `GET /monitoring/execution-health`
+(`usecases/health.py`, from `retail_use_case_runs`): schedule and what fires it, last run and
+summary, next expected, runs / created / exceptions over 7 days, and a Silent verdict when one
+and a half cadences pass with nothing fired; `GET /monitoring/schedules/silent` lists those.
+The stat strip and the activity feed read the same. The local API script now starts the
+in-process poller by default, so "every 5 minutes" is true on the demo machine and the
+Monitor names it as the trigger; `EGPT_RETAIL_SCHEDULE_TRIGGER=orchestrator` names the cloud's.
+
+**Verification:** `test_execution_health_reads_the_runs_and_names_the_trigger` (runs, failures,
+created, exceptions, next expected, silence with and without a trigger, a paused use case
+never silent, the router). Live: the poller fired a scheduled run of the owner's use case on
+restart (0 received, every message already carried); the gallery showed the use case with
+"Active · v1"; Monitor showed 1 active use case, 21 runs over 7 days, 7 created and 9 held,
+the row "every 5 minutes · fired by the local poller · succeeded · next 12:04 · Healthy",
+and the activity feed with "Purchase order → Salesforce ran: 0 received". The use-case page
+listed nine runs (schedule, Run now, rehearsals) with each run's result expandable.
+
+---

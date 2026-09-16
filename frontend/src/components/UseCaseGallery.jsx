@@ -1,161 +1,58 @@
-import { useMemo, useState } from "react";
-import { clearSpecDraft } from "../domain/use-case-draft-spec";
-import { useNavigate, useLocation } from "react-router-dom";
-import {
-  Plus,
-  PenLine,
-  ArrowRight,
-  Blocks,
-  X,
-} from "lucide-react";
-import { loadUseCaseDraft } from "../storage/use-case-draft";
-import { useCaseActivationPath } from "../domain/automation-registry";
-import { getKpiNamesForCatalogId } from "../domain/kpi-usecase-links";
-import { storageKeysForProfile } from "../storage/keys";
-import { useDemoProfile } from "../context/DemoProfileContext";
-import { roleRank } from "../domain/featured-use-cases";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Blocks, Clock, FileText, Plus, RefreshCw } from "lucide-react";
+import { clearSpecDraft, loadSpecDraft } from "../domain/use-case-draft-spec";
+import { cadenceLabel } from "../domain/use-case-platform";
+import { relativeTimeFromNow as _rel } from "../domain/alerts-view";
+const relativeTimeFromNow = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
 import { Button } from "./ui";
-import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
-import { useProcesses } from "../hooks/useProcesses";
-import { formatProcessFieldForUi } from "../storage/processes";
+import { listUseCases } from "../services/use-cases-api";
 import {
-  catalogPageShell,
-  catalogPageInner,
-  catalogHeaderRow,
-  catalogHeaderText,
-  catalogH1,
-  catalogSubtitle,
-  catalogPrimaryAction,
-  catalogSectionBelowNav,
+  catalogPageShell, catalogPageInner, catalogHeaderRow, catalogHeaderText, catalogH1, catalogSubtitle, catalogPrimaryAction, catalogSectionBelowNav,
 } from "./shared/useCaseCatalogPageStyles";
 import { UseCasePageNav } from "./shared/UseCasePageNav";
-import { GalleryUseCaseCard, cardVariant } from "./shared/GalleryUseCaseCard";
 import { CatalogSearchToolbar } from "./shared/CatalogSearchToolbar";
-import { UseCaseTierFilterSelect } from "./shared/UseCaseTierFilterSelect";
-import { entryMatchesSearchQuery } from "../storage/use-cases-catalog";
 import TourLaunchButton from "../tours/TourLaunchButton";
+
+/**
+ * User built use cases (K20): what the platform holds, and nothing else. The prototype's
+ * browser-side catalogue is gone from this screen; every card here is a row of
+ * `GET /use-cases` created by the builder, with its status, schedule, version and last run
+ * as the platform reports them. Opening a card is the use case's own page.
+ */
+export const STATUS_PILL = {
+  activated: { label: "Active", cls: "bg-status-success-light text-status-success" },
+  paused: { label: "Paused", cls: "bg-status-warning-light text-status-warning" },
+  draft: { label: "Draft", cls: "bg-surface-secondary text-text-secondary" },
+  retired: { label: "Retired", cls: "bg-surface-secondary text-text-muted" },
+};
+const RUN_PILL = { succeeded: "text-status-success", failed: "text-status-critical", blocked: "text-status-warning", running: "text-status-info", queued: "text-text-muted" };
+
+export function summaryOf(useCase) {
+  const last = useCase.last_run;
+  if (!last) return "No run yet";
+  return `${last.status} · ${relativeTimeFromNow(last.started_at)}`;
+}
 
 export default function UseCaseGallery() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { entries, hydrated, softDeleteCustomUseCase, setData } = useUseCaseCatalog();
-  const { processes } = useProcesses();
-  const { profileId, role } = useDemoProfile();
-
-  /** Active, deployed use cases only (in use, not drafts). Pre-built templates live under Pre defined Use Case. */
-  const activeUserEntriesSorted = useMemo(() => {
-    const list = [...(entries || [])].filter((e) => e.source === "user" && e.status === "active");
-    list.sort((a, b) => {
-      const ra = roleRank(a.id, profileId, role);
-      const rb = roleRank(b.id, profileId, role);
-      if (ra !== -1 && rb !== -1) return ra - rb;
-      if (ra !== -1) return -1;
-      if (rb !== -1) return 1;
-      const ga = a.galleryOrder ?? Number.MAX_SAFE_INTEGER;
-      const gb = b.galleryOrder ?? Number.MAX_SAFE_INTEGER;
-      if (ga !== gb) return ga - gb;
-      return String(a.updatedAt || "").localeCompare(String(b.updatedAt || ""));
-    });
-    return list;
-  }, [entries, profileId, role]);
-
-  const [tierFilter, setTierFilter] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const draft = useMemo(() => loadSpecDraft(), []);
+  const draftInProgress = draft?.goal && !draft.activation;
 
-  const searchFiltered = useMemo(() => {
-    let list = activeUserEntriesSorted;
-    const q = search.trim();
-    if (q) list = list.filter((e) => entryMatchesSearchQuery(e, q));
-    if (tierFilter) list = list.filter((e) => e.tier === tierFilter);
-    return list;
-  }, [activeUserEntriesSorted, search, tierFilter]);
+  const load = () => {
+    setError(null);
+    listUseCases({ source: "user" }).then((list) => setRows(list.filter((u) => u.source === "user"))).catch((err) => { setRows([]); setError(err?.status === 0 ? "The platform is not running. Start the local API and reload." : err?.detail || err?.message); });
+  };
+  useEffect(load, []);
 
-  /** Operational first, then customer-facing. */
-  const yourUseCasesOrdered = useMemo(() => {
-    const operational = [];
-    const customer = [];
-    for (const e of searchFiltered) {
-      if (cardVariant(e.actionType) === "operational") operational.push(e);
-      else customer.push(e);
-    }
-    return [...operational, ...customer];
-  }, [searchFiltered]);
-
-  const activeDraft = useMemo(() => {
-    try {
-      const key = storageKeysForProfile(profileId).USE_CASE_DRAFT;
-      return loadUseCaseDraft(key);
-    } catch { return null; }
-  }, [location.pathname, profileId]);
-  const draftTitle = activeDraft?.step1?.title?.trim();
-  const draftResumePath = useMemo(() => {
-    if (!draftTitle) return null;
-    const d = activeDraft;
-    if ((d.step5?.tasks ?? []).length > 0) return { path: "/use-cases/builder/step-7", label: "Pre-flight Check (Step 7)" };
-    if ((d.step4?.planItems ?? []).length > 0) return { path: "/use-cases/builder/step-5", label: "Plan Breakdown (Step 5)" };
-    if ((d.step3?.confirmedSources ?? []).some((s) => s.enabled)) return { path: "/use-cases/builder/step-4", label: "AI Generates Plan (Step 4)" };
-    if (d.step2?.primaryQuestion?.trim()) return { path: "/use-cases/builder/step-3", label: "Data Scope (Step 3)" };
-    return { path: "/use-cases/builder/step-2", label: "User Question (Step 2)" };
-  }, [activeDraft, draftTitle]);
-
-  const launchedSameTitle =
-    !!activeDraft?.step1?.title?.trim() &&
-    entries.some(
-      (e) =>
-        e.source === "user" &&
-        e.status !== "draft" &&
-        (e.title || "").trim().toLowerCase() === activeDraft.step1.title.trim().toLowerCase()
-    );
-  const hideDraftBanner =
-    activeDraft?.builderSession?.hideTemplatesDraftBanner === true || launchedSameTitle;
-
-  // Four steps now, starting from the question rather than a title. `step-1` stays routable for
-  // resume and reopen-catalog journeys, which this flow does not cover.
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (rows || []).filter((u) => !q || `${u.title} ${u.description} ${u.business_area}`.toLowerCase().includes(q));
+  }, [rows, search]);
   const openBuilder = () => { clearSpecDraft(); navigate("/use-cases/builder/describe"); };
-
-  const handleMenuClick = async (useCase) => {
-    if (useCase.source === "seed" && !useCase.__supabaseId) {
-      window.alert(
-        "Pre-defined use cases can't be deleted. Toggle inactive from the activation page if you don't want to run it."
-      );
-      return;
-    }
-    if (!window.confirm(`Delete "${useCase.title}"?`)) return;
-    if (useCase.__supabaseId) {
-      await softDeleteCustomUseCase(useCase.__supabaseId);
-      return;
-    }
-    // Legacy localStorage-only user entry (added before Supabase was wired).
-    setData((prev) => ({
-      ...prev,
-      entries: (prev.entries || []).filter((e) => e.id !== useCase.id),
-    }));
-  };
-
-  const openGalleryUseCase = (useCase) => {
-    if (useCase.source === "user") {
-      const path = useCase.status === "draft"
-        ? (useCase.resumePath || "/use-cases/builder/step-1").split("?")[0]
-        : "/use-cases/builder/step-8";
-      navigate(`${path}?reopenCatalogId=${encodeURIComponent(useCase.id)}`);
-    } else {
-      navigate(useCaseActivationPath(useCase.id));
-    }
-  };
-
-  const hasAnyVisible = yourUseCasesOrdered.length > 0;
-  const hasActiveFilters =
-    search.trim().length > 0 || !!tierFilter;
-
-  if (!hydrated) {
-    return (
-      <div className={catalogPageShell}>
-        <div className={catalogPageInner}>
-          <p className="text-base leading-6 text-text-secondary">Loading use cases…</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className={catalogPageShell}>
@@ -166,169 +63,66 @@ export default function UseCaseGallery() {
               <h1 className={catalogH1}>User built use cases</h1>
               <TourLaunchButton tourId="use-case-gallery" label="Take a quick User built use cases tour" />
             </div>
-            <p className={catalogSubtitle}>
-              Use cases you have launched, activated, and are monitoring. Open a card to go to the dashboard or manage the run.
-            </p>
+            <p className={catalogSubtitle}>Use cases you built on the platform, with their status, schedule and last run. Open a card to see its runs, run it now, or pause it.</p>
           </div>
-          <Button
-            size="lg"
-            onClick={openBuilder}
-            className={`${catalogPrimaryAction} gap-1.5`}
-            data-tour-uc="create"
-          >
-            <Plus size={18} strokeWidth={2.5} />
-            Create Use Case
-          </Button>
+          <Button size="lg" onClick={openBuilder} className={`${catalogPrimaryAction} gap-1.5`} data-tour-uc="create"><Plus size={18} strokeWidth={2.5} /> Create Use Case</Button>
         </div>
+        <div data-tour-uc="tabs"><UseCasePageNav current="gallery" /></div>
 
-        <div data-tour-uc="tabs">
-          <UseCasePageNav current="gallery" />
-        </div>
-
-        <div className={`${catalogSectionBelowNav} space-y-8`}>
-          {/* In-progress draft card */}
-          {draftResumePath && !hideDraftBanner && (
-            <div className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-surface-default to-primary-light/80 p-5 shadow-sm dark:border-border dark:from-surface-secondary dark:to-surface-default dark:bg-none dark:ring-1 dark:ring-primary/25">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
-                    <PenLine size={18} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.4px] text-primary">
-                      Draft in progress
-                    </p>
-                    <p className="mt-0.5 truncate text-[15px] font-semibold text-text-primary">
-                      {draftTitle}
-                    </p>
-                    <p className="mt-0.5 text-[13px] text-text-secondary">
-                      Resume at: <span className="font-medium text-text-tertiary">{draftResumePath.label}</span>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(draftResumePath.path)}
-                  className="flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover sm:self-auto"
-                >
-                  Continue
-                  <ArrowRight size={14} />
-                </button>
-              </div>
+        <div className={`${catalogSectionBelowNav} space-y-6`}>
+          {draftInProgress && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-light/40 px-4 py-3">
+              <div className="min-w-0 text-sm"><p className="font-semibold text-text-primary">Draft in progress: {draft.title || draft.goal}</p><p className="text-text-secondary">Not on the platform yet. Continue in the builder to rehearse and activate it.</p></div>
+              <Button onClick={() => navigate("/use-cases/builder/compose")}>Continue</Button>
             </div>
           )}
 
-          {/* Search (left) + tier filter (right) */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 sm:max-w-md sm:flex-1">
-              <CatalogSearchToolbar
-                value={search}
-                onValueChange={setSearch}
-                placeholder="Search use cases"
-                className="!w-full sm:!w-full"
-              />
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 sm:shrink-0">
-              <UseCaseTierFilterSelect
-                id="uc-gallery-tier"
-                value={tierFilter}
-                onValueChange={setTierFilter}
-                labelText="Filter use cases by tier"
-              />
-              {hasActiveFilters ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTierFilter(null);
-                    setSearch("");
-                  }}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-primary transition hover:bg-[#f4f0ff]"
-                >
-                  <X size={12} strokeWidth={2.5} />
-                  Clear
-                </button>
-              ) : null}
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <CatalogSearchToolbar value={search} onValueChange={setSearch} placeholder="Search your use cases" />
+            <button type="button" onClick={load} className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-primary"><RefreshCw size={12} /> Refresh</button>
           </div>
 
-          {/* Empty: no matches vs nothing at all */}
-          {!hasAnyVisible && hasActiveFilters ? (
-            <div className="rounded-2xl border border-dashed border-primary/30 bg-surface/60 px-6 py-12 text-center dark:border-border dark:bg-surface-secondary/50 dark:ring-1 dark:ring-primary/15">
-              <p className="text-base font-semibold text-text-primary">No use cases match your search or filters</p>
-              <p className="mt-1 text-sm text-text-secondary">Try different keywords, clear the tier, or reset search.</p>
-              <div className="mt-4 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTierFilter(null);
-                    setSearch("");
-                  }}
-                  className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-tertiary hover:bg-surface-secondary"
-                >
-                  Clear search and filters
-                </button>
-              </div>
+          {error && <p className="rounded-lg border border-status-critical-border bg-status-critical-light px-3 py-2 text-sm text-status-critical">{error}</p>}
+          {rows === null && !error && <p className="text-sm text-text-muted">Reading the platform…</p>}
+          {rows !== null && visible.length === 0 && !error && (
+            <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center">
+              <Blocks size={28} className="mx-auto text-text-muted" />
+              <p className="mt-2 text-sm font-semibold text-text-primary">{search ? "No use case matches your search." : "No use cases built yet."}</p>
+              <p className="mt-1 text-sm text-text-secondary">{search ? "Clear the search to see them all." : "Build one from a description, rehearse it, and activate it; it appears here with its runs."}</p>
+              {!search && <Button className="mt-4" onClick={openBuilder}>Create Use Case</Button>}
             </div>
-          ) : null}
-          {!hasAnyVisible && !hasActiveFilters ? (
-            <div className="rounded-2xl border border-dashed border-primary/30 bg-surface/60 px-6 py-12 text-center dark:border-border dark:bg-surface-secondary/50 dark:ring-1 dark:ring-primary/15">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-primary-light text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
-                <Blocks size={20} />
-              </div>
-              <p className="mt-3 text-base font-semibold text-text-primary">No active use cases yet</p>
-              <p className="mt-1 text-sm text-text-secondary">
-                Launch a pre-built template from the catalog, or build your own, then return here to monitor what is live.
-              </p>
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => navigate("/use-cases/templates")}
-                  className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-tertiary hover:bg-surface-secondary"
-                >
-                  Browse pre-built templates
-                </button>
-                <button
-                  type="button"
-                  onClick={openBuilder}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
-                >
-                  <Plus size={14} strokeWidth={2.5} />
-                  Create Use Case
-                </button>
-              </div>
-            </div>
-          ) : null}
+          )}
 
-          {yourUseCasesOrdered.length > 0 ? (
-            <section className="space-y-4" aria-label="Active use cases">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold leading-7 tracking-[-0.2px] text-text-primary">Your active use cases</h2>
-                <span className="rounded-full bg-[#f4f4f6] px-2.5 py-0.5 text-[11px] font-semibold text-text-muted">
-                  {yourUseCasesOrdered.length}
-                </span>
-              </div>
-              <div
-                className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-                data-tour-uc="cards"
-              >
-                {yourUseCasesOrdered.map((item) => (
-                  <GalleryUseCaseCard
-                    key={item.id}
-                    galleryCategory="yours"
-                    variant={cardVariant(item.actionType)}
-                    title={item.title}
-                    desc={item.problemSignal || item.items?.[0] || ""}
-                    actionType={item.actionType}
-                    isDraft={item.status === "draft"}
-                    process={formatProcessFieldForUi(item.process, processes)}
-                    kpiNames={getKpiNamesForCatalogId(item.id)}
-                    onOpen={() => openGalleryUseCase(item)}
-                    onMenuClick={() => handleMenuClick(item)}
-                  />
-                ))}
+          {visible.length > 0 && (
+            <section aria-label="Your use cases">
+              <div className="mb-3 flex items-center gap-2"><h2 className="text-base font-bold text-text-primary">Your use cases</h2><span className="rounded-full bg-surface-secondary px-2 py-0.5 text-xs font-semibold text-text-secondary">{visible.length}</span></div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {visible.map((u) => {
+                  const pill = STATUS_PILL[u.status] || STATUS_PILL.draft;
+                  const last = u.last_run;
+                  return (
+                    <button key={u.id} type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(u.id)}`)} className="group flex flex-col rounded-2xl border border-border bg-surface p-4 text-left shadow-sm transition hover:border-primary/50 hover:shadow-md">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="text-sm font-bold text-text-primary">{u.title}</h3>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pill.cls}`}>{pill.label}</span>
+                      </div>
+                      <p className="mt-1 line-clamp-3 text-sm text-text-secondary">{u.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                        <span className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">{u.business_area}</span>
+                        {(u.tags || []).filter((t) => t !== "process_automation").map((t) => <span key={t} className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">{t.replace(/_/g, " ")}</span>)}
+                        <span className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">v{u.version}</span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between border-t border-border-light pt-2.5 text-xs">
+                        <span className="inline-flex items-center gap-1 text-text-muted"><Clock size={12} /> {last ? <><span className={RUN_PILL[last.status] || ""}>{last.status}</span> · {relativeTimeFromNow(last.started_at)}</> : "no run yet"}</span>
+                        <span className="text-primary opacity-0 transition group-hover:opacity-100">Open →</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </section>
-          ) : null}
+          )}
+          <p className="flex items-center gap-1.5 text-[11px] text-text-muted"><FileText size={11} /> Pre-defined templates are on the other tab; a use case appears here once it is saved to the platform, which the first rehearsal does.</p>
         </div>
       </div>
     </div>

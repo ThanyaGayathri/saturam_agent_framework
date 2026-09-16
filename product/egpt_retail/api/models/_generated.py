@@ -1047,30 +1047,6 @@ class TimeWindowUnit(Enum):
     year = "year"
 
 
-class UseCaseExecutionHealth(BaseModel):
-    """
-    Execution health, from persisted run history. Free -- nothing here needs an assessment pass.
-    """
-
-    use_case_id: str
-    title: str
-    version: int
-    last_run_status: RunStatus | None
-    last_run_at: AwareDatetime | None = None
-    runs_7d: int
-    failures_7d: int
-    silent: bool = Field(..., description="The schedule should have fired and did not.")
-    gates_waiting: int = Field(
-        ...,
-        description="Approval gates waiting on a person longer than their threshold.",
-    )
-    cost_7d: ExecutionCost | None = None
-    error: str | None = Field(
-        None,
-        description="Set instead of a real health snapshot when this one use case's own entry was malformed (e.g. a missing workflow_id) and its processing was isolated rather than aborting every other use case's report. Absent/null for a genuinely-run or genuinely-never-run use case.",
-    )
-
-
 class UseCaseQuality(BaseModel):
     """
     Is it still right -- the assessment pass over output quality and input drift (R14), separate from whether it ran. A use case that runs green while answering worse is what this catches.
@@ -1438,11 +1414,6 @@ class DraftStep8(BaseModel):
     guardrail_amount: float | None = None
     delivery: DeliveryChannel | None = None
     recipient: str | None = None
-
-
-class ExecutionHealth(BaseModel):
-    as_of: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
-    use_cases: list[UseCaseExecutionHealth]
 
 
 class ExternalIntegration(BaseModel):
@@ -2147,6 +2118,56 @@ class UseCaseDraft(BaseModel):
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 
 
+class UseCaseExecutionHealth(BaseModel):
+    """
+    Execution health, from persisted run history. Free -- nothing here needs an assessment pass.
+    """
+
+    use_case_id: str
+    title: str
+    version: int
+    last_run_status: RunStatus | None
+    last_run_at: AwareDatetime | None = None
+    runs_7d: int
+    failures_7d: int
+    silent: bool = Field(..., description="The schedule should have fired and did not.")
+    gates_waiting: int = Field(
+        ...,
+        description="Approval gates waiting on a person longer than their threshold.",
+    )
+    cost_7d: ExecutionCost | None = None
+    status: UseCaseStatus | None = Field(
+        None,
+        description="The use case's own status (1.7.0), so a paused one is not reported silent.",
+    )
+    schedule: str | None = Field(
+        None,
+        description="The cadence it runs on (1.7.0), a `ScheduleCadence` value; null when it runs only on demand.",
+    )
+    trigger: str | None = Field(
+        None,
+        description="What fires the schedule where this platform runs (1.7.0): `poller` locally, `orchestrator` in the cloud, null when nothing does and the Run button is the only trigger.",
+    )
+    next_expected_at: AwareDatetime | None = Field(
+        None,
+        description="When the schedule should next fire (1.7.0), from the last run and the cadence.",
+    )
+    exceptions_7d: int | None = Field(
+        0,
+        description="Documents held with an exception across the last 7 days' live runs (1.7.0).",
+    )
+    created_7d: int | None = Field(
+        0, description="Records created across the last 7 days' live runs (1.7.0)."
+    )
+    last_run_summary: str | None = Field(
+        "", description="The last run's one-line summary (1.7.0)."
+    )
+    error: str | None = Field(
+        None,
+        description="Set instead of a real health snapshot when this one use case's own entry was malformed (e.g. a missing workflow_id) and its processing was isolated rather than aborting every other use case's report. Absent/null for a genuinely-run or genuinely-never-run use case.",
+    )
+
+
 class AlertDefinition(BaseModel):
     """
     A rule over a `scalar` KPI (R12): KPI, operator, threshold, scope, severity, recipient.
@@ -2246,6 +2267,11 @@ class DashboardData(BaseModel):
     dashboard_id: str
     tiles: list[TileData]
     read_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+
+
+class ExecutionHealth(BaseModel):
+    as_of: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+    use_cases: list[UseCaseExecutionHealth]
 
 
 class Kpi(BaseModel):

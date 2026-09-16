@@ -109,6 +109,21 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.7.0 — 2026-09-16 — execution health from the use-case runs table (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New optional fields on
+`UseCaseExecutionHealth`; the first real router for `getExecutionHealth` and
+`listSilentSchedules`.
+
+The Monitor screen was a demo: hashed sparklines and a "last run 23 min ago" derived from the
+title. Now `GET /monitoring/execution-health` is computed from `retail_use_case_runs` for every
+use case the interface created, and carries what a person watching a polling automation
+needs beside the contract's counts: the use case's `status`, its `schedule`, what fires it
+(`trigger`: the in-process `poller` locally, the `orchestrator` in the cloud, or nothing),
+`next_expected_at`, the last run's summary, and records created and exceptions held over
+seven days. `silent` is true when the cadence has elapsed one and a half times since the last
+run with nothing fired; `GET /monitoring/schedules/silent` lists the same.
+
 ## 1.6.0 — 2026-09-16 — rehearsal sources and golden cases (additive)
 
 Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and schemas,

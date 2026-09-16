@@ -48,6 +48,7 @@ const PlaygroundBusinessAreaPage = lazy(() => import("./components/PlaygroundBus
 // ── Use Cases ───────────────────────────────────────────────────────────────
 const UseCaseTemplates = lazy(() => import("./components/UseCaseTemplates"));
 const UseCaseGallery = lazy(() => import("./components/UseCaseGallery"));
+const UseCasePlatformPage = lazy(() => import("./components/usecase/UseCasePlatformPage"));
 const UseCasesEmpty = lazy(() => import("./components/UseCasesEmpty"));
 const UseCaseBuilderChat = lazy(() => import("./components/UseCaseBuilderChat"));
 const UseCaseBuilderForm = lazy(() => import("./components/UseCaseBuilderForm"));
@@ -354,6 +355,7 @@ export default function App() {
             {/* Use Cases */}
             <Route path="/use-cases" element={<Navigate to="/use-cases/templates" replace />} />
             <Route path="/use-cases/gallery" element={<UseCaseGallery />} />
+            <Route path="/use-cases/platform/:id" element={<UseCasePlatformPage />} />
             <Route path="/use-cases/templates" element={<UseCaseTemplates />} />
             <Route path="/use-cases/empty" element={<UseCasesEmpty />} />
             <Route path="/use-cases/builder-chat" element={<UseCaseBuilderChat />} />

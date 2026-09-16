@@ -34,7 +34,6 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
  const [run, setRun] = useState(null);
  const [error, setError] = useState(null);
  const [busy, setBusy] = useState(false);
- const [open, setOpen] = useState(null);
  const controller = useRef(null);
 
  useEffect(() => () => controller.current?.abort(), []);
@@ -43,7 +42,7 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
   controller.current?.abort();
   const ac = new AbortController();
   controller.current = ac;
-  setBusy(true); setError(null); setRun(null); setOpen(null);
+  setBusy(true); setError(null); setRun(null);
   try {
    const id = beforeRun ? await beforeRun({ signal: ac.signal }) : useCaseId;
    const body = typeof request === "function" ? await request({ signal: ac.signal, useCaseId: id }) : request;
@@ -91,7 +90,18 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
      {run.status === "succeeded" ? "Finished with nothing to report: no new messages matched." : `Run ${run.id} is ${run.status}; the page polls every few seconds.`}
     </p>
    )}
-   {rows && (
+   <RunResultView run={run} live={live} createdAs={createdAs} onAccept={onAccept} />
+  </section>
+ );
+}
+
+/** A finished run's result, as the panel and the use-case page render it. */
+export function RunResultView({ run, live, createdAs, onAccept }) {
+ const [open, setOpen] = useState(null);
+ const rows = run?.result ? runResultRows(run.result) : null;
+ if (!rows) return null;
+ return (
+  <>
     <div className="mt-3 space-y-3">
      <div className="grid grid-cols-4 gap-2 text-center">
       <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{rows.total}</p><p className="text-[11px] text-text-muted">received</p></div>
@@ -161,7 +171,6 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
       </table>
      </div>
     </div>
-   )}
-  </section>
+  </>
  );
 }

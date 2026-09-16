@@ -202,3 +202,55 @@ export function runResultRows(result) {
   rollback: result.rollback || null,
  };
 }
+
+
+/** The interface's schedule value for a contract cadence (the reverse of `cadenceOf`). */
+export function scheduleFromCadence(cadence) {
+ const back = { every_minute: "1m", every_5_minutes: "5m", every_15_minutes: "15m", hourly: "hourly", once: "manual" };
+ return back[cadence] || cadence || "daily";
+}
+
+/**
+ * A builder spec rebuilt from what the platform holds (K20): the reverse of `documentParameters`
+ * for the document template, so "Edit" on a use-case page reopens the same form. Sources come
+ * back as their display names, custom templates and mappings as their definitions; what the
+ * platform never stored (the owner, the example document) stays for the person to fill.
+ */
+export function specFromPlatform(useCase, platformSpec, base) {
+ const p = platformSpec?.parameters || {};
+ const name = (v) => (v && typeof v === "object" ? v.name || v.id || "" : v || "");
+ const template = p["extraction template"];
+ const mapping = p["target objects"];
+ const filter = p["message filter"] || {};
+ const next = {
+  ...base,
+  title: useCase.title || base.title,
+  goal: platformSpec?.question || useCase.description || base.goal,
+  businessArea: platformSpec?.business_area || useCase.business_area || base.businessArea,
+  shape: platformSpec?.shape || base.shape,
+  template: platformSpec?.template || base.template,
+  category: platformSpec?.template === "document_to_record" ? "process_automation" : base.category,
+  platform: { ...(base.platform || {}), useCaseId: useCase.id, version: useCase.version, status: useCase.status, parameters: p },
+ };
+ if (platformSpec?.template !== "document_to_record") return next;
+ return {
+  ...next,
+  mailbox: name(p["source mailbox"]),
+  schedule: scheduleFromCadence(p.schedule || useCase.schedule),
+  messageFilter: { ...(base.messageFilter || {}), unread: filter.unseen_only !== false, senderPattern: filter.subject_contains || "" },
+  documentType: p["document type"] || "pdf",
+  extractionTemplate: template && typeof template === "object" ? template.id : template || "",
+  extractionTemplateDef: template && typeof template === "object" ? template : null,
+  masterData: p["master data"] && typeof p["master data"] === "object" && !p["master data"].source ? p["master data"] : base.masterData,
+  matchThresholds: p["match thresholds"] || base.matchThresholds,
+  recordGuardrails: Array.isArray(p.guardrails) ? p.guardrails : [],
+  exceptionsTo: typeof p.recipient === "string" ? p.recipient : p.recipient?.who || "",
+  acknowledge: p.acknowledge !== false,
+  writeback: name(p["write target"]),
+  targetObjects: mapping && typeof mapping === "object" ? mapping.id : mapping || "",
+  recordMappingDef: mapping && typeof mapping === "object" ? mapping : null,
+  createdAs: p["created as"] || "draft",
+  blastRadius: p["per-run cap"] || "",
+  rollback: p.rollback || "",
+ };
+}
