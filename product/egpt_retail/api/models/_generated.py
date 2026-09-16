@@ -44,6 +44,11 @@ class Autonomy(Enum):
     autopilot = "autopilot"
 
 
+class AxisKind(Enum):
+    time = "time"
+    category = "category"
+
+
 class BulkProposalDecisionRequest(BaseModel):
     """
     A single source harvest produces hundreds of proposals; nobody clicks through them one gate at a time (G5).
@@ -62,6 +67,17 @@ class BusinessAreaWrite(BaseModel):
     label: str
     subject_areas: list[str] | None = None
     description: str | None = None
+
+
+class ChartAxis(BaseModel):
+    """
+    One result column a `query` tile plots. `kind` matters on the x axis only.
+    """
+
+    column: str
+    kind: AxisKind | None = None
+    label: str | None = ""
+    unit: str | None = ""
 
 
 class ChartKind(Enum):
@@ -115,10 +131,18 @@ class DashboardFilterField(Enum):
 
 class DashboardSuggestionRunRequest(BaseModel):
     """
-    What to run. `purpose` is the caller's own words for what the dashboard should help them track.
+    What to run. `purpose` is the caller's own words for what the dashboard should help them
+    track. `kpi_identifiers` are the metrics the agent reads as context -- their definitions
+    and the tables behind them -- not a list it must tile one for one. `table_names` widens
+    the tables it may read beyond those the metrics name. `chart_budget` is a soft cap on
+    how many charts to compose; the agent may return fewer.
+
     """
 
     purpose: str = Field(..., min_length=1)
+    kpi_identifiers: list[str] | None = None
+    table_names: list[str] | None = None
+    chart_budget: int | None = Field(None, ge=1, le=12)
 
 
 class DashboardSuggestionRunStatus(Enum):
@@ -132,16 +156,16 @@ class DashboardSuggestionRunStatus(Enum):
     failed = "failed"
 
 
-class DashboardTileSuggestion(BaseModel):
+class DashboardSuggestionStage(Enum):
     """
-    One candidate metric for the dashboard. Always a real, registered, ready KPI -- the agent selects from this deployment's own registry, it does not invent one.
+    Where a running suggestion is, for the person waiting. `reading` the metrics and tables, `drafting` charts, `guarding` each query, `previewing` each with real rows.
     """
 
-    kpi_identifier: str
-    name: str
-    rationale: str = Field(
-        ..., description="One sentence naming why this metric fits the stated purpose."
-    )
+    reading = "reading"
+    drafting = "drafting"
+    guarding = "guarding"
+    previewing = "previewing"
+    done = "done"
 
 
 class DeliveryChannel(Enum):
@@ -604,6 +628,47 @@ class QualityVerdict(Enum):
     unknown = "unknown"
 
 
+class QueryGuardStatus(Enum):
+    """
+    What the warehouse read guard made of a query. `ok`: passed unchanged. `rewritten`: passed
+    after a mechanical fix -- a personal-data column dropped from the projection, a missing
+    LIMIT added, a LIMIT above the row cap lowered; `detail` says which. `refused`: not
+    runnable, `detail` says why; the chart is kept as a stub so the SQL can be fixed.
+
+    """
+
+    ok = "ok"
+    rewritten = "rewritten"
+    refused = "refused"
+
+
+class QueryGuardVerdict(BaseModel):
+    status: QueryGuardStatus
+    detail: str
+    tables: list[str] | None = Field(
+        None, description="The tables the statement reads, once parsed."
+    )
+
+
+class QueryPreview(BaseModel):
+    """
+    One query's guard verdict and, when it ran, a bounded sample of its result.
+    """
+
+    guard: QueryGuardVerdict
+    sql: str | None = Field(
+        None,
+        description="The statement as it would run -- the caller's, or the guard's rewrite of it.",
+    )
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    duration_ms: int
+    error: str | None = Field(
+        None,
+        description="The database's own refusal when the guard passed the statement but the warehouse did not (a typo in a column name, say).",
+    )
+
+
 class Recipient(BaseModel):
     channel: DeliveryChannel
     address: str | None = Field(
@@ -758,6 +823,21 @@ class SqlExecution(BaseModel):
     guard: GuardDecision | None = None
 
 
+class SuggestionContextSummary(BaseModel):
+    """
+    What the agent read, for the review screen to show.
+    """
+
+    kpi_identifiers: list[str] | None = None
+    table_names: list[str] | None = None
+    described_columns: int | None = None
+    total_columns: int | None = None
+    withheld_columns: list[str] | None = Field(
+        None,
+        description="Personal-data columns, as `table.column`, never shown to the agent.",
+    )
+
+
 class SyncFrequency(Enum):
     hourly = "hourly"
     daily = "daily"
@@ -791,12 +871,53 @@ class TilePosition(BaseModel):
     h: int = Field(..., ge=1)
 
 
+class TileQuery(BaseModel):
+    """
+    A `query` tile's SQL and how its result maps onto the chart. `source_tables` is derived
+    by the server from the SQL at write time and returned for information; a client value is
+    ignored. Postgres dialect, one read statement, tables restricted to the semantic layer.
+
+    """
+
+    sql: str = Field(..., min_length=1)
+    dialect: str | None = "postgres"
+    source_tables: list[str] | None = None
+    x: ChartAxis | None = None
+    y: list[ChartAxis] | None = None
+    series_by: str | None = None
+
+
+class TileSource(Enum):
+    """
+    Where a tile's numbers come from. `kpi` (the default): a registered, ready KPI's gold
+    view. `query`: the tile's own SQL, checked by the warehouse read guard and cached on the
+    dashboard's refresh schedule.
+
+    """
+
+    kpi = "kpi"
+    query = "query"
+
+
 class TileWrite(BaseModel):
-    kpi_identifier: str
+    """
+    A tile to create or replace. `source` defaults to `kpi`, which requires `kpi_identifier`;
+    `query` requires `query`. `id`, when given on a whole-dashboard write, keeps that tile's
+    identity across the write instead of minting a new one -- what lets a per-tile edit leave
+    every other tile's id stable.
+
+    """
+
+    id: str | None = None
+    source: TileSource | None = None
+    kpi_identifier: str | None = None
+    query: TileQuery | None = None
     title: str | None = None
     chart: ChartKind
     position: TilePosition
     grain_value: str | None = None
+    description: str | None = None
+    rationale: str | None = None
 
 
 class TimeWindowUnit(Enum):
@@ -1095,6 +1216,15 @@ class Column(BaseModel):
         description="Values the harvest actually saw. Bounded; never the whole column.",
     )
     status: ProposalStatus | None = None
+    concept: str | None = Field(
+        None,
+        description="The concept this column is a property of, once review confirmed it.",
+    )
+    meaning: str | None = Field(
+        "",
+        description="What this column identifies, as accepted through review. Distinct from `description`, which is what the schema author wrote.",
+    )
+    joinable: bool | None = False
 
 
 class Concept(BaseModel):
@@ -1124,6 +1254,29 @@ class ConceptList(BaseModel):
     snapshot: Snapshot
 
 
+class DashboardChartSuggestion(BaseModel):
+    """
+    One composed chart. `source: kpi` reuses a registered, ready KPI's own SQL through gold
+    (`kpi_identifier` set, `query` null); `source: query` carries SQL the agent composed from
+    the tables it was shown (`query` set). Every `query` chart passed through the warehouse
+    read guard and a bounded dry run before reaching the caller; `guard` and `preview` say what
+    happened. `description` is written for the person reading the dashboard and is theirs to
+    edit.
+
+    """
+
+    title: str
+    chart: ChartKind
+    source: TileSource
+    kpi_identifier: str | None = None
+    grain_value: str | None = None
+    query: TileQuery | None = None
+    description: str
+    rationale: str
+    guard: QueryGuardVerdict
+    preview: QueryPreview | None = None
+
+
 class DashboardFilter(BaseModel):
     field: DashboardFilterField
     value: str
@@ -1131,22 +1284,22 @@ class DashboardFilter(BaseModel):
 
 class DashboardSuggestion(BaseModel):
     """
-    A suggested dashboard configuration for the given purpose, editable before creation. Every
-    tile names a real, ready KPI from this deployment's registry; the one filter this agent may
-    propose is `business_area`, the one `DashboardFilterField` with a well-defined value space
-    to draw from today -- `time_window` has no established value shape anywhere in this contract
-    yet (#222), so this agent never proposes one rather than inventing a format nothing else
-    would recognise.
+    A suggested dashboard for the given purpose, editable before creation: a name, the charts
+    the agent composed from the selected metrics and the tables behind them, and -- when the
+    purpose names one -- a `business_area` filter, the one `DashboardFilterField` with a
+    well-defined value space (`time_window` has no established value shape in this contract
+    yet, #222). `context` says what the agent was shown.
 
     """
 
     name: str
-    tiles: list[DashboardTileSuggestion]
+    charts: list[DashboardChartSuggestion]
     filters: list[DashboardFilter]
     notes: str = Field(
         ...,
-        description="Empty on a clean run; otherwise what was missing or why the list is short.",
+        description="Empty on a clean run; otherwise what was missing, why the list is short, or what was dropped.",
     )
+    context: SuggestionContextSummary | None = None
 
 
 class DashboardSuggestionRun(BaseModel):
@@ -1163,6 +1316,7 @@ class DashboardSuggestionRun(BaseModel):
 
     id: str
     status: DashboardSuggestionRunStatus
+    stage: DashboardSuggestionStage | None = None
     purpose: str | None = None
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None
@@ -1485,6 +1639,10 @@ class KpiSuggestion(BaseModel):
     rationale: str = Field(
         ..., description="One sentence naming the tables or concepts it derives from."
     )
+    business_value: str | None = Field(
+        None,
+        description="One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed.",
+    )
     derived_from_tables: list[str] = Field(..., min_length=1)
     confidence: Confidence
     proposed_sql: str | None = None
@@ -1667,6 +1825,14 @@ class QualityAssessment(BaseModel):
     use_cases: list[UseCaseQuality]
 
 
+class QueryPreviewRequest(BaseModel):
+    query: TileQuery
+    table_names: list[str] | None = Field(
+        None,
+        description="Narrows the allow-list to these tables when given; otherwise the whole semantic layer.",
+    )
+
+
 class ReportBlockWrite(BaseModel):
     block: AnswerBlock
     source_question: str | None = None
@@ -1745,13 +1911,24 @@ class TableList(BaseModel):
 
 class Tile(BaseModel):
     id: str
-    kpi_identifier: str
+    source: TileSource
+    kpi_identifier: str | None = Field(
+        None, description="The KPI a `kpi` tile reads. Null on a `query` tile."
+    )
+    query: TileQuery | None = None
     title: str | None = ""
     chart: ChartKind
     position: TilePosition
     grain_value: str | None = Field(
         None,
         description="For a KPI at a non-overall grain, which row -- a supplier id, a location -- this tile shows. Null shows the top-N as a table.",
+    )
+    description: str | None = Field(
+        "", description="Shown under the chart. Editable; never used to run anything."
+    )
+    rationale: str | None = Field(
+        "",
+        description="Why the suggestion agent proposed this chart. Empty on a hand-built tile.",
     )
 
 
@@ -1761,7 +1938,7 @@ class TileData(BaseModel):
     """
 
     tile_id: str
-    kpi_identifier: str
+    kpi_identifier: str | None = Field(None, description="Null on a `query` tile.")
     status: KpiHealthStatus
     value: float | None = None
     unit: str | None = ""
@@ -1770,11 +1947,29 @@ class TileData(BaseModel):
     )
     series: list[SeriesPoint] | None = None
     rows: list[dict[str, Any]] | None = Field(
-        None, description="For a `rowset` KPI or a table chart."
+        None,
+        description="For a `rowset` KPI, a table chart, or a `query` tile's cached result.",
+    )
+    columns: list[str] | None = Field(
+        None,
+        description="Column order of `rows`, for a `query` tile. Empty on a `kpi` tile.",
     )
     as_of: AwareDatetime | None = None
     computed_at: AwareDatetime | None
     provenance_ref: str | None = None
+
+
+class TilePatch(BaseModel):
+    """
+    A partial edit of one tile. Every field optional; an omitted field is left unchanged. A changed `query` is re-checked by the guard and recomputed.
+    """
+
+    title: str | None = None
+    chart: ChartKind | None = None
+    position: TilePosition | None = None
+    grain_value: str | None = None
+    query: TileQuery | None = None
+    description: str | None = None
 
 
 class TimeWindow(BaseModel):

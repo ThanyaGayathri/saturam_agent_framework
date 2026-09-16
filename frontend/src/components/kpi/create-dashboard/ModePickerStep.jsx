@@ -3,7 +3,9 @@ import { Sparkles, MousePointerClick, Check } from "lucide-react";
 /**
  * Step 1 of the create-dashboard flow: name, schedule (unchanged from the original modal),
  * then a choice between the two ways to build the rest - AI generated or manual. `onContinue`
- * is disabled until a mode is picked.
+ * is disabled until a mode is picked. `preselectedCount`, when positive, means the caller
+ * opened this modal with metrics already picked (from the KPI-discovery grid) - both paths
+ * carry those into the builder, so the note here applies to either choice.
  */
 export default function ModePickerStep({
  name,
@@ -13,6 +15,7 @@ export default function ModePickerStep({
  refreshOptions,
  mode,
  setMode,
+ preselectedCount = 0,
  onCancel,
  onContinue,
 }) {
@@ -34,6 +37,12 @@ export default function ModePickerStep({
 
    <div className="mb-5">
     <p className="mb-2.5 text-sm font-semibold text-text-primary">How do you want to build it?</p>
+    {preselectedCount > 0 && (
+     <p className="mb-2.5 text-xs text-text-muted">
+      {preselectedCount} metric{preselectedCount === 1 ? "" : "s"} selected on the KPI page will
+      be included either way.
+     </p>
+    )}
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
      <button
       type="button"

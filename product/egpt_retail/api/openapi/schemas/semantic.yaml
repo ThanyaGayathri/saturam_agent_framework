@@ -39,6 +39,16 @@ Column:
       description: Values the harvest actually saw. Bounded; never the whole column.
     status:
       $ref: './semantic.yaml#/ProposalStatus'
+    concept:
+      type: [string, "null"]
+      description: The concept this column is a property of, once review confirmed it.
+    meaning:
+      type: string
+      default: ""
+      description: What this column identifies, as accepted through review. Distinct from `description`, which is what the schema author wrote.
+    joinable:
+      type: boolean
+      default: false
 
 TableRef:
   type: object

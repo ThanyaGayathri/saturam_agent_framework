@@ -10,6 +10,7 @@ table by executor name rather than warning and writing "none".
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 
 import pytest
 from egpt.agent import AgentFactory
@@ -28,6 +29,7 @@ from egpt_retail.app.db import build_control_plane_db
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.provenance import _model_tier
 from egpt_retail.routing import (
+    LAZILY_BUILT_AGENT_IDS,
     NO_MODEL_TIER,
     ROUTING_TABLE,
     Tier,
@@ -74,6 +76,57 @@ def test_every_registered_agent_has_a_row() -> None:
     ids = {agent.id for agent in _agents()}
     assert ids <= set(ROUTING_TABLE), f"unrouted: {ids - set(ROUTING_TABLE)}"
     assert {SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID} <= ids
+
+
+def test_the_suggestion_agents_built_lazily_per_request_are_still_routed() -> None:
+    """K12/K13/dashboard-suggestion agents are built per suggestion run, not by ``build_agents``
+    at boot (see its own docstring), so ``test_every_registered_agent_has_a_row`` above cannot
+    see them -- it only inspects the static, boot-time agent list. ``dashboard_suggestion``
+    shipped with no row here and only surfaced as an ``UnroutedAgentError`` the first time
+    someone actually ran a dashboard suggestion. Pin all three directly so a future lazily-built
+    agent can't slip through the same gap."""
+    from egpt_retail.suggestions.agents import KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID
+    from egpt_retail.suggestions.dashboard_agents import DASHBOARD_SUGGESTION_ID
+
+    assert tier_for(KPI_SUGGESTION_ID) == Tier.FRONTIER
+    assert tier_for(USE_CASE_SUGGESTION_ID) == Tier.FRONTIER
+    assert tier_for(DASHBOARD_SUGGESTION_ID) == Tier.FRONTIER
+
+
+def test_lazily_built_agent_ids_matches_the_known_three() -> None:
+    """`LAZILY_BUILT_AGENT_IDS` is what `build_agents` asserts routed at boot (its own
+    docstring in `routing/table.py`) -- keep it in sync with the ids the test above pins by
+    name, so the boot-time check and this hand-written one never quietly drift apart."""
+    from egpt_retail.suggestions.agents import KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID
+    from egpt_retail.suggestions.dashboard_agents import DASHBOARD_SUGGESTION_ID
+
+    assert LAZILY_BUILT_AGENT_IDS == {
+        KPI_SUGGESTION_ID,
+        USE_CASE_SUGGESTION_ID,
+        DASHBOARD_SUGGESTION_ID,
+    }
+
+
+def test_build_agents_fails_at_boot_when_a_lazily_built_agent_loses_its_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gap #272 fixed (`dashboard_suggestion` shipped with no `ROUTING_TABLE` row, caught
+    only the first time someone ran a live suggestion) is now caught at boot for every id in
+    `LAZILY_BUILT_AGENT_IDS`, not only by the hand-written regression test above -- delete
+    one's row and confirm `build_agents` itself refuses to come up, the same way it already
+    would for a static agent missing one."""
+    import egpt_retail.routing.table as table_module
+
+    trimmed = MappingProxyType(
+        {
+            k: v
+            for k, v in table_module.ROUTING_TABLE.items()
+            if k != "dashboard_suggestion"
+        }
+    )
+    monkeypatch.setattr(table_module, "ROUTING_TABLE", trimmed)
+    with pytest.raises(UnroutedAgentError, match="dashboard_suggestion"):
+        _agents()
 
 
 def test_the_tier_vocabulary_is_the_contracts() -> None:

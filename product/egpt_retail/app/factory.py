@@ -38,6 +38,7 @@ from egpt_retail.app.components import (
 )
 from egpt_retail.app.db import build_control_plane_db, psycopg_dsn
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.dashboards.query_results import DashboardQueryResultStore
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
@@ -102,6 +103,7 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
     try:
         PlaygroundStore(connection).ensure_schema()
         DashboardStore(connection).ensure_schema()
+        DashboardQueryResultStore(connection).ensure_schema()
         KpiRegistryStore(connection).ensure_schema()
         ProposalStore(connection).ensure_schema()
         SuggestionRunStore(connection).ensure_schema()

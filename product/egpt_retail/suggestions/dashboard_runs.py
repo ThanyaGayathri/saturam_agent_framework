@@ -69,6 +69,9 @@ class DashboardSuggestionRunRecord:
     finished_at: Optional[datetime] = None
     result: Optional[Mapping[str, Any]] = None
     error: Optional[str] = None
+    #: Where a running run is (``reading``/``drafting``/``guarding``/``previewing``/``done``),
+    #: for the person waiting on the poll. Informational; the executor writes it as it goes.
+    stage: Optional[str] = None
 
     @property
     def terminal(self) -> bool:
@@ -98,6 +101,10 @@ def _ddl(schema: str) -> Tuple[str, ...]:
     )""",
         f"""CREATE INDEX IF NOT EXISTS dashboard_suggestion_run_open
         ON {schema}.dashboard_suggestion_run (status, created_at)""",
+        # 1.2.0: the stage a running run has reached. Additive, so a row from before it
+        # simply reads back with no stage.
+        f"""ALTER TABLE {schema}.dashboard_suggestion_run
+        ADD COLUMN IF NOT EXISTS stage text""",
         f"""COMMENT ON TABLE {schema}.dashboard_suggestion_run IS
         'One row per POST /dashboards/suggestions. Polled by GET '
         '/dashboards/suggestions/{{id}}; result is the DashboardSuggestion once succeeded, '
@@ -105,7 +112,9 @@ def _ddl(schema: str) -> Tuple[str, ...]:
     )
 
 
-_COLUMNS = "id, status, purpose, created_at, started_at, finished_at, result, error"
+_COLUMNS = (
+    "id, status, purpose, created_at, started_at, finished_at, result, error, stage"
+)
 
 
 class DashboardSuggestionRunStore:
@@ -168,11 +177,24 @@ class DashboardSuggestionRunStore:
         """Async variant."""
         await asyncio.to_thread(self.mark_running, identifier)
 
+    def mark_stage(self, identifier: str, stage: str) -> None:
+        """Record where a ``running`` run is. A no-op on a row that has already closed."""
+        self._update(
+            "stage = %s",
+            (stage,),
+            identifier,
+            only_from=_OPEN,
+        )
+
+    async def amark_stage(self, identifier: str, stage: str) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.mark_stage, identifier, stage)
+
     def mark_succeeded(self, identifier: str, result: Mapping[str, Any]) -> None:
         """Terminal: the run's ``DashboardSuggestion`` as JSON. A no-op if the row was already
         closed -- by the stale guard, for one, if the run outlived its window."""
         self._update(
-            "status = 'succeeded', result = %s, finished_at = now()",
+            "status = 'succeeded', result = %s, finished_at = now(), stage = 'done'",
             (json.dumps(dict(result)),),
             identifier,
             only_from=_OPEN,
@@ -260,6 +282,7 @@ def _record(row: Any) -> DashboardSuggestionRunRecord:
         finished_at,
         result,
         error,
+        stage,
     ) = row
     if isinstance(result, str):  # a driver that hands jsonb back undecoded
         result = json.loads(result)
@@ -272,4 +295,5 @@ def _record(row: Any) -> DashboardSuggestionRunRecord:
         finished_at=finished_at,
         result=result,
         error=error,
+        stage=stage,
     )

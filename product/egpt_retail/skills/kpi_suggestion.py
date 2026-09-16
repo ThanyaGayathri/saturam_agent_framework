@@ -140,6 +140,13 @@ class KpiSuggestionDraft(BaseModel):
     rationale: str = Field(
         description="One sentence naming the tables or concepts this derives from."
     )
+    business_value: str = Field(
+        description=(
+            "One or two sentences on why this metric is worth tracking -- what decision it "
+            "informs or what problem it catches, not where the data comes from (that is "
+            "`rationale`)."
+        )
+    )
     derived_from_tables: List[str] = Field(
         description=(
             "Every table the formula reads, as the harvest names them. Never empty: a "
@@ -407,6 +414,7 @@ def assemble(
                 grain=draft.grain,
                 result_shape=ResultShape(draft.result_shape.value),
                 rationale=draft.rationale,
+                business_value=draft.business_value,
                 derived_from_tables=sorted(
                     {_bare(t) for t in draft.derived_from_tables}
                 ),
