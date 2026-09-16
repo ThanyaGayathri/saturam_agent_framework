@@ -7,7 +7,10 @@ import { templateLabel } from "../../domain/extraction-templates";
 import { mappingLabel } from "../../domain/record-mappings";
 import { AUTONOMY, MASTER_DATA_ROLES, displayName } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
-import { fetchGoldenCases } from "../../services/use-cases-api";
+import { runUseCasePreflightProbe } from "../../services/use-cases-api";
+import { syncUseCaseToPlatform } from "../../services/use-case-platform";
+import { loadConfigureWorkspace } from "../../storage/configure-workspace";
+import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
 
 /**
@@ -33,7 +36,7 @@ const LEVEL = {
 
 // Checks read in groups (K19): what is connected, what data it reads, what keeps it safe.
 const GROUP_ORDER = ["Connections", "Data", "Safeguards", "Checks"];
-const GROUP_OF_ID = { mailbox: "Connections", target: "Connections", writeback: "Connections", masterdata: "Data", template: "Data", golden: "Data", sources: "Data", measurable: "Data", stale: "Data", guardrails: "Safeguards", exceptions: "Safeguards", unattended: "Safeguards", approver: "Safeguards" };
+const GROUP_OF_ID = { mailbox: "Connections", target: "Connections", model: "Connections", writeback: "Connections", masterdata: "Data", template: "Data", golden: "Data", sources: "Data", measurable: "Data", stale: "Data", guardrails: "Safeguards", exceptions: "Safeguards", unattended: "Safeguards", approver: "Safeguards" };
 const groupOf = (c) => GROUP_OF_ID[c.id] || (/pii|personal|privacy|owner/i.test(`${c.id} ${c.title}`) ? "Safeguards" : "Checks");
 
 const SOURCE_TYPE = { SAP: "sap_s4hana", Snowflake: "snowflake", PostgreSQL: "postgres", Salesforce: "salesforce" };
@@ -44,14 +47,35 @@ export default function UseCasePreflightScreen() {
  const level = AUTONOMY[spec.autonomy] || AUTONOMY.inform;
  const [acked, setAcked] = useState(() => new Set());
 
- // Golden cases live on the platform (K19): their pass rate is a readiness check here, read
- // once the use case has been synced (any rehearsal does that).
- const [golden, setGolden] = useState(null);
+ // Live probes (K19): for a document-driven use case the connection and data rows are not
+ // computed from the form -- the platform logs into the mailbox, takes a token from the
+ // target, reads the master data, calls the model once and reads the golden cases, one
+ // after another, and each row lands when its probe answers.
+ const PROBES = spec.template === "document_to_record" ? ["mailbox", "target", "master_data", "model", "golden"] : [];
+ const [probes, setProbes] = useState({});
+ const [probeError, setProbeError] = useState(null);
+ const [runKey, setRunKey] = useState(0);
+ const { profileId, storageKeys } = useDemoProfile();
  useEffect(() => {
-  const id = spec.platform?.useCaseId;
-  if (!id || spec.template !== "document_to_record") return;
-  fetchGoldenCases(id).then(setGolden).catch(() => setGolden([]));
- }, [spec.platform?.useCaseId, spec.template]);
+  if (!PROBES.length) return undefined;
+  const ac = new AbortController();
+  setProbes({}); setProbeError(null);
+  (async () => {
+   try {
+    const sources = loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId).internalSources || [];
+    const synced = await syncUseCaseToPlatform(loadSpecDraft(), sources, { signal: ac.signal });
+    for (const probe of PROBES) {
+     const out = await runUseCasePreflightProbe(synced.platform.useCaseId, probe, { signal: ac.signal });
+     if (ac.signal.aborted) return;
+     setProbes((p) => ({ ...p, [probe]: out }));
+    }
+   } catch (err) {
+    if (err?.name !== "AbortError") setProbeError(err?.detail || err?.message || "The platform could not be reached.");
+   }
+  })();
+  return () => ac.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [runKey]);
 
  const rawChecks = useMemo(() => {
   const spec_ = "/use-cases/builder/compose";
@@ -67,20 +91,13 @@ export default function UseCasePreflightScreen() {
     { id: "mailbox", title: "Source mailbox", level: spec.mailbox ? "pass" : "fail", detail: spec.mailbox ? `${spec.mailbox} is connected and readable; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.` : "No mailbox chosen.", fix: spec.mailbox ? null : { label: "Choose a mailbox", to: spec_ } },
     { id: "target", title: "Target system", level: spec.writeback ? "pass" : "fail", detail: spec.writeback ? `${spec.writeback} is connected with write permission; ${mappingLabel(spec) || (spec.targetObjects ? spec.targetObjects.replace(/_/g, " + ") : "the target objects")} will be created as ${spec.createdAs || "draft"}.` : "No target system chosen.", fix: spec.writeback ? null : { label: "Choose a target system", to: spec_ } },
     { id: "masterdata", title: "Master data", level: missingRequired.length ? "fail" : "pass", detail: missingRequired.length ? `${missingRequired.map((r) => r.label).join(", ")} not bound.` : `${bound.length} objects bound and harvested: ${rowsLabel || bound.map((r) => md[r.id]).join(", ")}.`, fix: missingRequired.length ? { label: "Bind master data", to: spec_ } : null },
+    { id: "model", title: "Extraction model", level: "warn", detail: "Probing…", fix: null },
     { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. Extraction works from the template's fields alone; an example of your own format makes it better, and the rehearse screen can save one as a golden case.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
     { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written — never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },
     { id: "exceptions", title: "Exceptions", level: /@/.test(spec.exceptionsTo || "") ? "pass" : "fail", detail: /@/.test(spec.exceptionsTo || "") ? `Anything the automation cannot complete goes to ${spec.exceptionsTo}, and to the Alerts page.` : "No exceptions address.", fix: /@/.test(spec.exceptionsTo || "") ? null : { label: "Set the exceptions address", to: spec_ } },
     { id: "pii", title: "Personal data", level: "warn", detail: "Buyer names and email addresses are read from the documents and written to the target as contacts. Allowed for order processing; acknowledge that this use case handles personal data.", fix: null },
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "No owner.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
-    ...(() => {
-     if (golden === null) return [{ id: "golden", title: "Golden cases", level: "warn", detail: spec.platform?.useCaseId ? "Reading the cases from the platform…" : "No rehearsal yet. Rehearse on the platform (step 5) to run the golden cases; their pass rate gates activation.", fix: null }];
-     const withExpected = golden.filter((c) => c.expected);
-     const pass = withExpected.filter((c) => c.last_status === "pass").length;
-     const fail = withExpected.filter((c) => c.last_status === "fail");
-     const untested = withExpected.length - pass - fail.length;
-     if (!withExpected.length) return [{ id: "golden", title: "Golden cases", level: "warn", detail: golden.length ? `${golden.length} case(s) uploaded, none with an expected output yet. Run them and accept their output on the rehearse screen.` : "No golden cases yet. Upload documents or generate samples on the rehearse screen; their pass rate gates activation.", fix: null }];
-     return [{ id: "golden", title: "Golden cases", level: fail.length ? "fail" : untested ? "warn" : "pass", detail: `${pass} of ${withExpected.length} pass${fail.length ? `; failing: ${fail.slice(0, 3).map((c) => c.label).join(", ")}${fail.length > 3 ? "…" : ""}` : ""}${untested ? `; ${untested} not run since the last change` : ""}.`, fix: fail.length ? { label: "See the failing cases", to: "/use-cases/builder/rehearse" } : null }];
-    })(),
+    { id: "golden", title: "Golden cases", level: "warn", detail: "Probing…", fix: null },
     { id: "unattended", title: "Unattended action", level: spec.blastRadius && spec.rollback ? "warn" : "fail", detail: spec.blastRadius && spec.rollback ? `Change limit ${spec.blastRadius} per run; rollback plan "${spec.rollback}". Going live requires an admin.` : "Set the change limit and rollback plan.", fix: spec.blastRadius && spec.rollback ? null : { label: "Set the change limit and rollback plan", to: spec_ } },
    ];
   }
@@ -199,24 +216,38 @@ export default function UseCasePreflightScreen() {
    });
   }
   return out;
- }, [spec, level, golden]);
- const checks = useMemo(() => [...rawChecks].sort((a, b) => GROUP_ORDER.indexOf(groupOf(a)) - GROUP_ORDER.indexOf(groupOf(b))), [rawChecks]);
+ }, [spec, level]);
+ const PROBE_FOR_ID = { mailbox: "mailbox", target: "target", masterdata: "master_data", model: "model", golden: "golden" };
+ const checks = useMemo(() => {
+  const merged = rawChecks.map((c) => {
+   const probe = PROBES.length ? PROBE_FOR_ID[c.id] : null;
+   if (!probe) return c;
+   const r = probes[probe];
+   if (!r) return { ...c, probe, pending: true };
+   const goldenWarn = probe === "golden" && r.passed && !(r.with_expected > 0);
+   return { ...c, probe, pending: false, level: r.passed ? (goldenWarn ? "warn" : "pass") : "fail", detail: `${r.reason} (${r.elapsed_ms >= 1000 ? `${(r.elapsed_ms / 1000).toFixed(1)} s` : `${r.elapsed_ms} ms`})`, fix: r.passed ? null : c.fix || (probe === "golden" ? { label: "See the failing cases", to: "/use-cases/builder/rehearse" } : null) };
+  });
+  return merged.sort((a, b) => GROUP_ORDER.indexOf(groupOf(a)) - GROUP_ORDER.indexOf(groupOf(b)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [rawChecks, probes]);
 
- // The checks land one at a time, so a person can read each verdict as it arrives rather
- // than meet a wall of results. The delay is theatre over deterministic checks and says so
- // in the copy; a reader who prefers reduced motion gets every result at once.
+ // The checks land one at a time. A probe-backed row waits for its probe; a form-computed row
+ // follows the one before it after a short beat, so the sequence reads top to bottom and the
+ // progress is the platform's, not a timer's. Reduced motion skips the beat.
  const reduceMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
- const waitingForPlatform = spec.template === "document_to_record" && !!spec.platform?.useCaseId && golden === null;
- const [resolved, setResolved] = useState(0);
- const [runKey, setRunKey] = useState(0);
+ const [ticks, setTicks] = useState(0);
  useEffect(() => {
-  if (waitingForPlatform) return undefined;
-  if (reduceMotion) { setResolved(checks.length); return undefined; }
-  setResolved(0);
-  const timers = checks.map((_, i) => setTimeout(() => setResolved(i + 1), 380 + i * 520));
+  setTicks(0);
+  if (reduceMotion) { setTicks(checks.length); return undefined; }
+  const timers = checks.map((_, i) => setTimeout(() => setTicks((t) => Math.max(t, i + 1)), 250 + i * 320));
   return () => timers.forEach(clearTimeout);
- }, [checks.length, waitingForPlatform, reduceMotion, runKey]);
- const done = resolved >= checks.length && !waitingForPlatform;
+ }, [checks.length, reduceMotion, runKey]);
+ let resolved = 0;
+ for (const c of checks) {
+  if (c.pending || resolved >= ticks) break;
+  resolved += 1;
+ }
+ const done = resolved >= checks.length;
  const landed = checks.slice(0, resolved);
 
  const fails = landed.filter((c) => c.level === "fail");
@@ -241,12 +272,14 @@ export default function UseCasePreflightScreen() {
       fails.length ? <span className="inline-flex items-center gap-1.5 font-semibold text-status-critical"><X size={15} /> {fails.length} to fix before this goes further</span>
       : unacked.length ? <span className="inline-flex items-center gap-1.5 font-semibold text-status-warning"><AlertTriangle size={15} /> {unacked.length} to read and acknowledge</span>
       : <span className="inline-flex items-center gap-1.5 font-semibold text-status-success"><ShieldCheck size={15} /> Ready to go further</span>
+     ) : probeError ? (
+      <span className="inline-flex items-center gap-1.5 font-semibold text-status-critical"><X size={15} /> The platform could not be reached: {probeError}</span>
      ) : (
-      <span className="inline-flex items-center gap-1.5 font-semibold text-text-primary"><Loader2 size={15} className="animate-spin text-primary" /> {waitingForPlatform ? "Reading the golden cases from the platform…" : `Checking ${Math.min(resolved + 1, checks.length)} of ${checks.length}…`}</span>
+      <span className="inline-flex items-center gap-1.5 font-semibold text-text-primary"><Loader2 size={15} className="animate-spin text-primary" /> {checks[resolved]?.probe ? `Probing ${checks[resolved].title.toLowerCase()} on the platform…` : `Checking ${Math.min(resolved + 1, checks.length)} of ${checks.length}…`}</span>
      )}
      <span className="ml-auto flex items-center gap-2 text-xs text-text-muted">
       <span className="text-status-success">{passes.length} passed</span>·<span className="text-status-warning">{warns.length} to note</span>·<span className="text-status-critical">{fails.length} to fix</span>
-      {done && <button type="button" onClick={() => { setAcked(new Set()); setRunKey((k) => k + 1); }} className="ml-2 inline-flex items-center gap-1 rounded-md border border-border-light px-2 py-1 font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={11} /> Re-run</button>}
+      {(done || probeError) && <button type="button" onClick={() => { setAcked(new Set()); setRunKey((k) => k + 1); }} className="ml-2 inline-flex items-center gap-1 rounded-md border border-border-light px-2 py-1 font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={11} /> Re-run</button>}
      </span>
     </div>
     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary" aria-hidden>
@@ -257,7 +290,7 @@ export default function UseCasePreflightScreen() {
    <div className="space-y-2">
     {checks.map((c, i) => {
      if (i > resolved) return null;
-     const arriving = i === resolved && !done;
+     const arriving = i === resolved && !done && !probeError;
      const groupLabel = groupOf(c);
      const firstOfGroup = i === 0 || groupOf(checks[i - 1]) !== groupLabel;
      if (arriving) {
@@ -265,7 +298,7 @@ export default function UseCasePreflightScreen() {
        <div key={`${c.id}-arriving`}>
         {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
         <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-text-muted">
-         <Loader2 size={15} className="animate-spin text-primary" /> Checking {c.title.toLowerCase()}…
+         <Loader2 size={15} className="animate-spin text-primary" /> {c.probe ? `Connecting: ${c.title.toLowerCase()} — the platform is opening it now…` : `Checking ${c.title.toLowerCase()}…`}
         </div>
        </div>
       );

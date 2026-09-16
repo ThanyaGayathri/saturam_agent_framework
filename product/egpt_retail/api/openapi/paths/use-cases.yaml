@@ -1059,3 +1059,37 @@ x-egpt-responses:
             examples:
               not_run:
                 value: {use_case_id: uc_0007, allowed: false, checks: [{name: case_run, passed: false, reason: "Run the case first; there is no output to accept yet."}], blocked_by: [case_run], checked_at: "2026-09-16T05:00:00Z"}
+
+/use-cases/{use_case_id}/preflight/{probe}:
+  post:
+    tags: [use-cases]
+    operationId: runUseCasePreflightProbe
+    summary: One live connectivity probe (1.6.0).
+    description: |
+      Where `runUseCasePreflight` confirms that credentials exist, this opens the connection:
+      `mailbox` logs in and counts the messages matching the filter; `target` takes a token
+      and counts the records it may read; `master_data` reads the rows the resolver will use;
+      `model` sends one short call to the extraction model; `golden` reads the cases. A probe
+      that fails answers with `passed: false` and the reason, never an error.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: probe
+        in: path
+        required: true
+        schema:
+          $ref: '../schemas/use-cases.yaml#/ProbeName'
+    responses:
+      "200":
+        description: The probe's verdict.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/ProbeResult'
+            examples:
+              mailbox:
+                value: {name: mailbox, passed: true, reason: "Logged into kiruthiga@saturam.com; 16 message(s) match the filter right now.", elapsed_ms: 3900, count: 16}
+              target_down:
+                value: {name: target, passed: false, reason: "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment", elapsed_ms: 2}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'

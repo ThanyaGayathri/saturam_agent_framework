@@ -148,3 +148,8 @@ export function deleteGoldenCase(useCaseId, caseId, { signal } = {}) {
 export function acceptGoldenCaseOutput(useCaseId, caseId, { signal } = {}) {
   return apiJson(`/use-cases/${enc(useCaseId)}/cases/${enc(caseId)}/accept`, "POST", undefined, { signal });
 }
+
+/** One live connectivity probe (K19): mailbox, target, master_data, model, golden. */
+export function runUseCasePreflightProbe(useCaseId, probe, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}/preflight/${enc(probe)}`, "POST", undefined, { signal });
+}

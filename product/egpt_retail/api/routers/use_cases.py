@@ -324,6 +324,22 @@ async def run_use_case_preflight(
 
 
 @router.post(
+    "/use-cases/{use_case_id}/preflight/{probe}", response_model=wire.ProbeResult
+)
+async def run_use_case_preflight_probe(
+    use_case_id: str,
+    probe: wire.ProbeName,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> wire.ProbeResult:
+    try:
+        result = await service.aprobe(use_case_id, probe.value)
+    except NotFound:
+        raise _not_found(use_case_id)
+    return wire.ProbeResult.model_validate(result)
+
+
+@router.post(
     "/use-cases/{use_case_id}/activate",
     response_model=wire.UseCase,
     responses={409: {"model": wire.PreflightResult}},

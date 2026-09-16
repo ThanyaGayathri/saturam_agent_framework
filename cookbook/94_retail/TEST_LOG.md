@@ -6182,3 +6182,18 @@ to step 4" / "Fails: exception, the rest of the batch continues"). The old detai
 still there as "Details".
 
 ---
+
+### K19 follow-up -- the readiness rows are live probes
+
+**Status:** PASS (16 Sep 2026). `POST /use-cases/{id}/preflight/{probe}` opens what the
+preflight only confirmed credentials for: `mailbox` logs in and counts the matching messages
+(3.4 s, 16), `target` takes a token and counts Orders (0.9 s), `master_data` reads the rows
+the resolver uses (3.0 s: customer 6, ship to 8, contact 24, product 42, history 27),
+`model` sends one call to the extraction model (2.3 s, "OK"), `golden` reads the cases
+(16 of 16 pass). A failing probe answers `passed: false` with the reason, never an error.
+The readiness screen syncs the spec, then runs the five in sequence; each row reads
+"Connecting: source mailbox -- the platform is opening it now…" until its probe returns,
+form-computed rows follow a beat behind, and the progress is the platform's, not a timer's.
+The "connected and readable" wording is now earned.
+
+---

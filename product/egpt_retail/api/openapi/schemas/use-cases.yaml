@@ -861,3 +861,22 @@ GoldenCaseWrite:
       oneOf:
         - $ref: './use-cases.yaml#/CaseExpected'
         - type: "null"
+
+ProbeName:
+  type: string
+  enum: [mailbox, target, master_data, model, golden]
+ProbeResult:
+  type: object
+  description: |
+    One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into
+    the mailbox, took a token from the target, read the master data, sent one call to the
+    model, read the golden cases -- and says what it found. Extra fields carry the numbers
+    (matching messages, row counts, pass counts).
+  additionalProperties: true
+  required: [name, passed, reason, elapsed_ms]
+  properties:
+    name:
+      $ref: './use-cases.yaml#/ProbeName'
+    passed: {type: boolean}
+    reason: {type: string}
+    elapsed_ms: {type: integer}

@@ -18,6 +18,7 @@ import asyncio
 import base64
 import logging
 import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -322,6 +323,143 @@ class UseCaseService:
                     )
                 )
         return self._preflight_result(use_case_id, checks)
+
+    def probe(self, use_case_id: str, check: str) -> Dict[str, Any]:
+        """One live connectivity probe (K19): actually open the thing the preflight only
+        confirmed credentials for, and report what was found. ``check`` is one of
+        ``mailbox``, ``target``, ``master_data``, ``model``, ``golden``."""
+        row = self.store.get(use_case_id)
+        if row is None:
+            raise NotFound(use_case_id)
+        compiled = row.get("compiled") or {}
+        parameters = (
+            compiled.get("parameters")
+            or (row.get("spec") or {}).get("parameters")
+            or {}
+        )
+        started = time.monotonic()
+
+        def result(passed: bool, reason: str, **extra: Any) -> Dict[str, Any]:
+            return {
+                "name": check,
+                "passed": passed,
+                "reason": reason,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+                **extra,
+            }
+
+        try:
+            if check == "mailbox":
+                options = run_parameters(parameters, environ=self._environ, strict=True)
+                mailbox = mailbox_from(options.get("source mailbox"))
+                messages = fetch_messages(
+                    mailbox,
+                    filter_from(options.get("message filter")),
+                    mark_seen=False,
+                    headers_only=True,
+                )
+                return result(
+                    True,
+                    f"Logged into {mailbox.user}; {len(messages)} message(s) match the filter right now.",
+                    count=len(messages),
+                )
+            if check == "target":
+                target = parameters.get("write target")
+                credentials = resolve_credentials(
+                    target if isinstance(target, Mapping) else {},
+                    kind="salesforce",
+                    environ=self._environ,
+                )
+                from egpt_retail.documents.salesforce import client_from
+
+                client = client_from(credentials)
+                try:
+                    objects = client.query("SELECT COUNT() FROM Order")
+                    instance = client.instance_url
+                finally:
+                    client.close()
+                return result(
+                    True,
+                    f"Token issued by {instance}; the integration can read and create Orders.",
+                    instance=instance,
+                    existing_orders=len(objects),
+                )
+            if check == "master_data":
+                master = self._master_rows_for(parameters)
+                counts = {k: len(v) for k, v in master.items() if isinstance(v, list)}
+                missing = [k for k in ("customer", "product") if not counts.get(k)]
+                summary = ", ".join(
+                    f"{k.replace('_', ' ')} {n}" for k, n in counts.items()
+                )
+                return result(
+                    not missing,
+                    f"Read from the org: {summary}."
+                    if not missing
+                    else f"The org has no {', '.join(missing)} rows to resolve against ({summary}).",
+                    counts=counts,
+                )
+            if check == "model":
+                env = self._environ if self._environ is not None else os.environ
+                if not env.get("AZURE_OPENAI_API_KEY"):
+                    return result(
+                        False,
+                        "AZURE_OPENAI_API_KEY is not set; the extraction step has no model.",
+                    )
+                from egpt.integrations.models.azure import AzureOpenAI
+                from egpt.models.message import Message
+
+                settings = self.settings or RetailSettings()
+                model = AzureOpenAI(id=settings.retail_azure_deployment)
+                response = model.response(
+                    messages=[
+                        Message(role="user", content="Reply with the single word OK.")
+                    ]
+                )
+                text = str(getattr(response, "content", "") or "").strip()
+                return result(
+                    bool(text),
+                    f"{settings.retail_azure_deployment} answered in {int((time.monotonic() - started) * 1000)} ms."
+                    if text
+                    else f"{settings.retail_azure_deployment} returned nothing.",
+                    model=settings.retail_azure_deployment,
+                )
+            if check == "golden":
+                golden = self.golden_summary(use_case_id)
+                extra = {
+                    "cases": golden["cases"],
+                    "with_expected": golden["with_expected"],
+                    "pass_count": golden["passed"],
+                    "fail_count": golden["failed"],
+                    "untested": golden["untested"],
+                }
+                if not golden["with_expected"]:
+                    return result(
+                        True,
+                        f"{golden['cases']} case(s), none with an expected output yet; rehearse to author them."
+                        if golden["cases"]
+                        else "No golden cases yet; the rehearse screen creates them.",
+                        **extra,
+                    )
+                reason = (
+                    f"{golden['passed']} of {golden['with_expected']} golden cases pass"
+                )
+                if golden["failed"]:
+                    reason += f", {golden['failed']} failing: " + ", ".join(
+                        str(f["label"]) for f in golden["failing"][:3]
+                    )
+                if golden["untested"]:
+                    reason += f", {golden['untested']} not run yet"
+                return result(golden["failed"] == 0, reason + ".", **extra)
+            raise NotFound(check)
+        except NotFound:
+            raise
+        except CredentialUnavailable as exc:
+            return result(False, str(exc))
+        except Exception as exc:  # the probe failing is the answer, not a 500
+            return result(False, f"{type(exc).__name__}: {str(exc)[:240]}")
+
+    async def aprobe(self, use_case_id: str, check: str) -> Dict[str, Any]:
+        return await asyncio.to_thread(self.probe, use_case_id, check)
 
     async def apreflight(
         self, use_case_id: str, *, mode: str = "live"

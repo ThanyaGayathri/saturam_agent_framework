@@ -609,6 +609,32 @@ class PreflightCheck(BaseModel):
     reason: str
 
 
+class ProbeName(Enum):
+    mailbox = "mailbox"
+    target = "target"
+    master_data = "master_data"
+    model = "model"
+    golden = "golden"
+
+
+class ProbeResult(BaseModel):
+    """
+    One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into
+    the mailbox, took a token from the target, read the master data, sent one call to the
+    model, read the golden cases -- and says what it found. Extra fields carry the numbers
+    (matching messages, row counts, pass counts).
+
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: ProbeName
+    passed: bool
+    reason: str
+    elapsed_ms: int
+
+
 class ProcessIconKey(Enum):
     PackageCheck = "PackageCheck"
     ClipboardCheck = "ClipboardCheck"

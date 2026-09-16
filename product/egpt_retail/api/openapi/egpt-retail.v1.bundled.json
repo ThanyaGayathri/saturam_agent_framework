@@ -3347,6 +3347,41 @@
           }
         }
       },
+      "ProbeName": {
+        "type": "string",
+        "enum": [
+          "mailbox",
+          "target",
+          "master_data",
+          "model",
+          "golden"
+        ]
+      },
+      "ProbeResult": {
+        "type": "object",
+        "description": "One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into\nthe mailbox, took a token from the target, read the master data, sent one call to the\nmodel, read the golden cases -- and says what it found. Extra fields carry the numbers\n(matching messages, row counts, pass counts).\n",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "passed",
+          "reason",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/ProbeName"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          }
+        }
+      },
       "Process": {
         "type": "object",
         "description": "A named operational process within a business area. Read-only in 1.0.0 (see CHANGELOG).",
@@ -11417,6 +11452,86 @@
                         "case_run"
                       ],
                       "checked_at": "2026-09-16T05:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/preflight/{probe}": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "runUseCasePreflightProbe",
+        "summary": "One live connectivity probe (1.6.0).",
+        "description": "Where `runUseCasePreflight` confirms that credentials exist, this opens the connection:\n`mailbox` logs in and counts the messages matching the filter; `target` takes a token\nand counts the records it may read; `master_data` reads the rows the resolver will use;\n`model` sends one short call to the extraction model; `golden` reads the cases. A probe\nthat fails answers with `passed: false` and the reason, never an error.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "probe",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProbeName"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The probe's verdict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeResult"
+                },
+                "examples": {
+                  "mailbox": {
+                    "value": {
+                      "name": "mailbox",
+                      "passed": true,
+                      "reason": "Logged into kiruthiga@saturam.com; 16 message(s) match the filter right now.",
+                      "elapsed_ms": 3900,
+                      "count": 16
+                    }
+                  },
+                  "target_down": {
+                    "value": {
+                      "name": "target",
+                      "passed": false,
+                      "reason": "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment",
+                      "elapsed_ms": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
                     }
                   }
                 }
