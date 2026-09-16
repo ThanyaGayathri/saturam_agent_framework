@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
 import { useDemoProfile } from "../../context/DemoProfileContext";
-import { datasetIdsByLinkedKpiName, flattenKpiIndexRows } from "../../domain/kpi-mapping";
+import { datasetIdsByLinkedKpiName } from "../../domain/kpi-mapping";
 import { readLocalJson, writeLocalJson } from "../../storage/local-json";
 import { AlertTriangle, Sparkles } from "lucide-react";
 import KpiDiscovery from "./KpiDiscovery";
@@ -57,11 +57,11 @@ const IDLE_SUGGESTION_STATE = {
  * measure, which of those matter, build a dashboard from them. Configure sets things up; KPIs
  * uses them. Configure > KPIs stays pure master data (add / edit / enable / map).
  *
- * Three inputs, deliberately kept apart:
+ * Two inputs, deliberately kept apart (the seed "Retail standard" catalogue that used to be a
+ * third is no longer mixed into this grid -- it has no real identifiers, so nothing on it could
+ * be adopted or put on a dashboard; it still backs Configure > KPIs and the tours):
  *
- *  1. ENABLED registry KPIs -- master data the customer governs. Disabled ones are excluded here,
- *     which is what makes the enable switch in Configure meaningful rather than decorative.
- *  2. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
+ *  1. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
  *     `kpi_suggestion` agent (`POST /kpis/suggestions`, polled until done -- F1, #234 and #254)
  *     when the customer asks for them. Nothing is started until "Suggest KPIs" is clicked:
  *     unlike the registry/real-area fetches below, this is a minutes-long frontier-tier model
@@ -70,13 +70,10 @@ const IDLE_SUGGESTION_STATE = {
  *     edited, governed or reproduced is not something anyone should build a dashboard on --
  *     "adopt" calls `POST /kpis` for real, and only once the suggestion's own feasibility says
  *     `ready` (a `partial`/`blocked` one has nothing valid to adopt).
- *  3. REAL registry KPIs (C1, #232) -- `GET /kpis`, merged in the same additive way suggested
- *     candidates already are, not a replacement for the two above. The seed catalogue has no
- *     real `identifier` on any card and the real registry has very few entries today (only
- *     what's actually been registered); replacing one with the other would either invent
- *     identifiers that don't exist or shrink the demo catalogue to almost nothing. A real row
- *     carries a real `kpi_identifier` and real `feasibility` from day one, so selecting one and
- *     building a dashboard from it (D2, #233) actually reaches the real API.
+ *  2. REAL registry KPIs (C1, #232) -- `GET /kpis`, merged in the same additive way suggested
+ *     candidates are. A real row carries a real `kpi_identifier` and real `feasibility` from
+ *     day one, so selecting one and building a dashboard from it (D2, #233) actually reaches
+ *     the real API.
  */
 
 const FOCUS_KEY = "retailgpt:kpi-focus-areas";
@@ -88,16 +85,6 @@ const FOCUS_KEY = "retailgpt:kpi-focus-areas";
 // and it composes with browser back/forward the way local storage cannot.
 const RUN_PARAM = "run";
 
-/**
- * A KPI counts as enabled unless it has been explicitly switched off. Default-on is the right
- * polarity: default-off leaves a new workspace with an empty discovery list on the one screen
- * that is supposed to show what it can do, so the switch reads as suppression -- "we do not
- * track that here" -- rather than as opt-in.
- */
-function isEnabled(kpi) {
- return kpi?.active !== false;
-}
-
 export default function KpiDiscoveryPage() {
  const navigate = useNavigate();
  const [params, setParams] = useSearchParams();
@@ -108,7 +95,7 @@ export default function KpiDiscoveryPage() {
   () => (unlockedBy ? new Set(metricsUnlockedBy(unlockedBy)) : null),
   [unlockedBy]
  );
- const { data, hydrated } = useKpiRegistry();
+ const { hydrated } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId } = useDemoProfile();
 
@@ -792,16 +779,14 @@ export default function KpiDiscoveryPage() {
   [suggestionState.suggestions]
  );
 
+ // The seed "Retail standard" catalogue is not shown here: every card is either a live
+ // suggestion or a real registry KPI, so each one has a real identifier and real feasibility
+ // and can actually be adopted or put on a dashboard. The seed data still backs Configure >
+ // KPIs and the tours; only this grid stopped mixing it in.
  const rows = useMemo(() => {
-  const registry = flattenKpiIndexRows(data?.categories || []).filter((r) => isEnabled(r.kpi));
-  const all = [...registry, ...suggestionRows, ...realRows];
+  const all = [...suggestionRows, ...realRows];
   return unlockedNames ? all.filter((r) => unlockedNames.has(r.kpi?.name)) : all;
- }, [data?.categories, suggestionRows, realRows, unlockedNames]);
-
- const disabledCount = useMemo(
-  () => flattenKpiIndexRows(data?.categories || []).filter((r) => !isEnabled(r.kpi)).length,
-  [data?.categories]
- );
+ }, [suggestionRows, realRows, unlockedNames]);
 
  const hasSuggestions = rows.some((r) => r.suggested);
 
@@ -812,7 +797,7 @@ export default function KpiDiscoveryPage() {
    {realKpiState.status === "error" && (
     <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
      <AlertTriangle size={15} className="shrink-0 text-status-warning" />
-     Couldn't load your KPI registry — showing demo metrics only.
+     Couldn't load your KPI registry. Reload to try again.
     </div>
    )}
 
@@ -882,20 +867,6 @@ export default function KpiDiscoveryPage() {
     </p>
    )}
 
-   {/* Disabled metrics are absent by design, but silently absent is indistinguishable from
-       missing. One line, with a route to the place that controls it. */}
-   {disabledCount > 0 && (
-    <p className="text-xs text-text-muted">
-     {disabledCount} metric{disabledCount === 1 ? " is" : "s are"} switched off and excluded here.{" "}
-     <button
-      type="button"
-      onClick={() => navigate("/configure/domain-mapping")}
-      className="font-semibold text-primary hover:underline"
-     >
-      Manage in Configure
-     </button>
-    </p>
-   )}
 
    {pendingRows && (
     <CreateDashboardModal
