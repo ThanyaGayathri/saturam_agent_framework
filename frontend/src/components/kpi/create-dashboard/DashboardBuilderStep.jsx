@@ -1,5 +1,9 @@
-import { AlertTriangle, ArrowLeft, CalendarClock, Sparkles, X } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, ArrowLeft, CalendarClock, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import MetricPicker from "./MetricPicker";
+import ChartEditorPanel from "./ChartEditorPanel";
+import ChartTile from "../ChartTile";
+import { spanForChart, tileDataFromPreview } from "../../../storage/dashboards";
 
 const AI_BADGE = (
  <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
@@ -8,11 +12,18 @@ const AI_BADGE = (
  </span>
 );
 
+let _chartSeq = 0;
+function newChartId() {
+ _chartSeq += 1;
+ return `draft_${Date.now()}_${_chartSeq}`;
+}
+
 /**
- * The last step for both paths: name, metrics, one optional `business_area` filter, schedule,
- * then Create. `aiSuggested` only changes the chrome (badges, the back-to-purpose link) - the
- * fields underneath are the same editable state either way, which is the point: an AI
- * suggestion is a prefilled starting point, not a different shape of form.
+ * The review step for both paths: for the AI path this *is* the composed dashboard --
+ * every chart the agent wrote, with its SQL/metric, guard verdict, preview rows and
+ * description, each editable or removable, plus a slot to add one more. For the manual path
+ * it is the KPI picker, one chart per metric, with the same edit surface. Name, filter and
+ * refresh live in the header/foot, folded in rather than shown on an earlier screen.
  */
 export default function DashboardBuilderStep({
  name,
@@ -20,13 +31,14 @@ export default function DashboardBuilderStep({
  refresh,
  setRefresh,
  refreshOptions,
- metrics,
- setMetrics,
+ charts,
+ setCharts,
  businessAreaFilter,
  setBusinessAreaFilter,
  businessAreaOptions,
  readyKpis,
  aiSuggested,
+ contextSummary,
  onBack,
  onChangeMode,
  onCancel,
@@ -35,15 +47,52 @@ export default function DashboardBuilderStep({
  error,
  notReadyCount = 0,
 }) {
- const selectedIdentifiers = new Set(metrics.map((m) => m.identifier));
- const canSubmit = metrics.length > 0 && !submitting;
+ const [editingId, setEditingId] = useState(null);
+ // A not-yet-added chart's draft, or `null`. Distinct from `editingId`/`editingChart` below,
+ // which only ever point at a chart already in `charts` -- see `addBlankQueryChart`'s comment.
+ const [addingChart, setAddingChart] = useState(null);
+ const canSubmit = charts.length > 0 && !submitting;
+ const editingChart = editingId ? charts.find((c) => c.id === editingId) : null;
 
- const removeMetric = (identifier) => {
-  setMetrics(metrics.filter((m) => m.identifier !== identifier));
+ const removeChart = (id) => setCharts(charts.filter((c) => c.id !== id));
+ const updateChart = (id, patch) => setCharts(charts.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+
+ const addMetricAsChart = (kpi) => {
+  setCharts([
+   ...charts,
+   {
+    id: newChartId(),
+    title: kpi.name,
+    chart: "number",
+    source: "kpi",
+    kpi_identifier: kpi.identifier,
+    description: kpi.description || "",
+    guard: { status: "ok", detail: "" },
+   },
+  ]);
  };
- const addMetric = (kpi) => {
-  setMetrics([...metrics, kpi]);
+
+ // A brand-new chart is never added to `charts` until its editor is actually saved (round-1
+ // review, finding #10): pushing it in immediately, as this used to, left an orphaned
+ // blank-SQL draft behind on Cancel -- invisible on this screen (nothing renders `addingChart`
+ // as a tile), but still present in `charts` and still sent on "Create dashboard", where its
+ // empty `sql` 422s the *entire* request with no visible connection to the chart the person
+ // cancelled. `addingChart` mirrors `DashboardView.jsx`'s own `addingChart` draft-before-save
+ // pattern for the same reason.
+ const addBlankQueryChart = () => {
+  setAddingChart({
+   id: newChartId(),
+   title: "New chart",
+   chart: "table",
+   source: "query",
+   query: { sql: "", source_tables: [] },
+   description: "",
+  });
  };
+
+ const selectedIdentifiers = new Set(
+  charts.filter((c) => c.source !== "query").map((c) => c.kpi_identifier),
+ );
 
  return (
   <form
@@ -52,7 +101,7 @@ export default function DashboardBuilderStep({
     if (canSubmit) onSubmit();
    }}
   >
-   <div className="mb-4 flex items-center justify-between">
+   <div className="mb-4 flex items-start justify-between gap-3">
     {aiSuggested ? (
      <button
       type="button"
@@ -60,7 +109,7 @@ export default function DashboardBuilderStep({
       className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
      >
       <ArrowLeft size={13} />
-      Back to purpose (regenerate)
+      Back to purpose (recompose)
      </button>
     ) : onChangeMode ? (
      <button
@@ -82,7 +131,7 @@ export default function DashboardBuilderStep({
     )}
    </div>
 
-   <div className="mb-5">
+   <div className="mb-4">
     <label htmlFor="db-name" className="block text-sm font-semibold text-text-primary">
      Name
     </label>
@@ -90,54 +139,82 @@ export default function DashboardBuilderStep({
      id="db-name"
      value={name}
      onChange={(e) => setName(e.target.value)}
-     placeholder="e.g. Inventory health — weekly"
+     placeholder="e.g. Stock-outs vs margin"
      className="mt-1.5 w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
     />
    </div>
 
+   {contextSummary && (
+    <p className="mb-4 text-xs text-text-muted">
+     Read {contextSummary.kpi_identifiers?.length || 0} metric(s) and{" "}
+     {contextSummary.table_names?.length || 0} table(s) ·{" "}
+     {contextSummary.described_columns ?? 0} of {contextSummary.total_columns ?? 0} columns described
+     {contextSummary.withheld_columns?.length ? ` · ${contextSummary.withheld_columns.length} withheld as personal data` : ""}
+    </p>
+   )}
+
    <div className="mb-5">
     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-text-primary">
-     {metrics.length} metric{metrics.length === 1 ? "" : "s"}
-     {aiSuggested && metrics.length > 0 && AI_BADGE}
+     {charts.length} chart{charts.length === 1 ? "" : "s"}
+     {aiSuggested && charts.length > 0 && AI_BADGE}
     </p>
-    <div className="flex flex-wrap items-center gap-2">
-     {metrics.map((kpi) => (
-      <span
-       key={kpi.identifier}
-       className="inline-flex items-center gap-1.5 rounded-full bg-surface-tertiary py-1 pl-3 pr-1.5 text-xs font-medium text-text-secondary"
-      >
-       {kpi.name}
-       <button
-        type="button"
-        onClick={() => removeMetric(kpi.identifier)}
-        aria-label={`Remove ${kpi.name}`}
-        className="rounded-full p-0.5 text-text-muted hover:bg-surface-secondary hover:text-text-primary"
-       >
-        <X size={11} />
-       </button>
-      </span>
-     ))}
-     <MetricPicker
-      readyKpis={readyKpis}
-      selectedIdentifiers={selectedIdentifiers}
-      onAdd={addMetric}
-     />
-    </div>
-    <p className="mt-2 text-xs text-text-muted">
-     Each gets a chart type from its unit. You can change any of them on the dashboard.
-    </p>
-   </div>
 
-   {notReadyCount > 0 && (
-    <div className="mb-5 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2.5 text-xs text-text-secondary">
-     <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
-     <p>
-      {notReadyCount} metric{notReadyCount === 1 ? " isn't" : "s aren't"} linked to a
-      registered KPI yet, so {notReadyCount === 1 ? "it" : "they"} can't be added to a live
-      dashboard and {notReadyCount === 1 ? "was" : "were"} left out of the selection below.
-     </p>
+    {notReadyCount > 0 && (
+     <div className="mb-3 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2.5 text-xs text-text-secondary">
+      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
+      <p>
+       {notReadyCount} metric{notReadyCount === 1 ? " isn't" : "s aren't"} linked to a registered
+       KPI yet, so {notReadyCount === 1 ? "it" : "they"} couldn't be added.
+      </p>
+     </div>
+    )}
+
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+     {charts.map((chart) => (
+      <ChartTile
+       key={chart.id}
+       className={spanForChart(chart.chart) === 2 ? "sm:col-span-2" : ""}
+       tile={chart}
+       data={chart.source === "query" ? tileDataFromPreview(chart, chart.preview) : null}
+       guard={chart.guard}
+       actions={
+        <>
+         <button
+          type="button"
+          onClick={() => setEditingId(chart.id)}
+          aria-label={`Edit ${chart.title}`}
+          className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+         >
+          <Pencil size={13} />
+         </button>
+         <button
+          type="button"
+          onClick={() => removeChart(chart.id)}
+          aria-label={`Remove ${chart.title}`}
+          className="rounded-md p-1.5 text-text-muted hover:bg-status-critical/10 hover:text-status-critical"
+         >
+          <Trash2 size={13} />
+         </button>
+        </>
+       }
+      />
+     ))}
+     <button
+      type="button"
+      onClick={addBlankQueryChart}
+      className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+     >
+      <Plus size={16} />
+      Add a chart
+     </button>
     </div>
-   )}
+
+    {!aiSuggested && (
+     <div className="mt-3">
+      <MetricPicker readyKpis={readyKpis} selectedIdentifiers={selectedIdentifiers} onAdd={addMetricAsChart} />
+     </div>
+    )}
+   </div>
 
    <div className="mb-5">
     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-text-primary">
@@ -158,15 +235,16 @@ export default function DashboardBuilderStep({
     </select>
    </div>
 
-   {metrics.length === 0 && (
+   {charts.length === 0 && (
     <div className="mb-5 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2.5 text-xs text-text-secondary">
      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
-     <p>Add at least one metric to create the dashboard.</p>
+     <p>Add at least one chart to create the dashboard.</p>
     </div>
    )}
 
    <div className="mb-0">
     <label htmlFor="db-refresh" className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+     <RefreshCw size={13} />
      Refresh the numbers
     </label>
     <select
@@ -181,6 +259,9 @@ export default function DashboardBuilderStep({
       </option>
      ))}
     </select>
+    <p className="mt-1 text-xs text-text-muted">
+     Charts read from the warehouse on this schedule, never on open.
+    </p>
    </div>
 
    {error && (
@@ -206,6 +287,32 @@ export default function DashboardBuilderStep({
      {submitting ? "Creating…" : "Create dashboard"}
     </button>
    </div>
+
+   {addingChart && !editingChart && (
+    <ChartEditorPanel
+     chart={addingChart}
+     onClose={() => setAddingChart(null)}
+     onSave={(saved) => {
+      setCharts([...charts, saved]);
+      setAddingChart(null);
+     }}
+    />
+   )}
+
+   {editingChart && (
+    <ChartEditorPanel
+     chart={editingChart}
+     onClose={() => setEditingId(null)}
+     onSave={(updated) => {
+      updateChart(editingChart.id, updated);
+      setEditingId(null);
+     }}
+     onDelete={() => {
+      removeChart(editingChart.id);
+      setEditingId(null);
+     }}
+    />
+   )}
   </form>
  );
 }

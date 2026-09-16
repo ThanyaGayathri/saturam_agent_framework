@@ -20,9 +20,9 @@ export default function DashboardsPage() {
  // already picked.
  const [showCreate, setShowCreate] = useState(false);
 
- const createDashboard = async ({ name, refresh, metrics, businessAreaFilter }) => {
+ const createDashboard = async ({ name, refresh, charts, businessAreaFilter }) => {
   const created = await createDashboardApi(
-   buildDashboardWritePayload({ name, refresh, metrics, businessAreaFilter }),
+   buildDashboardWritePayload({ name, refresh, charts, businessAreaFilter }),
   );
   setShowCreate(false);
   navigate(`/kpis/dashboards/${created.id}`);

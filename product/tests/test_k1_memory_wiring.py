@@ -45,7 +45,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -66,6 +66,11 @@ def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
 
     monkeypatch.setattr(factory_module, "PlaygroundStore", _fake_store("playground"))
     monkeypatch.setattr(factory_module, "DashboardStore", _fake_store("dashboard"))
+    monkeypatch.setattr(
+        factory_module,
+        "DashboardQueryResultStore",
+        _fake_store("dashboard_query_result"),
+    )
     monkeypatch.setattr(factory_module, "KpiRegistryStore", _fake_store("kpi"))
     monkeypatch.setattr(factory_module, "ProposalStore", _fake_store("proposal"))
     monkeypatch.setattr(
@@ -84,6 +89,7 @@ def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
     assert calls == [
         "playground",
         "dashboard",
+        "dashboard_query_result",
         "kpi",
         "proposal",
         "suggestion_run",
