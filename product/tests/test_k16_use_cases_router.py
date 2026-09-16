@@ -1478,6 +1478,26 @@ def test_uploaded_case_is_run_and_its_output_accepted_as_expected() -> None:
         verdict = run["result"]["cases"][0]
         assert verdict["status"] == "untested" and verdict["outcome"] == "created"
 
+        # Typing the expectation first is the other way to author it; untested until run.
+        typed = client.patch(
+            f"/use-cases/{use_case_id}/cases/{case['id']}",
+            json={
+                "expected": {
+                    "outcome": "created",
+                    "extracted": {"po_number": "177948"},
+                    "line_count": 1,
+                }
+            },
+        )
+        assert typed.status_code == 200
+        assert typed.json()["expected"]["extracted"] == {"po_number": "177948"}
+        assert typed.json()["last_status"] == "untested"
+        assert (
+            client.patch(
+                f"/use-cases/{use_case_id}/cases/case_nope", json={"label": "x"}
+            ).status_code
+            == 404
+        )
         accepted = client.post(
             f"/use-cases/{use_case_id}/cases/{case['id']}/accept"
         ).json()
