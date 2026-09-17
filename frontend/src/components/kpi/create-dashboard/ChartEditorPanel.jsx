@@ -96,14 +96,17 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
 
  // The SQL this editor opened with -- already live (persisted and previously validated), just
  // composed (guarded and previewed by the run that wrote it), or, for a brand-new/just-detached
- // chart, empty. Trusted as-is unless the current guard verdict is `refused`, so editing an
- // unrelated field (the title, the description) on an otherwise-untouched chart never requires
- // a fresh preview -- while a composed chart the guard refused cannot be saved untouched
- // (the server would 422 it anyway; the pill already says why, so Save says so too rather
- // than letting the person find out from the write). Read live off `guard`, not a second
- // boolean frozen from `chart.guard` at open time: `guard` already starts as `chart.guard`
- // and only moves on a fresh `runPreview()`, so the two could never legitimately disagree --
- // a separate `originalRefused` would just be another place for that fact to go stale.
+ // chart, empty. Trusted as-is unless the chart *arrived* with a `refused` guard verdict, so
+ // editing an unrelated field (the title, the description) on an otherwise-untouched chart
+ // never requires a fresh preview -- while a composed chart the guard refused cannot be saved
+ // untouched (the server would 422 it anyway; the pill already says why, so Save says so too
+ // rather than letting the person find out from the write). Read off `chart.guard`, the frozen
+ // verdict the chart arrived with -- not the live, mutable `guard` state, which only tracks
+ // whatever was last *previewed* and can disagree with what `sql` currently holds: edit to a
+ // bad query, run preview (`guard` turns `refused`, tied to that bad text), then revert `sql`
+ // back to `originalSql` by hand without re-previewing -- `guard` is still `refused`, stale,
+ // describing text no longer in the box, even though `sql === originalSql` is byte-for-byte the
+ // original, already-validated query. `chart.guard` never moves, so it can't go stale that way.
  // `previewedSql` is the text of the most recent `runPreview()` call
  // this session, or `null` before the first one. Together these are what `canSave` checks
  // (round-1 review, finding #9): editing `sql` away from both leaves neither satisfied, so
@@ -133,11 +136,25 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
   }
  };
 
- const sqlIsOriginal = sql === originalSql && guard?.status !== "refused";
+ const sqlIsOriginal = sql === originalSql && chart.guard?.status !== "refused";
  const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
  const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
  const canSave =
   !isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running);
+
+ // Named out of the Save button's `title` (round-2 review: that was a 3-level nested ternary
+ // mixing three unrelated disabled-reasons inline in JSX) so each branch reads and tests on its
+ // own -- worth it especially because the middle branch mirrors `sqlIsOriginal` above, which is
+ // exactly the condition a previous round got subtly wrong by reading live `guard` instead of
+ // the chart's frozen arrival verdict.
+ const saveDisabledReason = () => {
+  if (canSave || !isQuery) return undefined;
+  if (sql.trim().length === 0) return "Write a query before saving.";
+  if (chart.guard?.status === "refused" && sql === originalSql) {
+   return "The read guard refused this query. Change it and run the preview.";
+  }
+  return "Run the preview again -- the query changed since it was last checked.";
+ };
 
  const save = () => {
   if (!canSave) return;
@@ -189,15 +206,7 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
        type="button"
        onClick={save}
        disabled={!canSave}
-       title={
-        !canSave && isQuery
-         ? sql.trim().length === 0
-           ? "Write a query before saving."
-           : guard?.status === "refused" && sql === originalSql
-             ? "The read guard refused this query. Change it and run the preview."
-             : "Run the preview again -- the query changed since it was last checked."
-         : undefined
-       }
+       title={saveDisabledReason()}
        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
        Save chart

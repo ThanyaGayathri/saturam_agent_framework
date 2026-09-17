@@ -308,9 +308,12 @@ export default function DashboardView() {
   composeRun.start({ purpose: text, chartBudget: 1 });
  };
 
+ const composing = composeRun.status === "loading";
+ const composeFailed = composeRun.status === "error";
+
  const addChartFromPrompt = () => {
   const text = addPrompt.trim();
-  if (composeRun.status === "loading") return;
+  if (composing) return;
   setAddPrompt("");
   if (text) {
    composeChart(text);
@@ -330,9 +333,6 @@ export default function DashboardView() {
    description: "",
   });
  };
-
- const composing = composeRun.status === "loading";
- const composeFailed = composeRun.status === "error";
 
  // "Change the purpose": drop the run (or its failure) and put the text back in the bar.
  // Reads `composePurpose` before `resetCompose` clears it -- the plain closure variable is

@@ -127,7 +127,12 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  };
 
  // Once a run succeeds, prefill the builder from it and hand control to the person - nothing
- // here is final until they click Create.
+ // here is final until they click Create. Resets `suggestionRun` right after (round-2 review:
+ // DashboardView.jsx's own copy of this consuming-effect pattern already did, and the two had
+ // drifted apart on exactly this) rather than leaving it at `ready` for the `step` change to
+ // paper over -- nothing downstream reads `suggestionRun.result` once `step` is "builder", so
+ // this is free, and it keeps both call sites doing the same thing if the hook's contract ever
+ // requires a `reset()` before a second `start()`.
  useEffect(() => {
   if (suggestionRun.status !== "ready" || !suggestionRun.result) return;
   const result = suggestionRun.result;
@@ -138,6 +143,9 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   setContextSummary(result.context || null);
   setAiSuggested(true);
   setStep("builder");
+  suggestionRun.reset();
+  // `suggestionRun.reset` is stable; `status`/`result` are the values that matter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [suggestionRun.status, suggestionRun.result]);
 
  const submit = async () => {
