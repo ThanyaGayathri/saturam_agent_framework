@@ -32,42 +32,92 @@ export const PLAYGROUND_MODES = Object.freeze({
 });
 
 /**
- * Backend `AnswerBlockKind` -> this app's `BLOCK_TYPES`.
+ * Backend `AnswerBlockKind` -> a block the renderer can actually draw.
  *
- * `kpi` and `finding` both land on FINDINGS: the renderer has no kpi tile, and a finding tile
- * carries a number perfectly well. `text` becomes INSIGHT, which is the renderer's prose block.
- * Anything unrecognised also becomes INSIGHT rather than being dropped — a block the backend
- * added and this map has not caught up with should still render its content, not vanish.
+ * **Each target type has its own required shape, and a block missing it renders nothing.**
+ * `FindingsBlock` and `RecommendationBlock` both open with `if (!items.length) return null`;
+ * `TableBlock` needs `columns`/`rows`; `ChartBlock` needs `data`. An earlier version of this
+ * file emitted a uniform `{headline, subtext, content, source}` for every kind, so five of the
+ * six backend kinds produced a blank bubble — the answer arrived intact from the backend and
+ * the component dropped it on the floor. Hence one builder per target rather than one mapping
+ * table: the shape is the contract, not the type name.
+ *
+ * The backend's six kinds are prose-and-numbers; the renderer's richer types (journey, rca,
+ * regionMap) need data no executor produces, so nothing maps onto them.
  */
-const KIND_TO_TYPE = Object.freeze({
-  text: BLOCK_TYPES.INSIGHT,
-  finding: BLOCK_TYPES.FINDINGS,
-  kpi: BLOCK_TYPES.FINDINGS,
-  table: BLOCK_TYPES.TABLE,
-  chart: BLOCK_TYPES.CHART,
-  recommendation: BLOCK_TYPES.RECOMMENDATION,
-});
 
-/**
- * One backend block as the renderer's shape.
- *
- * The contract declares only `id` and `kind` ("the playground's answer format owns the inner
- * shape"), and `playground.md` asks the model for `title`, `content` and `source`. Both are
- * carried through: `content` is the prose, `source` says which tool call produced it, and the
- * original `kind` is preserved so a citation panel can tell a kpi from a finding later.
- */
-function toRenderableBlock(block) {
-  const type = KIND_TO_TYPE[block.kind] || BLOCK_TYPES.INSIGHT;
-  const body = block.content ?? block.text ?? "";
+/** `text` -> InsightBlock: `headline` + `subtext`, the renderer's prose block. */
+function asInsight(block, body) {
   return {
     id: block.id,
-    type,
+    type: BLOCK_TYPES.INSIGHT,
     kind: block.kind,
     headline: block.title || "",
     subtext: body,
-    content: body,
-    source: block.source || "",
   };
+}
+
+/**
+ * `finding` / `kpi` -> FindingsBlock, whose `items` are `{title, value, change,
+ * changeDirection, sentiment, desc}` stat tiles.
+ *
+ * One backend block becomes one tile. The backend sends prose, not a parsed number, so `value`
+ * carries the text and `desc` the source attribution — a tile with a sentence in it reads
+ * fine, and inventing a numeric split here would mean parsing the model's prose, which is
+ * exactly the kind of guessing the rest of this pipeline refuses to do.
+ */
+function asFindings(block, body) {
+  return {
+    id: block.id,
+    type: BLOCK_TYPES.FINDINGS,
+    kind: block.kind,
+    title: block.title || "",
+    items: [{ title: block.title || "", value: body, desc: block.source || "" }],
+  };
+}
+
+/** `recommendation` -> RecommendationBlock, whose items are `{text}`. */
+function asRecommendation(block, body) {
+  return {
+    id: block.id,
+    type: BLOCK_TYPES.RECOMMENDATION,
+    kind: block.kind,
+    title: block.title || "",
+    items: [{ text: body }],
+  };
+}
+
+/**
+ * `table` / `chart` -> Insight, deliberately.
+ *
+ * `TableBlock` needs `columns` and `rows`; `ChartBlock` needs `data` and a `chartKind`. The
+ * backend's `AnswerBlock` carries none of that — the contract declares only `id` and `kind`,
+ * and `playground.md` asks for `title`/`content`/`source`. Rendering the prose in an Insight
+ * block shows the answer; emitting an empty TableBlock shows a header and no data, which reads
+ * as "there were no rows" rather than "this surface cannot draw it yet". When the backend
+ * grows structured table and series payloads, these get their own builders.
+ */
+const BUILDERS = Object.freeze({
+  text: asInsight,
+  finding: asFindings,
+  kpi: asFindings,
+  recommendation: asRecommendation,
+  table: asInsight,
+  chart: asInsight,
+});
+
+/**
+ * One backend block as a renderable one.
+ *
+ * `content` is what `playground.md` asks the model for; `text` is accepted as a fallback
+ * because the contract leaves the inner shape open. An unrecognised kind renders as prose
+ * rather than vanishing — a block the backend added and this file has not caught up with
+ * should still show its content.
+ */
+function toRenderableBlock(block) {
+  const body = block.content ?? block.text ?? "";
+  const build = BUILDERS[block.kind] || asInsight;
+  return build(block, body);
 }
 
 /**
@@ -134,21 +184,42 @@ export async function fetchProvenance(runId, { signal } = {}) {
 /**
  * A provenance record as the renderer's `lineage`.
  *
- * Datasets read and statements executed are what the record actually holds; the citation block
- * wants a list of sources, so each becomes one.
+ * `CitationBlock`'s `SourceRow` reads `{system, scope, isReal, note}`. An earlier version
+ * emitted `{label, kind}`, so every row rendered blank **and**, because `isReal` was
+ * `undefined`, carried the "Example data — Middleby data would replace this" badge. A real
+ * provenance row was therefore displayed as fabricated, which is the exact inversion of what
+ * R7 exists to prove.
+ *
+ * `isReal: true` is correct by construction here: a provenance row is only written by a run
+ * that actually read something, so anything reaching this function came from real data.
+ *
+ * The record's `datasets_read` entries are `{schema, table, as_of}` (`DatasetRead` in the
+ * generated API models) — there is no `name` and no `dataset`, which an earlier `d.name ||
+ * d.dataset || "dataset"` fell through to, labelling every source with the literal word
+ * "dataset".
  */
 export function lineageFromProvenance(record) {
   if (!record) return null;
   const sources = [
     ...(record.datasets_read || []).map((d) => ({
-      label: typeof d === "string" ? d : d.name || d.dataset || "dataset",
-      kind: "dataset",
+      system: typeof d === "string" ? d : [d.schema, d.table].filter(Boolean).join("."),
+      scope: d?.as_of ? `as of ${d.as_of}` : "",
+      isReal: true,
+      note: "",
+    })),
+    ...(record.sql_executed || []).map((q) => ({
+      system: q?.table || q?.dataset || "warehouse",
+      scope: q?.rows != null ? `${q.rows} row(s)` : "",
+      isReal: true,
+      note: q?.statement ? String(q.statement).slice(0, 120) : "",
     })),
     ...(record.retrieval_hits || []).map((h) => ({
-      label: h.origin ? `${h.origin}: ${h.id ?? ""}`.trim() : String(h.id ?? "retrieval hit"),
-      kind: "retrieval",
+      system: h?.origin || "retrieval",
+      scope: h?.id ? String(h.id) : "",
+      isReal: true,
+      note: h?.score != null ? `score ${h.score}` : "",
     })),
-  ];
+  ].filter((s) => s.system);
   if (!sources.length) return null;
   return { sources, modelTier: record.model_tier || null };
 }

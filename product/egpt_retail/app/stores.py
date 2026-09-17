@@ -26,8 +26,9 @@ the callers that never ask for the stores.
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any, Iterator, Optional
 
@@ -60,8 +61,24 @@ class KnowledgeStores:
     dimensions: int
 
 
+#: Serialises embedder construction. ``lru_cache`` holds no lock across the wrapped call, so
+#: two concurrent misses both run it -- and since ``abuild_knowledge_stores`` dispatches to a
+#: thread, those are two real threads each constructing a ``SentenceTransformerEmbedder`` and
+#: each running its own first ``encode()``. That is exactly the condition the embedder's
+#: construction warm-up exists to prevent, and it deadlocks both. The warm-up makes one
+#: instance safe; this makes there be one instance.
+_EMBEDDER_LOCK = threading.Lock()
+
+#: Built stores, keyed by the settings that decide them. ``PgVector`` calls ``create_engine``
+#: and builds a ``scoped_session`` in its constructor, so building the stores per question
+#: leaked a control-plane connection pool per question -- the same defect ``app/db.py``'s
+#: pooled accessor fixes for the warehouse, on the leg this branch introduced.
+_STORES: dict = {}
+_STORES_LOCK = threading.Lock()
+
+
 @lru_cache(maxsize=2)
-def _embedder_for(mode: ProviderMode) -> Any:
+def _embedder_for_uncached(mode: ProviderMode) -> Any:
     """The resolved embedder for a provider mode, once per process.
 
     This is the expensive line. In Mode A ``resolve_knowledge_embedder`` loads
@@ -83,7 +100,36 @@ def _embedder_for(mode: ProviderMode) -> Any:
     return resolve_knowledge_embedder(mode=mode)
 
 
+def _embedder_for(mode: ProviderMode) -> Any:
+    """:func:`_embedder_for_uncached`, but at most one construction at a time."""
+    with _EMBEDDER_LOCK:
+        return _embedder_for_uncached(mode)
+
+
 def build_knowledge_stores(settings: RetailSettings, driver: Any) -> KnowledgeStores:
+    """Cached by the values that decide the stores; see :func:`_build_knowledge_stores`."""
+    key = (
+        settings.retail_provider_mode,
+        settings.retail_knowledge_table,
+        settings.retail_db_url,
+    )
+    with _STORES_LOCK:
+        cached = _STORES.get(key)
+        if cached is not None:
+            # The ontology store holds the driver it was built with. A cached one whose driver
+            # has been closed would fail on read, so it is rebuilt against the live driver --
+            # cheap, since the embedder and the PgVector engine are what cost anything.
+            from egpt_retail.ontology.store import OntologyStore
+
+            return replace(
+                cached, ontology=OntologyStore(driver=driver, embedder=cached.embedder)
+            )
+        built = _build_knowledge_stores(settings, driver)
+        _STORES[key] = built
+        return built
+
+
+def _build_knowledge_stores(settings: RetailSettings, driver: Any) -> KnowledgeStores:
     """The prose and ontology stores over an already-open Neo4j driver.
 
     Lifted verbatim from ``entrypoints/suggest.py``'s own assembly, which now calls this

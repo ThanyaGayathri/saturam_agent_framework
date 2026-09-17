@@ -325,11 +325,30 @@ def _verified_user_id(ctx: Any) -> Optional[str]:
     legs still work without memory.
     """
     trusted = getattr(ctx, "trusted", None)
-    verified = getattr(trusted, "user_id", None) if trusted is not None else None
-    if verified:
-        return str(verified)
+    claims = getattr(trusted, "claims", None) or {}
+    # `sub` is the JWT's subject, placed here by AuthMiddleware after the token verified.
+    # `TrustedContext` has exactly two fields -- `claims` and `scopes` -- and no `user_id`:
+    # reading `trusted.user_id` returns None on every request, which closes the hole by
+    # killing the feature, and leaves the next person to "fix" it reaching for `ctx.user_id`,
+    # which is the unverified form field this function exists to refuse.
+    subject = claims.get("sub") if isinstance(claims, dict) else None
+    if subject:
+        return str(subject)
+
+    # Authorization off is a legitimate deployment posture (`app/scopes.py`), not an attack.
+    # There is exactly one caller then, so `_owner`'s "local" stand-in is the right identity --
+    # and it is chosen HERE, from the deployment's own configuration, never from the request.
+    request = getattr(ctx, "request", None)
+    state = getattr(request, "state", None) if request is not None else None
+    if state is not None and not getattr(state, "authorization_enabled", False):
+        return "local"
+
+    # Authorization on, but the token carried no subject. `jwt.py` sets `request.state.user_id`
+    # to None *explicitly* for that case, so there is no identity to key a private read on and
+    # the form field must not stand in. Drop the leg: no memory is the honest answer for an
+    # unidentified caller, and "everyone's" is the one answer that must never come back.
     log_warning(
-        "playground: no verified caller identity on this request, so the memory leg is "
+        "playground: this request carries no verified subject claim, so the memory leg is "
         "dropped. An unverified user_id must never scope a memory read (MEMORY_SCOPE.md)."
     )
     return None

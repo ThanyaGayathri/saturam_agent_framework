@@ -16,6 +16,8 @@ import { lensDisplayToHorizon, parsePlaygroundHubHandoff } from "../domain/playg
 // The playground answers from R11 only -- no scripted fallback. `resolve-playground-assistant`
 // remains the use-case builder's resolver; see `resolve-playground-reply.js`.
 import { resolvePlaygroundReply as resolvePlaygroundAssistantReplyAsync } from "../domain/resolve-playground-reply";
+import { readPlaygroundMode } from "../storage/playground-mode";
+import PlaygroundModePicker from "./shared/PlaygroundModePicker";
 import { collapseAdjacentDuplicateUserMessages } from "../domain/chat-message-utils";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { PendingAttachmentChips, SentAttachmentChips } from "./shared/ChatAttachmentChips";
@@ -24,7 +26,6 @@ import { MicErrorMessage } from "./shared/MicButton";
 import ChatComposerTextarea from "./shared/ChatComposerTextarea";
 import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
 import { getMiddlebyPlaygroundChatPlaceholder } from "../domain/middleby-composer-hints";
-import { BLOCKS_PREVIEW_TRIGGER } from "../domain/answer-blocks/preview-message";
 import { Sparkles, Bookmark, Calendar, Zap, FileText } from "lucide-react";
 import { useSavedPrompts } from "../hooks/useSavedPrompts";
 import { useScheduledRuns } from "../hooks/useScheduledRuns";
@@ -234,8 +235,14 @@ export default function PlaygroundActiveChat() {
       try {
         // Enrich with the current period filter so a hand-off from the home
         // hub (or a previous session) still respects the user's period pick.
+        // The active playground mode rides on the message, so a retry of this turn repeats it
+        // in the same mode rather than falling back to the default. Without this `prevUser.meta`
+        // never carries a mode and the retry fix above would be a no-op.
+        const activeMode = readPlaygroundMode(profileId);
         const enrichedMeta = {
           ...(userMeta || {}),
+          playgroundMode: userMeta?.playgroundMode ?? activeMode.mode,
+          scopeId: userMeta?.scopeId ?? activeMode.scopeId,
           period: chatFilters.period,
           ...(chatFilters.period === "custom" && chatFilters.fromDate && chatFilters.toDate
             ? { fromDate: chatFilters.fromDate, toDate: chatFilters.toDate }
@@ -568,10 +575,15 @@ export default function PlaygroundActiveChat() {
                           // `prevUser.meta` carries the mode and scope the original turn ran
                           // in. Dropping it made a retry silently re-ask in `data` mode against
                           // a different tool set than the answer being retried.
+                          // `exploreHub` is NOT bound in the component body -- its only
+                          // declarations are inside two useEffect closures -- so naming it
+                          // here threw ReferenceError and retry silently did nothing.
+                          // `prevUser.meta` is the right source regardless: it carries the
+                          // mode and scope the original turn ran in.
                           const { text: rText, meta: rMeta } = await resolvePlaygroundAssistantReplyAsync(
                             prevUser.text,
                             profileId,
-                            exploreHub,
+                            undefined,
                             prevUser.meta
                           );
                           await send(rText, "assistant", rMeta);
@@ -764,6 +776,9 @@ export default function PlaygroundActiveChat() {
                   placeholder={chatPlaceholder}
                   ariaLabel={chatPlaceholder}
                 />
+                <div className="mt-2">
+                  <PlaygroundModePicker profileId={profileId} />
+                </div>
                 <MicErrorMessage error={dictation.error} />
                 {attachments.lastError ? (
                   <p className="mt-1 text-xs text-red-600" role="status">

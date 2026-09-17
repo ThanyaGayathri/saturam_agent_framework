@@ -39,9 +39,9 @@ grounding is partial can say "I am not sure that is the right table"; one that d
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
-from egpt_retail.contracts.semantic import Concept, SemanticRead
+from egpt_retail.contracts.semantic import Concept, ProposalStatus, SemanticRead
 
 __all__ = [
     "DEFAULT_MAX_CHARS",
@@ -88,6 +88,24 @@ def _bullet(label: str, values: Sequence[str]) -> Optional[str]:
     if not cleaned:
         return None
     return "  - " + label + ": " + ", ".join(cleaned)
+
+
+def _accepted_source(source: Any) -> Optional[str]:
+    """The authoritative table, but only when review accepted it.
+
+    Unlike ``list_concepts``/``get_concept``/``list_tables``, ``authoritative_source`` takes no
+    ``include_proposed`` and its Cypher does not filter on status -- it returns the status as
+    data instead. So a *proposed*, unreviewed ``AUTHORITATIVE_SOURCE`` edge would otherwise
+    steer which table the SQL sub-agent prefers, against this module's own "accepted rows only"
+    claim and the alignment rule behind it. One table name is a small blast radius until the
+    proposed edge points somewhere it should not.
+    """
+    if source is None:
+        return None
+    status = getattr(source, "status", None)
+    if status is not None and status != ProposalStatus.ACCEPTED:
+        return None
+    return getattr(source, "table", None)
 
 
 def render_concept(concept: Concept, authoritative_table: Optional[str] = None) -> str:
@@ -187,10 +205,8 @@ def grounding_block(
         concept = reader.get_concept(name)
         if concept is None:
             continue
-        source = reader.authoritative_source(name)
-        rendered.append(
-            render_concept(concept, source.table if source is not None else None)
-        )
+        source = _accepted_source(reader.authoritative_source(name))
+        rendered.append(render_concept(concept, source))
 
     table_names = [ref.qualified for ref in reader.list_tables()]
     if not rendered and not table_names:
@@ -214,10 +230,8 @@ async def agrounding_block(
         concept = await reader.aget_concept(name)
         if concept is None:
             continue
-        source = await reader.aauthoritative_source(name)
-        rendered.append(
-            render_concept(concept, source.table if source is not None else None)
-        )
+        source = _accepted_source(await reader.aauthoritative_source(name))
+        rendered.append(render_concept(concept, source))
 
     table_names = [ref.qualified for ref in await reader.alist_tables()]
     if not rendered and not table_names:

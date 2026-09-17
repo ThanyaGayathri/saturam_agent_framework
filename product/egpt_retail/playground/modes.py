@@ -302,7 +302,40 @@ def _knowledge_scope(
         mem_query = MemoryQuery(text=query, limit=limit)
         # One driver for both graph readers: OntologyStore and SemanticGraphStore read the
         # same Neo4j, and opening two pools for one fan-out is two pools for one question.
-        driver = semantic_driver(settings)
+        #
+        # Inside the tolerant path, not above it: `semantic_driver` raises when the URI is
+        # unset, and an api role deployed without the graph -- a documented-as-optional
+        # dependency -- got a hard tool exception on every knowledge question instead of the
+        # prose and memory answer this mode's docstring promises.
+        try:
+            driver = semantic_driver(settings)
+        except Exception as exc:  # noqa: BLE001 -- no graph is a degraded answer, not a failure
+            log_warning(
+                f"playground knowledge mode: no semantic graph ({exc}); answering from the "
+                "prose and memory legs only."
+            )
+            stores = None
+            try:
+                stores = await abuild_knowledge_stores(settings, None)
+            except Exception:  # noqa: BLE001
+                pass
+            result = await aretail_unified_read(
+                scope,
+                mem_query,
+                memory=memory,
+                knowledge=stores.knowledge if stores is not None else None,
+            )
+            return {
+                "results": [
+                    {
+                        "content": hit.content,
+                        "score": hit.score,
+                        "origin": hit.origin,
+                        "id": hit.id,
+                    }
+                    for hit in result.fused()
+                ]
+            }
         try:
             with open_semantic_reader(settings, driver=driver) as reader:
                 # Store construction and the fan-out are separate, and only construction is
