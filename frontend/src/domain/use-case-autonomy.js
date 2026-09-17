@@ -187,13 +187,15 @@ export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.i
  * and the AI step extracts rather than recommends.
  */
 export const TEMPLATE_FIELDS = {
- // The form's order is the person's order: what arrives, what to read from it, what to
- // check, where it goes and as what, then the limits. Master data is not a section any
- // more (K24): the roles a use case resolves against follow from the mapping and the
- // guardrails and are read from the target itself; the thresholds keep their defaults.
+ // The form's order is the person's order: what arrives, what to read from it, where it
+ // goes and as what, then what to check before it is written, then the limits. The
+ // guardrails follow the mapping (K24) because they read the roles the mapping resolves.
+ // Master data is not a section any more: the roles a use case resolves against follow
+ // from the mapping and the guardrails and are read from the target itself; the
+ // thresholds keep their defaults.
  document_to_record: [
   "mailbox", "pollInterval", "messageFilter", "documentType", "extractionTemplate",
-  "recordGuardrails", "writeTarget", "targetObjects", "exceptionsTo", "acknowledge",
+  "writeTarget", "targetObjects", "recordGuardrails", "exceptionsTo", "acknowledge",
   "createdAs", "perRunCap", "rollback",
  ],
 };
