@@ -147,8 +147,13 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  const sqlIsOriginal = sql === originalSql && chart.guard?.status !== "refused";
  const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
  const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
+ // A chart can *arrive* already set to "table" with a grain_value (e.g. from the suggestion
+ // agent) -- the button above only blocks switching *into* table, so without this check here
+ // canSave/save() would happily persist that untouched, re-introducing the single-row-as-table
+ // bug this panel exists to prevent.
+ const tableKindBlocked = kind === "table" && Boolean(tableUnavailableReason);
  const canSave =
-  !isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running);
+  !tableKindBlocked && (!isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running));
 
  // Named out of the Save button's `title` (round-2 review: that was a 3-level nested ternary
  // mixing three unrelated disabled-reasons inline in JSX) so each branch reads and tests on its
@@ -156,7 +161,9 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  // exactly the condition a previous round got subtly wrong by reading live `guard` instead of
  // the chart's frozen arrival verdict.
  const saveDisabledReason = () => {
-  if (canSave || !isQuery) return undefined;
+  if (canSave) return undefined;
+  if (tableKindBlocked) return tableUnavailableReason;
+  if (!isQuery) return undefined;
   if (sql.trim().length === 0) return "Write a query before saving.";
   if (chart.guard?.status === "refused" && sql === originalSql) {
    return "The read guard refused this query. Change it and run the preview.";

@@ -277,6 +277,20 @@ function xAxisLabelIndices(n) {
   return [0, mid, n - 1];
 }
 
+/** Bar rects for a set of normalized points, evenly slotted between x0 and x1 and sitting on
+ * baselineY -- shared by DemoBarsWithAxes (plot region inset for axes) and DemoComboSpark
+ * (full-width, no axis inset). */
+function barGeometry(pts, x0, x1, baselineY, barWidthFraction) {
+  if (!pts.length) return [];
+  const n = pts.length;
+  const slot = (x1 - x0) / n;
+  const w = slot * barWidthFraction;
+  return pts.map((p, i) => {
+    const cx = x0 + slot * (i + 0.5);
+    return { key: i, x: cx - w / 2, y: p.y, w, h: Math.max(0.35, baselineY - p.y) };
+  });
+}
+
 /**
  * Area chart with Y and X axes, full width of container. For dashboard trend panels.
  */
@@ -461,16 +475,10 @@ export function DemoBarsWithAxes({
     [data, plotY0, plotY1, plotX0, plotX1],
   );
 
-  const bars = useMemo(() => {
-    if (!pts.length) return [];
-    const n = pts.length;
-    const slot = (plotX1 - plotX0) / n;
-    const w = slot * barWidthFraction;
-    return pts.map((p, i) => {
-      const cx = plotX0 + slot * (i + 0.5);
-      return { key: i, x: cx - w / 2, y: p.y, w, h: Math.max(0.35, plotY1 - p.y) };
-    });
-  }, [pts, plotX0, plotX1, plotY1, barWidthFraction]);
+  const bars = useMemo(
+    () => barGeometry(pts, plotX0, plotX1, plotY1, barWidthFraction),
+    [pts, plotX0, plotX1, plotY1, barWidthFraction],
+  );
 
   const { max, min, mid } = useMemo(() => {
     if (!data?.length) return { max: 0, min: 0, mid: 0 };
@@ -718,19 +726,10 @@ export function DemoComboSpark({
     [linePath, pts, viewHeight],
   );
 
-  const bars = useMemo(() => {
-    if (!pts.length) return [];
-    const n = pts.length;
-    const slot = VIEW_W / n;
-    const w = slot * barWidthFraction;
-    return pts.map((p, i) => {
-      const cx = slot * (i + 0.5);
-      const x = cx - w / 2;
-      const yTop = p.y;
-      const h = Math.max(0.35, viewHeight - yTop);
-      return { key: i, x, y: yTop, w, h };
-    });
-  }, [pts, viewHeight, barWidthFraction]);
+  const bars = useMemo(
+    () => barGeometry(pts, 0, VIEW_W, viewHeight, barWidthFraction),
+    [pts, viewHeight, barWidthFraction],
+  );
 
   if (!pts.length) return null;
 
