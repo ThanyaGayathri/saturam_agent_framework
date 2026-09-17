@@ -23,86 +23,18 @@ import { DemoAreaSpark, formatChartNumber } from "./shared/DemoSparkCharts";
 import { fetchKpiList, fetchKpiHealth, fetchKpiSeries, computeKpi } from "../services/kpis-api";
 import KpiTrend, { formatKpiValue, sameDimension } from "./kpi/KpiTrend";
 
-/** Seeded catalog IDs: anomalies tie to these use cases for demo storytelling. */
-const KPI_DASHBOARD_USE_CASES = {
-  forecastAndMargin: "gallery-uc-11",
-  cartRecovery: "gallery-uc-05",
-  stockout: "gallery-uc-01",
-};
-
+/**
+ * Anomaly-flagged KPI names for the shortlist's tier-2 fill (see `buildRoleSummaryKpiNames`
+ * below). Only `kpiName` is read.
+ */
 const ANOMALIES = [
-  {
-    id: "a1",
-    severity: "critical",
-    kpiName: "Gross Margin Rate",
-    alert: "Gross margin rate fell 1.2 pts week over week, breaching the pricing guard band.",
-    insight:
-      "Slow-moving apparel SKUs are carrying higher markdown exposure while sell-through on seasonal categories lags plan.",
-    workflow: "Tighten demand forecast and reorder alignment for seasonal categories.",
-    useCaseId: KPI_DASHBOARD_USE_CASES.forecastAndMargin,
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a2",
-    severity: "warning",
-    kpiName: "Cart Abandonment Rate",
-    alert: "Cart abandonment rate rose 6% on mobile checkout versus prior week.",
-    insight:
-      "Session traces show a 400ms regression on the payment step correlated with the abandonment spike.",
-    workflow: "Run recovery campaign and escalate checkout performance review.",
-    useCaseId: KPI_DASHBOARD_USE_CASES.cartRecovery,
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a3",
-    severity: "warning",
-    kpiName: "Stockout Rate",
-    alert: "Stockout incidents increased in top revenue SKUs across two regions.",
-    insight: "Inbound variability from two suppliers coincides with higher forecast error in those lanes.",
-    workflow: "Prioritize replenishment and supplier escalation for affected SKUs.",
-    useCaseId: KPI_DASHBOARD_USE_CASES.stockout,
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a4",
-    severity: "warning",
-    kpiName: "Conversion Rate",
-    alert: "Site conversion rate dropped 4% versus the four-week average.",
-    insight: "New landing pages saw a bounce spike on mobile carriers; category browsing sessions are shorter.",
-    workflow: "Roll back the mobile landing template and rerun the A/B guardrails.",
-    useCaseId: "gallery-uc-05",
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a5",
-    severity: "critical",
-    kpiName: "Order Fill Rate",
-    alert: "Fill rate slipped below 92% at two regional DCs for three consecutive days.",
-    insight: "Inbound truck delays and a pick-slot bottleneck at DC-04 are the biggest contributors.",
-    workflow: "Reallocate replenishment routes and escalate carrier SLA review.",
-    useCaseId: "gallery-uc-02",
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a6",
-    severity: "warning",
-    kpiName: "Labor Cost as % of Revenue",
-    alert: "Labor ratio climbed 1.4 pts in weekend evening shifts.",
-    insight: "Traffic-per-hour is flat but scheduling remained at peak levels through the shift tail.",
-    workflow: "Reforecast staffing against the latest traffic curves.",
-    useCaseId: "gallery-uc-04",
-    copilotQuery: "kpi-dashboard",
-  },
-  {
-    id: "a7",
-    severity: "warning",
-    kpiName: "Sell-Through Rate",
-    alert: "Sell-through on the new seasonal SKUs is trailing plan by 8 pts.",
-    insight: "Two mid-tier categories are cannibalizing the launch; markdown pressure is building.",
-    workflow: "Rebalance display and preemptive markdown on lagging categories.",
-    useCaseId: "gallery-uc-03",
-    copilotQuery: "kpi-dashboard",
-  },
+  { id: "a1", kpiName: "Gross Margin Rate" },
+  { id: "a2", kpiName: "Cart Abandonment Rate" },
+  { id: "a3", kpiName: "Stockout Rate" },
+  { id: "a4", kpiName: "Conversion Rate" },
+  { id: "a5", kpiName: "Order Fill Rate" },
+  { id: "a6", kpiName: "Labor Cost as % of Revenue" },
+  { id: "a7", kpiName: "Sell-Through Rate" },
 ];
 
 /** Lookup for known KPI names. Anything not here falls back to Activity. */
