@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from enum import Enum
 from types import MappingProxyType
-from typing import Iterable, List, Mapping, Optional
+from typing import FrozenSet, Iterable, List, Mapping, Optional
 
 from egpt_retail.contracts.use_case import TIER_FOR_ROLE
 
 __all__ = [
+    "LAZILY_BUILT_AGENT_IDS",
     "NO_MODEL_TIER",
     "ROUTING_TABLE",
     "Tier",
@@ -64,7 +65,22 @@ ROUTING_TABLE: Mapping[str, Tier] = MappingProxyType(
         # the first cut ran them from cookbooks with a pinned model, bypassing routing.
         "kpi_suggestion": Tier.FRONTIER,  # K12
         "use_case_suggestion": Tier.FRONTIER,  # K13
+        "dashboard_suggestion": Tier.FRONTIER,  # one frontier-tier call per dashboard-suggestion run
     }
+)
+
+#: Agent ids built lazily, per request, rather than by ``build_agents`` at boot -- K12, K13,
+#: and ``dashboard_suggestion`` (see each builder's own module for why). ``build_agents``'s
+#: static agent list never includes them, so its own boot-time ``assert_every_agent_routed``
+#: call cannot see a missing row for one -- exactly how ``dashboard_suggestion`` shipped with
+#: none and only surfaced as an ``UnroutedAgentError`` the first time someone actually
+#: triggered a suggestion run (#272). ``app.components.build_agents`` asserts this set too, at
+#: the same startup point, so losing a row for any of *these* names now fails boot instead of
+#: the first live run. Structural for the names listed here, not a general solve: a new
+#: lazily-built agent still needs adding to this set (and this set is what its builder's own
+#: module should be checked against in review) for boot to catch a missing row for it too.
+LAZILY_BUILT_AGENT_IDS: FrozenSet[str] = frozenset(
+    {"kpi_suggestion", "use_case_suggestion", "dashboard_suggestion"}
 )
 
 

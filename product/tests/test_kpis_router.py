@@ -9,6 +9,7 @@ same split `test_r13_dashboards.py` documents for R13.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import replace
@@ -34,10 +35,12 @@ from egpt_retail.api.routers.kpis import (
     _suggestion_notes,
     _SuggestionRegistrySnapshot,
     _validated_business_area,
+    _warehouse_engine,
     create_kpi,
     delete_kpi,
     get_kpi,
     get_kpi_feasibility,
+    list_kpi_health,
     list_kpi_suggestions,
     list_kpis,
     update_kpi,
@@ -59,6 +62,7 @@ from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
 from egpt_retail.suggestions.runs import (
     LOST_RUN_ERROR,
+    SuggestionRunPhase,
     SuggestionRunRecord,
     SuggestionRunStatus,
 )
@@ -660,6 +664,201 @@ def test_delete_kpi_404s_on_a_missing_identifier():
 
 
 # ---------------------------------------------------------------------------
+# GET /kpis/health
+# ---------------------------------------------------------------------------
+
+
+class _ListableKpiStore(_FakeKpiStore):
+    """``_FakeKpiStore`` plus the unfiltered ``list()``/``alist()`` read ``list_kpi_health``
+    needs -- mirrors ``_suggestion_registry_snapshot``'s own unfiltered ``store.list()`` call."""
+
+    def list(self, business_area=None):
+        return list(self._by_id.values())
+
+    async def alist(self, business_area=None):
+        return self.list(business_area=business_area)
+
+
+async def _fake_akpi_health(kpis, engine, **kwargs):
+    """Stands in for a real gold read: one row per KPI, shaped exactly like
+    ``classify_health``'s own output (``test_r5_gold.py`` pins that shape)."""
+    return [
+        {
+            "kpi_id": kpi.identifier,
+            "identifier": kpi.identifier,
+            "status": "fresh",
+            "last_computed_at": "2026-09-14T02:20:00Z",
+            "as_of": "2026-09-13T23:59:59Z",
+            "staleness_hours": 8.5,
+            "last_run_id": "run_gold_20260914",
+            "last_error": None,
+        }
+        for kpi in kpis
+    ]
+
+
+def test_list_kpi_health_maps_every_registered_kpi_into_a_wire_kpi_health(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    kpi = _kpi()
+    store = _ListableKpiStore(existing=kpi)
+
+    result = asyncio.run(
+        list_kpi_health(
+            _FakeRequest(authorization_enabled=False), store=store, engine=object()
+        )
+    )
+
+    assert len(result) == 1
+    row = result[0]
+    assert isinstance(row, wire_models.KpiHealth)
+    assert row.kpi_id == kpi.identifier
+    assert row.identifier == kpi.identifier
+    assert row.status == wire_models.KpiHealthStatus.fresh
+    assert row.staleness_hours == 8.5
+    assert row.last_run_id == "run_gold_20260914"
+
+
+def test_list_kpi_health_returns_an_empty_list_for_an_empty_registry(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    store = _ListableKpiStore(existing=None)
+
+    result = asyncio.run(
+        list_kpi_health(
+            _FakeRequest(authorization_enabled=False), store=store, engine=object()
+        )
+    )
+    assert result == []
+
+
+def test_warehouse_engine_dependency_503s_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+
+    with pytest.raises(HTTPException) as excinfo:
+        next(_warehouse_engine())
+    assert excinfo.value.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in excinfo.value.detail
+
+
+def _health_app(monkeypatch, *, scopes):
+    """A real FastAPI app wired to the actual ``kpis.py`` router (not a direct function call),
+    so the scope-then-warehouse dependency order below is exercised through FastAPI's own
+    ``solve_dependencies`` rather than trusted from reading the signature."""
+
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._kpi_store] = lambda: _ListableKpiStore(
+        existing=_kpi()
+    )
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = scopes
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app)
+
+
+def test_list_kpi_health_403s_before_the_warehouse_503_when_the_scope_is_missing(
+    monkeypatch,
+):
+    """The ordering fix: an unauthorized caller must be refused for that reason, not learn
+    that the warehouse is unconfigured before the scope check ever runs."""
+    client = _health_app(monkeypatch, scopes=[])
+    response = client.get("/kpis/health")
+    assert response.status_code == 403
+
+
+def test_list_kpi_health_503s_for_an_authorized_caller_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    """A caller who does hold the scope still gets the honest 503 -- the fix only reorders
+    which check runs first, it doesn't swallow the warehouse-unconfigured case."""
+    client = _health_app(monkeypatch, scopes=["kpis:read"])
+    response = client.get("/kpis/health")
+    assert response.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in response.json()["detail"]
+
+
+async def _fake_akpi_health_with_error(kpis, engine, **kwargs):
+    """Same shape as `_fake_akpi_health`, but with the failed-run `last_error` the contract's
+    own bundled example documents (a literal column-name refusal, verbatim from gold)."""
+    return [
+        {
+            "kpi_id": kpi.identifier,
+            "identifier": kpi.identifier,
+            "status": "failed",
+            "last_computed_at": None,
+            "as_of": None,
+            "staleness_hours": None,
+            "last_run_id": "run_gold_20260914",
+            "last_error": "column supplier_deliveries.actual_date does not exist",
+        }
+        for kpi in kpis
+    ]
+
+
+def _health_app_with_configured_warehouse(monkeypatch, *, scopes):
+    """Like `_health_app`, but the warehouse engine resolves instead of 503ing, and
+    `akpi_health` returns a row with a real `last_error` -- what the `last_error`-gating tests
+    below need to actually observe the field present/absent."""
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health_with_error)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._kpi_store] = lambda: _ListableKpiStore(
+        existing=_kpi()
+    )
+    app.dependency_overrides[kpis_module._warehouse_engine] = lambda: object()
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = scopes
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app)
+
+
+def test_list_kpi_health_hides_last_error_from_a_kpis_read_only_caller(monkeypatch):
+    """`last_error` is the database's own refusal text verbatim -- as sensitive as `Kpi.sql`,
+    which this router already gates behind `kpis:write` via `_may_read_sql`. A `kpis:read`-only
+    caller must see every other field but not the raw error string."""
+    client = _health_app_with_configured_warehouse(monkeypatch, scopes=["kpis:read"])
+    response = client.get("/kpis/health")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["last_error"] is None
+    assert row["status"] == "failed"
+
+
+def test_list_kpi_health_shows_last_error_to_a_kpis_write_caller(monkeypatch):
+    """The same field, unhidden for a caller who already holds the write scope -- the same
+    posture `Kpi.sql`/`proposed_sql` have everywhere else in this router. Still needs
+    `kpis:read` too: that's the route's own scope gate, unrelated to `_may_read_sql`'s."""
+    client = _health_app_with_configured_warehouse(
+        monkeypatch, scopes=["kpis:read", "kpis:write"]
+    )
+    response = client.get("/kpis/health")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["last_error"] == "column supplier_deliveries.actual_date does not exist"
+
+
+# ---------------------------------------------------------------------------
 # #234/F1 -- GET /kpis/suggestions
 # ---------------------------------------------------------------------------
 
@@ -771,7 +970,17 @@ def test_suggestion_notes_keeps_kpis_notes_when_run_notes_is_empty():
 
 
 def _fake_run_suggestions(kpi_suggestions):
-    def _fake(settings, *, reader, existing_definitions, proposals, dry_run, agents):
+    def _fake(
+        settings,
+        *,
+        reader,
+        existing_definitions,
+        proposals,
+        dry_run,
+        agents,
+        focus_areas=(),
+        on_phase=None,
+    ):
         return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
 
     return _fake
@@ -845,6 +1054,187 @@ def test_list_kpi_suggestions_nulls_proposed_sql_when_include_sql_is_false(
     assert result.suggestions[0].proposed_sql is None
     # the original object handed back by the (fake) assembly step is untouched
     assert suggestion.proposed_sql == "SELECT 1 FROM supplier_deliveries"
+
+
+# ---------------------------------------------------------------------------
+# retail_suggestion_replay -- demo/testing rehearsal without a live model call
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_replay_returns_the_saved_file_without_calling_the_model(
+    monkeypatch, tmp_path
+):
+    """`retail_suggestion_replay` short-circuits before `run_suggestions` is ever reached --
+    patched here to raise, so this test fails loudly if the replay branch stops short-
+    circuiting rather than silently falling through to a real (test-breaking) model call."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("run_suggestions must not run while replay is set")
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _must_not_be_called)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_still_applies_the_business_area_filter_and_sql_gate(
+    monkeypatch, tmp_path
+):
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[
+            _suggestion(
+                identifier="a",
+                business_area="supply_chain",
+                proposed_sql="SELECT 1 FROM supplier_deliveries",
+            ),
+            _suggestion(identifier="b", business_area="marketing"),
+        ],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area="supply_chain",
+        include_sql=False,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+    assert result.suggestions[0].proposed_sql is None
+
+
+def test_suggestion_replay_skips_the_phase_sleeps_when_on_phase_is_none(
+    monkeypatch, tmp_path
+):
+    """The deprecated sync `GET /kpis/suggestions` route calls `_list_kpi_suggestions` with no
+    `on_phase` at all, so there is no run panel for the phase pauses to animate. With replay set,
+    the sleep loop must be skipped entirely rather than blocking ~8.5s for nothing."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_sleep(_seconds):
+        raise AssertionError("time.sleep must not run when on_phase is None")
+
+    monkeypatch.setattr(time, "sleep", _must_not_sleep)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        on_phase=None,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_reports_phases_in_order_when_on_phase_is_given(
+    monkeypatch, tmp_path
+):
+    """The mirror of the skip test above: with a real callback, replay must still report the
+    three phases in the same order a live run would (`kpis.py`'s `on_phase(phase)` before
+    `time.sleep(pause)`, `[READING, PROPOSING, CHECKING]`) -- the actual mechanism that makes a
+    replayed run "behave exactly as it would on a live run" per this PR's description."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    seen: list[SuggestionRunPhase] = []
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        on_phase=seen.append,
+    )
+
+    assert seen == [
+        SuggestionRunPhase.READING,
+        SuggestionRunPhase.PROPOSING,
+        SuggestionRunPhase.CHECKING,
+    ]
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_drops_a_suggestion_already_in_the_registry(
+    monkeypatch, tmp_path
+):
+    """The live path drops a draft already in the registry (K12's `assemble`,
+    `known_identifiers=existing`). A replayed file is a static snapshot that cannot know about
+    adoptions made since it was captured, so the same drop must be redone against the current
+    registry -- otherwise replaying after adopting one of the replayed suggestions would show
+    that same KPI again as a fresh "ready" proposal, which a live run can never do."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[
+            _suggestion(identifier="a", business_area="supply_chain"),
+            _suggestion(identifier="b", business_area="supply_chain"),
+        ],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(_kpi(identifier="a"),),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["b"]
+
+
+def test_suggestion_replay_raises_safely_on_a_malformed_file(tmp_path):
+    """A malformed/unreadable `retail_suggestion_replay` file must not raise a bare
+    `json.JSONDecodeError` or pydantic `ValidationError` -- both are `ValueError` subclasses,
+    and `_describe_failure` passes any `ValueError` through to a run's `error` field verbatim,
+    reserved for `_drafts_of`'s own deliberate reader-facing refusal. Parse/validation text off
+    a misconfigured file is not that, so it must come out as something else -- here, not a
+    `ValueError` at all -- so `_describe_failure` falls back to its type-only summary."""
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text("not valid json")
+
+    with pytest.raises(Exception) as excinfo:
+        _list_kpi_suggestions(
+            RetailSettings(retail_suggestion_replay=str(replay_path)),
+            definitions=(),
+            vocabularies=_VOCABULARIES,
+            business_area=None,
+            include_sql=True,
+        )
+
+    assert not isinstance(excinfo.value, ValueError)
 
 
 # ---------------------------------------------------------------------------
@@ -940,7 +1330,15 @@ def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_orig
     captured_agents = {}
 
     def _fake_run_suggestions_capturing(
-        settings, *, reader, existing_definitions, proposals, dry_run, agents
+        settings,
+        *,
+        reader,
+        existing_definitions,
+        proposals,
+        dry_run,
+        agents,
+        focus_areas=(),
+        on_phase=None,
     ):
         captured_agents["agents"] = agents
         return _FakeSuggestionRunWithSuggestions([])
@@ -977,7 +1375,13 @@ def test_list_kpi_suggestions_route_reaches_the_helper_with_the_given_business_a
     captured = {}
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         captured["business_area"] = business_area
         captured["definitions"] = definitions
@@ -1023,7 +1427,13 @@ def test_get_kpis_suggestions_dispatches_to_the_suggestions_handler_not_get_kpi(
     calls = []
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         calls.append(business_area)
         return wire_models.KpiSuggestionList(
@@ -1213,13 +1623,16 @@ class _FakeRunStore:
 
     def __init__(self):
         self.rows: dict = {}
+        #: What `typical_duration()` answers; a test sets it to stand for history.
+        self.typical = None
 
-    def create(self, business_area):
+    def create(self, business_area, business_areas=()):
         record = SuggestionRunRecord(
             identifier=f"sr_{len(self.rows) + 1}",
             status=SuggestionRunStatus.QUEUED,
             business_area=business_area,
             created_at=datetime.now(timezone.utc),
+            business_areas=tuple(business_areas),
         )
         self.rows[record.identifier] = record
         return record
@@ -1234,6 +1647,10 @@ class _FakeRunStore:
                 status=SuggestionRunStatus.RUNNING,
                 started_at=datetime.now(timezone.utc),
             )
+
+    def mark_phase(self, identifier, phase):
+        if self.rows[identifier].status is SuggestionRunStatus.RUNNING:
+            self._set(identifier, phase=SuggestionRunPhase(phase))
 
     def mark_succeeded(self, identifier, result):
         if self.rows[identifier].status in self._OPEN:
@@ -1264,6 +1681,9 @@ class _FakeRunStore:
         ):
             self.mark_failed(identifier, LOST_RUN_ERROR)
         return self.rows[identifier]
+
+    def typical_duration(self, *, sample=5):
+        return self.typical
 
 
 def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
@@ -1296,7 +1716,14 @@ def _drain(client):
 
 def _suggesting(suggestions, *, notes=""):
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
+        on_phase=None,
     ):
         return wire_models.KpiSuggestionList(
             suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.0"
@@ -1347,7 +1774,14 @@ def test_start_kpi_suggestion_run_with_no_body_runs_across_every_area(monkeypatc
     captured = {}
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
+        on_phase=None,
     ):
         captured["business_area"] = business_area
         captured["include_sql"] = include_sql
@@ -1569,3 +2003,233 @@ def test_list_kpi_suggestions_504s_past_the_timeout_instead_of_hanging(monkeypat
     assert response.status_code == 504
     assert "did not finish within 0.05s" in response.json()["detail"]
     assert "POST /kpis/suggestions" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Contract 1.1.8: `business_areas`, the focus a run is started with. It reaches the
+# pipeline as `focus_areas` (a priority in the agents' message), is echoed on the row, and
+# is validated before the row exists.
+# ---------------------------------------------------------------------------
+
+
+def test_start_kpi_suggestion_run_hands_the_focus_to_the_pipeline_and_echoes_it(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
+        on_phase=None,
+    ):
+        captured["focus_areas"] = tuple(focus_areas)
+        captured["business_area"] = business_area
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post(
+            "/kpis/suggestions",
+            json={"business_areas": ["sales", "supply_chain", "sales"]},
+        )
+        assert started.status_code == 202
+        # echoed, de-duplicated, order kept; the single-area filter stays off
+        assert started.json()["business_areas"] == ["sales", "supply_chain"]
+        assert started.json()["business_area"] is None
+        run_id = started.json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert captured == {
+        "focus_areas": ("sales", "supply_chain"),
+        "business_area": None,
+    }
+    assert polled["business_areas"] == ["sales", "supply_chain"]
+
+
+def test_start_kpi_suggestion_run_with_no_focus_sends_none_and_echoes_an_empty_list(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(settings, *, focus_areas=(), **kwargs):
+        captured["focus_areas"] = tuple(focus_areas)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions", json={})
+        assert started.json()["business_areas"] == []
+        _drain(client)
+
+    assert captured == {"focus_areas": ()}
+
+
+def test_start_kpi_suggestion_run_422s_on_an_unknown_focus_area_before_any_row_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        response = client.post(
+            "/kpis/suggestions", json={"business_areas": ["sales", "logistics"]}
+        )
+
+    assert response.status_code == 422
+    assert "logistics" in response.json()["detail"]
+    assert store.rows == {}
+
+
+# ---------------------------------------------------------------------------
+# `KpiSuggestionRun.phase` and `.typical_duration_seconds` (contract 1.1.6): what the
+# waiting screen is built on. The executor records each stage the pipeline reports; the
+# typical duration rides along with the row on the 202 and on every poll.
+# ---------------------------------------------------------------------------
+
+
+def test_the_202_and_the_poll_both_carry_the_deployments_typical_duration(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+    store.typical = 94.0
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions")
+        assert started.status_code == 202
+        assert started.json()["typical_duration_seconds"] == 94.0
+        assert started.json()["phase"] is None  # queued: nothing has begun
+        run_id = started.json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "succeeded"
+    assert polled["typical_duration_seconds"] == 94.0
+
+
+def test_typical_duration_is_null_before_any_run_has_succeeded(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions")
+
+    assert started.json()["typical_duration_seconds"] is None
+
+
+def test_a_running_run_reports_the_phase_the_pipeline_is_in(monkeypatch):
+    """The fake pipeline reports `proposing` and then holds until the test has polled, so
+    the poll observes a `running` row mid-stage -- the state the stepper renders."""
+    reached_proposing = threading.Event()
+    release = threading.Event()
+
+    def _held(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        on_phase(SuggestionRunPhase.PROPOSING)
+        reached_proposing.set()
+        release.wait(timeout=5)
+        on_phase(SuggestionRunPhase.CHECKING)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _held)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        assert reached_proposing.wait(timeout=5)
+        mid_run = client.get(f"/kpis/suggestions/{run_id}").json()
+        release.set()
+        _drain(client)
+        done = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert mid_run["status"] == "running"
+    assert mid_run["phase"] == "proposing"
+    # the last stage reported stays on the terminal row
+    assert done["status"] == "succeeded"
+    assert done["phase"] == "checking"
+
+
+def test_a_failed_run_keeps_the_phase_it_failed_in(monkeypatch):
+    def _refusing(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        on_phase(SuggestionRunPhase.PROPOSING)
+        raise ValueError("KpiSuggestionDraftSet expected from the agent; got str: 'no'")
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _refusing)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["phase"] == "proposing"
+
+
+def test_a_phase_reported_after_the_timeout_closed_the_run_does_not_relabel_it(
+    monkeypatch,
+):
+    monkeypatch.setenv("EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS", "0.05")
+
+    def _slow(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        time.sleep(0.3)
+        on_phase(SuggestionRunPhase.CHECKING)  # the orphaned thread, still reporting
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _slow)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        time.sleep(0.4)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["phase"] == "reading"
+
+
+def test_a_phase_write_that_fails_does_not_fail_the_run(monkeypatch):
+    """The phase is a courtesy to the poller; the run's outcome must not depend on it."""
+
+    class _PhaseWriteBroken(_FakeRunStore):
+        def mark_phase(self, identifier, phase):
+            raise RuntimeError("connection reset by peer")
+
+    def _reporting(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _reporting)
+    warned = []
+    monkeypatch.setattr(kpis_module, "log_warning", warned.append)
+    store = _PhaseWriteBroken()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "succeeded"
+    assert polled["phase"] is None
+    assert any("not recorded" in entry for entry in warned)

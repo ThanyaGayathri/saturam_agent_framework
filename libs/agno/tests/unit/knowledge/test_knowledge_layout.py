@@ -59,6 +59,12 @@ _SHIM_EXTRA_EXPORTS = {
     "embedder": {"Embedder"},
 }
 
+# `_embedding_ordering.py` was added straight into the integrations layer by #269/#270 (a
+# private helper shared by openai.py and azure_openai.py's sort guards); it never lived under
+# `egpt.knowledge.embedder`, so it has no legacy path to shim. Same shape as the toolkit
+# layout guard's `_MODULES_WITHOUT_LEGACY_PATH`.
+_MODULES_WITHOUT_LEGACY_PATH = {("embedder", "_embedding_ordering.py")}
+
 # Modules allowed to name a concrete knowledge integration, with the reason and the ticket
 # that clears it. Neither is a slip; both are recorded so the exception stays visible.
 _INTEGRATION_IMPORT_ALLOWLIST = {
@@ -220,6 +226,7 @@ def test_every_moved_module_has_a_submodule_shim():
         _deprecated_knowledge_root(),
         _INTEGRATIONS_PREFIX,
         "egpt.knowledge",
+        skip_modules=_MODULES_WITHOUT_LEGACY_PATH,
     )
 
     assert not problems, "\n".join(problems)

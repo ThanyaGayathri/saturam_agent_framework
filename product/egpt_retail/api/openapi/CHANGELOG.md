@@ -109,6 +109,14 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.8.0 — 2026-09-17 — merge: `main` (1.1.8–1.2.1, KPI suggestion and dashboards) into Lane K's use-case work (1.2.0–1.7.0) (additive)
+
+Agreed by: Lane K. Both lines were authored in parallel from 1.1.7 and both are additive, so
+the union is additive too. Two entries below are both numbered 1.2.0 -- Lane K's
+document-to-record template and product's dashboards work -- and every schema and path from
+both sides is present unchanged; the version simply moves past both. The bundled spec and
+the generated models are regenerated from the merged source.
+
 ## 1.7.0 — 2026-09-16 — execution health from the use-case runs table (additive)
 
 Agreed by: Lane K, on Lane R's contract under the additive rule. New optional fields on
@@ -211,6 +219,157 @@ activation screen reads them back; `Spec.delivery` stays, and `parameters.recipi
 carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
 document-template guardrail catalogue remain strings with their closed sets documented rather
 than enums -- they are content the product ships, not contract.
+## 1.2.1 — 2026-09-16 — merge: reconcile with `fix/dashboard-suggestion-routing` (additive)
+
+Agreed by: product (nandha-saturam). Additive on top of 1.2.0 -- the dashboards work below was
+authored in parallel with, and had not yet incorporated, #272/#276/#277/#278/#280 (already on
+`fix/dashboard-suggestion-routing`, this PR's retargeted base). Reconciling the two:
+
+- **`DashboardSuggestionRunRequest.preselected_kpi_identifiers`** (added on the base branch by
+  #272, a free-text "already selected by the caller" line appended to the agent's message) is
+  **not carried forward** -- superseded by 1.2.0's own `kpi_identifiers`, which does the same
+  job as structured, validated composer context (the agent is shown the metric's definition and
+  the semantic-layer tables behind it, not just its name in a sentence) rather than free text.
+  A caller written against the base branch's field name gets a 422 naming the unknown field,
+  same as any other unrecognised property; `kpi_identifiers` is the field to send instead.
+- **`KpiSuggestion.business_value`** (1.1.10, below) is unaffected and carried forward as-is --
+  unrelated to dashboards, no overlap with anything in 1.2.0.
+- Every other dashboards-relevant change on the base branch (the unified create-dashboard mode
+  picker, the editable refresh-schedule control, the abandon-AI-suggestion reset) was already
+  independently reapplied on top of 1.2.0's new chart/tile model during this PR's own round-1
+  review response, before the base was retargeted -- so nothing further to port for those.
+
+## 1.2.0 — 2026-09-16 — dashboards: composed charts, per-tile CRUD (**breaking**)
+
+Agreed by: product (nandha-saturam). **Breaking, not additive** -- flagged in round-1 review
+of the PR that introduced it (#281), which shipped this exact rename against an unchanged
+`info.version` for a day; this entry is that fix, landing before the PR merges to `main`.
+
+- **`DashboardSuggestion.tiles` → `charts`, type changed `DashboardTileSuggestion[]` →
+  `DashboardChartSuggestion[]`.** A strictly-typed client built against 1.1.8's `tiles` field
+  breaks. The dashboard-suggestion agent no longer only selects a KPI identifier from a closed
+  list (1.1.8's whole design) -- it is shown the selected metrics' definitions and the
+  semantic layer's tables/columns/joins behind them, and composes the chart a purpose needs: a
+  metric's own SQL reused as-is (`source: kpi`, unchanged tile shape) or a query composed
+  across the tables (`source: query`, new). `DashboardTileSuggestion` is removed;
+  `DashboardChartSuggestion` carries `title`, `chart`, `source`, `kpi_identifier`/`query`,
+  `description`, `rationale`, and a `guard` verdict (`ok`/`rewritten`/`refused`, with detail)
+  from the warehouse read guard every composed query passes before the caller sees it, plus an
+  optional bounded `preview` (columns/rows/duration).
+- **`Tile`/`TileWrite`** gain `source` (`kpi`|`query`, default `kpi`), `query` (a new
+  `TileQuery`: `sql`, `dialect`, `source_tables`, `x`/`y` `ChartAxis`, `series_by`),
+  `description` and `rationale` -- all additive, all defaulted, so a pre-1.2.0 tile JSON
+  reads back unchanged as `source: kpi`. `kpi_identifier` on `Tile` is now nullable (null on a
+  `query` tile) -- additive in the loosening direction, but a caller that assumed it always
+  present should check `source` first.
+- **New routes, all additive:** `POST/PATCH/DELETE /dashboards/{id}/tiles[/{tile_id}]` (a
+  tile keeps its id across an edit instead of every write reminting every tile's id -- also a
+  behaviour change on the *existing* whole-array `PATCH`, worth knowing even though no schema
+  changed: `TileWrite.id`, optional, is honoured when a client sends one); `POST
+  /dashboards/queries/preview` (guard + bounded run, nothing stored); `POST
+  /dashboards/{id}/refresh` (recompute every `query` tile now).
+- **`DashboardSuggestionRunRequest`** gains `kpi_identifiers`, `table_names`, `chart_budget`
+  (additive, all optional) -- what the agent reads as context, not a KPI list it must tile one
+  for one. **`DashboardSuggestionRun`** gains `stage` (additive, nullable) for progress while
+  `running`.
+- **`Column`** (the semantic-layer schema) gains `concept`, `meaning`, `joinable` (additive) --
+  already on the domain dataclass (`contracts/semantic.py`, contract 1.2.0 there predates this
+  one) but never mirrored onto the wire shape until now. **`GET /semantic/tables` and `GET
+  /semantic/tables/{table_name}`** are mounted on the real router for the first time (no
+  schema change -- they were already contracted, stub-only); a personal-data column's
+  `sampled_values` are stripped over this surface regardless of scope, since real observed
+  values are not a description of the data and were never meant to be readable this way.
+
+## 1.1.10 — 2026-09-16 — kpis: `KpiSuggestion.business_value` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on an
+existing schema -- so no negotiation and no major bump.
+
+- **`KpiSuggestion.business_value`** (string or null, not required). K12's `rationale` answers
+  "what data is this derived from" -- traceability, not motivation. Nothing in the contract
+  said why a proposed metric is worth tracking at all, which the discovery screen's "Why the
+  model proposed it" panel needed to answer on its own. `business_value` is the agent's
+  one-or-two-sentence answer to that, rendered alongside `rationale` rather than folded into
+  it, since the two are different claims with different evidence: one traces to tables, the
+  other to what a customer would do differently once they can see the number. Nullable and
+  outside `required` rather than a breaking bump: a suggestion run persisted before this field
+  existed reads back with `business_value: null`, not a contract violation.
+
+## 1.1.8 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
+
+Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path
+(#222). Additive -- two new operations, five new schemas, nothing removed or renamed -- so no
+negotiation and no major bump. Numbered 1.1.8, not 1.1.6: PRs #259 (`KpiSuggestionRun.phase`)
+and #264 (`BusinessArea.concept_count`), open at the same time, already claim 1.1.6 and 1.1.7.
+
+- **`POST /dashboards/suggestions` → `202` `DashboardSuggestionRun`,
+  `GET /dashboards/suggestions/{run_id}`.** The same run-then-poll shape 1.1.5 gave KPI
+  suggestions (#254), for the same reason: a live model call takes long enough that it does
+  not belong inside one request. `dashboards:read`, not `dashboards:write` -- what is created
+  is a run row, never a dashboard; a suggestion becomes one only through the existing
+  `POST /dashboards`.
+- **`DashboardSuggestionRunRequest`** (`purpose`, required, non-empty) is the `POST` body: what
+  the caller says the dashboard should help them track, in their own words.
+- **`DashboardSuggestion`** (`name`, `tiles: DashboardTileSuggestion[]`,
+  `filters: DashboardFilter[]`, `notes`) is a run's `result` once `succeeded`. Every tile names
+  a real, registered, `ready` KPI -- the agent selects from this deployment's own registry
+  rather than inventing one, so a suggestion is exactly as adoptable as a dashboard built by
+  hand and needs no separate feasibility check before `POST /dashboards` accepts it. The one
+  filter field this agent may propose is `business_area`: it is the one `DashboardFilterField`
+  with a well-defined value space to validate against (this deployment's own vocabulary,
+  exactly as `KpiSuggestionDraft.business_area` is validated). `time_window` has no established
+  filter-value format anywhere in this contract yet -- nothing today constructs one -- so this
+  agent never proposes one rather than guessing a shape. Reusing `DashboardFilter` rather than
+  a parallel draft-only shape means a suggestion's filters round-trip into `POST /dashboards`
+  unchanged, the same "renders without transformation" guarantee 1.1.5's `KpiSuggestion`
+  carries for the discovery screen.
+
+## 1.1.9 — 2026-09-15 — kpis: `GET /kpis/{kpi_id}/series` + `POST /kpis/{kpi_id}/compute` (additive)
+
+Agreed by: product (nandha-saturam), for the discovery detail panel's value graph (part of
+#222). Additive -- two new operations, four new schemas, nothing removed or renamed -- so no
+negotiation and no major bump. Numbered 1.1.9 because 1.1.6, 1.1.7 and 1.1.8 are claimed by
+open PRs (#259, #260, #261).
+
+- **`GET /kpis/{kpi_id}/series` → `KpiSeries`.** The value a KPI materialised over its last
+  `days` (default 30) business dates, read from `gold.kpi_value` by KPI identifier -- the
+  same rows `GET /dashboards/{id}/data` already plots for a `line`/`bar` tile, which was until
+  now the only way to reach them: a KPI had to be tiled on a saved dashboard to have a
+  history. One `SeriesPoint` per night that has a row (a missing night is absent, not
+  `null`), the latest `value`, its `delta` against the previous point, gold's stamps and a
+  `KpiHealthStatus`. A per-dimension KPI follows one `dimension` at a time and lists the
+  `dimensions` the latest night carried. A KPI with no gold rows is a `200` with empty
+  `points` and `status: never_computed`, never a 404: the KPI exists; its value does not yet.
+- **`POST /kpis/{kpi_id}/compute` → `KpiComputeResult`.** Runs the nightly `materialise_gold`
+  pass for exactly this KPI and today's date, so a KPI adopted from a suggestion has a value
+  the moment it is adopted rather than after its first night. `kpis:write`, because it writes
+  gold. `409` when the KPI is not `ready` (`not_ready`); `503` when gold itself refuses to run
+  (`gold_refused`: the silver gates or the load lock, the nightly run's own two refusals). A
+  formula that fails is a `200` with `status: failed` and the error -- the request did what it
+  said; the formula did not.
+- **`KpiSeriesInterval`** (`day`, the only interval gold has) and **`KpiComputeStatus`**
+  (`gold.kpi_run.status`'s three words) are the two enums.
+
+## 1.1.8 — 2026-09-15 — kpis: `KpiSuggestionRunRequest.business_areas`, a focus for the run (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one optional field on the request, one
+defaulted field echoed on the run -- so no negotiation and no major bump. Numbered 1.1.8:
+#259 (1.1.6) and #260 (1.1.7), open at the same time, already claim the two before it.
+
+- **`KpiSuggestionRunRequest.business_areas`** (array of `BusinessAreaId`, optional). The
+  discovery page's focus ("Which areas of the business do you care about most?") used to
+  reach the run only when exactly one area was chosen, and then only as a filter on what
+  came back -- the agents never heard it, and a narrowed run cost the same two model calls
+  for a subset of the answer. The focus now goes *into* the message both agents receive,
+  as a priority ("propose for these first and most thoroughly"), never as a filter: a
+  proposal outside the focus is kept when the data clearly supports it. Every id is checked
+  against the vocabulary before the row exists (422 otherwise); duplicates are dropped,
+  order is kept. The frontend sends the chosen areas, or every supported area when nothing
+  is chosen, so the agents always know where the customer's attention is.
+- **`KpiSuggestionRun.business_areas`** (array, default `[]`) echoes the focus on the `202`
+  and every poll.
+- **`business_area`** (one id, the after-the-fact narrowing filter) is unchanged and still
+  honoured, for callers written against 1.1.5; new callers should send `business_areas`.
 
 ## 1.1.7 — 2026-09-15 — configure: `BusinessArea.concept_count`, `.table_count`, `.reason` (additive)
 
@@ -229,6 +388,25 @@ already claims 1.1.6.
   mapped" sentence on an unsupported area; an overlay-added area (no ontology concepts, so
   K9 never lists it) reads the same. Derived from the graph on every call, never stored --
   the same rule as KPI feasibility.
+
+## 1.1.6 — 2026-09-15 — kpis: `KpiSuggestionRun.phase` and `.typical_duration_seconds` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two optional, nullable fields on an
+existing schema and one new enum, nothing removed or renamed -- so no negotiation and no
+major bump.
+
+- **`KpiSuggestionRun.phase`** (`KpiSuggestionRunPhase`: `reading` | `proposing` |
+  `checking`, nullable). 1.1.5 made the suggestion pass a run to poll, but a poll that only
+  ever said `running` left the screen a stopwatch and nothing else to show for a wait of a
+  minute or two. The executor now records the stage the pass is in as
+  `suggestions/run.py` reports each one: gathering the semantic layer, the model calls,
+  assembly and feasibility. Null on a `queued` run; kept once terminal, so a `failed` run
+  says where it failed.
+- **`KpiSuggestionRun.typical_duration_seconds`** (number, nullable). The median wall-clock
+  duration of the deployment's last five successful runs, read from the run table with the
+  row on both the `202` and the poll, so the screen can say "usually about a minute and a
+  half" from this deployment's own evidence before the run has done anything. Null until a
+  run has succeeded. An expectation, not a bound.
 
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 

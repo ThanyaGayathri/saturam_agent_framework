@@ -1,40 +1,72 @@
-"""``read_dashboard_data`` (R13): every tile's values, from gold, in one read.
+"""``read_dashboard_data`` (R13): every tile's values in one read -- ``kpi`` tiles from gold,
+``query`` tiles from their cached result.
 
 Calls the *existing* ``read_gold`` executor (``executors/gold.py``) directly -- it is a
-plain ``async def(step_input)`` function, not workflow-engine-only -- with every tile's
-``kpi_identifier`` batched into one call. That function's own docstring names this exact
-seam: "the seam an interactive playground reads through." One ``read_gold`` call per
+plain ``async def(step_input)`` function, not workflow-engine-only -- with every ``kpi``
+tile's ``kpi_identifier`` batched into one call. That function's own docstring names this
+exact seam: "the seam an interactive playground reads through." One ``read_gold`` call per
 dashboard, never one per tile, matching the API contract's own note that this is what keeps
 a four-tile dashboard from issuing four warehouse scans on every open.
 
-``series`` and ``delta`` come from the same call: ``read_gold``'s ``history_days`` option
-returns each KPI's rows for the last :data:`SERIES_LOOKBACK_DAYS` business dates next to the
-current one, and this module resolves each date's row the same way it resolves the current
-one (the tile's ``grain_value``, or the single row at grain ``overall``). ``gold.kpi_value``
-keeps every nightly row, so a series is a read, not a recomputation. A ``line``/``bar`` tile
-gets one point per business date that had a row for its grain; every tile that resolved a
-current value gets ``delta`` = current value minus the value at the previous business date.
-A date with no row for the tile's grain is left out of the series rather than plotted as
-``null`` -- ``null`` means the formula returned NULL, which is a different fact. A KPI with
-one materialised date has ``delta: null``: there is no previous period, and nothing is
-invented. The history is requested only for the KPI identifiers a non-``table`` tile
-actually reads (``history_for``), so a dashboard of ``table`` tiles -- or a KPI shown only
-on ``table`` tiles in a dashboard that mixes chart kinds -- costs exactly what it did before.
+A ``query`` tile (contract 1.2.0) is read from ``dashboard_query_result``
+(:mod:`egpt_retail.dashboards.query_results`), filled by :mod:`egpt_retail.dashboards.queries`
+when the tile is written and on ``POST /dashboards/{id}/refresh``. The caller hands the
+cached records in (``query_results``); this module never runs a tile's SQL, so a dashboard
+open stays a read of two tables. A tile with no cached row is ``never_computed``; one whose
+last run was refused or failed is ``failed`` -- both render as unavailable, never as a broken
+response and never as a genuinely current, empty tile.
+
+``series`` and ``delta`` for a ``kpi`` tile come from the same gold call: ``read_gold``'s
+``history_days`` option returns each KPI's rows for the last :data:`SERIES_LOOKBACK_DAYS`
+business dates next to the current one, and this module resolves each date's row the same
+way it resolves the current one (the tile's ``grain_value``, or the single row at grain
+``overall``). ``gold.kpi_value`` keeps every nightly row, so a series is a read, not a
+recomputation. A ``line``/``bar`` tile gets one point per business date that had a row for
+its grain; every tile that resolved a current value gets ``delta`` = current value minus the
+value at the previous business date. A date with no row for the tile's grain is left out of
+the series rather than plotted as ``null`` -- ``null`` means the formula returned NULL, which
+is a different fact. A KPI with one materialised date has ``delta: null``: there is no
+previous period, and nothing is invented. The history is requested only for the KPI
+identifiers a non-``table`` tile actually reads (``history_for``), so a dashboard of
+``table`` tiles -- or a KPI shown only on ``table`` tiles in a dashboard that mixes chart
+kinds -- costs exactly what it did before.
+
+For a ``query`` tile the series is the cached rows themselves, read through the tile's own
+axes: an x axis of ``kind: time`` and the first y axis give one point per row; a ``number``
+chart's value is the first y column of the first row; ``delta`` is the last two points of a
+time series. ``rows`` and ``columns`` always carry the full cached result, so a table chart
+and the editor's preview render from one shape.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from egpt.workflow.types import StepInput
 
 from egpt_retail.alerts.condition import as_decimal
 from egpt_retail.api.models import DashboardData, KpiHealthStatus, SeriesPoint, TileData
-from egpt_retail.contracts.dashboards import ChartKind, Dashboard, Tile
+from egpt_retail.contracts.dashboards import (
+    AxisKind,
+    ChartKind,
+    Dashboard,
+    Tile,
+    TileSource,
+)
+from egpt_retail.dashboards.query_results import QueryResultRecord
 from egpt_retail.executors.gold import read_gold, row_for_grain_value
+from egpt_retail.kpi.series import (
+    end_of_business_day as _end_of_business_day,
+)
+from egpt_retail.kpi.series import (
+    history_by_date as _history_by_date,
+)
+from egpt_retail.kpi.series import (
+    status_for_missing as _status_for_missing,
+)
 
-__all__ = ["SERIES_LOOKBACK_DAYS", "read_dashboard_data"]
+__all__ = ["SERIES_LOOKBACK_DAYS", "query_tile_data", "read_dashboard_data"]
 
 #: Business dates of history a ``line``/``bar`` tile plots and ``delta`` reads back over.
 #: Gold materialises nightly (D7), so this is at most one point per day.
@@ -74,33 +106,12 @@ def _resolve_row(
     return None
 
 
-def _end_of_business_day(value: Optional[str]) -> Optional[datetime]:
-    """``read_gold``'s ``as_of`` is a bare business date (``date.isoformat()``, no time or
-    zone); ``TileData.as_of`` is a strict ``AwareDatetime``. The common.yaml and
-    dashboards.yaml worked examples both stamp a business date at its end
-    (``"...T23:59:59Z"``), the same convention gold's own freshness stamps use -- so that is
-    what this converts to, rather than midnight, which would read as a different moment."""
-    if value is None:
-        return None
-    return datetime.combine(
-        date.fromisoformat(value), time(23, 59, 59), tzinfo=timezone.utc
-    )
-
-
-def _status_for_missing(reason: str) -> KpiHealthStatus:
-    if "guard refused" in reason:
-        return KpiHealthStatus.failed
-    if "never materialised" in reason or "no gold row" in reason:
-        return KpiHealthStatus.never_computed
-    return KpiHealthStatus.failed
-
-
 def _empty_tile_data(
     tile: Tile,
     status: KpiHealthStatus,
     *,
     as_of: Optional[datetime] = None,
-    computed_at: Optional[str] = None,
+    computed_at: Optional[Any] = None,
     provenance_ref: Optional[str] = None,
 ) -> TileData:
     """The shape every "nothing to show" case renders as -- unavailable, never a broken
@@ -114,22 +125,11 @@ def _empty_tile_data(
         delta=None,
         series=[],
         rows=[],
+        columns=[],
         as_of=as_of,
         computed_at=computed_at,
         provenance_ref=provenance_ref,
     )
-
-
-def _history_by_date(
-    history: Sequence[Mapping[str, Any]],
-) -> List[Tuple[str, List[Dict[str, Any]]]]:
-    """``read_gold``'s flat ``history`` rows grouped by business date, oldest first. The rows
-    arrive ordered by ``as_of`` already (the statement orders by the whole row, and ``as_of``
-    is its first column); sorting here only makes that independent of the reader."""
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for row in history:
-        grouped.setdefault(str(row["as_of"]), []).append(dict(row))
-    return sorted(grouped.items())
 
 
 def _series_and_delta(
@@ -222,44 +222,158 @@ def _tile_data(
         delta=delta,
         series=series,
         rows=table_rows,
+        columns=[],
         as_of=_end_of_business_day(result.get("as_of")),
         computed_at=result.get("computed_at"),
         provenance_ref=result.get("run_id"),
     )
 
 
-async def read_dashboard_data(dashboard: Dashboard) -> DashboardData:
-    """Every tile's values, from gold and nothing else -- one ``read_gold`` call for the
-    whole dashboard, with history when any tile plots a series or shows a delta."""
-    identifiers = sorted({tile.kpi_identifier for tile in dashboard.tiles})
-    additional_data: Dict[str, Any] = {"kpi_identifiers": identifiers}
-    history_for = sorted(
-        {
-            tile.kpi_identifier
-            for tile in dashboard.tiles
-            if tile.chart is not ChartKind.TABLE
-        }
-    )
-    if history_for:
-        additional_data["history_days"] = SERIES_LOOKBACK_DAYS
-        additional_data["history_for"] = history_for
-    step_input = StepInput(additional_data=additional_data)
-    output = await read_gold(step_input)
-    # `read_gold` always returns `StepOutput(content={"kpis": ..., "missing": ...})`;
-    # `StepOutput.content`'s declared type is a broad union because other executors return
-    # other shapes, so this is a narrowing cast, not an assumption this function invents.
-    content = cast(Dict[str, Any], output.content or {})
-    values: Dict[str, Dict[str, Any]] = content.get("kpis", {})
-    missing_reasons: Dict[str, str] = {
-        entry["kpi_identifier"]: entry.get("reason", "")
-        for entry in content.get("missing", [])
-    }
+# --- query tiles ---------------------------------------------------------------------------
 
+
+def _as_datetime(value: Any) -> Optional[datetime]:
+    """A cached x value as an aware datetime, or ``None`` when it is not one. Cached rows hold
+    ISO strings (``queries._serialise``); a bare date becomes that day's midnight UTC."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            day = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _as_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def query_tile_data(tile: Tile, record: Optional[QueryResultRecord]) -> TileData:
+    """One ``query`` tile's ``TileData`` from its cached record. Pure -- no I/O -- so the
+    axis-to-series mapping is unit-testable on its own."""
+    assert tile.query is not None
+    if record is None:
+        return _empty_tile_data(tile, KpiHealthStatus.never_computed)
+    if record.error:
+        return _empty_tile_data(
+            tile, KpiHealthStatus.failed, computed_at=record.computed_at
+        )
+
+    query = tile.query
+    rows = [dict(row) for row in record.rows]
+    columns = list(record.columns)
+    y_axis = query.y[0] if query.y else None
+    y_column = y_axis.column if y_axis is not None else None
+    if y_column is None or y_column not in columns:
+        # No usable y axis named: the last column is the value, the way a person reading a
+        # `SELECT wk, count(*)` would take it.
+        y_column = columns[-1] if columns else None
+    unit = y_axis.unit if y_axis is not None else ""
+
+    value: Optional[float] = None
+    if rows and y_column is not None:
+        value = _as_float(rows[0].get(y_column))
+
+    series: List[SeriesPoint] = []
+    if (
+        query.x is not None
+        and query.x.kind is AxisKind.TIME
+        and query.series_by is None
+        and y_column is not None
+        and tile.chart in _SERIES_CHARTS
+    ):
+        for row in rows:
+            at = _as_datetime(row.get(query.x.column))
+            if at is None:
+                continue
+            series.append(SeriesPoint(at=at, value=_as_float(row.get(y_column))))
+        series.sort(key=lambda p: p.at)
+
+    delta: Optional[float] = None
+    plotted = [p.value for p in series if p.value is not None]
+    if len(plotted) >= 2:
+        delta = plotted[-1] - plotted[-2]
+        value = plotted[-1]
+
+    return TileData(
+        tile_id=tile.id,
+        kpi_identifier=None,
+        status=KpiHealthStatus.fresh,
+        value=value,
+        unit=unit,
+        delta=delta,
+        series=series,
+        rows=rows,
+        columns=columns,
+        as_of=None,
+        computed_at=record.computed_at,
+        provenance_ref=None,
+    )
+
+
+# --- the read ------------------------------------------------------------------------------
+
+
+async def read_dashboard_data(
+    dashboard: Dashboard,
+    *,
+    query_results: Optional[Mapping[str, QueryResultRecord]] = None,
+) -> DashboardData:
+    """Every tile's values -- one ``read_gold`` call for the ``kpi`` tiles, with history when
+    any of them plots a series or shows a delta, and the caller's ``query_results`` (keyed by
+    tile id) for the ``query`` tiles. Nothing here runs a tile's SQL."""
+    kpi_tiles = [t for t in dashboard.tiles if t.source is TileSource.KPI]
+    values: Dict[str, Dict[str, Any]] = {}
+    missing_reasons: Dict[str, str] = {}
+    if kpi_tiles:
+        identifiers = sorted({cast(str, t.kpi_identifier) for t in kpi_tiles})
+        additional_data: Dict[str, Any] = {"kpi_identifiers": identifiers}
+        history_for = sorted(
+            {
+                cast(str, tile.kpi_identifier)
+                for tile in kpi_tiles
+                if tile.chart is not ChartKind.TABLE
+            }
+        )
+        if history_for:
+            additional_data["history_days"] = SERIES_LOOKBACK_DAYS
+            additional_data["history_for"] = history_for
+        step_input = StepInput(additional_data=additional_data)
+        output = await read_gold(step_input)
+        # `read_gold` always returns `StepOutput(content={"kpis": ..., "missing": ...})`;
+        # `StepOutput.content`'s declared type is a broad union because other executors
+        # return other shapes, so this is a narrowing cast, not an assumption this function
+        # invents.
+        content = cast(Dict[str, Any], output.content or {})
+        values = content.get("kpis", {})
+        missing_reasons = {
+            entry["kpi_identifier"]: entry.get("reason", "")
+            for entry in content.get("missing", [])
+        }
+
+    cached = query_results or {}
     tiles = [
-        _tile_data(
-            tile,
-            values.get(tile.kpi_identifier),
-            missing_reasons.get(tile.kpi_identifier, ""),
+        (
+            query_tile_data(tile, cached.get(tile.id))
+            if tile.source is TileSource.QUERY
+            else _tile_data(
+                tile,
+                values.get(cast(str, tile.kpi_identifier)),
+                missing_reasons.get(cast(str, tile.kpi_identifier), ""),
+            )
         )
         for tile in dashboard.tiles
     ]

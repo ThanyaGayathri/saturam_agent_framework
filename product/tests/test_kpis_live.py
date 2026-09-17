@@ -29,6 +29,7 @@ from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.suggestions.runs import (
     LOST_RUN_ERROR,
+    SuggestionRunPhase,
     SuggestionRunStatus,
     SuggestionRunStore,
 )
@@ -361,6 +362,7 @@ def test_list_kpi_suggestions_reads_a_real_snapshot_and_stamps_real_feasibility(
                 result_shape="scalar",
                 confidence="high",
                 rationale="crm_contact has contact_id.",
+                business_value="Shows how many customers can actually be reached.",
                 derived_from_tables=["crm_contact"],
                 proposed_sql="SELECT count(*) FROM crm_contact",
                 catalogue_source=None,
@@ -405,6 +407,7 @@ def test_list_kpi_suggestions_filters_out_a_non_matching_business_area(
                 result_shape="scalar",
                 confidence="high",
                 rationale="crm_contact has contact_id.",
+                business_value="Shows how many customers can actually be reached.",
                 derived_from_tables=["crm_contact"],
                 proposed_sql="SELECT count(*) FROM crm_contact",
                 catalogue_source=None,
@@ -796,3 +799,209 @@ def test_suggestion_run_store_get_returns_none_for_an_unknown_id(
     run_store: SuggestionRunStore,
 ) -> None:
     assert run_store.get("sr_livetest_missing") is None
+
+
+def test_suggestion_run_store_keeps_the_focus_a_run_was_started_with(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = run_store.create("livetest", ["sales", "marketing"])
+    assert created.business_areas == ("sales", "marketing")
+    read = run_store.get(created.identifier)
+    assert read is not None and read.business_areas == ("sales", "marketing")
+
+    # no focus: an empty tuple, not None -- and an older row reads the same
+    plain = run_store.create("livetest")
+    assert plain.business_areas == ()
+
+
+# ---------------------------------------------------------------------------
+# contract 1.1.9 -- POST /kpis/{id}/compute then GET /kpis/{id}/series, against the real
+# warehouse: the pass writes gold for exactly this KPI and the series reads it back.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def warehouse() -> Iterator[Any]:
+    """The warehouse connection the gold pass writes to, or a skip when the deployment has
+    none; every gold row and view this module writes is removed afterwards."""
+    psycopg = pytest.importorskip("psycopg")
+    from egpt_retail.app.db import psycopg_dsn
+
+    url = RetailSettings().retail_warehouse_db_url
+    if not url:
+        pytest.skip(
+            "EGPT_RETAIL_WAREHOUSE_DB_URL unset; the gold pass has nowhere to write"
+        )
+    conn = psycopg.connect(psycopg_dsn(str(url)))
+    yield conn
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM gold.kpi_value WHERE kpi_identifier LIKE 'livetest_kpi__%'"
+        )
+        cur.execute(
+            "DELETE FROM gold.kpi_run WHERE kpi_identifier LIKE 'livetest_kpi__%'"
+        )
+        cur.execute(f"DROP VIEW IF EXISTS gold.kpi_{IDENT}")
+    conn.commit()
+    conn.close()
+
+
+def test_compute_kpi_writes_gold_and_the_series_reads_it_back(
+    store: KpiRegistryStore, warehouse: Any
+) -> None:
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import compute_kpi, get_kpi_series
+
+    store.save(_definition(sql="SELECT count(*) FROM crm_contact"))
+    try:
+        result = asyncio.run(compute_kpi(IDENT, store=store))
+    except HTTPException as exc:
+        # 409: the graph this test runs against does not carry `crm_contact`, so the KPI is
+        # not `ready` and there is nothing to compute; 503: the last load did not pass or a
+        # load is running. Both are the route doing its job, not a failure of this test.
+        pytest.skip(f"compute refused ({exc.status_code}): {exc.detail}")
+    assert result.kpi_identifier == IDENT
+    assert result.run_id.startswith("api_")
+    assert result.status.value in ("materialised", "failed"), result
+    if result.status.value == "failed":
+        pytest.skip(f"the formula failed against this warehouse: {result.error}")
+    assert result.rows_written >= 1
+
+    series = asyncio.run(get_kpi_series(IDENT, days=30, dimension=None, store=store))
+    assert series.kpi_identifier == IDENT
+    assert series.status.value == "fresh"
+    assert series.dimension is None and series.dimensions == []
+    assert len(series.points) >= 1
+    assert series.points[-1].value is not None and series.points[-1].value >= 0
+    assert series.value == series.points[-1].value
+    assert series.provenance_ref == result.run_id
+    assert series.as_of is not None and series.as_of.date() == result.as_of
+
+
+def test_list_kpi_health_reports_fresh_for_a_kpi_just_computed(
+    store: KpiRegistryStore, warehouse: Any
+) -> None:
+    """``GET /kpis/health`` end to end: compute writes gold for exactly this KPI, then the
+    health row for its identifier reads back ``fresh`` with this run's own id -- the same
+    round trip ``test_compute_kpi_writes_gold_and_the_series_reads_it_back`` checks for the
+    series, now for the freshness row the KPI health tab reads."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import (
+        _warehouse_engine,
+        compute_kpi,
+        list_kpi_health,
+    )
+
+    store.save(_definition(sql="SELECT count(*) FROM crm_contact"))
+    try:
+        result = asyncio.run(compute_kpi(IDENT, store=store))
+    except HTTPException as exc:
+        pytest.skip(f"compute refused ({exc.status_code}): {exc.detail}")
+    if result.status.value == "failed":
+        pytest.skip(f"the formula failed against this warehouse: {result.error}")
+
+    engine_gen = _warehouse_engine()
+    engine = next(engine_gen)
+    try:
+        rows = asyncio.run(list_kpi_health(store=store, engine=engine))
+    finally:
+        engine_gen.close()  # runs `_warehouse_engine`'s `finally: engine.dispose()`
+
+    row = next(r for r in rows if r.identifier == IDENT)
+    assert row.status.value == "fresh"
+    assert row.last_run_id == result.run_id
+    assert row.staleness_hours is not None and row.staleness_hours >= 0
+
+
+def test_suggestion_run_store_phase_round_trips_and_only_a_running_row_takes_one(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = run_store.create("livetest")
+
+    # queued: no stage has begun, a report is ignored
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.READING)
+    queued = run_store.get(created.identifier)
+    assert queued is not None and queued.phase is None
+
+    run_store.mark_running(created.identifier)
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.PROPOSING)
+    running = run_store.get(created.identifier)
+    assert running is not None
+    assert running.status is SuggestionRunStatus.RUNNING
+    assert running.phase is SuggestionRunPhase.PROPOSING
+
+    # terminal keeps the last stage, and a late report cannot relabel it
+    run_store.mark_succeeded(
+        created.identifier, {"suggestions": [], "notes": "", "semantic_snapshot": "l"}
+    )
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.CHECKING)
+    done = run_store.get(created.identifier)
+    assert done is not None
+    assert done.status is SuggestionRunStatus.SUCCEEDED
+    assert done.phase is SuggestionRunPhase.PROPOSING
+
+
+@pytest.mark.anyio
+async def test_suggestion_run_store_amark_phase_agrees_with_its_sync_twin(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = await run_store.acreate("livetest")
+    await run_store.amark_running(created.identifier)
+    await run_store.amark_phase(created.identifier, SuggestionRunPhase.CHECKING)
+    running = await run_store.aget(created.identifier)
+    assert running is not None and running.phase is SuggestionRunPhase.CHECKING
+
+
+def test_suggestion_run_store_typical_duration_is_a_median_of_the_newest_successes(
+    run_store: SuggestionRunStore, control_plane: Any
+) -> None:
+    """Three successes of 10s, 100s and 30s, made the newest rows in the table (the demo
+    stack shares this database, so older successes may exist): the median of the newest
+    three is 30, a failed run of any length is not counted, and the newest two alone
+    give the midpoint of those two."""
+    seconds = {}
+    for duration in (10, 100, 30):
+        created = run_store.create("livetest")
+        run_store.mark_running(created.identifier)
+        run_store.mark_succeeded(
+            created.identifier,
+            {"suggestions": [], "notes": "", "semantic_snapshot": "l"},
+        )
+        seconds[created.identifier] = duration
+    failed = run_store.create("livetest")
+    run_store.mark_running(failed.identifier)
+    run_store.mark_failed(failed.identifier, "timed out")
+    with control_plane.cursor() as cur:
+        # newest first in `finished_at` order: 30s (the last created) is the newest
+        for offset, (identifier, duration) in enumerate(reversed(seconds.items())):
+            cur.execute(
+                "UPDATE semantic.kpi_suggestion_run"
+                " SET started_at = now() + interval '1 day' - make_interval(secs => %s),"
+                "     finished_at = now() + interval '1 day' - make_interval(secs => %s)"
+                " WHERE id = %s",
+                (duration + offset * 1000, offset * 1000, identifier),
+            )
+        cur.execute(
+            "UPDATE semantic.kpi_suggestion_run"
+            " SET started_at = now() + interval '1 day' - interval '5000 seconds',"
+            "     finished_at = now() + interval '1 day'"
+            " WHERE id = %s",
+            (failed.identifier,),
+        )
+    control_plane.commit()
+
+    assert run_store.typical_duration(sample=3) == 30.0
+    assert run_store.typical_duration(sample=2) == 65.0  # newest two: 30s and 100s
+
+
+@pytest.mark.anyio
+async def test_suggestion_run_store_atypical_duration_agrees_with_its_sync_twin(
+    run_store: SuggestionRunStore,
+) -> None:
+    assert await run_store.atypical_duration() == run_store.typical_duration()

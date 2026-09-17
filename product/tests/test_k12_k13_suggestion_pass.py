@@ -28,6 +28,7 @@ from egpt_retail.suggestions import (
     run_suggestions,
 )
 from egpt_retail.suggestions.context import render_context
+from egpt_retail.suggestions.runs import SuggestionRunPhase
 
 # --- stand-ins ------------------------------------------------------------------------
 
@@ -155,6 +156,7 @@ KPI_DRAFTS = k12.KpiSuggestionDraftSet(
             result_shape="scalar",
             confidence="high",
             rationale="crm_deal.deal_id counts them.",
+            business_value="Tracks demand coming into sales before it converts to revenue.",
             derived_from_tables=["silver.crm_deal"],
             proposed_sql="SELECT count(DISTINCT deal_id) FROM crm_deal",
             catalogue_source="Quote request volume",
@@ -169,6 +171,7 @@ KPI_DRAFTS = k12.KpiSuggestionDraftSet(
             result_shape="scalar",
             confidence="medium",
             rationale="crm_contact has contact_id.",
+            business_value="Flags how many contacts a campaign could actually reach.",
             derived_from_tables=["crm_contact"],
             proposed_sql=None,
             catalogue_source=None,
@@ -205,7 +208,9 @@ USE_CASE_DRAFTS = k13.UseCaseSuggestionDraftSet(
 )
 
 
-def _run(*, dry_run=False, proposals=None, knowledge=None):
+def _run(
+    *, dry_run=False, proposals=None, knowledge=None, focus_areas=None, on_phase=None
+):
     kpi_agent, use_case_agent = FakeAgent(KPI_DRAFTS), FakeAgent(USE_CASE_DRAFTS)
     run = run_suggestions(
         RetailSettings(retail_customer_slug="t"),
@@ -215,6 +220,8 @@ def _run(*, dry_run=False, proposals=None, knowledge=None):
         knowledge=knowledge,
         agents=(kpi_agent, use_case_agent),
         dry_run=dry_run,
+        focus_areas=focus_areas,
+        on_phase=on_phase,
     )
     return run, kpi_agent, use_case_agent
 
@@ -447,3 +454,55 @@ def test_the_stub_reader_satisfies_the_oracle_contract():
         pytest.skip("stub has no from_payload")
     oracle = stub.unjoinable_oracle()
     assert oracle("a", "b") is False
+
+
+# --- focus ------------------------------------------------------------------------------
+
+
+def test_a_focus_reaches_both_agents_as_a_priority_before_the_ask():
+    """Contract 1.1.8: the customer's chosen areas go into the message, once, ahead of the
+    ask, worded as a priority -- and nothing about what comes back is filtered by them."""
+    run, kpi_agent, use_case_agent = _run(
+        dry_run=True, focus_areas=["sales", "marketing", "sales"]
+    )
+    for agent in (kpi_agent, use_case_agent):
+        message = agent.messages[-1]
+        assert (
+            "focus: the customer cares most about these business areas: sales, marketing."
+            in message
+        )
+        assert message.index("focus:") < message.index("Propose the")
+        assert message.count("focus:") == 1
+    assert run.kpis.suggestions and run.use_cases.suggestions
+
+
+def test_no_focus_leaves_the_message_exactly_as_before():
+    _, kpi_agent, _ = _run(dry_run=True)
+    assert "focus:" not in kpi_agent.messages[-1]
+    _, kpi_agent, _ = _run(dry_run=True, focus_areas=[])
+    assert "focus:" not in kpi_agent.messages[-1]
+
+
+# --- phases ----------------------------------------------------------------------------
+
+
+def test_the_pass_reports_its_three_stages_in_order_and_once_each():
+    """What `KpiSuggestionRun.phase` is built on: reading, then both model calls under
+    one `proposing`, then both assemblies under one `checking` -- never back to a stage
+    already passed, which is what lets a screen show the stages as a stepper."""
+    phases = []
+    run, kpi_agent, use_case_agent = _run(dry_run=True, on_phase=phases.append)
+
+    assert phases == [
+        SuggestionRunPhase.READING,
+        SuggestionRunPhase.PROPOSING,
+        SuggestionRunPhase.CHECKING,
+    ]
+    # and the reorder changed nothing about what either agent was asked
+    assert kpi_agent.messages and use_case_agent.messages
+    assert run.kpis.suggestions and run.use_cases.suggestions
+
+
+def test_the_pass_runs_without_a_phase_listener():
+    run, _, _ = _run(dry_run=True)
+    assert run.kpis.suggestions

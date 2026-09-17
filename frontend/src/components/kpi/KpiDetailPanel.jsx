@@ -1,17 +1,22 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
-import { bucketFor, NOT_SELECTABLE_REASONS } from "./KpiDiscovery";
+import KpiTrend from "./KpiTrend";
+import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "./KpiDiscovery";
 
 /**
  * The definition surface for one KPI: description, unit, level, mapping confidence, the datasets
- * that feed it, and what uses it.
+ * that feed it, and what uses it. For a registry KPI, also its value over the last 30 nights
+ * (`KpiTrend`, from `GET /kpis/{id}/series`) -- the one place on the discovery page a number is
+ * shown, and every one of them a real nightly materialisation of the formula.
  *
  * Shared deliberately. Discovery ("what can my data measure?") and the master-data table ("what
  * backs this metric?") both need it, and a second, view-local panel is exactly how the two would
- * start disagreeing about what a KPI means.
+ * start disagreeing about what a KPI means. The trend is optional (`trend` prop): a caller that
+ * has no series state simply gets the definition surface it always had.
  */
 const FEASIBILITY_STYLE = {
  ready: { cls: "border-status-success/35 bg-status-success-light dark:bg-status-success/15", label: "text-status-success" },
@@ -19,7 +24,102 @@ const FEASIBILITY_STYLE = {
  blocked: { cls: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/15", label: "text-status-critical" },
 };
 
-export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
+/** The shared description+SQL editor for both an unpersisted suggestion draft and a real
+ * registry row -- one caller passes `saving`/`error` for its async PATCH, the other leaves
+ * them at their defaults because its "save" never leaves the browser. */
+function EditKpiForm({ description, sql, onDescriptionChange, onSqlChange, onSave, onCancel, saving = false, error = null, note }) {
+ return (
+  <div className="space-y-3 rounded-xl border border-border bg-surface-secondary p-4">
+   <div>
+    <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Description</label>
+    <textarea
+     value={description}
+     onChange={(e) => onDescriptionChange(e.target.value)}
+     rows={2}
+     disabled={saving}
+     className="mt-1 w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+    />
+   </div>
+   <div>
+    <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">SQL</label>
+    <textarea
+     value={sql}
+     onChange={(e) => onSqlChange(e.target.value)}
+     rows={5}
+     spellCheck={false}
+     disabled={saving}
+     className="mt-1 w-full rounded-lg border border-border bg-surface-default px-3 py-2 font-mono text-xs text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+    />
+   </div>
+   {note && <p className="text-xs text-text-muted">{note}</p>}
+   {error && (
+    <p role="alert" className="flex items-start gap-2 text-xs text-status-critical">
+     <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+     <span>Couldn't save: {error}</span>
+    </p>
+   )}
+   <div className="flex items-center gap-3">
+    <button
+     type="button"
+     onClick={onSave}
+     disabled={saving}
+     className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+    >
+     {saving ? "Saving…" : "Save"}
+    </button>
+    <button
+     type="button"
+     onClick={onCancel}
+     disabled={saving}
+     className="text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-60"
+    >
+     Cancel
+    </button>
+   </div>
+  </div>
+ );
+}
+
+export default function KpiDetailPanel({
+ detailRow,
+ nameToIdsMap,
+ profileId,
+ processLabelById,
+ onEdit,
+ onClose,
+ trend = null,
+ onTrendRetry,
+ onTrendCompute,
+ onTrendPickDimension,
+ onRemove,
+ removing = false,
+ removeError = null,
+ onAdopt,
+ adopting = false,
+ adoptError = null,
+ onSaveEdit,
+ savingEdit = false,
+ editError = null,
+}) {
+ // "Remove from my metrics" asks once before it acts: the row is gone from the registry for
+ // good, and there is no undo beyond adopting it again. Confirmed inline, not in a modal --
+ // the panel is already the focused surface.
+ const [confirmingRemove, setConfirmingRemove] = useState(false);
+ // A suggestion's description/sql and a registry KPI's are both editable in place here (a
+ // suggestion is never persisted until adopted, so its edit just rewrites the local draft; a
+ // registry row's edit is a real `PATCH /kpis/{id}` -- see `onSaveEdit` below). One draft, not
+ // two: the two cases share the same fields and the same form, only what "save" does differs.
+ const [editingDraft, setEditingDraft] = useState(false);
+ const [draftDescription, setDraftDescription] = useState("");
+ const [draftSql, setDraftSql] = useState("");
+ // Closes the form whenever the caller hands this panel a genuinely different row state --
+ // which includes the row the caller itself produces right after a successful save (both
+ // `KpiDiscoveryPage.jsx`'s suggestion-draft patch and its post-PATCH registry refresh rebuild
+ // `detailRow`). A save that *fails* never touches `detailRow`, so the form -- and whatever the
+ // customer typed -- stays exactly as they left it.
+ useEffect(() => {
+  setEditingDraft(false);
+ }, [detailRow]);
  // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
  // own join-aware `feasibility` -- a set difference over the tables the semantic graph
  // actually holds -- and that is what is shown below. `mappingConfidenceForKpi`'s score is
@@ -46,6 +146,19 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] || FEASIBILITY_STYLE.blocked : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
+ const startEdit = () => {
+  setDraftDescription((suggested ? detailRow.suggestion.description : detailRow.kpi.desc) || "");
+  setDraftSql((suggested ? detailRow.suggestion.proposed_sql : detailRow.kpi.sql) || "");
+  setEditingDraft(true);
+ };
+ const saveEdit = () => {
+  onSaveEdit?.({ description: draftDescription, sql: draftSql });
+  // A suggestion edit is a synchronous local patch (always "succeeds"), so nothing will change
+  // `detailRow` for the effect above to react to -- close the form here instead. A registry
+  // edit is the async PATCH case that effect already handles: `detailRow` only changes once
+  // the save actually lands, so closing early here would hide a failure's error text.
+  if (suggested) setEditingDraft(false);
+ };
  return (
  <>
  <button
@@ -76,6 +189,20 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  </p>
  )}
  </section>
+
+ {/* The value, first: for a registry KPI it is the reason to open this panel after "Add to my
+     metrics". Every point is gold's own nightly row for this formula (or today's, computed on
+     adopt); a KPI with none yet says so and offers the compute, never a placeholder line. */}
+ {fromRegistry && trend && (
+ <KpiTrend
+ state={trend}
+ unit={detailRow.kpi.unit}
+ resultShape={detailRow.kpi.resultShape}
+ onRetry={onTrendRetry}
+ onCompute={onTrendCompute}
+ onPickDimension={onTrendPickDimension}
+ />
+ )}
  <section className="grid grid-cols-2 gap-3 text-sm">
  {/* Unit is registry-only: a suggestion has no unit until it is adopted into the registry, so
      showing a dash here would read as broken rather than as "not yet governed". */}
@@ -205,10 +332,102 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  </ul>
  </section>
 
- {/* No local edit screen has ever heard of a real registry KPI -- routing there would be
- misleading, not merely inert, so the link is hidden rather than left to silently do
- nothing. */}
- {!fromRegistry && (
+ {suggested && (
+ <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
+ <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.rationale}</p>
+ {detailRow.suggestion.business_value && (
+ <>
+ <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-primary">{SUGGESTION_VALUE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.business_value}</p>
+ </>
+ )}
+ {detailRow.suggestion.derived_from_tables?.length > 0 && (
+ <p className="mt-2 text-xs text-text-muted">
+ Derived from: {detailRow.suggestion.derived_from_tables.join(", ")}
+ {detailRow.suggestion.confidence ? ` · ${detailRow.suggestion.confidence} confidence` : ""}
+ </p>
+ )}
+ {detailRow.suggestion.proposed_sql && (
+ <>
+ <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-status-info">Proposed formula</p>
+ <pre className="mt-1 overflow-x-auto rounded-lg bg-surface-default p-3 text-xs text-text-primary whitespace-pre-wrap break-words">
+ {detailRow.suggestion.proposed_sql}
+ </pre>
+ </>
+ )}
+ </section>
+ )}
+
+ {suggested && (
+ <div className="space-y-3">
+ {editingDraft ? (
+ <EditKpiForm
+ description={draftDescription}
+ sql={draftSql}
+ onDescriptionChange={setDraftDescription}
+ onSqlChange={setDraftSql}
+ onSave={saveEdit}
+ onCancel={() => setEditingDraft(false)}
+ note="This edits the draft only -- feasibility and evidence above still describe the original suggestion until it's adopted."
+ />
+ ) : (
+ <button
+ type="button"
+ onClick={startEdit}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+ >
+ <Pencil size={14} />
+ Edit description or SQL
+ </button>
+ )}
+ {/* Gated the same way the card's own adopt button is: only a `ready` suggestion with a
+ formula can become a real KPI -- which an edit above can supply where the agent left
+ none, or fix where feasibility (still the original suggestion's) says otherwise. */}
+ {!editingDraft && bucketFor(detailRow) === "ready" && detailRow.suggestion.proposed_sql && (
+ <div className="space-y-1.5">
+ <button
+ type="button"
+ disabled={adopting}
+ onClick={() => onAdopt?.(detailRow)}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Plus size={14} />
+ {adopting ? "Adding…" : "Add to my metrics"}
+ </button>
+ {adoptError && <p className="text-xs text-status-critical">{adoptError}</p>}
+ </div>
+ )}
+ </div>
+ )}
+ {!suggested && (
+ fromRegistry ? (
+ editingDraft ? (
+ <EditKpiForm
+ description={draftDescription}
+ sql={draftSql}
+ onDescriptionChange={setDraftDescription}
+ onSqlChange={setDraftSql}
+ onSave={saveEdit}
+ onCancel={() => setEditingDraft(false)}
+ saving={savingEdit}
+ error={editError}
+ note="Editing the formula moves this KPI back to review until it's revalidated against the semantic layer."
+ />
+ ) : (
+ <button
+ type="button"
+ onClick={startEdit}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+ >
+ <Pencil size={14} />
+ Edit description or SQL
+ </button>
+ )
+ ) : (
+ /* A tree/template candidate has a real position in Configure's mapping tree (unlike a
+ registry row or a live suggestion, neither of which this local edit form can save to
+ directly), so its edit still goes to the master-data screen that owns it. */
  <button
  type="button"
  onClick={onEdit}
@@ -216,6 +435,57 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  >
  Edit KPI →
  </button>
+ )
+ )}
+
+ {/* The reverse of "Add to my metrics": a registry KPI can be removed here, where it was
+ adopted. The api refuses while a dashboard still uses it (409), and says which. */}
+ {fromRegistry && onRemove && (
+ <section className="rounded-xl border border-border bg-surface-secondary p-4">
+ {!confirmingRemove ? (
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(true)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={14} />
+ Remove from my metrics
+ </button>
+ ) : (
+ <div className="space-y-3">
+ <p className="text-sm text-text-secondary">
+ Remove <strong className="font-semibold text-text-primary">{detailRow.kpi.name}</strong> from your
+ registry? Dashboards using it must be changed first; you can adopt it again later.
+ </p>
+ <div className="flex items-center gap-3">
+ <button
+ type="button"
+ onClick={() => onRemove(detailRow)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 rounded-lg bg-status-critical px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={13} />
+ {removing ? "Removing…" : "Yes, remove"}
+ </button>
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(false)}
+ disabled={removing}
+ className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+ >
+ Cancel
+ </button>
+ </div>
+ </div>
+ )}
+ {removeError && (
+ <p role="alert" className="mt-3 flex items-start gap-2 text-xs text-status-critical">
+ <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+ <span>Couldn't remove it: {removeError}</span>
+ </p>
+ )}
+ </section>
  )}
  </div>
  </aside>

@@ -94,6 +94,13 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          # Without this, every job on the same Python version shares one cache key (the
+          # default cache-dependency-glob hashes every pyproject.toml/uv.lock in the repo,
+          # not just this job's own install target) -- whichever job's install finishes
+          # first wins the write, and every other job is stuck restoring that unrelated,
+          # much smaller cache forever.
+          cache-suffix: validate-${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
@@ -129,6 +136,10 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          # See the validate job's identical comment: without a per-job suffix, this job's
+          # cache key collides with every other job on the same Python version.
+          cache-suffix: validate-egpt-infra-${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
@@ -190,6 +201,12 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          # See the validate job's identical comment: without a per-job suffix, this job's
+          # cache key collides with every other job on the same Python version -- and this
+          # matrix has the heaviest install (egpt's full [tests] extra, ~2.5GB+ of wheels),
+          # so it was the job silently losing the cache race every run.
+          cache-suffix: ${{ matrix.package }}-${{ matrix.python-version }}
 
       - name: Install egpt dependencies
         if: matrix.package == 'egpt'
@@ -366,6 +383,10 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          # See the validate job's identical comment: without a per-job suffix, this job's
+          # cache key collides with every other job on the same Python version.
+          cache-suffix: import-linter
 
       - name: Install dependencies
         working-directory: libs/agno
@@ -463,6 +484,10 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          # See the validate job's identical comment: without a per-job suffix, this job's
+          # cache key collides with every other job on the same Python version.
+          cache-suffix: unit-drivers-absent
 
       - name: Install egpt without the backend drivers
         working-directory: libs/agno

@@ -44,6 +44,11 @@ class Autonomy(Enum):
     autopilot = "autopilot"
 
 
+class AxisKind(Enum):
+    time = "time"
+    category = "category"
+
+
 class BulkProposalDecisionRequest(BaseModel):
     """
     A single source harvest produces hundreds of proposals; nobody clicks through them one gate at a time (G5).
@@ -83,6 +88,17 @@ class CaseStatus(Enum):
     untested = "untested"
     pass_ = "pass"
     fail = "fail"
+
+
+class ChartAxis(BaseModel):
+    """
+    One result column a `query` tile plots. `kind` matters on the x axis only.
+    """
+
+    column: str
+    kind: AxisKind | None = None
+    label: str | None = ""
+    unit: str | None = ""
 
 
 class ChartKind(Enum):
@@ -132,6 +148,45 @@ class ContentOrigin(Enum):
 class DashboardFilterField(Enum):
     business_area = "business_area"
     time_window = "time_window"
+
+
+class DashboardSuggestionRunRequest(BaseModel):
+    """
+    What to run. `purpose` is the caller's own words for what the dashboard should help them
+    track. `kpi_identifiers` are the metrics the agent reads as context -- their definitions
+    and the tables behind them -- not a list it must tile one for one. `table_names` widens
+    the tables it may read beyond those the metrics name. `chart_budget` is a soft cap on
+    how many charts to compose; the agent may return fewer.
+
+    """
+
+    purpose: str = Field(..., min_length=1)
+    kpi_identifiers: list[str] | None = None
+    table_names: list[str] | None = None
+    chart_budget: int | None = Field(None, ge=1, le=12)
+
+
+class DashboardSuggestionRunStatus(Enum):
+    """
+    Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.
+    """
+
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class DashboardSuggestionStage(Enum):
+    """
+    Where a running suggestion is, for the person waiting. `reading` the metrics and tables, `drafting` charts, `guarding` each query, `previewing` each with real rows.
+    """
+
+    reading = "reading"
+    drafting = "drafting"
+    guarding = "guarding"
+    previewing = "previewing"
+    done = "done"
 
 
 class DeliveryChannel(Enum):
@@ -428,6 +483,16 @@ class JoinPath(BaseModel):
     )
 
 
+class KpiComputeStatus(Enum):
+    """
+    Mirrors `gold.kpi_run.status` for the one KPI the call materialised.
+    """
+
+    materialised = "materialised"
+    failed = "failed"
+    skipped = "skipped"
+
+
 class KpiHealthStatus(Enum):
     fresh = "fresh"
     stale = "stale"
@@ -470,6 +535,14 @@ class KpiOrigin(Enum):
     customer = "customer"
 
 
+class KpiSeriesInterval(Enum):
+    """
+    The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define.
+    """
+
+    day = "day"
+
+
 class KpiSourceWrite(BaseModel):
     name: str
     description: str
@@ -480,15 +553,38 @@ class KpiSourceWrite(BaseModel):
     linked_kpi_ids: list[str] | None = None
 
 
+class KpiSuggestionRunPhase(Enum):
+    """
+    The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the
+    agents are shown is being gathered), `proposing` (the model calls), `checking` (assembly
+    and feasibility against the snapshot). What a screen's stepper shows.
+
+    """
+
+    reading = "reading"
+    proposing = "proposing"
+    checking = "checking"
+
+
 class KpiSuggestionRunRequest(BaseModel):
     """
-    What to run. Empty means suggest across every business area.
+    What to run. Empty means suggest across every business area with no focus.
+    `business_areas` is the focus: the areas the customer cares about, handed to the agents
+    as a priority ("propose for these first"), never as a filter -- a proposal outside them
+    is kept when the data clearly supports it. `business_area` (one id) is the older
+    narrowing filter, applied to what comes back; kept for callers written against 1.1.5,
+    new callers should send `business_areas`.
+
     """
 
     business_area: str | None = Field(
         None,
         description="A business area identifier. In 1.0.0 this is the shipped `business_area` vocabulary\n(`egpt_retail/ontology/vocabularies.json`) plus whatever a customer overlay adds, so it is\na string validated at runtime against the deployment's vocabulary, not an enum.\n",
         examples=["inventory", "sales", "supply_chain"],
+    )
+    business_areas: list[str] | None = Field(
+        None,
+        description="The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
     )
 
 
@@ -743,6 +839,47 @@ class QualityVerdict(Enum):
     unknown = "unknown"
 
 
+class QueryGuardStatus(Enum):
+    """
+    What the warehouse read guard made of a query. `ok`: passed unchanged. `rewritten`: passed
+    after a mechanical fix -- a personal-data column dropped from the projection, a missing
+    LIMIT added, a LIMIT above the row cap lowered; `detail` says which. `refused`: not
+    runnable, `detail` says why; the chart is kept as a stub so the SQL can be fixed.
+
+    """
+
+    ok = "ok"
+    rewritten = "rewritten"
+    refused = "refused"
+
+
+class QueryGuardVerdict(BaseModel):
+    status: QueryGuardStatus
+    detail: str
+    tables: list[str] | None = Field(
+        None, description="The tables the statement reads, once parsed."
+    )
+
+
+class QueryPreview(BaseModel):
+    """
+    One query's guard verdict and, when it ran, a bounded sample of its result.
+    """
+
+    guard: QueryGuardVerdict
+    sql: str | None = Field(
+        None,
+        description="The statement as it would run -- the caller's, or the guard's rewrite of it.",
+    )
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    duration_ms: int
+    error: str | None = Field(
+        None,
+        description="The database's own refusal when the guard passed the statement but the warehouse did not (a typo in a column name, say).",
+    )
+
+
 class Recipient(BaseModel):
     channel: DeliveryChannel
     address: str | None = Field(
@@ -962,6 +1099,21 @@ class SqlExecution(BaseModel):
     guard: GuardDecision | None = None
 
 
+class SuggestionContextSummary(BaseModel):
+    """
+    What the agent read, for the review screen to show.
+    """
+
+    kpi_identifiers: list[str] | None = None
+    table_names: list[str] | None = None
+    described_columns: int | None = None
+    total_columns: int | None = None
+    withheld_columns: list[str] | None = Field(
+        None,
+        description="Personal-data columns, as `table.column`, never shown to the agent.",
+    )
+
+
 class SyncFrequency(Enum):
     hourly = "hourly"
     daily = "daily"
@@ -1031,12 +1183,53 @@ class TilePosition(BaseModel):
     h: int = Field(..., ge=1)
 
 
+class TileQuery(BaseModel):
+    """
+    A `query` tile's SQL and how its result maps onto the chart. `source_tables` is derived
+    by the server from the SQL at write time and returned for information; a client value is
+    ignored. Postgres dialect, one read statement, tables restricted to the semantic layer.
+
+    """
+
+    sql: str = Field(..., min_length=1)
+    dialect: str | None = "postgres"
+    source_tables: list[str] | None = None
+    x: ChartAxis | None = None
+    y: list[ChartAxis] | None = None
+    series_by: str | None = None
+
+
+class TileSource(Enum):
+    """
+    Where a tile's numbers come from. `kpi` (the default): a registered, ready KPI's gold
+    view. `query`: the tile's own SQL, checked by the warehouse read guard and cached on the
+    dashboard's refresh schedule.
+
+    """
+
+    kpi = "kpi"
+    query = "query"
+
+
 class TileWrite(BaseModel):
-    kpi_identifier: str
+    """
+    A tile to create or replace. `source` defaults to `kpi`, which requires `kpi_identifier`;
+    `query` requires `query`. `id`, when given on a whole-dashboard write, keeps that tile's
+    identity across the write instead of minting a new one -- what lets a per-tile edit leave
+    every other tile's id stable.
+
+    """
+
+    id: str | None = None
+    source: TileSource | None = None
+    kpi_identifier: str | None = None
+    query: TileQuery | None = None
     title: str | None = None
     chart: ChartKind
     position: TilePosition
     grain_value: str | None = None
+    description: str | None = None
+    rationale: str | None = None
 
 
 class TimeWindowUnit(Enum):
@@ -1356,6 +1549,15 @@ class Column(BaseModel):
         description="Values the harvest actually saw. Bounded; never the whole column.",
     )
     status: ProposalStatus | None = None
+    concept: str | None = Field(
+        None,
+        description="The concept this column is a property of, once review confirmed it.",
+    )
+    meaning: str | None = Field(
+        "",
+        description="What this column identifies, as accepted through review. Distinct from `description`, which is what the schema author wrote.",
+    )
+    joinable: bool | None = False
 
 
 class Concept(BaseModel):
@@ -1385,9 +1587,78 @@ class ConceptList(BaseModel):
     snapshot: Snapshot
 
 
+class DashboardChartSuggestion(BaseModel):
+    """
+    One composed chart. `source: kpi` reuses a registered, ready KPI's own SQL through gold
+    (`kpi_identifier` set, `query` null); `source: query` carries SQL the agent composed from
+    the tables it was shown (`query` set). Every `query` chart passed through the warehouse
+    read guard and a bounded dry run before reaching the caller; `guard` and `preview` say what
+    happened. `description` is written for the person reading the dashboard and is theirs to
+    edit.
+
+    """
+
+    title: str
+    chart: ChartKind
+    source: TileSource
+    kpi_identifier: str | None = None
+    grain_value: str | None = None
+    query: TileQuery | None = None
+    description: str
+    rationale: str
+    guard: QueryGuardVerdict
+    preview: QueryPreview | None = None
+
+
 class DashboardFilter(BaseModel):
     field: DashboardFilterField
     value: str
+
+
+class DashboardSuggestion(BaseModel):
+    """
+    A suggested dashboard for the given purpose, editable before creation: a name, the charts
+    the agent composed from the selected metrics and the tables behind them, and -- when the
+    purpose names one -- a `business_area` filter, the one `DashboardFilterField` with a
+    well-defined value space (`time_window` has no established value shape in this contract
+    yet, #222). `context` says what the agent was shown.
+
+    """
+
+    name: str
+    charts: list[DashboardChartSuggestion]
+    filters: list[DashboardFilter]
+    notes: str = Field(
+        ...,
+        description="Empty on a clean run; otherwise what was missing, why the list is short, or what was dropped.",
+    )
+    context: SuggestionContextSummary | None = None
+
+
+class DashboardSuggestionRun(BaseModel):
+    """
+    One run of the dashboard suggestion agent, started by `POST /dashboards/suggestions` and
+    polled at `GET /dashboards/suggestions/{run_id}` -- the same run-then-poll shape #254 gave
+    KPI suggestions, for the same reason: a live model call takes long enough that it does not
+    belong inside one request, and the api serves from more than one instance. `result` is
+    present once `status` is `succeeded`; `error` is why there is none, present once `failed`.
+    A run whose executor was lost (the serving instance restarted mid-run) is reported `failed`
+    by the read side after the deployment's timeout plus a grace period, never `running` forever.
+
+    """
+
+    id: str
+    status: DashboardSuggestionRunStatus
+    stage: DashboardSuggestionStage | None = None
+    purpose: str | None = None
+    created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    result: DashboardSuggestion | None = None
+    error: str | None = Field(
+        None,
+        description="Written for the person polling. A timeout names the bound it hit.",
+    )
 
 
 class DashboardWrite(BaseModel):
@@ -1668,6 +1939,24 @@ class JoinPathResponse(BaseModel):
     snapshot: Snapshot
 
 
+class KpiComputeResult(BaseModel):
+    """
+    The outcome of materialising one KPI for today's business date on demand -- the same
+    guarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.
+    `materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;
+    `failed` names the formula's own error; `skipped` names why the pass would not run it.
+
+    """
+
+    kpi_identifier: str
+    as_of: date = Field(..., description="The business date written.")
+    status: KpiComputeStatus
+    rows_written: int = Field(..., ge=0)
+    run_id: str
+    error: str | None = None
+    reason: str | None = None
+
+
 class KpiHealth(BaseModel):
     """
     Freshness from gold (R5). Every gold row is stamped with source and computation time; this is that stamp surfaced.
@@ -1733,6 +2022,10 @@ class KpiSuggestion(BaseModel):
     rationale: str = Field(
         ..., description="One sentence naming the tables or concepts it derives from."
     )
+    business_value: str | None = Field(
+        None,
+        description="One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed.",
+    )
     derived_from_tables: list[str] = Field(..., min_length=1)
     confidence: Confidence
     proposed_sql: str | None = None
@@ -1759,12 +2052,20 @@ class KpiSuggestionRun(BaseModel):
     (the serving instance restarted mid-run) is reported `failed` by the read side after the
     deployment's timeout plus a grace period, never `running` forever.
 
+    Two fields are for the person waiting: `phase` is the stage a `running` run is in, and
+    `typical_duration_seconds` is how long this deployment's recent runs took, so a screen
+    can set an expectation up front and show progress against it.
+
     """
 
     id: str
     status: KpiSuggestionRunStatus
     business_area: str | None = Field(
         None, description="The area the run was narrowed to, or null for every area."
+    )
+    business_areas: list[str] | None = Field(
+        [],
+        description="The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
     )
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None
@@ -1773,6 +2074,14 @@ class KpiSuggestionRun(BaseModel):
     error: str | None = Field(
         None,
         description="Written for the person polling. A timeout names the bound it hit.",
+    )
+    phase: KpiSuggestionRunPhase | None = Field(
+        None,
+        description="Set while `running`, as each stage begins; null on a `queued` run and on a\n`running` one that has not reached its first stage yet. Kept as it was once the run\nis terminal, so a `failed` run says where it failed.\n",
+    )
+    typical_duration_seconds: float | None = Field(
+        None,
+        description="The median wall-clock seconds of this deployment's last few successful runs, or null\nbefore any has succeeded. An expectation, not a bound: a run may take longer, and the\ndeployment's timeout is the only limit.\n",
     )
 
 
@@ -1908,6 +2217,14 @@ class QualityAssessment(BaseModel):
     use_cases: list[UseCaseQuality]
 
 
+class QueryPreviewRequest(BaseModel):
+    query: TileQuery
+    table_names: list[str] | None = Field(
+        None,
+        description="Narrows the allow-list to these tables when given; otherwise the whole semantic layer.",
+    )
+
+
 class RecordMapping(BaseModel):
     """
     How a resolved document becomes the target's objects (1.5.0): a parent object with its
@@ -2015,13 +2332,24 @@ class TableList(BaseModel):
 
 class Tile(BaseModel):
     id: str
-    kpi_identifier: str
+    source: TileSource
+    kpi_identifier: str | None = Field(
+        None, description="The KPI a `kpi` tile reads. Null on a `query` tile."
+    )
+    query: TileQuery | None = None
     title: str | None = ""
     chart: ChartKind
     position: TilePosition
     grain_value: str | None = Field(
         None,
         description="For a KPI at a non-overall grain, which row -- a supplier id, a location -- this tile shows. Null shows the top-N as a table.",
+    )
+    description: str | None = Field(
+        "", description="Shown under the chart. Editable; never used to run anything."
+    )
+    rationale: str | None = Field(
+        "",
+        description="Why the suggestion agent proposed this chart. Empty on a hand-built tile.",
     )
 
 
@@ -2031,7 +2359,7 @@ class TileData(BaseModel):
     """
 
     tile_id: str
-    kpi_identifier: str
+    kpi_identifier: str | None = Field(None, description="Null on a `query` tile.")
     status: KpiHealthStatus
     value: float | None = None
     unit: str | None = ""
@@ -2040,11 +2368,29 @@ class TileData(BaseModel):
     )
     series: list[SeriesPoint] | None = None
     rows: list[dict[str, Any]] | None = Field(
-        None, description="For a `rowset` KPI or a table chart."
+        None,
+        description="For a `rowset` KPI, a table chart, or a `query` tile's cached result.",
+    )
+    columns: list[str] | None = Field(
+        None,
+        description="Column order of `rows`, for a `query` tile. Empty on a `kpi` tile.",
     )
     as_of: AwareDatetime | None = None
     computed_at: AwareDatetime | None
     provenance_ref: str | None = None
+
+
+class TilePatch(BaseModel):
+    """
+    A partial edit of one tile. Every field optional; an omitted field is left unchanged. A changed `query` is re-checked by the guard and recomputed.
+    """
+
+    title: str | None = None
+    chart: ChartKind | None = None
+    position: TilePosition | None = None
+    grain_value: str | None = None
+    query: TileQuery | None = None
+    description: str | None = None
 
 
 class TimeWindow(BaseModel):
@@ -2321,6 +2667,55 @@ class Kpi(BaseModel):
     process_ids: list[str] | None = None
     feasibility: Feasibility
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
+
+
+class KpiSeries(BaseModel):
+    """
+    One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows
+    a dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per
+    business date the KPI materialised for; a night with no row is absent, not `null` (`null`
+    means the formula returned NULL that night). Nothing is recomputed on read.
+
+    A KPI whose grain is not `overall` has one row per dimension value each night; `dimension`
+    names the one the points follow (the caller's choice, else the first seen) and
+    `dimensions` lists every value the latest night carried, so a screen can offer the others.
+
+    """
+
+    kpi_identifier: str
+    grain: str = Field(
+        ...,
+        description="A term from the deployment's `grain` vocabulary (shipped ontology plus overlay). A string validated at runtime, not an enum -- see CHANGELOG 2.0.0 of the KPI formula shape.",
+        examples=["overall", "product", "supplier", "location", "time_period"],
+    )
+    interval: KpiSeriesInterval
+    days: int = Field(
+        ...,
+        description="The window the points were read over, ending at `as_of`.",
+        ge=1,
+    )
+    unit: str | None = ""
+    dimension: dict[str, Any] | None = Field(
+        ...,
+        description="The grain-key values the points follow; `null` for an `overall` KPI.",
+    )
+    dimensions: list[dict[str, Any]] = Field(
+        ...,
+        description="Every dimension the latest business date carried, in gold's row order, capped at 25.",
+    )
+    points: list[SeriesPoint] = Field(..., description="Oldest first.")
+    value: float | None = Field(
+        ...,
+        description="The latest point's value; what a `number` tile of this KPI shows.",
+    )
+    delta: float | None = Field(
+        ...,
+        description="`value` minus the previous point's value; `null` with fewer than two points.",
+    )
+    as_of: AwareDatetime | None = None
+    computed_at: AwareDatetime | None = None
+    status: KpiHealthStatus
+    provenance_ref: str | None = None
 
 
 class KpiWrite(BaseModel):

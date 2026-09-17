@@ -64,27 +64,45 @@ show, which is what the request path could not do without a fix that belongs els
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
+import time
 import traceback
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, Tuple, TypeVar
+from datetime import date, timedelta
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 from egpt.agent import Agent
 from egpt.os.scopes import has_required_scopes
-from egpt.utils.log import log_error
-from fastapi import APIRouter, Depends, HTTPException, Request
+from egpt.utils.log import log_error, log_warning
+from egpt.workflow.types import StepInput
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
+from sqlalchemy.engine import Engine
 
 from egpt_retail.api import models as wire
-from egpt_retail.app.db import pooled_control_plane_connection
+from egpt_retail.app.db import build_warehouse_engine, pooled_control_plane_connection
 from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
     Dialect,
     Feasibility,
+    FeasibilityVerdict,
     KpiDefinition,
     KpiLevel,
     KpiOrigin,
@@ -96,10 +114,17 @@ from egpt_retail.contracts.kpi import (
     kpi_identifier,
 )
 from egpt_retail.contracts.vocabulary import VocabularySet
+from egpt_retail.executors.gold import materialise_gold
+from egpt_retail.kpi.series import DEFAULT_SERIES_DAYS, read_kpi_series
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
-from egpt_retail.suggestions.run import SuggestionRun, run_suggestions
-from egpt_retail.suggestions.runs import SuggestionRunRecord, SuggestionRunStore
+from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
+from egpt_retail.suggestions.runs import (
+    SuggestionRunPhase,
+    SuggestionRunRecord,
+    SuggestionRunStore,
+)
+from egpt_retail.warehouse.health import akpi_health
 
 __all__ = ["router"]
 
@@ -533,6 +558,19 @@ def _validated_business_area(
     return business_area
 
 
+def _validated_business_areas(
+    business_areas: Optional[Sequence[str]], vocabularies: VocabularySet
+) -> Tuple[str, ...]:
+    """The focus a run is started with: every id checked against the vocabulary (422 on
+    the first that is not), de-duplicated, order kept. Empty means no focus."""
+    seen: list[str] = []
+    for area in business_areas or ():
+        _validated_business_area(area, vocabularies)
+        if area not in seen:
+            seen.append(area)
+    return tuple(seen)
+
+
 def _filter_suggestions(
     suggestions: Sequence[wire.KpiSuggestion], business_area: Optional[str]
 ) -> list[wire.KpiSuggestion]:
@@ -545,6 +583,22 @@ def _filter_suggestions(
     if business_area is None:
         return list(suggestions)
     return [s for s in suggestions if s.business_area == business_area]
+
+
+def _finalize_suggestions(
+    suggestions: Sequence[wire.KpiSuggestion],
+    business_area: Optional[str],
+    include_sql: bool,
+) -> list[wire.KpiSuggestion]:
+    """The narrowing every suggestion list gets before it reaches the wire -- the area filter,
+    then the same ``include_sql`` SQL gate ``_kpi_out`` applies to ``Kpi.sql``. Shared by
+    ``_list_kpi_suggestions``'s live and replay branches so the two rules can't drift apart
+    from being hand-copied into only one of them.
+    """
+    suggestions = _filter_suggestions(suggestions, business_area)
+    if not include_sql:
+        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+    return suggestions
 
 
 def _suggestion_notes(run: SuggestionRun) -> str:
@@ -649,10 +703,20 @@ def _list_kpi_suggestions(
     business_area: Optional[str],
     include_sql: bool,
     agents: Optional[Tuple[Any, Any]] = None,
+    focus_areas: Sequence[str] = (),
+    on_phase: Optional[PhaseCallback] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
     use-case agent call ``run_suggestions`` always makes alongside it).
+
+    Two different things can name areas here. ``business_area`` (the deprecated single id)
+    narrows what comes *back*, after the fact. ``focus_areas`` (the run request's
+    ``business_areas``) go *into* the message as a priority -- the agent proposes for them
+    first -- and nothing is dropped for being outside them.
+
+    ``on_phase`` is forwarded to ``run_suggestions`` so a run row can record which stage
+    the pass is in (``_execute_suggestion_run``); the synchronous route passes nothing.
 
     ``definitions``/``vocabularies`` come from :func:`_suggestion_registry_snapshot`, read
     before the store's pooled connection was released, rather than a live ``KpiRegistryStore``
@@ -678,6 +742,51 @@ def _list_kpi_suggestions(
     need to widen the cache lock around two live model calls.
     """
     business_area = _validated_business_area(business_area, vocabularies)
+    if settings.retail_suggestion_replay:
+        # DEMO/TESTING ONLY: replay a saved result instead of calling the model. The phases
+        # are still reported, a few seconds apart, so the page's run panel behaves as it
+        # would on a real run. `retail_suggestion_replay` is unset in every real deployment
+        # (its own description says so); this branch is inert unless someone sets it.
+        replay_path = Path(settings.retail_suggestion_replay)
+        try:
+            replayed = wire.KpiSuggestionList.model_validate_json(
+                replay_path.read_text()
+            )
+        except (OSError, ValidationError) as exc:
+            # `_describe_failure` passes a bare `ValueError` through verbatim -- reserved for
+            # `_drafts_of`'s own reader-facing refusal -- and summarizes anything else by type
+            # only. A malformed/unreadable replay file is not that deliberate a refusal, so
+            # this re-raises as something `_describe_failure` treats the safe way instead of
+            # leaking a file path or schema details to any `kpis:read` caller.
+            raise RuntimeError(
+                "retail_suggestion_replay file could not be loaded"
+            ) from exc
+        # The pauses exist to give the run panel time to show each phase; with no callback
+        # there is no panel to animate (the deprecated sync route passes none), so skip them.
+        if on_phase is not None:
+            for phase, pause in (
+                (SuggestionRunPhase.READING, 2.0),
+                (SuggestionRunPhase.PROPOSING, 5.0),
+                (SuggestionRunPhase.CHECKING, 1.5),
+            ):
+                on_phase(phase)
+                time.sleep(pause)
+        # The live path drops a draft already in the registry (K12's `assemble`,
+        # `known_identifiers=existing`) so a suggestion never reoffers something already
+        # adopted. A replayed file is static and knows nothing about adoptions made since it
+        # was captured, so the same drop is redone here against the current registry snapshot
+        # -- otherwise replaying after adopting one of the replayed suggestions would show
+        # that same KPI again as a fresh "ready" proposal, something a live run can't do.
+        known_identifiers = {
+            definition.identifier.lower() for definition in definitions
+        }
+        fresh = [
+            s
+            for s in replayed.suggestions
+            if s.identifier.lower() not in known_identifiers
+        ]
+        suggestions = _finalize_suggestions(fresh, business_area, include_sql)
+        return replayed.model_copy(update={"suggestions": suggestions})
     if agents is not None:
         resolved_agents = agents
     else:
@@ -701,10 +810,12 @@ def _list_kpi_suggestions(
             proposals=None,
             dry_run=True,
             agents=resolved_agents,
+            focus_areas=focus_areas,
+            on_phase=on_phase,
         )
-    suggestions = _filter_suggestions(run.kpis.suggestions, business_area)
-    if not include_sql:
-        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+    suggestions = _finalize_suggestions(
+        run.kpis.suggestions, business_area, include_sql
+    )
     return wire.KpiSuggestionList(
         suggestions=suggestions,
         notes=_suggestion_notes(run),
@@ -767,11 +878,18 @@ def _with_run_store(
 
 
 def _run_out(
-    record: SuggestionRunRecord, *, include_sql: bool
+    record: SuggestionRunRecord,
+    *,
+    include_sql: bool,
+    typical_duration_seconds: Optional[float] = None,
 ) -> wire.KpiSuggestionRun:
     """The wire shape of a run row. The stored ``result`` always carries ``proposed_sql``;
     the ``kpis:write`` gate (``_may_read_sql``) is applied here, per reader, exactly as the
-    synchronous route applies it -- one run, read differently by a viewer and an editor."""
+    synchronous route applies it -- one run, read differently by a viewer and an editor.
+
+    ``typical_duration_seconds`` is the deployment's own recent history
+    (``SuggestionRunStore.typical_duration``), read alongside the row by the caller so the
+    screen can set an expectation before the run has done anything."""
     result: Optional[wire.KpiSuggestionList] = None
     if record.result is not None:
         result = wire.KpiSuggestionList.model_validate(record.result)
@@ -788,12 +906,44 @@ def _run_out(
         id=record.identifier,
         status=wire.KpiSuggestionRunStatus(record.status.value),
         business_area=record.business_area,
+        business_areas=list(record.business_areas),
         created_at=record.created_at,
         started_at=record.started_at,
         finished_at=record.finished_at,
         result=result,
         error=record.error,
+        phase=(
+            wire.KpiSuggestionRunPhase(record.phase.value)
+            if record.phase is not None
+            else None
+        ),
+        typical_duration_seconds=typical_duration_seconds,
     )
+
+
+def _read_run_with_history(
+    store: SuggestionRunStore, run_id: str, stale_after: timedelta
+) -> Tuple[Optional[SuggestionRunRecord], Optional[float]]:
+    """The row and the typical duration, in one visit to the store."""
+    return store.get(run_id, stale_after=stale_after), store.typical_duration()
+
+
+def _phase_reporter(run_id: str, settings: RetailSettings) -> PhaseCallback:
+    """The ``on_phase`` listener for one run: each stage the pipeline reports is written to
+    the row, on its own short-lived connection, from the worker thread the pass runs on.
+    Never raises -- the row's phase is a courtesy to the poller, and a failure to write it
+    must not fail the run it describes."""
+
+    def _report(phase: SuggestionRunPhase) -> None:
+        try:
+            _with_run_store(settings, lambda store: store.mark_phase(run_id, phase))
+        except Exception:
+            log_warning(
+                f"suggestion run {run_id}: phase {phase.value!r} not recorded: "
+                f"{traceback.format_exc(limit=3)}"
+            )
+
+    return _report
 
 
 #: Strong references to in-flight executor tasks, so the event loop cannot collect one
@@ -828,6 +978,7 @@ async def _execute_suggestion_run(
     settings: RetailSettings,
     snapshot: _SuggestionRegistrySnapshot,
     business_area: Optional[str],
+    focus_areas: Sequence[str] = (),
 ) -> None:
     """The executor behind ``POST /kpis/suggestions``: ``queued`` -> ``running`` -> one
     bounded ``_list_kpi_suggestions`` -> ``succeeded``/``failed``. Each row write opens and
@@ -849,6 +1000,8 @@ async def _execute_suggestion_run(
                     vocabularies=snapshot.vocabularies,
                     business_area=business_area,
                     include_sql=True,
+                    focus_areas=focus_areas,
+                    on_phase=_phase_reporter(run_id, settings),
                 ),
                 settings.retail_suggestion_timeout_seconds,
             )
@@ -893,21 +1046,38 @@ async def start_kpi_suggestion_run(
 ):
     """Start a run and return it ``queued`` (#254). ``kpis:read``, like the synchronous
     route: what is created is a run row, never a KPI -- adoption is still ``POST /kpis``.
-    The business area is validated before the row exists, so a 422 leaves nothing behind.
+    Every area named is validated before the row exists, so a 422 leaves nothing behind.
+
+    ``business_areas`` is the focus (contract 1.1.8): the areas the customer cares about,
+    handed to the agents as a priority. ``business_area`` is the older single narrowing
+    filter, still honoured. The frontend sends the first; the second stays for callers
+    written against 1.1.5.
     """
     settings = RetailSettings()
     business_area = _validated_business_area(
         body.business_area if body is not None else None, snapshot.vocabularies
     )
-    record = await asyncio.to_thread(
-        _with_run_store, settings, lambda store: store.create(business_area)
+    focus_areas = _validated_business_areas(
+        body.business_areas if body is not None else None, snapshot.vocabularies
+    )
+    record, typical = await asyncio.to_thread(
+        _with_run_store,
+        settings,
+        lambda store: (
+            store.create(business_area, focus_areas),
+            store.typical_duration(),
+        ),
     )
     task = asyncio.create_task(
-        _execute_suggestion_run(record.identifier, settings, snapshot, business_area)
+        _execute_suggestion_run(
+            record.identifier, settings, snapshot, business_area, focus_areas
+        )
     )
     _suggestion_run_tasks.add(task)
     task.add_done_callback(_suggestion_run_tasks.discard)
-    return _run_out(record, include_sql=_may_read_sql(request))
+    return _run_out(
+        record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+    )
 
 
 @router.get("/kpis/suggestions/{run_id}", response_model=wire.KpiSuggestionRun)
@@ -920,14 +1090,16 @@ async def get_kpi_suggestion_run(
     ``stale_after``), so a row whose executor is gone comes back ``failed`` here rather than
     ``running`` forever."""
     settings = RetailSettings()
-    record = await asyncio.to_thread(
+    record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
-        lambda store: store.get(run_id, stale_after=_stale_after(settings)),
+        lambda store: _read_run_with_history(store, run_id, _stale_after(settings)),
     )
     if record is None:
         raise HTTPException(status_code=404, detail=f"No suggestion run {run_id!r}.")
-    return _run_out(record, include_sql=_may_read_sql(request))
+    return _run_out(
+        record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+    )
 
 
 @router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList, deprecated=True)
@@ -958,6 +1130,79 @@ async def list_kpi_suggestions(
             status_code=504,
             detail=f"{exc} Use POST /kpis/suggestions and poll the run instead.",
         ) from exc
+
+
+# --- health (R5's gold freshness, joined against the registry) ----------------------------
+#
+# Declared before `/kpis/{kpi_id}` (same reason `/kpis/suggestions` is, above): a path
+# parameter route registered first would otherwise swallow `/kpis/health` as `kpi_id="health"`.
+
+
+def _warehouse_engine() -> Iterator[Engine]:
+    """A warehouse ``Engine`` for the span of one request, disposed on exit.
+
+    ``kpi_health`` reads two gold tables directly over SQLAlchemy (``warehouse/health.py``)
+    rather than through the ``read_gold`` executor ``get_kpi_series`` uses below, so this opens
+    its own engine the same way ``executors/preflight.py``'s ``_read_gold_health`` does --
+    ``build_warehouse_engine`` builds a fresh engine (``create_engine``'s default ``QueuePool``,
+    not a single unpooled connection) per call, unlike ``_kpi_store``'s cached, pooled
+    control-plane connection, so disposal here tears the whole per-call pool down rather than
+    returning a connection to a shared one. ``preflight.py``'s call site pays this roughly once
+    per workflow run; this route pays it once per dashboard mount, a much higher frequency --
+    worth revisiting with a small cached engine if that turns out to matter in practice.
+
+    ``build_warehouse_engine`` raises ``RuntimeError`` when ``EGPT_RETAIL_WAREHOUSE_DB_URL``
+    is unset; turned into a ``503`` here, the same posture ``compute_kpi`` already takes for
+    "gold refused to run" -- freshness has nothing to report from a warehouse that was never
+    configured, not a 500.
+    """
+    settings = RetailSettings()
+    try:
+        engine = build_warehouse_engine(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@router.get("/kpis/health", response_model=list[wire.KpiHealth])
+async def list_kpi_health(
+    request: Request,
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:read")),
+    engine: Engine = Depends(_warehouse_engine),
+):
+    """Freshness of every registered KPI, from gold. One row per KPI in the registry --
+    including ``never_computed``/``not_scheduled``, the two statuses only the registry half
+    of ``classify_health`` can produce, since gold has no run at all to read for those.
+
+    ``store.list()`` reads every KPI (no filter, mirroring ``_suggestion_registry_snapshot``'s
+    own unfiltered read) rather than only ``active`` ones: ``active`` is still the #231
+    placeholder every KPI reports ``true`` for (see ``GET /kpis``'s own docstring), so filtering
+    on it here would not narrow anything real yet.
+
+    ``engine`` is declared *after* the scope check (unlike every other route's dependency
+    order in this file, which is store-then-scope): ``_warehouse_engine`` raises a 503 naming
+    the unset config variable when the warehouse isn't configured, and FastAPI resolves
+    dependencies in declared order, so putting it before ``require_scopes`` would let an
+    unauthorized caller learn that detail before ever being told they lack the scope.
+
+    ``last_error`` is the database's own refusal text verbatim (``warehouse/health.py``) --
+    comparably sensitive to ``Kpi.sql``/``proposed_sql``, which this router already gates
+    behind ``kpis:write`` via ``_may_read_sql``. Gated here the same way, so a ``kpis:read``-only
+    caller sees every other field but not the raw error string.
+    """
+    definitions = await store.alist()
+    rows = await akpi_health(definitions, engine)
+    include_sql = _may_read_sql(request)
+    return [
+        wire.KpiHealth.model_validate(
+            row if include_sql else {**row, "last_error": None}
+        )
+        for row in rows
+    ]
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -1064,3 +1309,106 @@ def get_kpi_feasibility(
     if verdict is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     return _feasibility_out(verdict, snapshot_version)
+
+
+# --- one KPI's value over time, and computing it now --------------------------------------
+
+
+def _parsed_dimension(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    """``?dimension=`` as a JSON object of grain-key values, or a 422 saying what it must be.
+    Empty and absent are the same: follow the first dimension the latest night carried."""
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = None
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "dimension must be a JSON object of grain-key values, "
+                'e.g. {"brand": "Acme"}.'
+            ),
+        )
+    return value
+
+
+@router.get("/kpis/{kpi_id}/series", response_model=wire.KpiSeries)
+async def get_kpi_series(
+    kpi_id: str,
+    days: int = Query(DEFAULT_SERIES_DAYS, ge=1, le=365),
+    dimension: Optional[str] = Query(None),
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """This KPI's points from gold over the last ``days`` business dates -- a read of what
+    the nightly run (or ``compute_kpi``) wrote, never a recomputation. A KPI with no gold
+    rows is a ``200`` with empty ``points`` and ``status: never_computed``: the KPI exists;
+    its value does not yet. ``async`` because ``read_gold`` is."""
+    definition = store.get(kpi_id)
+    if definition is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    return await read_kpi_series(
+        definition, days=days, dimension=_parsed_dimension(dimension)
+    )
+
+
+@router.post("/kpis/{kpi_id}/compute", response_model=wire.KpiComputeResult)
+async def compute_kpi(
+    kpi_id: str,
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:write")),
+):
+    """The nightly ``materialise_gold`` pass, narrowed to this KPI and today's business date:
+    bound, guarded, executed and stamped exactly as the scheduled run would. What "Add to my
+    metrics" calls so a newly adopted KPI has a value before its first night.
+
+    ``409`` when the KPI is not ``ready`` -- gold skips a blocked KPI, so running the pass
+    would only report ``skipped``; saying so up front, with the feasibility rationale, is the
+    more useful answer. ``503`` when the pass itself refuses (the silver gates, the load lock:
+    ``StepOutput.stop``), the same two refusals the nightly run has. A formula that fails is
+    a ``200`` with ``status: failed`` and the error: the request did what it said.
+    """
+    definition = store.get(kpi_id)
+    if definition is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    settings = RetailSettings()
+    feasibility_map, _snapshot = _feasibility_map(settings, store, [definition])
+    verdict = feasibility_map.get(definition.identifier)
+    if verdict is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    if verdict.verdict is not FeasibilityVerdict.READY:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{kpi_id} is {verdict.verdict.value}: {verdict.rationale}",
+        )
+    run_id = f"api_{uuid.uuid4().hex[:12]}"
+    output = await materialise_gold(
+        StepInput(additional_data={"kpi_identifiers": [kpi_id], "run_id": run_id})
+    )
+    content: Mapping[str, Any] = (
+        output.content if isinstance(output.content, Mapping) else {}
+    )
+    if output.stop or not output.success:
+        raise HTTPException(
+            status_code=503,
+            detail=str(
+                content.get("refused") or output.error or "gold refused to run."
+            ),
+        )
+    for entry in content.get("results", ()):
+        if entry.get("kpi_identifier") != kpi_id:
+            continue
+        return wire.KpiComputeResult(
+            kpi_identifier=kpi_id,
+            as_of=date.fromisoformat(str(entry["as_of"])),
+            status=wire.KpiComputeStatus(str(entry["status"])),
+            rows_written=int(entry.get("rows_written") or 0),
+            run_id=str(entry.get("run_id") or run_id),
+            error=entry.get("error"),
+            reason=entry.get("reason"),
+        )
+    # The pass re-reads the registry itself; the row vanished between this route's own read
+    # and that one (same race `get_kpi_feasibility` guards against).
+    raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")

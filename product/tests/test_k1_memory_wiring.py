@@ -45,7 +45,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -66,10 +66,20 @@ def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
 
     monkeypatch.setattr(factory_module, "PlaygroundStore", _fake_store("playground"))
     monkeypatch.setattr(factory_module, "DashboardStore", _fake_store("dashboard"))
+    monkeypatch.setattr(
+        factory_module,
+        "DashboardQueryResultStore",
+        _fake_store("dashboard_query_result"),
+    )
     monkeypatch.setattr(factory_module, "KpiRegistryStore", _fake_store("kpi"))
     monkeypatch.setattr(factory_module, "ProposalStore", _fake_store("proposal"))
     monkeypatch.setattr(
         factory_module, "SuggestionRunStore", _fake_store("suggestion_run")
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "DashboardSuggestionRunStore",
+        _fake_store("dashboard_suggestion_run"),
     )
 
     class _FakeEngine:
@@ -98,13 +108,15 @@ def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
     )
 
-    # The five connection-based stores, then the four Engine-based tables.
+    # The seven connection-based stores, then the four Engine-based tables.
     assert calls == [
         "playground",
         "dashboard",
+        "dashboard_query_result",
         "kpi",
         "proposal",
         "suggestion_run",
+        "dashboard_suggestion_run",
         "provenance",
         "delivery",
         "use_cases",

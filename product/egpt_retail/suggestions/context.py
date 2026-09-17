@@ -204,8 +204,31 @@ async def agather_context(
     )
 
 
-def render_context(context: SuggestionContext, *, ask: str) -> str:
-    """The message both agents receive: harvest, concepts, prose, then the ask."""
+def render_focus(focus_areas: Optional[Sequence[str]]) -> str:
+    """The paragraph that tells an agent where the customer's attention is. Empty when no
+    focus was given, so the message is exactly what it was before focus existed.
+
+    Worded as a priority, not a filter: the agent still proposes anywhere the data clearly
+    supports a metric, but spends its output on the named areas first. What the customer
+    chose on the discovery page is the only thing that varies here; everything above it in
+    the message is the deployment's data, the same on every run."""
+    areas = [area for area in dict.fromkeys(focus_areas or ()) if area]
+    if not areas:
+        return ""
+    return (
+        "focus: the customer cares most about these business areas: "
+        f"{', '.join(areas)}. Propose for them first and most thoroughly; propose for "
+        "another area only when the data clearly supports a metric there.\n\n"
+    )
+
+
+def render_context(
+    context: SuggestionContext,
+    *,
+    ask: str,
+    focus_areas: Optional[Sequence[str]] = None,
+) -> str:
+    """The message both agents receive: harvest, concepts, prose, the focus, then the ask."""
     prose = (
         "\n\n".join(f"[{concept}] {text}" for concept, text in context.prose)
         or "(no domain prose retrieved)"
@@ -214,5 +237,6 @@ def render_context(context: SuggestionContext, *, ask: str) -> str:
         f"harvest:\n{context.harvest_text or '(no tables)'}\n\n"
         f"concepts in this deployment:\n{context.concepts_text or '(none)'}\n\n"
         f"domain prose, retrieved for those concepts:\n{prose}\n\n"
+        f"{render_focus(focus_areas)}"
         f"{ask}"
     )

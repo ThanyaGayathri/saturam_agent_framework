@@ -1,4 +1,5 @@
-# Dashboards (R13). Charting is interface work; this is storage plus gold reads.
+# Dashboards (R13, composed charts in 1.2.0). Storage, gold reads for kpi tiles, cached guarded
+# reads for query tiles, per-tile edits, and the compose-then-poll suggestion run.
 
 /dashboards:
   get:
@@ -22,9 +23,9 @@
                     name: Supply chain
                     description: Supplier reliability at a glance.
                     tiles:
-                      - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
-                      - {id: tl_2, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null}
-                      - {id: tl_3, kpi_identifier: stocklevel__stockout_risk_count, title: SKUs at stockout risk, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, grain_value: low}
+                      - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
+                      - {id: tl_2, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null, description: "", rationale: ""}
+                      - {id: tl_3, source: query, kpi_identifier: null, query: {sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", dialect: postgres, source_tables: [inventory], x: {column: wk, kind: time, label: Week, unit: ""}, y: [{column: stockouts, kind: category, label: Stock-outs, unit: count}], series_by: null}, title: Stock-outs by week, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, grain_value: null, description: Inventory rows with zero on hand, per week, last 12 weeks., rationale: The purpose asks where stock-outs are trending.}
                     filters: [{field: business_area, value: supply_chain}]
                     refresh_schedule: nightly
                     visibility: team
@@ -36,8 +37,8 @@
   post:
     tags: [dashboards]
     operationId: createDashboard
-    summary: Create a dashboard from selected KPIs.
-    description: Every `kpi_identifier` must exist and be `ready`; a blocked KPI cannot be tiled, because there would be nothing in gold to read.
+    summary: Create a dashboard from kpi and query tiles.
+    description: Every `kpi` tile's `kpi_identifier` must exist and be `ready`; a blocked KPI cannot be tiled, because there would be nothing in gold to read. Every `query` tile's SQL must pass the warehouse read guard; a refused statement is a 422 naming why. Query tiles are computed once on create, then on the refresh schedule.
     x-egpt-scopes: [dashboards:write]
     requestBody:
       required: true
@@ -51,7 +52,7 @@
                 name: Supply chain
                 description: Supplier reliability at a glance.
                 tiles:
-                  - {kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}}
+                  - {source: kpi, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, description: Deliveries that arrived by their promised date, last 30 days.}
                 filters: [{field: business_area, value: supply_chain}]
                 refresh_schedule: nightly
                 visibility: team
@@ -69,7 +70,7 @@
                   name: Supply chain
                   description: Supplier reliability at a glance.
                   tiles:
-                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                    - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
                   filters: [{field: business_area, value: supply_chain}]
                   refresh_schedule: nightly
                   visibility: team
@@ -87,6 +88,363 @@
             examples:
               invalid:
                 value: {detail: "product__avg_rating is partial (missing: web_sessions) and cannot be tiled.", code: kpi_not_ready}
+
+/dashboards/suggestions:
+  post:
+    tags: [dashboards]
+    operationId: startDashboardSuggestionRun
+    summary: Compose a dashboard from a purpose and selected metrics; poll it for the result.
+    description: |
+      An agent composing a dashboard -- charts, a name, and where it applies a `business_area`
+      filter -- for what the caller says they want to track. It reads the selected metrics'
+      definitions, the semantic layer's tables and columns behind them (descriptions and
+      reviewed meanings included, personal-data columns withheld) and the join edges between
+      them, then writes the charts the purpose needs: a metric's own SQL where it already
+      answers, a composed query across the tables where it does not. Every composed query is
+      checked by the warehouse read guard and dry-run before the caller sees it. A run rather
+      than a response, the same shape #254 gave KPI suggestions: returns the run `queued`, poll
+      `GET /dashboards/suggestions/{run_id}` until `succeeded` (then `result` is the composed
+      dashboard) or `failed`. Nothing is stored beyond the run row -- a suggestion becomes a
+      dashboard only through `POST /dashboards`, so this needs `dashboards:read`.
+    x-egpt-scopes: [dashboards:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRunRequest'
+          examples:
+            default:
+              value:
+                purpose: "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks."
+                kpi_identifiers: [stocklevel__stockout_risk_count, supplier__on_time_rate_30d]
+                table_names: []
+                chart_budget: 5
+    responses:
+      "202":
+        description: Accepted. Poll the run for completion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRun'
+            examples:
+              default:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: queued
+                  stage: null
+                  purpose: "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: null
+                  finished_at: null
+                  result: null
+                  error: null
+      "422":
+        description: The purpose was empty.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              empty:
+                value: {detail: "purpose must not be empty.", code: invalid_request}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/dashboards/suggestions/{run_id}:
+  get:
+    tags: [dashboards]
+    operationId: getDashboardSuggestionRun
+    summary: One dashboard suggestion run, for polling.
+    description: |
+      Poll until `status` is `succeeded` or `failed`. A run whose serving instance was lost
+      mid-run reports `failed` here once the deployment's timeout plus a grace period has
+      passed, so a poller always reaches a terminal state.
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRun'
+            examples:
+              running:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: running
+                  stage: guarding
+                  purpose: "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: null
+                  result: null
+                  error: null
+              succeeded:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: succeeded
+                  stage: done
+                  purpose: "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: "2026-09-15T10:00:42Z"
+                  result:
+                    name: Stock-outs vs margin
+                    charts:
+                      - title: Late deliveries this week
+                        chart: number
+                        source: kpi
+                        kpi_identifier: supplier__on_time_rate_30d
+                        grain_value: null
+                        query: null
+                        description: Deliveries that arrived after their promised date, Monday to Sunday.
+                        rationale: The purpose asks whether late suppliers are the cause; this is the metric already computed for it.
+                        guard: {status: ok, detail: "", tables: []}
+                        preview: null
+                      - title: Stock-outs by week
+                        chart: line
+                        source: query
+                        kpi_identifier: null
+                        grain_value: null
+                        query: {sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", dialect: postgres, source_tables: [inventory], x: {column: wk, kind: time, label: Week, unit: ""}, y: [{column: stockouts, kind: category, label: Stock-outs, unit: count}], series_by: null}
+                        description: Inventory rows with zero on hand, per week, last 12 weeks.
+                        rationale: Shows whether stock-outs are trending in the window the purpose names.
+                        guard: {status: ok, detail: "", tables: [inventory]}
+                        preview: {guard: {status: ok, detail: "", tables: [inventory]}, sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", columns: [wk, stockouts], rows: [{wk: "2026-06-22T00:00:00", stockouts: 31}, {wk: "2026-06-29T00:00:00", stockouts: 34}], duration_ms: 412, error: null}
+                    filters: [{field: business_area, value: supply_chain}]
+                    notes: ""
+                    context: {kpi_identifiers: [stocklevel__stockout_risk_count, supplier__on_time_rate_30d], table_names: [inventory, supplier_deliveries, products], described_columns: 21, total_columns: 24, withheld_columns: [customers.email]}
+                  error: null
+              failed:
+                summary: The bound was hit; the row says so instead of the request hanging.
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: failed
+                  stage: drafting
+                  purpose: "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: "2026-09-15T10:03:01Z"
+                  result: null
+                  error: "The suggestion run did not finish within 180s."
+      "404":
+        description: No such run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No suggestion run 'dsr_missing'.", code: not_found}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/dashboards/queries/preview:
+  post:
+    tags: [dashboards]
+    operationId: previewDashboardQuery
+    summary: Check one query against the warehouse read guard and run it, bounded.
+    description: |
+      What the chart editor's "Run preview" calls. The statement goes through the same guard
+      every other retail read passes -- one read statement, tables restricted to the semantic
+      layer (narrowed to `table_names` when given), personal-data columns dropped from the
+      projection, a LIMIT added or lowered to the row cap -- and, when it passes, runs with a
+      short statement timeout and returns at most 50 rows. Nothing is stored.
+    x-egpt-scopes: [dashboards:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/QueryPreviewRequest'
+          examples:
+            default:
+              value:
+                query: {sql: "SELECT category, sum(total_amount) AS revenue FROM silver.orders o JOIN silver.products p ON p.product_id = o.product_id GROUP BY 1 ORDER BY 2 DESC"}
+                table_names: [orders, products]
+    responses:
+      "200":
+        description: The verdict and, when the statement ran, a sample of its result.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/QueryPreview'
+            examples:
+              rewritten:
+                summary: Passed after the guard added a LIMIT.
+                value:
+                  guard: {status: rewritten, detail: "Added LIMIT 1000 (the row cap).", tables: [orders, products]}
+                  sql: "SELECT category, sum(total_amount) AS revenue FROM silver.orders AS o JOIN silver.products AS p ON p.product_id = o.product_id GROUP BY 1 ORDER BY 2 DESC LIMIT 1000"
+                  columns: [category, revenue]
+                  rows: [{category: Dairy, revenue: 42300.0}, {category: Bakery, revenue: 31050.0}]
+                  duration_ms: 412
+                  error: null
+              refused:
+                summary: The guard refused; nothing ran.
+                value:
+                  guard: {status: refused, detail: "Not permitted to read shipments: outside the semantic layer's allow-list.", tables: [shipments]}
+                  sql: "SELECT * FROM shipments"
+                  columns: []
+                  rows: []
+                  duration_ms: 0
+                  error: null
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/dashboards/{dashboard_id}/tiles:
+  post:
+    tags: [dashboards]
+    operationId: addDashboardTile
+    summary: Add one tile to a dashboard.
+    description: Same checks as `POST /dashboards` for the one tile. A `query` tile is computed once here so it renders immediately. Every other tile's id is unchanged.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/TileWrite'
+          examples:
+            default:
+              value: {source: query, query: {sql: "SELECT supplier_id, count(*) AS late FROM silver.supplier_deliveries WHERE delivered_at > promised_at GROUP BY 1 ORDER BY 2 DESC LIMIT 10", x: {column: supplier_id, kind: category}, y: [{column: late, label: Late deliveries, unit: count}]}, title: Late deliveries by supplier, chart: bar, position: {x: 0, y: 4, w: 6, h: 2}, description: Suppliers with the most deliveries after their promised date.}
+    responses:
+      "201":
+        description: The dashboard, with the new tile.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  id: dsh_supply
+                  name: Supply chain
+                  description: Supplier reliability at a glance.
+                  tiles:
+                    - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
+                    - {id: tl_4, source: query, kpi_identifier: null, query: {sql: "SELECT supplier_id, count(*) AS late FROM silver.supplier_deliveries WHERE delivered_at > promised_at GROUP BY 1 ORDER BY 2 DESC LIMIT 10", dialect: postgres, source_tables: [supplier_deliveries], x: {column: supplier_id, kind: category, label: "", unit: ""}, y: [{column: late, kind: category, label: Late deliveries, unit: count}], series_by: null}, title: Late deliveries by supplier, chart: bar, position: {x: 0, y: 4, w: 6, h: 2}, grain_value: null, description: Suppliers with the most deliveries after their promised date., rationale: ""}
+                  filters: [{field: business_area, value: supply_chain}]
+                  refresh_schedule: nightly
+                  visibility: team
+                  owner: analyst@example.test
+                  created_at: "2026-09-07T11:00:00Z"
+                  updated_at: "2026-09-15T10:05:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: The tile's KPI is not ready, or its query was refused by the guard.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              refused:
+                value: {detail: "Not permitted to read shipments: outside the semantic layer's allow-list.", code: query_refused}
+
+/dashboards/{dashboard_id}/tiles/{tile_id}:
+  patch:
+    tags: [dashboards]
+    operationId: updateDashboardTile
+    summary: Edit one tile. Omitted fields are left unchanged; the tile keeps its id.
+    description: A changed `query` is re-checked by the guard (422 when refused) and recomputed. `description` alone is the edit-in-place under a chart.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+      - $ref: '#/x-egpt-parameters/tileId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/TilePatch'
+          examples:
+            description_only:
+              value: {description: "Share of trading hours where a store had zero on-hand units of a listed SKU."}
+    responses:
+      "200":
+        description: The dashboard, with the edited tile.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  id: dsh_supply
+                  name: Supply chain
+                  description: Supplier reliability at a glance.
+                  tiles:
+                    - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: "Share of trading hours where a store had zero on-hand units of a listed SKU.", rationale: ""}
+                  filters: [{field: business_area, value: supply_chain}]
+                  refresh_schedule: nightly
+                  visibility: team
+                  owner: analyst@example.test
+                  created_at: "2026-09-07T11:00:00Z"
+                  updated_at: "2026-09-15T10:06:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: The new query was refused by the guard.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+  delete:
+    tags: [dashboards]
+    operationId: deleteDashboardTile
+    summary: Remove one tile.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+      - $ref: '#/x-egpt-parameters/tileId'
+    responses:
+      "204":
+        description: Removed.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/dashboards/{dashboard_id}/refresh:
+  post:
+    tags: [dashboards]
+    operationId: refreshDashboard
+    summary: Recompute every query tile now.
+    description: Runs each `query` tile through the guard and the warehouse, bounded per statement, and replaces its cached result. `kpi` tiles are untouched -- gold refreshes on its own schedule. This is the "Refresh now" a `manual` schedule relies on.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    responses:
+      "200":
+        description: The recomputed data.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardData'
+            examples:
+              default:
+                value:
+                  dashboard_id: dsh_supply
+                  tiles:
+                    - {tile_id: tl_1, kpi_identifier: supplier__on_time_rate_30d, status: fresh, value: 0.91, unit: "%", delta: -0.04, series: [{at: "2026-08-31T00:00:00Z", value: 0.95}, {at: "2026-09-07T00:00:00Z", value: 0.91}], rows: [], columns: [], as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z", provenance_ref: run_gold_20260907}
+                    - {tile_id: tl_3, kpi_identifier: null, status: fresh, value: null, unit: count, delta: 3, series: [{at: "2026-06-22T00:00:00Z", value: 31}, {at: "2026-06-29T00:00:00Z", value: 34}], rows: [{wk: "2026-06-22T00:00:00", stockouts: 31}, {wk: "2026-06-29T00:00:00", stockouts: 34}], columns: [wk, stockouts], as_of: null, computed_at: "2026-09-15T10:07:00Z", provenance_ref: null}
+                  read_at: "2026-09-15T10:07:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
 
 /dashboards/{dashboard_id}:
   get:
@@ -110,8 +468,8 @@
                   name: Supply chain
                   description: Supplier reliability at a glance.
                   tiles:
-                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
-                    - {id: tl_2, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null}
+                    - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
+                    - {id: tl_2, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null, description: "", rationale: ""}
                   filters: [{field: business_area, value: supply_chain}]
                   refresh_schedule: nightly
                   visibility: team
@@ -150,7 +508,7 @@
                   name: Supply chain
                   description: Supplier reliability at a glance.
                   tiles:
-                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                    - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
                   filters: [{field: business_area, value: supply_chain}]
                   refresh_schedule: nightly
                   visibility: everyone
@@ -180,8 +538,8 @@
   get:
     tags: [dashboards]
     operationId: getDashboardData
-    summary: Every tile's values, from gold.
-    description: One read per dashboard, not one per tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its gold rows hold.
+    summary: Every tile's values -- kpi tiles from gold, query tiles from their cached result.
+    description: One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its rows hold.
     x-egpt-scopes: [dashboards:read]
     parameters:
       - $ref: '#/x-egpt-parameters/dashboardId'
@@ -199,7 +557,7 @@
                   tiles:
                     - {tile_id: tl_1, kpi_identifier: supplier__on_time_rate_30d, status: fresh, value: 0.91, unit: "%", delta: -0.04, series: [{at: "2026-08-31T00:00:00Z", value: 0.95}, {at: "2026-09-07T00:00:00Z", value: 0.91}], rows: [], as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z", provenance_ref: run_gold_20260907}
                     - {tile_id: tl_2, kpi_identifier: supplier__on_time_rate_30d, status: fresh, value: null, unit: "%", delta: null, series: [], rows: [{supplier_id: sup_014, value: 0.71}, {supplier_id: sup_003, value: 0.88}, {supplier_id: sup_021, value: 0.97}], as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z", provenance_ref: run_gold_20260907}
-                    - {tile_id: tl_3, kpi_identifier: stocklevel__stockout_risk_count, status: failed, value: null, unit: Count, delta: null, series: [], rows: [], as_of: "2026-09-05T23:59:59Z", computed_at: "2026-09-06T02:20:00Z", provenance_ref: run_gold_20260906}
+                    - {tile_id: tl_3, kpi_identifier: null, status: fresh, value: null, unit: count, delta: 3, series: [{at: "2026-06-22T00:00:00Z", value: 31}, {at: "2026-06-29T00:00:00Z", value: 34}], rows: [{wk: "2026-06-22T00:00:00", stockouts: 31}, {wk: "2026-06-29T00:00:00", stockouts: 34}], columns: [wk, stockouts], as_of: null, computed_at: "2026-09-07T02:31:00Z", provenance_ref: null}
                   read_at: "2026-09-07T11:10:00Z"
       "404":
         $ref: '#/x-egpt-responses/NotFound'
@@ -207,6 +565,11 @@
 x-egpt-parameters:
   dashboardId:
     name: dashboard_id
+    in: path
+    required: true
+    schema: {type: string}
+  tileId:
+    name: tile_id
     in: path
     required: true
     schema: {type: string}

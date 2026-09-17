@@ -4,6 +4,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, overload
 
 from typing_extensions import Literal
 
+from egpt.integrations.knowledge.embedder._embedding_ordering import sorted_embeddings
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import log_warning, logger
 
@@ -159,13 +160,15 @@ class AzureOpenAIEmbedder(Embedder):
             except Exception as e:
                 log_warning(f"Failed to get embedding: {str(e)}")
                 return []
+        if not text:
+            return []
         response = self._batch_response(list(text))
         try:
             # Sorted by `.index` rather than trusted to arrive in request order: the API documents
             # that it preserves order, but a documented behaviour is not an enforced one, and this
             # zips silently against the wrong record if it is ever wrong -- the same failure mode
             # `_as_vectors`' count check exists to catch on the memory pipeline side of this call.
-            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
@@ -223,9 +226,11 @@ class AzureOpenAIEmbedder(Embedder):
             except Exception as e:
                 log_warning(f"Failed to get embedding: {str(e)}")
                 return []
+        if not text:
+            return []
         response = await self._abatch_response(list(text))
         try:
-            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
@@ -271,7 +276,7 @@ class AzureOpenAIEmbedder(Embedder):
 
             try:
                 response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-                batch_embeddings = [data.embedding for data in response.data]
+                batch_embeddings = sorted_embeddings(response, expected_count=len(batch_texts))
                 all_embeddings.extend(batch_embeddings)
 
                 # For each embedding in the batch, add the same usage information

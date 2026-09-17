@@ -80,11 +80,34 @@ What was already decided about it, and still applies:
   after half a minute, giving up at 4 minutes -- until the row is `succeeded` (its `result` is
   rendered through the same `rowFromSuggestion` path as before) or `failed` (its `error` is
   shown as-is; a timeout names the bound it hit). A run is two frontier-tier model calls and
-  takes minutes, so it is never fired on page load and the button counts elapsed seconds while
-  it waits. Adopting a suggestion is still `POST /kpis` (`createKpi`); nothing else is stored.
+  takes minutes, so it is never fired on page load. While it waits, the bar becomes a status
+  panel (`SuggestionRunPanel.jsx`): the row's `typical_duration_seconds` (the deployment's
+  own recent run times, contract 1.1.6) sets the expectation up front, its `phase` drives a
+  three-step stepper (reading, proposing, checking) instead of a stopwatch, Cancel stops the
+  polling (the server run finishes on its own and is never read again), and a one-line receipt
+  -- how many, how long, how many adoptable -- stays up until dismissed. The run is started
+  with a focus (contract 1.1.8, `business_areas`): the areas chosen in the focus prompt,
+  filtered to ids the deployment's real vocabulary knows (a stored focus can predate it) --
+  the agents propose for those first, and nothing is dropped for being outside them. Nothing
+  chosen sends nothing, matching the backend's own "no focus" default rather than listing
+  every supported area for no prioritizing effect. Adopting a suggestion is still `POST /kpis`
+  (`createKpi`); nothing else is stored.
   The synchronous `GET /kpis/suggestions` is deprecated in the contract and no longer called
   here. Against the stub server the poll never turns terminal (the stub serves the `queued`
   example every time), which is what the 4-minute ceiling is for.
+- **A registry KPI's detail panel graphs its value over the last 30 nights** (contract 1.1.9):
+  `components/kpi/KpiTrend.jsx`, fed by `GET /kpis/{id}/series` -- the same nightly
+  `gold.kpi_value` rows a dashboard's `line`/`bar` tile plots, addressed by KPI. Points are
+  placed by date across the window (a night with no row is a gap, not a compressed axis), the
+  latest value and its delta against the previous night sit above the line, and a
+  per-dimension KPI (grain `brand`, say) offers its dimensions as chips. Nothing is illustrative
+  and nothing is computed at render time. Adopting a suggestion ("Add to my metrics") now also
+  calls `POST /kpis/{id}/compute` -- the nightly gold pass narrowed to that KPI and today --
+  so a new KPI has its first point at once instead of after its first night; the panel shows
+  "Computing today's value…" while that runs and offers "Compute today's value" for any registry
+  KPI gold has never computed. Every proposed formula is a snapshot over the current silver
+  rows, so the line grows one real point per night; there is no backfill and no synthetic
+  history.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

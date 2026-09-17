@@ -164,6 +164,9 @@ KpiSuggestion:
     rationale:
       type: string
       description: One sentence naming the tables or concepts it derives from.
+    business_value:
+      type: [string, "null"]
+      description: One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed.
     derived_from_tables:
       type: array
       items: {type: string}
@@ -194,12 +197,31 @@ KpiSuggestionRunStatus:
   description: Where a suggestion run is. The same four words as `HarvestStatus`, for the same shape.
   enum: [queued, running, succeeded, failed]
 
+KpiSuggestionRunPhase:
+  type: string
+  description: |
+    The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the
+    agents are shown is being gathered), `proposing` (the model calls), `checking` (assembly
+    and feasibility against the snapshot). What a screen's stepper shows.
+  enum: [reading, proposing, checking]
+
 KpiSuggestionRunRequest:
   type: object
-  description: What to run. Empty means suggest across every business area.
+  description: |
+    What to run. Empty means suggest across every business area with no focus.
+    `business_areas` is the focus: the areas the customer cares about, handed to the agents
+    as a priority ("propose for these first"), never as a filter -- a proposal outside them
+    is kept when the data clearly supports it. `business_area` (one id) is the older
+    narrowing filter, applied to what comes back; kept for callers written against 1.1.5,
+    new callers should send `business_areas`.
   properties:
     business_area:
       $ref: './common.yaml#/BusinessAreaId'
+    business_areas:
+      type: array
+      description: The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
 
 KpiSuggestionRun:
   type: object
@@ -211,6 +233,10 @@ KpiSuggestionRun:
     `error` is why there is none, present once `failed`. A run whose executor was lost
     (the serving instance restarted mid-run) is reported `failed` by the read side after the
     deployment's timeout plus a grace period, never `running` forever.
+
+    Two fields are for the person waiting: `phase` is the stage a `running` run is in, and
+    `typical_duration_seconds` is how long this deployment's recent runs took, so a screen
+    can set an expectation up front and show progress against it.
   required: [id, status, created_at]
   properties:
     id: {type: string}
@@ -219,6 +245,12 @@ KpiSuggestionRun:
     business_area:
       type: [string, "null"]
       description: The area the run was narrowed to, or null for every area.
+    business_areas:
+      type: array
+      default: []
+      description: The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
     created_at:
       $ref: './common.yaml#/Timestamp'
     started_at:
@@ -236,6 +268,20 @@ KpiSuggestionRun:
     error:
       type: [string, "null"]
       description: Written for the person polling. A timeout names the bound it hit.
+    phase:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiSuggestionRunPhase'
+        - type: "null"
+      description: |
+        Set while `running`, as each stage begins; null on a `queued` run and on a
+        `running` one that has not reached its first stage yet. Kept as it was once the run
+        is terminal, so a `failed` run says where it failed.
+    typical_duration_seconds:
+      type: [number, "null"]
+      description: |
+        The median wall-clock seconds of this deployment's last few successful runs, or null
+        before any has succeeded. An expectation, not a bound: a run may take longer, and the
+        deployment's timeout is the only limit.
 
 KpiHealthStatus:
   type: string
@@ -343,3 +389,90 @@ KpiImportRejection:
   properties:
     row: {type: integer}
     reason: {type: string}
+
+KpiSeriesInterval:
+  type: string
+  enum: [day]
+  description: The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define.
+
+KpiSeries:
+  type: object
+  description: |
+    One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows
+    a dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per
+    business date the KPI materialised for; a night with no row is absent, not `null` (`null`
+    means the formula returned NULL that night). Nothing is recomputed on read.
+
+    A KPI whose grain is not `overall` has one row per dimension value each night; `dimension`
+    names the one the points follow (the caller's choice, else the first seen) and
+    `dimensions` lists every value the latest night carried, so a screen can offer the others.
+  required: [kpi_identifier, grain, interval, days, dimension, dimensions, points, value, delta, status]
+  properties:
+    kpi_identifier: {type: string}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    interval:
+      $ref: './kpis.yaml#/KpiSeriesInterval'
+    days:
+      type: integer
+      minimum: 1
+      description: The window the points were read over, ending at `as_of`.
+    unit: {type: string, default: ""}
+    dimension:
+      type: [object, "null"]
+      additionalProperties: true
+      description: The grain-key values the points follow; `null` for an `overall` KPI.
+    dimensions:
+      type: array
+      items:
+        type: object
+        additionalProperties: true
+      description: Every dimension the latest business date carried, in gold's row order, capped at 25.
+    points:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/SeriesPoint'
+      description: Oldest first.
+    value:
+      type: [number, "null"]
+      description: The latest point's value; what a `number` tile of this KPI shows.
+    delta:
+      type: [number, "null"]
+      description: "`value` minus the previous point's value; `null` with fewer than two points."
+    as_of:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    computed_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    status:
+      $ref: './kpis.yaml#/KpiHealthStatus'
+    provenance_ref: {type: [string, "null"]}
+
+KpiComputeStatus:
+  type: string
+  enum: [materialised, failed, skipped]
+  description: Mirrors `gold.kpi_run.status` for the one KPI the call materialised.
+
+KpiComputeResult:
+  type: object
+  description: |
+    The outcome of materialising one KPI for today's business date on demand -- the same
+    guarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.
+    `materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;
+    `failed` names the formula's own error; `skipped` names why the pass would not run it.
+  required: [kpi_identifier, as_of, status, rows_written, run_id]
+  properties:
+    kpi_identifier: {type: string}
+    as_of:
+      type: string
+      format: date
+      description: The business date written.
+    status:
+      $ref: './kpis.yaml#/KpiComputeStatus'
+    rows_written: {type: integer, minimum: 0}
+    run_id: {type: string}
+    error: {type: [string, "null"]}
+    reason: {type: [string, "null"]}

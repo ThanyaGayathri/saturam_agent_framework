@@ -19,11 +19,15 @@ export function fetchKpiList() {
  * created_at, started_at, finished_at, result, error}`). A run is two frontier-tier model calls
  * and takes minutes, so it is a resource to poll (issue #254), not a response to await:
  * `fetchKpiSuggestionRun` until `status` is `succeeded` (then `result` is the suggestion list)
- * or `failed` (then `error` says why). `businessArea` narrows the run; omit it to suggest
- * across every area. Nothing is stored beyond the run row - a suggestion becomes a KPI only
- * through `createKpi`. */
-export function startKpiSuggestionRun(businessArea, { signal } = {}) {
-  const body = businessArea ? { business_area: businessArea } : {};
+ * or `failed` (then `error` says why). `businessAreas` is the focus (contract 1.1.8): the
+ * areas the customer cares about, handed to the agents as a priority -- "propose for these
+ * first" -- never as a filter, so nothing is dropped for being outside them. An empty list (or
+ * none at all) means no focus -- the backend leaves the prompt untouched in that case, so there
+ * is nothing to gain by listing every supported area when nothing was actually chosen. Nothing
+ * is stored beyond the run row - a suggestion becomes a KPI only through `createKpi`. */
+export function startKpiSuggestionRun(businessAreas, { signal } = {}) {
+  const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
+  const body = areas.length ? { business_areas: areas } : {};
   return apiJson("/kpis/suggestions", "POST", body, { signal });
 }
 
@@ -53,4 +57,57 @@ export function fetchKpiSuggestions(businessArea, { signal } = {}) {
  * formula). */
 export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
+}
+
+/** `GET /kpis/health` - freshness of every registered KPI from gold (a `KpiHealth[]`:
+ * `{kpi_id, identifier, status, last_computed_at, as_of, staleness_hours, last_run_id,
+ * last_error}`). `status` is one of `fresh`/`stale`/`never_computed`/`failed`/`not_scheduled` -
+ * every registered KPI gets a row, even one gold has never materialised. */
+export function fetchKpiHealth({ signal } = {}) {
+  return apiGet("/kpis/health", { signal });
+}
+
+/** `GET /kpis/{kpi_id}/series` - one KPI's value over its last `days` business dates, read
+ * from gold (a `KpiSeries`: `{kpi_identifier, grain, interval: "day", days, unit, dimension,
+ * dimensions, points: [{at, value}], value, delta, as_of, computed_at, status,
+ * provenance_ref}`). One point per night the KPI was materialised for, oldest first; a night
+ * with no row is absent, not `null`. Never a recomputation: a KPI adopted today has no point
+ * until `computeKpi` (or tonight's run) writes one, which the api reports as a `200` with
+ * empty `points` and `status: "never_computed"`, not an error. `dimension` (an object of
+ * grain-key values) picks which row of a per-dimension KPI to follow. */
+export function fetchKpiSeries(identifier, { days = 30, dimension, signal } = {}) {
+  const query = new URLSearchParams({ days: String(days) });
+  if (dimension && Object.keys(dimension).length > 0) {
+    query.set("dimension", JSON.stringify(dimension));
+  }
+  return apiGet(`/kpis/${encodeURIComponent(identifier)}/series?${query}`, { signal });
+}
+
+/** `POST /kpis/{kpi_id}/compute` - materialise this KPI for today, now: the nightly gold pass
+ * narrowed to one KPI, so a just-adopted KPI has a value before its first night. Resolves to a
+ * `KpiComputeResult` `{kpi_identifier, as_of, status: "materialised"|"failed"|"skipped",
+ * rows_written, run_id, error, reason}` - a formula that fails is a 200 with `status:
+ * "failed"` and `error`, not a rejected promise. 409 when the KPI is not `ready`; 503 when
+ * gold itself refuses to run (the warehouse's last load did not pass, or a load is in
+ * progress). Takes a few seconds: one guarded statement against the warehouse. */
+export function computeKpi(identifier, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}/compute`, "POST", {}, { signal });
+}
+
+/** `DELETE /kpis/{identifier}` - remove a registered KPI (the reverse of `createKpi`). Resolves
+ * to `null` on 204. Refused with a 409 while any dashboard still has a tile on it; the
+ * `ApiError.detail` names the dashboards the caller can see, so show it as-is. */
+export function deleteKpi(identifier, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "DELETE", undefined, { signal });
+}
+
+/** `PATCH /kpis/{kpi_id}` - edit an already-adopted KPI's definition. `body` is a `KpiWrite`,
+ * same shape as `createKpi`: the required fields (`name`, `description`, `business_area`,
+ * `grain`, `sql`, `source_tables`) must be sent in full every time -- the api carries forward
+ * only the *optional* ones (concept, unit, level, ...) omitted from the body, not the required
+ * ones. Editing `sql` moves the KPI back to review: the server drops `validated_against_snapshot`
+ * whenever `sql`/`source_tables` change. 422s naming the defect the same way `createKpi` does;
+ * 409 if the row changed between the server's own read and write of it (retry by re-fetching). */
+export function updateKpi(identifier, body, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "PATCH", body, { signal });
 }

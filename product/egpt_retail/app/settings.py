@@ -26,6 +26,7 @@ import re
 from typing import Literal, Optional
 
 from egpt.metrics import ProviderMode
+from egpt.providers.mode_b import FRONTIER_PROVIDER_KEYS
 from egpt.settings.sources import BrandedSettings
 from pydantic import Field, field_validator
 
@@ -264,18 +265,39 @@ class RetailSettings(BrandedSettings):
         "(EGPT_RETAIL_SCHEDULE_TRIGGER): 'orchestrator' where a Logic App or Step Functions task "
         "calls the run endpoint. Unset locally, where the in-process poller reports itself.",
     )
+    retail_model_provider: str = Field(
+        default="azure-openai",
+        description="The Mode B registry key both tiers resolve under (EGPT_RETAIL_MODEL_PROVIDER), "
+        f"e.g. one of {', '.join(FRONTIER_PROVIDER_KEYS)} (egpt.providers.mode_b.FRONTIER_PROVIDER_KEYS "
+        "-- the curated shortlist, not a whitelist: any other registered Mode B key, including one "
+        "from an out-of-tree entry point, also resolves). Default 'azure-openai' matches production "
+        "(D15) -- it is R8's routing table's provider today, not the only one it can build (#268): "
+        "retail_azure_deployment/retail_azure_small_deployment below carry the model id for whichever "
+        "key is set here, an Azure deployment name when this is left at its default, a vendor model id "
+        "otherwise (keep the two in step when changing this -- nothing validates that a deployment/model "
+        "id actually matches the provider it is paired with; a mismatch surfaces late, as a vendor error "
+        "on the first real call, not at startup). An unrecognized key is refused when the tier providers "
+        "are built (egpt.providers.mode_b.FrontierModelProvider), naming the key, not silently ignored. "
+        "This is retail's own knob, not the framework's EGPT_MODE_B_PROVIDER: TierModelProvider always "
+        "passes an explicit provider_key, which FrontierModelProvider's own precedence rule (constructor "
+        "argument wins over settings) makes take priority, so EGPT_MODE_B_PROVIDER has no effect on "
+        "retail's tiers -- set this variable instead.",
+    )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
-        description="Azure OpenAI chat deployment for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT). "
-        "R8's routing table binds frontier-tier agents here and escalates small-tier agents here. "
-        "Credentials come from AZURE_OPENAI_* at call time, never at construction.",
+        description="Model id for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT) -- an Azure OpenAI "
+        "chat deployment name when retail_model_provider is left at its 'azure-openai' default, a "
+        "vendor model id (e.g. a Claude or GPT model name) for any other provider -- keep this paired "
+        "with whichever provider retail_model_provider names. R8's routing table binds frontier-tier "
+        "agents here and escalates small-tier agents here. Credentials come from that provider's own "
+        "SDK at call time, never at construction.",
     )
     retail_azure_small_deployment: str = Field(
         default="gpt-5.4-mini",
-        description="Azure OpenAI chat deployment for the small tier (EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT). "
-        "Both tiers are Azure OpenAI deployments on the same code path -- the build plan defers the "
-        "in-VPC GPU pool -- so 'small' is a cheaper deployment, not a different provider. Same "
-        "credential rule as the frontier deployment.",
+        description="Model id for the small tier (EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT), read the same "
+        "way as retail_azure_deployment above. Both tiers resolve through the same Mode B provider on "
+        "the same code path -- the build plan defers the in-VPC GPU pool -- so 'small' is a cheaper "
+        "deployment/model, not a different provider from the frontier tier. Same credential rule.",
     )
     retail_small_context_window: int = Field(
         default=128_000,
@@ -290,12 +312,21 @@ class RetailSettings(BrandedSettings):
     retail_suggestion_timeout_seconds: float = Field(
         default=180.0,
         gt=0,
-        description="Upper bound, in seconds, on one KPI suggestion run (EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS). "
-        "A run is two frontier-tier model calls plus semantic-graph reads and nothing below this layer caps it "
-        "(#254): past this bound `POST /kpis/suggestions`'s run is marked failed and the deprecated synchronous "
-        "`GET /kpis/suggestions` returns 504 instead of hanging. The in-flight model call is not interrupted -- "
-        "it finishes on its own and its result is discarded -- so this bounds what the caller waits for, not "
-        "what the deployment spends.",
+        description="Upper bound, in seconds, on one suggestion run -- KPI or dashboard "
+        "(EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS). A KPI suggestion run is two frontier-tier "
+        "model calls plus semantic-graph reads; a dashboard suggestion run is one. Nothing "
+        "below this layer caps either (#254): past this bound `POST /kpis/suggestions`'s and "
+        "`POST /dashboards/suggestions`'s runs are marked failed, and the deprecated "
+        "synchronous `GET /kpis/suggestions` returns 504 instead of hanging. The in-flight "
+        "model call is not interrupted -- it finishes on its own and its result is discarded "
+        "-- so this bounds what the caller waits for, not what the deployment spends.",
+    )
+    retail_suggestion_replay: Optional[str] = Field(
+        default=None,
+        description="DEMO/TESTING ONLY -- never set in a real deployment. Path to a saved "
+        "KpiSuggestionList JSON (EGPT_RETAIL_SUGGESTION_REPLAY); when set, a suggestion run "
+        "returns it instead of calling the model, so a demo can be rehearsed without spending "
+        "model credit. Unset (the default) runs the agents.",
     )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,

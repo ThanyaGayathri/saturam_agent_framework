@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -517,6 +517,13 @@
         ],
         "description": "`copilot` surfaces decision cards for a person; `autopilot` executes within guardrails."
       },
+      "AxisKind": {
+        "type": "string",
+        "enum": [
+          "time",
+          "category"
+        ]
+      },
       "BulkProposalDecisionRequest": {
         "type": "object",
         "description": "A single source harvest produces hundreds of proposals; nobody clicks through them one gate at a time (G5).",
@@ -703,6 +710,29 @@
           "fail"
         ]
       },
+      "ChartAxis": {
+        "type": "object",
+        "description": "One result column a `query` tile plots. `kind` matters on the x axis only.",
+        "required": [
+          "column"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AxisKind"
+          },
+          "label": {
+            "type": "string",
+            "default": ""
+          },
+          "unit": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
       "ChartKind": {
         "type": "string",
         "enum": [
@@ -840,6 +870,22 @@
           },
           "status": {
             "$ref": "#/components/schemas/ProposalStatus"
+          },
+          "concept": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The concept this column is a property of, once review confirmed it."
+          },
+          "meaning": {
+            "type": "string",
+            "default": "",
+            "description": "What this column identifies, as accepted through review. Distinct from `description`, which is what the schema author wrote."
+          },
+          "joinable": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -1000,6 +1046,70 @@
           }
         }
       },
+      "DashboardChartSuggestion": {
+        "type": "object",
+        "description": "One composed chart. `source: kpi` reuses a registered, ready KPI's own SQL through gold\n(`kpi_identifier` set, `query` null); `source: query` carries SQL the agent composed from\nthe tables it was shown (`query` set). Every `query` chart passed through the warehouse\nread guard and a bounded dry run before reaching the caller; `guard` and `preview` say what\nhappened. `description` is written for the person reading the dashboard and is theirs to\nedit.\n",
+        "required": [
+          "title",
+          "chart",
+          "source",
+          "description",
+          "rationale",
+          "guard"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "chart": {
+            "$ref": "#/components/schemas/ChartKind"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TileSource"
+          },
+          "kpi_identifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grain_value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "guard": {
+            "$ref": "#/components/schemas/QueryGuardVerdict"
+          },
+          "preview": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QueryPreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "DashboardData": {
         "type": "object",
         "required": [
@@ -1042,6 +1152,164 @@
         "enum": [
           "business_area",
           "time_window"
+        ]
+      },
+      "DashboardSuggestion": {
+        "type": "object",
+        "description": "A suggested dashboard for the given purpose, editable before creation: a name, the charts\nthe agent composed from the selected metrics and the tables behind them, and -- when the\npurpose names one -- a `business_area` filter, the one `DashboardFilterField` with a\nwell-defined value space (`time_window` has no established value shape in this contract\nyet, #222). `context` says what the agent was shown.\n",
+        "required": [
+          "name",
+          "charts",
+          "filters",
+          "notes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "charts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardChartSuggestion"
+            }
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardFilter"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Empty on a clean run; otherwise what was missing, why the list is short, or what was dropped."
+          },
+          "context": {
+            "$ref": "#/components/schemas/SuggestionContextSummary"
+          }
+        }
+      },
+      "DashboardSuggestionRun": {
+        "type": "object",
+        "description": "One run of the dashboard suggestion agent, started by `POST /dashboards/suggestions` and\npolled at `GET /dashboards/suggestions/{run_id}` -- the same run-then-poll shape #254 gave\nKPI suggestions, for the same reason: a live model call takes long enough that it does not\nbelong inside one request, and the api serves from more than one instance. `result` is\npresent once `status` is `succeeded`; `error` is why there is none, present once `failed`.\nA run whose executor was lost (the serving instance restarted mid-run) is reported `failed`\nby the read side after the deployment's timeout plus a grace period, never `running` forever.\n",
+        "required": [
+          "id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DashboardSuggestionRunStatus"
+          },
+          "stage": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DashboardSuggestionStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "started_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DashboardSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Written for the person polling. A timeout names the bound it hit."
+          }
+        }
+      },
+      "DashboardSuggestionRunRequest": {
+        "type": "object",
+        "description": "What to run. `purpose` is the caller's own words for what the dashboard should help them\ntrack. `kpi_identifiers` are the metrics the agent reads as context -- their definitions\nand the tables behind them -- not a list it must tile one for one. `table_names` widens\nthe tables it may read beyond those the metrics name. `chart_budget` is a soft cap on\nhow many charts to compose; the agent may return fewer.\n",
+        "required": [
+          "purpose"
+        ],
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kpi_identifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "chart_budget": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 12
+          }
+        }
+      },
+      "DashboardSuggestionRunStatus": {
+        "type": "string",
+        "description": "Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed"
+        ]
+      },
+      "DashboardSuggestionStage": {
+        "type": "string",
+        "description": "Where a running suggestion is, for the person waiting. `reading` the metrics and tables, `drafting` charts, `guarding` each query, `previewing` each with real rows.",
+        "enum": [
+          "reading",
+          "drafting",
+          "guarding",
+          "previewing",
+          "done"
         ]
       },
       "DashboardWrite": {
@@ -2432,6 +2700,58 @@
           }
         }
       },
+      "KpiComputeResult": {
+        "type": "object",
+        "description": "The outcome of materialising one KPI for today's business date on demand -- the same\nguarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.\n`materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;\n`failed` names the formula's own error; `skipped` names why the pass would not run it.\n",
+        "required": [
+          "kpi_identifier",
+          "as_of",
+          "status",
+          "rows_written",
+          "run_id"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "description": "The business date written."
+          },
+          "status": {
+            "$ref": "#/components/schemas/KpiComputeStatus"
+          },
+          "rows_written": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "KpiComputeStatus": {
+        "type": "string",
+        "enum": [
+          "materialised",
+          "failed",
+          "skipped"
+        ],
+        "description": "Mirrors `gold.kpi_run.status` for the one KPI the call materialised."
+      },
       "KpiHealth": {
         "type": "object",
         "description": "Freshness from gold (R5). Every gold row is stamped with source and computation time; this is that stamp surfaced.",
@@ -2588,6 +2908,115 @@
           }
         }
       },
+      "KpiSeries": {
+        "type": "object",
+        "description": "One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows\na dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per\nbusiness date the KPI materialised for; a night with no row is absent, not `null` (`null`\nmeans the formula returned NULL that night). Nothing is recomputed on read.\n\nA KPI whose grain is not `overall` has one row per dimension value each night; `dimension`\nnames the one the points follow (the caller's choice, else the first seen) and\n`dimensions` lists every value the latest night carried, so a screen can offer the others.\n",
+        "required": [
+          "kpi_identifier",
+          "grain",
+          "interval",
+          "days",
+          "dimension",
+          "dimensions",
+          "points",
+          "value",
+          "delta",
+          "status"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "grain": {
+            "$ref": "#/components/schemas/Grain"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/KpiSeriesInterval"
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The window the points were read over, ending at `as_of`."
+          },
+          "unit": {
+            "type": "string",
+            "default": ""
+          },
+          "dimension": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "The grain-key values the points follow; `null` for an `overall` KPI."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "Every dimension the latest business date carried, in gold's row order, capped at 25."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "description": "Oldest first."
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The latest point's value; what a `number` tile of this KPI shows."
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "`value` minus the previous point's value; `null` with fewer than two points."
+          },
+          "as_of": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "computed_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/KpiHealthStatus"
+          },
+          "provenance_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "KpiSeriesInterval": {
+        "type": "string",
+        "enum": [
+          "day"
+        ],
+        "description": "The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define."
+      },
       "KpiSource": {
         "type": "object",
         "description": "A user-added dataset in the KPI gallery (kpi-sources.js). More than a connection -- it carries the business context that turns rows into metrics.",
@@ -2731,6 +3160,13 @@
             "type": "string",
             "description": "One sentence naming the tables or concepts it derives from."
           },
+          "business_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed."
+          },
           "derived_from_tables": {
             "type": "array",
             "items": {
@@ -2779,7 +3215,7 @@
       },
       "KpiSuggestionRun": {
         "type": "object",
-        "description": "One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at\n`GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can\ntake minutes, so it is not served inside a request. `result` is the same\n`KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;\n`error` is why there is none, present once `failed`. A run whose executor was lost\n(the serving instance restarted mid-run) is reported `failed` by the read side after the\ndeployment's timeout plus a grace period, never `running` forever.\n",
+        "description": "One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at\n`GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can\ntake minutes, so it is not served inside a request. `result` is the same\n`KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;\n`error` is why there is none, present once `failed`. A run whose executor was lost\n(the serving instance restarted mid-run) is reported `failed` by the read side after the\ndeployment's timeout plus a grace period, never `running` forever.\n\nTwo fields are for the person waiting: `phase` is the stage a `running` run is in, and\n`typical_duration_seconds` is how long this deployment's recent runs took, so a screen\ncan set an expectation up front and show progress against it.\n",
         "required": [
           "id",
           "status",
@@ -2798,6 +3234,14 @@
               "null"
             ],
             "description": "The area the run was narrowed to, or null for every area."
+          },
+          "business_areas": {
+            "type": "array",
+            "default": [],
+            "description": "The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
+            "items": {
+              "$ref": "#/components/schemas/BusinessAreaId"
+            }
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp"
@@ -2838,15 +3282,49 @@
               "null"
             ],
             "description": "Written for the person polling. A timeout names the bound it hit."
+          },
+          "phase": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KpiSuggestionRunPhase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set while `running`, as each stage begins; null on a `queued` run and on a\n`running` one that has not reached its first stage yet. Kept as it was once the run\nis terminal, so a `failed` run says where it failed.\n"
+          },
+          "typical_duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The median wall-clock seconds of this deployment's last few successful runs, or null\nbefore any has succeeded. An expectation, not a bound: a run may take longer, and the\ndeployment's timeout is the only limit.\n"
           }
         }
       },
+      "KpiSuggestionRunPhase": {
+        "type": "string",
+        "description": "The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the\nagents are shown is being gathered), `proposing` (the model calls), `checking` (assembly\nand feasibility against the snapshot). What a screen's stepper shows.\n",
+        "enum": [
+          "reading",
+          "proposing",
+          "checking"
+        ]
+      },
       "KpiSuggestionRunRequest": {
         "type": "object",
-        "description": "What to run. Empty means suggest across every business area.",
+        "description": "What to run. Empty means suggest across every business area with no focus.\n`business_areas` is the focus: the areas the customer cares about, handed to the agents\nas a priority (\"propose for these first\"), never as a filter -- a proposal outside them\nis kept when the data clearly supports it. `business_area` (one id) is the older\nnarrowing filter, applied to what comes back; kept for callers written against 1.1.5,\nnew callers should send `business_areas`.\n",
         "properties": {
           "business_area": {
             "$ref": "#/components/schemas/BusinessAreaId"
+          },
+          "business_areas": {
+            "type": "array",
+            "description": "The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
+            "items": {
+              "$ref": "#/components/schemas/BusinessAreaId"
+            }
           }
         }
       },
@@ -3755,6 +4233,97 @@
           "unknown"
         ]
       },
+      "QueryGuardStatus": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "rewritten",
+          "refused"
+        ],
+        "description": "What the warehouse read guard made of a query. `ok`: passed unchanged. `rewritten`: passed\nafter a mechanical fix -- a personal-data column dropped from the projection, a missing\nLIMIT added, a LIMIT above the row cap lowered; `detail` says which. `refused`: not\nrunnable, `detail` says why; the chart is kept as a stub so the SQL can be fixed.\n"
+      },
+      "QueryGuardVerdict": {
+        "type": "object",
+        "required": [
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/QueryGuardStatus"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The tables the statement reads, once parsed."
+          }
+        }
+      },
+      "QueryPreview": {
+        "type": "object",
+        "description": "One query's guard verdict and, when it ran, a bounded sample of its result.",
+        "required": [
+          "guard",
+          "columns",
+          "rows",
+          "duration_ms"
+        ],
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/QueryGuardVerdict"
+          },
+          "sql": {
+            "type": "string",
+            "description": "The statement as it would run -- the caller's, or the guard's rewrite of it."
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The database's own refusal when the guard passed the statement but the warehouse did not (a typo in a column name, say)."
+          }
+        }
+      },
+      "QueryPreviewRequest": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/TileQuery"
+          },
+          "table_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Narrows the allow-list to these tables when given; otherwise the whole semantic layer."
+          }
+        }
+      },
       "Recipient": {
         "type": "object",
         "required": [
@@ -4485,6 +5054,37 @@
           }
         }
       },
+      "SuggestionContextSummary": {
+        "type": "object",
+        "description": "What the agent read, for the review screen to show.",
+        "properties": {
+          "kpi_identifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "described_columns": {
+            "type": "integer"
+          },
+          "total_columns": {
+            "type": "integer"
+          },
+          "withheld_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Personal-data columns, as `table.column`, never shown to the agent."
+          }
+        }
+      },
       "SyncFrequency": {
         "type": "string",
         "enum": [
@@ -4669,16 +5269,33 @@
         "type": "object",
         "required": [
           "id",
-          "kpi_identifier",
           "chart",
-          "position"
+          "position",
+          "source"
         ],
         "properties": {
           "id": {
             "type": "string"
           },
+          "source": {
+            "$ref": "#/components/schemas/TileSource"
+          },
           "kpi_identifier": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The KPI a `kpi` tile reads. Null on a `query` tile."
+          },
+          "query": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "type": "string",
@@ -4696,6 +5313,16 @@
               "null"
             ],
             "description": "For a KPI at a non-overall grain, which row -- a supplier id, a location -- this tile shows. Null shows the top-N as a table."
+          },
+          "description": {
+            "type": "string",
+            "default": "",
+            "description": "Shown under the chart. Editable; never used to run anything."
+          },
+          "rationale": {
+            "type": "string",
+            "default": "",
+            "description": "Why the suggestion agent proposed this chart. Empty on a hand-built tile."
           }
         }
       },
@@ -4704,7 +5331,6 @@
         "description": "One tile's values from gold, with the stamp every gold row carries so a stale number is distinguishable from a wrong one.",
         "required": [
           "tile_id",
-          "kpi_identifier",
           "status",
           "computed_at"
         ],
@@ -4713,7 +5339,11 @@
             "type": "string"
           },
           "kpi_identifier": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null on a `query` tile."
           },
           "status": {
             "$ref": "#/components/schemas/KpiHealthStatus"
@@ -4747,7 +5377,14 @@
               "type": "object",
               "additionalProperties": true
             },
-            "description": "For a `rowset` KPI or a table chart."
+            "description": "For a `rowset` KPI, a table chart, or a `query` tile's cached result."
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Column order of `rows`, for a `query` tile. Empty on a `kpi` tile."
           },
           "as_of": {
             "oneOf": [
@@ -4774,6 +5411,33 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "TilePatch": {
+        "type": "object",
+        "description": "A partial edit of one tile. Every field optional; an omitted field is left unchanged. A changed `query` is re-checked by the guard and recomputed.",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "chart": {
+            "$ref": "#/components/schemas/ChartKind"
+          },
+          "position": {
+            "$ref": "#/components/schemas/TilePosition"
+          },
+          "grain_value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "$ref": "#/components/schemas/TileQuery"
+          },
+          "description": {
+            "type": "string"
           }
         }
       },
@@ -4804,16 +5468,91 @@
           }
         }
       },
+      "TileQuery": {
+        "type": "object",
+        "description": "A `query` tile's SQL and how its result maps onto the chart. `source_tables` is derived\nby the server from the SQL at write time and returned for information; a client value is\nignored. Postgres dialect, one read statement, tables restricted to the semantic layer.\n",
+        "required": [
+          "sql"
+        ],
+        "properties": {
+          "sql": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dialect": {
+            "type": "string",
+            "default": "postgres"
+          },
+          "source_tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChartAxis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "y": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChartAxis"
+            }
+          },
+          "series_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TileSource": {
+        "type": "string",
+        "enum": [
+          "kpi",
+          "query"
+        ],
+        "description": "Where a tile's numbers come from. `kpi` (the default): a registered, ready KPI's gold\nview. `query`: the tile's own SQL, checked by the warehouse read guard and cached on the\ndashboard's refresh schedule.\n"
+      },
       "TileWrite": {
         "type": "object",
         "required": [
-          "kpi_identifier",
           "chart",
           "position"
         ],
+        "description": "A tile to create or replace. `source` defaults to `kpi`, which requires `kpi_identifier`;\n`query` requires `query`. `id`, when given on a whole-dashboard write, keeps that tile's\nidentity across the write instead of minting a new one -- what lets a per-tile edit leave\nevery other tile's id stable.\n",
         "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/TileSource"
+          },
           "kpi_identifier": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "type": "string"
@@ -4829,6 +5568,12 @@
               "string",
               "null"
             ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
           }
         }
       },
@@ -7689,6 +8434,16 @@
               },
               "examples": {
                 "default": {
+                  "summary": "A focus -- the areas the customer cares about, proposed for first.",
+                  "value": {
+                    "business_areas": [
+                      "customer",
+                      "marketing"
+                    ]
+                  }
+                },
+                "narrowed": {
+                  "summary": "The older single-area filter (1.1.5), still honoured.",
                   "value": {
                     "business_area": "supply_chain"
                   }
@@ -7714,11 +8469,14 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "queued",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": null,
                       "finished_at": null,
                       "result": null,
-                      "error": null
+                      "error": null,
+                      "phase": null,
+                      "typical_duration_seconds": 94.0
                     }
                   }
                 }
@@ -7805,6 +8563,7 @@
                           "grain": "supplier",
                           "result_shape": "scalar",
                           "rationale": "supplier_deliveries carries expected_date and actual_date for every delivery.",
+                          "business_value": "Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.",
                           "derived_from_tables": [
                             "supplier_deliveries"
                           ],
@@ -7895,11 +8654,14 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "running",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": null,
                       "result": null,
-                      "error": null
+                      "error": null,
+                      "phase": "proposing",
+                      "typical_duration_seconds": 94.0
                     }
                   },
                   "succeeded": {
@@ -7907,6 +8669,7 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "succeeded",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": "2026-09-14T10:01:27Z",
@@ -7921,6 +8684,7 @@
                             "grain": "supplier",
                             "result_shape": "scalar",
                             "rationale": "supplier_deliveries carries expected_date and actual_date for every delivery.",
+                            "business_value": "Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.",
                             "derived_from_tables": [
                               "supplier_deliveries"
                             ],
@@ -7942,7 +8706,9 @@
                         "notes": "",
                         "semantic_snapshot": "r3-contract.1"
                       },
-                      "error": null
+                      "error": null,
+                      "phase": "checking",
+                      "typical_duration_seconds": 94.0
                     }
                   },
                   "failed": {
@@ -7951,11 +8717,14 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "failed",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": "2026-09-14T10:03:01Z",
                       "result": null,
-                      "error": "The suggestion run did not finish within 180s."
+                      "error": "The suggestion run did not finish within 180s.",
+                      "phase": "proposing",
+                      "typical_duration_seconds": 94.0
                     }
                   }
                 }
@@ -8567,6 +9336,316 @@
                     "value": {
                       "detail": "No KPI 'kpi_9999'.",
                       "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/{kpi_id}/series": {
+      "get": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "getKpiSeries",
+        "summary": "This KPI's value over its last business dates, from gold.",
+        "description": "The rows the nightly run materialised for this KPI over the last `days` business dates, one point per night that has a row -- what the discovery detail panel graphs after a KPI is adopted. A read of `gold.kpi_value`, never a recomputation, so a KPI adopted today has no point until it is computed (`POST /kpis/{kpi_id}/compute`, or tonight's run). A KPI with a grain other than `overall` follows one dimension at a time; `dimension` picks it, else the first seen.",
+        "x-egpt-scopes": [
+          "kpis:read"
+        ],
+        "parameters": [
+          {
+            "name": "kpi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            },
+            "description": "How many business dates back from the latest one to read."
+          },
+          {
+            "name": "dimension",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A JSON object of grain-key values (e.g. `{\"brand\":\"Acme\"}`) naming which row of a per-dimension KPI to follow. Ignored for an `overall` KPI."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The series. Empty `points` with `status` saying why is a valid answer, never a 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiSeries"
+                },
+                "examples": {
+                  "overall": {
+                    "value": {
+                      "kpi_identifier": "contact__contact_count",
+                      "grain": "overall",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "Count",
+                      "dimension": null,
+                      "dimensions": [],
+                      "points": [
+                        {
+                          "at": "2026-09-12T23:59:59Z",
+                          "value": 1240
+                        },
+                        {
+                          "at": "2026-09-13T23:59:59Z",
+                          "value": 1262
+                        },
+                        {
+                          "at": "2026-09-14T23:59:59Z",
+                          "value": 1284
+                        }
+                      ],
+                      "value": 1284,
+                      "delta": 22,
+                      "as_of": "2026-09-14T23:59:59Z",
+                      "computed_at": "2026-09-15T02:20:00Z",
+                      "status": "fresh",
+                      "provenance_ref": "run_gold_20260915"
+                    }
+                  },
+                  "by_dimension": {
+                    "value": {
+                      "kpi_identifier": "rfq__quote_requests_by_brand",
+                      "grain": "brand",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "",
+                      "dimension": {
+                        "brand": "Acme"
+                      },
+                      "dimensions": [
+                        {
+                          "brand": "Acme"
+                        },
+                        {
+                          "brand": "Borealis"
+                        }
+                      ],
+                      "points": [
+                        {
+                          "at": "2026-09-01T23:59:59Z",
+                          "value": 1
+                        },
+                        {
+                          "at": "2026-09-14T23:59:59Z",
+                          "value": 1
+                        }
+                      ],
+                      "value": 1,
+                      "delta": 0,
+                      "as_of": "2026-09-14T23:59:59Z",
+                      "computed_at": "2026-09-14T04:44:54Z",
+                      "status": "fresh",
+                      "provenance_ref": "run_gold_20260914"
+                    }
+                  },
+                  "never_computed": {
+                    "value": {
+                      "kpi_identifier": "websession__active_user_count",
+                      "grain": "overall",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "",
+                      "dimension": null,
+                      "dimensions": [],
+                      "points": [],
+                      "value": null,
+                      "delta": null,
+                      "as_of": null,
+                      "computed_at": null,
+                      "status": "never_computed",
+                      "provenance_ref": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such KPI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No KPI 'kpi_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`dimension` is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "bad_dimension": {
+                    "value": {
+                      "detail": "dimension must be a JSON object of grain-key values, e.g. {\"brand\": \"Acme\"}.",
+                      "code": "invalid_dimension"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/{kpi_id}/compute": {
+      "post": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "computeKpi",
+        "summary": "Materialise this KPI for today, now.",
+        "description": "The nightly gold pass (`materialise_gold`) narrowed to one KPI and today's business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains today's point. What \"Add to my metrics\" calls so a newly adopted KPI has a value before its first night. A re-run on the same date overwrites that date's rows, never yesterday's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.",
+        "x-egpt-scopes": [
+          "kpis:write"
+        ],
+        "parameters": [
+          {
+            "name": "kpi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run's outcome for this KPI. A formula that fails is a `200` with `status: failed`; the request itself did what it said.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiComputeResult"
+                },
+                "examples": {
+                  "materialised": {
+                    "value": {
+                      "kpi_identifier": "contact__contact_count",
+                      "as_of": "2026-09-15",
+                      "status": "materialised",
+                      "rows_written": 1,
+                      "run_id": "api_3f9c1e7b2a40",
+                      "error": null,
+                      "reason": null
+                    }
+                  },
+                  "failed": {
+                    "value": {
+                      "kpi_identifier": "supplier__on_time_rate_30d",
+                      "as_of": "2026-09-15",
+                      "status": "failed",
+                      "rows_written": 0,
+                      "run_id": "api_3f9c1e7b2a40",
+                      "error": "column supplier_deliveries.actual_date does not exist",
+                      "reason": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: kpis:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such KPI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No KPI 'kpi_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The KPI is not `ready`; there is nothing gold could compute.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "blocked": {
+                    "value": {
+                      "detail": "campaign__spend_per_order is blocked: missing from the semantic snapshot: campaign_spend, campaigns.",
+                      "code": "not_ready"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Gold refused to run -- the last load did not pass, or a load holds the warehouse lock. The message says which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "refused": {
+                    "value": {
+                      "detail": "the last finished load was 'blocked', not 'passed' (row count fell 40%); gold is not rebuilt from silver the gates refused.",
+                      "code": "gold_refused"
                     }
                   }
                 }
@@ -13773,7 +14852,9 @@
                         "tiles": [
                           {
                             "id": "tl_1",
+                            "source": "kpi",
                             "kpi_identifier": "supplier__on_time_rate_30d",
+                            "query": null,
                             "title": "On-time rate (30d)",
                             "chart": "number",
                             "position": {
@@ -13782,11 +14863,16 @@
                               "w": 3,
                               "h": 2
                             },
-                            "grain_value": null
+                            "grain_value": null,
+                            "description": "Deliveries that arrived by their promised date",
+                            "last 30 days.": null,
+                            "rationale": ""
                           },
                           {
                             "id": "tl_2",
+                            "source": "kpi",
                             "kpi_identifier": "supplier__on_time_rate_30d",
+                            "query": null,
                             "title": "On-time rate by supplier",
                             "chart": "table",
                             "position": {
@@ -13795,12 +14881,37 @@
                               "w": 9,
                               "h": 4
                             },
-                            "grain_value": null
+                            "grain_value": null,
+                            "description": "",
+                            "rationale": ""
                           },
                           {
                             "id": "tl_3",
-                            "kpi_identifier": "stocklevel__stockout_risk_count",
-                            "title": "SKUs at stockout risk",
+                            "source": "query",
+                            "kpi_identifier": null,
+                            "query": {
+                              "sql": "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100",
+                              "dialect": "postgres",
+                              "source_tables": [
+                                "inventory"
+                              ],
+                              "x": {
+                                "column": "wk",
+                                "kind": "time",
+                                "label": "Week",
+                                "unit": ""
+                              },
+                              "y": [
+                                {
+                                  "column": "stockouts",
+                                  "kind": "category",
+                                  "label": "Stock-outs",
+                                  "unit": "count"
+                                }
+                              ],
+                              "series_by": null
+                            },
+                            "title": "Stock-outs by week",
                             "chart": "line",
                             "position": {
                               "x": 0,
@@ -13808,7 +14919,11 @@
                               "w": 3,
                               "h": 2
                             },
-                            "grain_value": "low"
+                            "grain_value": null,
+                            "description": "Inventory rows with zero on hand",
+                            "per week": null,
+                            "last 12 weeks.": null,
+                            "rationale": "The purpose asks where stock-outs are trending."
                           }
                         ],
                         "filters": [
@@ -13839,8 +14954,8 @@
           "dashboards"
         ],
         "operationId": "createDashboard",
-        "summary": "Create a dashboard from selected KPIs.",
-        "description": "Every `kpi_identifier` must exist and be `ready`; a blocked KPI cannot be tiled, because there would be nothing in gold to read.",
+        "summary": "Create a dashboard from kpi and query tiles.",
+        "description": "Every `kpi` tile's `kpi_identifier` must exist and be `ready`; a blocked KPI cannot be tiled, because there would be nothing in gold to read. Every `query` tile's SQL must pass the warehouse read guard; a refused statement is a 422 naming why. Query tiles are computed once on create, then on the refresh schedule.",
         "x-egpt-scopes": [
           "dashboards:write"
         ],
@@ -13858,6 +14973,7 @@
                     "description": "Supplier reliability at a glance.",
                     "tiles": [
                       {
+                        "source": "kpi",
                         "kpi_identifier": "supplier__on_time_rate_30d",
                         "title": "On-time rate (30d)",
                         "chart": "number",
@@ -13866,7 +14982,9 @@
                           "y": 0,
                           "w": 3,
                           "h": 2
-                        }
+                        },
+                        "description": "Deliveries that arrived by their promised date",
+                        "last 30 days.": null
                       }
                     ],
                     "filters": [
@@ -13900,7 +15018,9 @@
                       "tiles": [
                         {
                           "id": "tl_1",
+                          "source": "kpi",
                           "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
                           "title": "On-time rate (30d)",
                           "chart": "number",
                           "position": {
@@ -13909,7 +15029,10 @@
                             "w": 3,
                             "h": 2
                           },
-                          "grain_value": null
+                          "grain_value": null,
+                          "description": "Deliveries that arrived by their promised date",
+                          "last 30 days.": null,
+                          "rationale": ""
                         }
                       ],
                       "filters": [
@@ -13968,6 +15091,1000 @@
         }
       }
     },
+    "/dashboards/suggestions": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "startDashboardSuggestionRun",
+        "summary": "Compose a dashboard from a purpose and selected metrics; poll it for the result.",
+        "description": "An agent composing a dashboard -- charts, a name, and where it applies a `business_area`\nfilter -- for what the caller says they want to track. It reads the selected metrics'\ndefinitions, the semantic layer's tables and columns behind them (descriptions and\nreviewed meanings included, personal-data columns withheld) and the join edges between\nthem, then writes the charts the purpose needs: a metric's own SQL where it already\nanswers, a composed query across the tables where it does not. Every composed query is\nchecked by the warehouse read guard and dry-run before the caller sees it. A run rather\nthan a response, the same shape #254 gave KPI suggestions: returns the run `queued`, poll\n`GET /dashboards/suggestions/{run_id}` until `succeeded` (then `result` is the composed\ndashboard) or `failed`. Nothing is stored beyond the run row -- a suggestion becomes a\ndashboard only through `POST /dashboards`, so this needs `dashboards:read`.\n",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardSuggestionRunRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "purpose": "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks.",
+                    "kpi_identifiers": [
+                      "stocklevel__stockout_risk_count",
+                      "supplier__on_time_rate_30d"
+                    ],
+                    "table_names": [],
+                    "chart_budget": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. Poll the run for completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSuggestionRun"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "queued",
+                      "stage": null,
+                      "purpose": "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": null,
+                      "finished_at": null,
+                      "result": null,
+                      "error": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The purpose was empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "detail": "purpose must not be empty.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/suggestions/{run_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "getDashboardSuggestionRun",
+        "summary": "One dashboard suggestion run, for polling.",
+        "description": "Poll until `status` is `succeeded` or `failed`. A run whose serving instance was lost\nmid-run reports `failed` here once the deployment's timeout plus a grace period has\npassed, so a poller always reaches a terminal state.\n",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSuggestionRun"
+                },
+                "examples": {
+                  "running": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "running",
+                      "stage": "guarding",
+                      "purpose": "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": null,
+                      "result": null,
+                      "error": null
+                    }
+                  },
+                  "succeeded": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "succeeded",
+                      "stage": "done",
+                      "purpose": "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": "2026-09-15T10:00:42Z",
+                      "result": {
+                        "name": "Stock-outs vs margin",
+                        "charts": [
+                          {
+                            "title": "Late deliveries this week",
+                            "chart": "number",
+                            "source": "kpi",
+                            "kpi_identifier": "supplier__on_time_rate_30d",
+                            "grain_value": null,
+                            "query": null,
+                            "description": "Deliveries that arrived after their promised date, Monday to Sunday.",
+                            "rationale": "The purpose asks whether late suppliers are the cause; this is the metric already computed for it.",
+                            "guard": {
+                              "status": "ok",
+                              "detail": "",
+                              "tables": []
+                            },
+                            "preview": null
+                          },
+                          {
+                            "title": "Stock-outs by week",
+                            "chart": "line",
+                            "source": "query",
+                            "kpi_identifier": null,
+                            "grain_value": null,
+                            "query": {
+                              "sql": "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100",
+                              "dialect": "postgres",
+                              "source_tables": [
+                                "inventory"
+                              ],
+                              "x": {
+                                "column": "wk",
+                                "kind": "time",
+                                "label": "Week",
+                                "unit": ""
+                              },
+                              "y": [
+                                {
+                                  "column": "stockouts",
+                                  "kind": "category",
+                                  "label": "Stock-outs",
+                                  "unit": "count"
+                                }
+                              ],
+                              "series_by": null
+                            },
+                            "description": "Inventory rows with zero on hand, per week, last 12 weeks.",
+                            "rationale": "Shows whether stock-outs are trending in the window the purpose names.",
+                            "guard": {
+                              "status": "ok",
+                              "detail": "",
+                              "tables": [
+                                "inventory"
+                              ]
+                            },
+                            "preview": {
+                              "guard": {
+                                "status": "ok",
+                                "detail": "",
+                                "tables": [
+                                  "inventory"
+                                ]
+                              },
+                              "sql": "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100",
+                              "columns": [
+                                "wk",
+                                "stockouts"
+                              ],
+                              "rows": [
+                                {
+                                  "wk": "2026-06-22T00:00:00",
+                                  "stockouts": 31
+                                },
+                                {
+                                  "wk": "2026-06-29T00:00:00",
+                                  "stockouts": 34
+                                }
+                              ],
+                              "duration_ms": 412,
+                              "error": null
+                            }
+                          }
+                        ],
+                        "filters": [
+                          {
+                            "field": "business_area",
+                            "value": "supply_chain"
+                          }
+                        ],
+                        "notes": "",
+                        "context": {
+                          "kpi_identifiers": [
+                            "stocklevel__stockout_risk_count",
+                            "supplier__on_time_rate_30d"
+                          ],
+                          "table_names": [
+                            "inventory",
+                            "supplier_deliveries",
+                            "products"
+                          ],
+                          "described_columns": 21,
+                          "total_columns": 24,
+                          "withheld_columns": [
+                            "customers.email"
+                          ]
+                        }
+                      },
+                      "error": null
+                    }
+                  },
+                  "failed": {
+                    "summary": "The bound was hit; the row says so instead of the request hanging.",
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "failed",
+                      "stage": "drafting",
+                      "purpose": "Show me where stock-outs are costing us margin and whether late suppliers are the cause. Weekly, last 12 weeks.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": "2026-09-15T10:03:01Z",
+                      "result": null,
+                      "error": "The suggestion run did not finish within 180s."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No suggestion run 'dsr_missing'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/queries/preview": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "previewDashboardQuery",
+        "summary": "Check one query against the warehouse read guard and run it, bounded.",
+        "description": "What the chart editor's \"Run preview\" calls. The statement goes through the same guard\nevery other retail read passes -- one read statement, tables restricted to the semantic\nlayer (narrowed to `table_names` when given), personal-data columns dropped from the\nprojection, a LIMIT added or lowered to the row cap -- and, when it passes, runs with a\nshort statement timeout and returns at most 50 rows. Nothing is stored.\n",
+        "x-egpt-scopes": [
+          "dashboards:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryPreviewRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "query": {
+                      "sql": "SELECT category, sum(total_amount) AS revenue FROM silver.orders o JOIN silver.products p ON p.product_id = o.product_id GROUP BY 1 ORDER BY 2 DESC"
+                    },
+                    "table_names": [
+                      "orders",
+                      "products"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The verdict and, when the statement ran, a sample of its result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryPreview"
+                },
+                "examples": {
+                  "rewritten": {
+                    "summary": "Passed after the guard added a LIMIT.",
+                    "value": {
+                      "guard": {
+                        "status": "rewritten",
+                        "detail": "Added LIMIT 1000 (the row cap).",
+                        "tables": [
+                          "orders",
+                          "products"
+                        ]
+                      },
+                      "sql": "SELECT category, sum(total_amount) AS revenue FROM silver.orders AS o JOIN silver.products AS p ON p.product_id = o.product_id GROUP BY 1 ORDER BY 2 DESC LIMIT 1000",
+                      "columns": [
+                        "category",
+                        "revenue"
+                      ],
+                      "rows": [
+                        {
+                          "category": "Dairy",
+                          "revenue": 42300.0
+                        },
+                        {
+                          "category": "Bakery",
+                          "revenue": 31050.0
+                        }
+                      ],
+                      "duration_ms": 412,
+                      "error": null
+                    }
+                  },
+                  "refused": {
+                    "summary": "The guard refused; nothing ran.",
+                    "value": {
+                      "guard": {
+                        "status": "refused",
+                        "detail": "Not permitted to read shipments: outside the semantic layer's allow-list.",
+                        "tables": [
+                          "shipments"
+                        ]
+                      },
+                      "sql": "SELECT * FROM shipments",
+                      "columns": [],
+                      "rows": [],
+                      "duration_ms": 0,
+                      "error": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/{dashboard_id}/tiles": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "addDashboardTile",
+        "summary": "Add one tile to a dashboard.",
+        "description": "Same checks as `POST /dashboards` for the one tile. A `query` tile is computed once here so it renders immediately. Every other tile's id is unchanged.",
+        "x-egpt-scopes": [
+          "dashboards:write"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TileWrite"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "source": "query",
+                    "query": {
+                      "sql": "SELECT supplier_id, count(*) AS late FROM silver.supplier_deliveries WHERE delivered_at > promised_at GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
+                      "x": {
+                        "column": "supplier_id",
+                        "kind": "category"
+                      },
+                      "y": [
+                        {
+                          "column": "late",
+                          "label": "Late deliveries",
+                          "unit": "count"
+                        }
+                      ]
+                    },
+                    "title": "Late deliveries by supplier",
+                    "chart": "bar",
+                    "position": {
+                      "x": 0,
+                      "y": 4,
+                      "w": 6,
+                      "h": 2
+                    },
+                    "description": "Suppliers with the most deliveries after their promised date."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The dashboard, with the new tile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "dsh_supply",
+                      "name": "Supply chain",
+                      "description": "Supplier reliability at a glance.",
+                      "tiles": [
+                        {
+                          "id": "tl_1",
+                          "source": "kpi",
+                          "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
+                          "title": "On-time rate (30d)",
+                          "chart": "number",
+                          "position": {
+                            "x": 0,
+                            "y": 0,
+                            "w": 3,
+                            "h": 2
+                          },
+                          "grain_value": null,
+                          "description": "Deliveries that arrived by their promised date",
+                          "last 30 days.": null,
+                          "rationale": ""
+                        },
+                        {
+                          "id": "tl_4",
+                          "source": "query",
+                          "kpi_identifier": null,
+                          "query": {
+                            "sql": "SELECT supplier_id, count(*) AS late FROM silver.supplier_deliveries WHERE delivered_at > promised_at GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
+                            "dialect": "postgres",
+                            "source_tables": [
+                              "supplier_deliveries"
+                            ],
+                            "x": {
+                              "column": "supplier_id",
+                              "kind": "category",
+                              "label": "",
+                              "unit": ""
+                            },
+                            "y": [
+                              {
+                                "column": "late",
+                                "kind": "category",
+                                "label": "Late deliveries",
+                                "unit": "count"
+                              }
+                            ],
+                            "series_by": null
+                          },
+                          "title": "Late deliveries by supplier",
+                          "chart": "bar",
+                          "position": {
+                            "x": 0,
+                            "y": 4,
+                            "w": 6,
+                            "h": 2
+                          },
+                          "grain_value": null,
+                          "description": "Suppliers with the most deliveries after their promised date.",
+                          "rationale": ""
+                        }
+                      ],
+                      "filters": [
+                        {
+                          "field": "business_area",
+                          "value": "supply_chain"
+                        }
+                      ],
+                      "refresh_schedule": "nightly",
+                      "visibility": "team",
+                      "owner": "analyst@example.test",
+                      "created_at": "2026-09-07T11:00:00Z",
+                      "updated_at": "2026-09-15T10:05:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The tile's KPI is not ready, or its query was refused by the guard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "refused": {
+                    "value": {
+                      "detail": "Not permitted to read shipments: outside the semantic layer's allow-list.",
+                      "code": "query_refused"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/{dashboard_id}/tiles/{tile_id}": {
+      "patch": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "updateDashboardTile",
+        "summary": "Edit one tile. Omitted fields are left unchanged; the tile keeps its id.",
+        "description": "A changed `query` is re-checked by the guard (422 when refused) and recomputed. `description` alone is the edit-in-place under a chart.",
+        "x-egpt-scopes": [
+          "dashboards:write"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TilePatch"
+              },
+              "examples": {
+                "description_only": {
+                  "value": {
+                    "description": "Share of trading hours where a store had zero on-hand units of a listed SKU."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The dashboard, with the edited tile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "dsh_supply",
+                      "name": "Supply chain",
+                      "description": "Supplier reliability at a glance.",
+                      "tiles": [
+                        {
+                          "id": "tl_1",
+                          "source": "kpi",
+                          "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
+                          "title": "On-time rate (30d)",
+                          "chart": "number",
+                          "position": {
+                            "x": 0,
+                            "y": 0,
+                            "w": 3,
+                            "h": 2
+                          },
+                          "grain_value": null,
+                          "description": "Share of trading hours where a store had zero on-hand units of a listed SKU.",
+                          "rationale": ""
+                        }
+                      ],
+                      "filters": [
+                        {
+                          "field": "business_area",
+                          "value": "supply_chain"
+                        }
+                      ],
+                      "refresh_schedule": "nightly",
+                      "visibility": "team",
+                      "owner": "analyst@example.test",
+                      "created_at": "2026-09-07T11:00:00Z",
+                      "updated_at": "2026-09-15T10:06:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The new query was refused by the guard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "deleteDashboardTile",
+        "summary": "Remove one tile.",
+        "x-egpt-scopes": [
+          "dashboards:write"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/{dashboard_id}/refresh": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "refreshDashboard",
+        "summary": "Recompute every query tile now.",
+        "description": "Runs each `query` tile through the guard and the warehouse, bounded per statement, and replaces its cached result. `kpi` tiles are untouched -- gold refreshes on its own schedule. This is the \"Refresh now\" a `manual` schedule relies on.",
+        "x-egpt-scopes": [
+          "dashboards:write"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recomputed data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardData"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "dashboard_id": "dsh_supply",
+                      "tiles": [
+                        {
+                          "tile_id": "tl_1",
+                          "kpi_identifier": "supplier__on_time_rate_30d",
+                          "status": "fresh",
+                          "value": 0.91,
+                          "unit": "%",
+                          "delta": -0.04,
+                          "series": [
+                            {
+                              "at": "2026-08-31T00:00:00Z",
+                              "value": 0.95
+                            },
+                            {
+                              "at": "2026-09-07T00:00:00Z",
+                              "value": 0.91
+                            }
+                          ],
+                          "rows": [],
+                          "columns": [],
+                          "as_of": "2026-09-06T23:59:59Z",
+                          "computed_at": "2026-09-07T02:20:00Z",
+                          "provenance_ref": "run_gold_20260907"
+                        },
+                        {
+                          "tile_id": "tl_3",
+                          "kpi_identifier": null,
+                          "status": "fresh",
+                          "value": null,
+                          "unit": "count",
+                          "delta": 3,
+                          "series": [
+                            {
+                              "at": "2026-06-22T00:00:00Z",
+                              "value": 31
+                            },
+                            {
+                              "at": "2026-06-29T00:00:00Z",
+                              "value": 34
+                            }
+                          ],
+                          "rows": [
+                            {
+                              "wk": "2026-06-22T00:00:00",
+                              "stockouts": 31
+                            },
+                            {
+                              "wk": "2026-06-29T00:00:00",
+                              "stockouts": 34
+                            }
+                          ],
+                          "columns": [
+                            "wk",
+                            "stockouts"
+                          ],
+                          "as_of": null,
+                          "computed_at": "2026-09-15T10:07:00Z",
+                          "provenance_ref": null
+                        }
+                      ],
+                      "read_at": "2026-09-15T10:07:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/{dashboard_id}": {
       "get": {
         "tags": [
@@ -14005,7 +16122,9 @@
                       "tiles": [
                         {
                           "id": "tl_1",
+                          "source": "kpi",
                           "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
                           "title": "On-time rate (30d)",
                           "chart": "number",
                           "position": {
@@ -14014,11 +16133,16 @@
                             "w": 3,
                             "h": 2
                           },
-                          "grain_value": null
+                          "grain_value": null,
+                          "description": "Deliveries that arrived by their promised date",
+                          "last 30 days.": null,
+                          "rationale": ""
                         },
                         {
                           "id": "tl_2",
+                          "source": "kpi",
                           "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
                           "title": "On-time rate by supplier",
                           "chart": "table",
                           "position": {
@@ -14027,7 +16151,9 @@
                             "w": 9,
                             "h": 4
                           },
-                          "grain_value": null
+                          "grain_value": null,
+                          "description": "",
+                          "rationale": ""
                         }
                       ],
                       "filters": [
@@ -14121,7 +16247,9 @@
                       "tiles": [
                         {
                           "id": "tl_1",
+                          "source": "kpi",
                           "kpi_identifier": "supplier__on_time_rate_30d",
+                          "query": null,
                           "title": "On-time rate (30d)",
                           "chart": "number",
                           "position": {
@@ -14130,7 +16258,10 @@
                             "w": 3,
                             "h": 2
                           },
-                          "grain_value": null
+                          "grain_value": null,
+                          "description": "Deliveries that arrived by their promised date",
+                          "last 30 days.": null,
+                          "rationale": ""
                         }
                       ],
                       "filters": [
@@ -14256,8 +16387,8 @@
           "dashboards"
         ],
         "operationId": "getDashboardData",
-        "summary": "Every tile's values, from gold.",
-        "description": "One read per dashboard, not one per tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its gold rows hold.",
+        "summary": "Every tile's values -- kpi tiles from gold, query tiles from their cached result.",
+        "description": "One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its rows hold.",
         "x-egpt-scopes": [
           "dashboards:read"
         ],
@@ -14334,16 +16465,38 @@
                         },
                         {
                           "tile_id": "tl_3",
-                          "kpi_identifier": "stocklevel__stockout_risk_count",
-                          "status": "failed",
+                          "kpi_identifier": null,
+                          "status": "fresh",
                           "value": null,
-                          "unit": "Count",
-                          "delta": null,
-                          "series": [],
-                          "rows": [],
-                          "as_of": "2026-09-05T23:59:59Z",
-                          "computed_at": "2026-09-06T02:20:00Z",
-                          "provenance_ref": "run_gold_20260906"
+                          "unit": "count",
+                          "delta": 3,
+                          "series": [
+                            {
+                              "at": "2026-06-22T00:00:00Z",
+                              "value": 31
+                            },
+                            {
+                              "at": "2026-06-29T00:00:00Z",
+                              "value": 34
+                            }
+                          ],
+                          "rows": [
+                            {
+                              "wk": "2026-06-22T00:00:00",
+                              "stockouts": 31
+                            },
+                            {
+                              "wk": "2026-06-29T00:00:00",
+                              "stockouts": 34
+                            }
+                          ],
+                          "columns": [
+                            "wk",
+                            "stockouts"
+                          ],
+                          "as_of": null,
+                          "computed_at": "2026-09-07T02:31:00Z",
+                          "provenance_ref": null
                         }
                       ],
                       "read_at": "2026-09-07T11:10:00Z"
