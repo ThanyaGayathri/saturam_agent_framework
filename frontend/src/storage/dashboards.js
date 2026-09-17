@@ -148,12 +148,11 @@ export function tilesToWrite(tiles) {
  * The `DashboardWrite` body for the create-dashboard flow. The manual path hands in
  * `metrics` (wire-ready KPI-shaped objects: `identifier`/`name`/`unit`); the composed path
  * hands in `charts` (the review step's chart list) and wins when both are given.
- * `businessAreaFilter` is a single `business_area` value or falsy for none. The contract's
- * `DashboardFilterField` also has `time_window`, but nothing in this app constructs a value
- * for it yet (no defined format anywhere in the contract) - this flow only ever writes
- * `business_area`, which has a real, validated vocabulary behind it.
+ * `filterColumns` is the checklist's selection - `{table, column}` pairs (R13.1) naming which
+ * columns become end-user filter dropdowns on the published dashboard; picking a value in one
+ * is view-time state, never written here (see `fetchDashboardData`'s `filters` option).
  */
-export function buildDashboardWritePayload({ name, refresh, metrics, charts, businessAreaFilter }) {
+export function buildDashboardWritePayload({ name, refresh, metrics, charts, filterColumns }) {
  const tiles = charts
   ? charts.map((chart, index) => tileWriteFromChart(chart, index))
   : (metrics || []).map((kpi, index) => tileWriteFromKpi(kpi, index));
@@ -161,9 +160,7 @@ export function buildDashboardWritePayload({ name, refresh, metrics, charts, bus
   name: String(name || "").trim() || "Untitled dashboard",
   refresh_schedule: refresh,
   tiles,
-  filters: businessAreaFilter
-   ? [{ field: "business_area", value: businessAreaFilter }]
-   : [],
+  filters: (filterColumns || []).map(({ table, column }) => ({ table, column })),
  };
 }
 

@@ -27,9 +27,34 @@ export function fetchDashboard(id) {
 }
 
 /** `GET /dashboards/{id}/data` - every tile's current value/series/rows: `kpi` tiles from
- * gold, `query` tiles from their cached result. Never runs a tile's SQL. */
-export function fetchDashboardData(id) {
-  return apiGet(`/dashboards/${id}/data`);
+ * gold, `query` tiles from their cached result unless a filter is active. `filters`, when
+ * given, is a `{ "table.column": [value, ...] }` map of the dashboard's own filter columns
+ * with values picked - a column left out or with an empty list is ignored (same as picking
+ * "All"). With at least one active, every `query` tile is recomputed live through the guard,
+ * AND-combining every selection that applies to it. */
+export function fetchDashboardData(id, { filters } = {}) {
+  const params = new URLSearchParams();
+  for (const [key, values] of Object.entries(filters || {})) {
+    if (values && values.length > 0) params.append("f", `${key}:${values.join(",")}`);
+  }
+  const query = params.toString();
+  return apiGet(`/dashboards/${id}/data${query ? `?${query}` : ""}`);
+}
+
+/** `GET /dashboards/{id}/filter-columns` - candidate `{table, column}` pairs across this
+ * dashboard's own `query` tiles (text-typed, non-personal-data columns of the tables those
+ * tiles read). Drives the creation-step filter picker. Empty when the dashboard has no
+ * `query` tile. */
+export function fetchDashboardFilterColumns(id) {
+  return apiGet(`/dashboards/${id}/filter-columns`);
+}
+
+/** `GET /dashboards/{id}/filter-values?table=..&column=..` - distinct values of one of this
+ * dashboard's *chosen* filter columns, for its dropdown. 422s for a pair that isn't one of
+ * the dashboard's own `filters`. Resolves to `{table, column, values: [string, ...]}`. */
+export function fetchDashboardFilterValues(id, { table, column }) {
+  const params = new URLSearchParams({ table, column });
+  return apiGet(`/dashboards/${id}/filter-values?${params}`);
 }
 
 /** `POST /dashboards` - `body` is a `DashboardWrite`: `{name, description?, tiles?, filters?,

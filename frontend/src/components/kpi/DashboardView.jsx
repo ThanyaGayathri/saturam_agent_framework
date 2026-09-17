@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
 import AiGeneratingStep from "./create-dashboard/AiGeneratingStep";
+import DashboardFilterBar from "./DashboardFilterBar";
 import { useDashboardSuggestionRun } from "../../hooks/useDashboardSuggestionRun";
 import { REFRESH_OPTIONS, labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
 import {
@@ -17,6 +18,22 @@ import {
  updateDashboardApi,
  updateDashboardTile,
 } from "../../services/dashboards-api";
+
+/** Every filter selection lives in the URL as `f.<table>.<column>=value1,value2` - per-viewer,
+ * shareable, bookmarkable view-time state (R13.1), same justification `KpiDiscoveryPage.jsx`
+ * already documents for its own search params. A column left out, or with an empty list, is
+ * "All" and is dropped from the query. */
+const FILTER_PARAM_PREFIX = "f.";
+
+function selectedFiltersFromParams(searchParams) {
+ const result = {};
+ for (const [key, value] of searchParams.entries()) {
+  if (!key.startsWith(FILTER_PARAM_PREFIX)) continue;
+  const values = value.split(",").filter(Boolean);
+  if (values.length > 0) result[key.slice(FILTER_PARAM_PREFIX.length)] = values;
+ }
+ return result;
+}
 
 /**
  * A saved dashboard, wired to the real `dashboards.py` (D2 #233; composed charts, 1.2.0):
@@ -46,6 +63,9 @@ import {
 export default function DashboardView() {
  const { dashboardId } = useParams();
  const navigate = useNavigate();
+ const [searchParams, setSearchParams] = useSearchParams();
+ const selectedFilters = selectedFiltersFromParams(searchParams);
+ const filtersKey = searchParams.toString();
  const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
  const [dataState, setDataState] = useState({ status: "loading", byTileId: {}, error: null });
  const [actionError, setActionError] = useState(null);
@@ -95,9 +115,9 @@ export default function DashboardView() {
  const currentDashboardIdRef = useRef(dashboardId);
  currentDashboardIdRef.current = dashboardId;
 
- const loadData = useCallback((id) => {
+ const loadData = useCallback((id, filters) => {
   setDataState({ status: "loading", byTileId: {}, error: null });
-  fetchDashboardData(id)
+  fetchDashboardData(id, { filters })
    .then((data) => {
     if (currentDashboardIdRef.current !== id) return;
     const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
@@ -122,8 +142,11 @@ export default function DashboardView() {
   // left, and its composed chart must not land on the one being opened.
   resetCompose();
   setAddingChart(null);
-  // Both requests only need `dashboardId`, so they fire together rather than sequentially
-  // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
+  // The dashboard's own definition and its tile data are two separate effects (this one, and
+  // the one just below) so a filter change - which only ever needs to redo the data half - does
+  // not also reset `pendingSchedule`/`addingChart`/the compose run below. They still both fire
+  // on the very same render when `dashboardId` changes (mount or switch), so opening a
+  // dashboard costs one round trip's worth of latency, not two sequential ones.
   fetchDashboard(dashboardId)
    .then((dashboard) => {
     if (cancelled) return;
@@ -132,15 +155,22 @@ export default function DashboardView() {
    .catch((error) => {
     if (!cancelled) setDashboardState({ status: "error", dashboard: null, error });
    });
-  loadData(dashboardId);
   return () => {
    cancelled = true;
   };
-  // `resetCompose`/`loadData` close over stable callbacks (`composeRun.reset` never changes
-  // identity); listing the whole `composeRun` object as a dep would re-run this effect (and
-  // refetch the dashboard) on every poll tick.
+  // `resetCompose` closes over a stable callback (`composeRun.reset` never changes identity);
+  // listing the whole `composeRun` object as a dep would re-run this effect (and refetch the
+  // dashboard) on every poll tick.
   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [dashboardId, loadData]);
+ }, [dashboardId]);
+
+ // Reloads the tile data whenever the dashboard changes OR the URL's filter selection does.
+ // Re-parses `filtersKey` rather than depending on `selectedFilters` directly, which is a
+ // fresh object every render and would re-run this on every render rather than only when the
+ // filters actually change.
+ useEffect(() => {
+  loadData(dashboardId, selectedFiltersFromParams(new URLSearchParams(filtersKey)));
+ }, [dashboardId, filtersKey, loadData]);
 
  // Once the run succeeds, hand its first chart to the editor -- nothing is saved until the
  // person clicks Save there. The budget asked for one chart; the agent may still return
@@ -191,6 +221,20 @@ export default function DashboardView() {
  const { dashboard } = dashboardState;
  const editingTile = editingTileId ? dashboard.tiles.find((t) => t.id === editingTileId) : null;
 
+ // `next` is the complete filter map (`DashboardFilterBar` always hands back the whole thing,
+ // not a per-column patch) - every existing `f.*` param is replaced, not merged, so clearing a
+ // column (an empty list) actually removes its param instead of leaving a stale `f.x=` behind.
+ const handleFiltersChange = (next) => {
+  const params = new URLSearchParams(searchParams);
+  for (const key of Array.from(params.keys())) {
+   if (key.startsWith(FILTER_PARAM_PREFIX)) params.delete(key);
+  }
+  for (const [key, values] of Object.entries(next)) {
+   if (values && values.length > 0) params.set(`${FILTER_PARAM_PREFIX}${key}`, values.join(","));
+  }
+  setSearchParams(params, { replace: true });
+ };
+
  const handleDelete = async () => {
   if (!window.confirm(`Delete "${dashboard.name}"?`)) return;
   setActionError(null);
@@ -206,9 +250,13 @@ export default function DashboardView() {
   setActionError(null);
   setBusy(true);
   try {
-   const data = await refreshDashboardApi(dashboard.id);
-   const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
-   setDataState({ status: "ready", byTileId, error: null });
+   await refreshDashboardApi(dashboard.id);
+   // `refreshDashboardApi` recomputes the *cached* result every viewer reads by default; a
+   // filter in view here is live, per-viewer state (see `loadData`'s own `filters` argument)
+   // that this call knows nothing about, so re-fetch through the same filtered path rather
+   // than trusting its (always-unfiltered) response directly -- otherwise "Refresh now" while
+   // a filter is active would silently drop it from what's shown.
+   loadData(dashboard.id, selectedFilters);
   } catch (err) {
    setActionError(err?.message || "Could not refresh this dashboard.");
   } finally {
@@ -399,6 +447,13 @@ export default function DashboardView() {
      </button>
     </div>
    </div>
+
+   <DashboardFilterBar
+    dashboardId={dashboard.id}
+    filters={dashboard.filters}
+    selected={selectedFilters}
+    onChange={handleFiltersChange}
+   />
 
    {actionError && (
     <p className="rounded-lg border border-status-critical/30 bg-status-critical/10 px-3 py-2 text-xs font-medium text-status-critical">

@@ -30,7 +30,7 @@ __all__ = [
     "ChartAxis",
     "ChartKind",
     "Dashboard",
-    "DashboardFilter",
+    "DashboardFilterColumn",
     "RefreshSchedule",
     "Tile",
     "TilePosition",
@@ -190,9 +190,23 @@ class Tile:
 
 
 @dataclass(frozen=True)
-class DashboardFilter:
-    field: str
-    value: str
+class DashboardFilterColumn:
+    """A column exposed as an end-user filter on the published dashboard.
+
+    A definition, not a selection: it names which ``(table, column)`` becomes a dropdown
+    on the dashboard, never a value someone picked in it. What a viewer picks is per-viewer,
+    transient view-time state, not part of the saved dashboard (R13.1)."""
+
+    table: str
+    column: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "table", self.table.strip().lower())
+        object.__setattr__(self, "column", self.column.strip().lower())
+        if not self.table:
+            raise ValueError("filter column must name a table")
+        if not self.column:
+            raise ValueError("filter column must name a column")
 
 
 @dataclass(frozen=True)
@@ -204,7 +218,7 @@ class Dashboard:
     updated_at: datetime
     description: str = ""
     tiles: Tuple[Tile, ...] = ()
-    filters: Tuple[DashboardFilter, ...] = ()
+    filters: Tuple[DashboardFilterColumn, ...] = ()
     refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY
     visibility: Visibility = Visibility.PRIVATE
 

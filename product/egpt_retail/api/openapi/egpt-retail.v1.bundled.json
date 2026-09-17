@@ -972,7 +972,7 @@
           "filters": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/DashboardFilter"
+              "$ref": "#/components/schemas/DashboardFilterColumn"
             }
           },
           "refresh_schedule": {
@@ -1078,31 +1078,48 @@
           }
         }
       },
-      "DashboardFilter": {
+      "DashboardFilterColumn": {
         "type": "object",
+        "description": "A column exposed as an end-user filter on the published dashboard -- a definition, never a\nselection: it names which `(table, column)` becomes a dropdown, not a value someone picked\nin it. What a viewer picks is per-viewer, transient view-time state carried in the URL of\n`GET /dashboards/{id}/data`, never part of the saved dashboard (R13.1).\n",
         "required": [
-          "field",
-          "value"
+          "table",
+          "column"
         ],
         "properties": {
-          "field": {
-            "$ref": "#/components/schemas/DashboardFilterField"
+          "table": {
+            "type": "string"
           },
-          "value": {
+          "column": {
             "type": "string"
           }
         }
       },
-      "DashboardFilterField": {
-        "type": "string",
-        "enum": [
-          "business_area",
-          "time_window"
-        ]
+      "DashboardFilterValues": {
+        "type": "object",
+        "description": "Distinct values of one of a dashboard's chosen filter columns, for its dropdown.",
+        "required": [
+          "table",
+          "column",
+          "values"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "column": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "DashboardSuggestion": {
         "type": "object",
-        "description": "A suggested dashboard for the given purpose, editable before creation: a name, the charts\nthe agent composed from the selected metrics and the tables behind them, and -- when the\npurpose names one -- a `business_area` filter, the one `DashboardFilterField` with a\nwell-defined value space (`time_window` has no established value shape in this contract\nyet, #222). `context` says what the agent was shown.\n",
+        "description": "A suggested dashboard for the given purpose, editable before creation: a name and the\ncharts the agent composed from the selected metrics and the tables behind them. `filters`\nis always empty here -- a filter is now a chosen `(table, column)` (R13.1), which the agent\nhas no basis to pick on its own; a person adds filter columns afterward in the dashboard\nbuilder. `context` says what the agent was shown.\n",
         "required": [
           "name",
           "charts",
@@ -1122,7 +1139,7 @@
           "filters": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/DashboardFilter"
+              "$ref": "#/components/schemas/DashboardFilterColumn"
             }
           },
           "notes": {
@@ -1279,7 +1296,7 @@
           "filters": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/DashboardFilter"
+              "$ref": "#/components/schemas/DashboardFilterColumn"
             }
           },
           "refresh_schedule": {
@@ -12409,8 +12426,8 @@
                         ],
                         "filters": [
                           {
-                            "field": "business_area",
-                            "value": "supply_chain"
+                            "table": "inventory",
+                            "column": "category"
                           }
                         ],
                         "refresh_schedule": "nightly",
@@ -12466,12 +12483,41 @@
                         },
                         "description": "Deliveries that arrived by their promised date",
                         "last 30 days.": null
+                      },
+                      {
+                        "source": "query",
+                        "query": {
+                          "sql": "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100",
+                          "source_tables": [
+                            "inventory"
+                          ],
+                          "x": {
+                            "column": "wk",
+                            "kind": "time"
+                          },
+                          "y": [
+                            {
+                              "column": "stockouts"
+                            }
+                          ]
+                        },
+                        "title": "Stock-outs by week",
+                        "chart": "line",
+                        "position": {
+                          "x": 0,
+                          "y": 2,
+                          "w": 3,
+                          "h": 2
+                        },
+                        "description": "Inventory rows with zero on hand",
+                        "per week": null,
+                        "last 12 weeks.": null
                       }
                     ],
                     "filters": [
                       {
-                        "field": "business_area",
-                        "value": "supply_chain"
+                        "table": "inventory",
+                        "column": "category"
                       }
                     ],
                     "refresh_schedule": "nightly",
@@ -12514,12 +12560,52 @@
                           "description": "Deliveries that arrived by their promised date",
                           "last 30 days.": null,
                           "rationale": ""
+                        },
+                        {
+                          "id": "tl_3",
+                          "source": "query",
+                          "kpi_identifier": null,
+                          "query": {
+                            "sql": "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100",
+                            "dialect": "postgres",
+                            "source_tables": [
+                              "inventory"
+                            ],
+                            "x": {
+                              "column": "wk",
+                              "kind": "time",
+                              "label": "",
+                              "unit": ""
+                            },
+                            "y": [
+                              {
+                                "column": "stockouts",
+                                "kind": "category",
+                                "label": "",
+                                "unit": ""
+                              }
+                            ],
+                            "series_by": null
+                          },
+                          "title": "Stock-outs by week",
+                          "chart": "line",
+                          "position": {
+                            "x": 0,
+                            "y": 2,
+                            "w": 3,
+                            "h": 2
+                          },
+                          "grain_value": null,
+                          "description": "Inventory rows with zero on hand",
+                          "per week": null,
+                          "last 12 weeks.": null,
+                          "rationale": ""
                         }
                       ],
                       "filters": [
                         {
-                          "field": "business_area",
-                          "value": "supply_chain"
+                          "table": "inventory",
+                          "column": "category"
                         }
                       ],
                       "refresh_schedule": "nightly",
@@ -12579,7 +12665,7 @@
         ],
         "operationId": "startDashboardSuggestionRun",
         "summary": "Compose a dashboard from a purpose and selected metrics; poll it for the result.",
-        "description": "An agent composing a dashboard -- charts, a name, and where it applies a `business_area`\nfilter -- for what the caller says they want to track. It reads the selected metrics'\ndefinitions, the semantic layer's tables and columns behind them (descriptions and\nreviewed meanings included, personal-data columns withheld) and the join edges between\nthem, then writes the charts the purpose needs: a metric's own SQL where it already\nanswers, a composed query across the tables where it does not. Every composed query is\nchecked by the warehouse read guard and dry-run before the caller sees it. A run rather\nthan a response, the same shape #254 gave KPI suggestions: returns the run `queued`, poll\n`GET /dashboards/suggestions/{run_id}` until `succeeded` (then `result` is the composed\ndashboard) or `failed`. Nothing is stored beyond the run row -- a suggestion becomes a\ndashboard only through `POST /dashboards`, so this needs `dashboards:read`.\n",
+        "description": "An agent composing a dashboard -- charts and a name -- for what the caller says they\nwant to track (filter columns are added afterward, by a person, in the dashboard\nbuilder). It reads the selected metrics'\ndefinitions, the semantic layer's tables and columns behind them (descriptions and\nreviewed meanings included, personal-data columns withheld) and the join edges between\nthem, then writes the charts the purpose needs: a metric's own SQL where it already\nanswers, a composed query across the tables where it does not. Every composed query is\nchecked by the warehouse read guard and dry-run before the caller sees it. A run rather\nthan a response, the same shape #254 gave KPI suggestions: returns the run `queued`, poll\n`GET /dashboards/suggestions/{run_id}` until `succeeded` (then `result` is the composed\ndashboard) or `failed`. Nothing is stored beyond the run row -- a suggestion becomes a\ndashboard only through `POST /dashboards`, so this needs `dashboards:read`.\n",
         "x-egpt-scopes": [
           "dashboards:read"
         ],
@@ -12809,8 +12895,8 @@
                         ],
                         "filters": [
                           {
-                            "field": "business_area",
-                            "value": "supply_chain"
+                            "table": "inventory",
+                            "column": "category"
                           }
                         ],
                         "notes": "",
@@ -13141,8 +13227,8 @@
                       ],
                       "filters": [
                         {
-                          "field": "business_area",
-                          "value": "supply_chain"
+                          "table": "inventory",
+                          "column": "category"
                         }
                       ],
                       "refresh_schedule": "nightly",
@@ -13294,8 +13380,8 @@
                       ],
                       "filters": [
                         {
-                          "field": "business_area",
-                          "value": "supply_chain"
+                          "table": "inventory",
+                          "column": "category"
                         }
                       ],
                       "refresh_schedule": "nightly",
@@ -13639,8 +13725,8 @@
                       ],
                       "filters": [
                         {
-                          "field": "business_area",
-                          "value": "supply_chain"
+                          "table": "inventory",
+                          "column": "category"
                         }
                       ],
                       "refresh_schedule": "nightly",
@@ -13747,8 +13833,8 @@
                       ],
                       "filters": [
                         {
-                          "field": "business_area",
-                          "value": "supply_chain"
+                          "table": "inventory",
+                          "column": "category"
                         }
                       ],
                       "refresh_schedule": "nightly",
@@ -13869,7 +13955,7 @@
         ],
         "operationId": "getDashboardData",
         "summary": "Every tile's values -- kpi tiles from gold, query tiles from their cached result.",
-        "description": "One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its rows hold.",
+        "description": "One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is\nwhat keeps a four-tile dashboard from issuing four warehouse scans on every open. Each\ntile carries the computation stamp its rows hold.\n\n`f` is zero or more `table.column:value1,value2` selections (repeat the parameter for\nmore than one column), read from the URL rather than the saved dashboard -- a filter's\n*values* are per-viewer, transient view-time state (R13.1), never persisted, and\nrestricted to columns in the dashboard's own `filters`. With none given, this is exactly\nthe cached read above; with at least one, every `query` tile is (re)computed live through\nthe warehouse read guard instead, AND-combining every selection that applies to it.\n",
         "x-egpt-scopes": [
           "dashboards:read"
         ],
@@ -13881,6 +13967,23 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true,
+            "description": "A `table.column:value1,value2` filter selection; repeat for more than one column.",
+            "example": [
+              "inventory.category:Produce,Dairy"
+            ]
           }
         ],
         "responses": {
@@ -13999,6 +14102,180 @@
                     "value": {
                       "detail": "No dashboard 'dsh_9999'.",
                       "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/{dashboard_id}/filter-columns": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "getDashboardFilterColumns",
+        "summary": "Candidate filter columns across this dashboard's own query tiles.",
+        "description": "Text-typed, non-personal-data columns of the tables this dashboard's `query` tiles read --\nwhat the creation-step filter picker offers, and what a write's `filters` is checked\nagainst. Empty when the dashboard has no `query` tile (a `kpi` tile is not filterable\nthis way, R13.1).\n",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Candidate columns.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DashboardFilterColumn"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "table": "inventory",
+                        "column": "category"
+                      },
+                      {
+                        "table": "inventory",
+                        "column": "warehouse"
+                      }
+                    ]
+                  },
+                  "empty": {
+                    "value": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/{dashboard_id}/filter-values": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "getDashboardFilterValues",
+        "summary": "Distinct values of one of this dashboard's chosen filter columns.",
+        "description": "For a column's dropdown on the published dashboard. 422 for a `table`/`column` pair that is not one of this dashboard's own `filters` -- this never runs against an arbitrary column, only ones the picker already offered and a write already accepted.",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "parameters": [
+          {
+            "name": "dashboard_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "table",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Distinct values.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardFilterValues"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "table": "inventory",
+                      "column": "category",
+                      "values": [
+                        "Produce",
+                        "Dairy",
+                        "Bakery",
+                        "Frozen"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No dashboard 'dsh_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not one of this dashboard's filter columns.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid": {
+                    "value": {
+                      "detail": "orders.email is not one of this dashboard's filter columns.",
+                      "code": "not_a_filter_column"
                     }
                   }
                 }

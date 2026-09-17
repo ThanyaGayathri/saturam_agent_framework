@@ -345,7 +345,6 @@ def assemble(
     *,
     ready_kpis: Sequence[KpiDefinition],
     context: Optional[SuggestionContext] = None,
-    vocabularies: Optional[VocabularySet] = None,
     check: Optional[QueryCheck] = None,
     preview: Optional[QueryPreviewer] = None,
 ) -> AssemblyReport:
@@ -357,7 +356,6 @@ def assemble(
     returns a verdict; ``preview`` runs a passed statement for a few rows. Both are optional
     so this stays unit-testable without a warehouse; a real run always supplies both.
     """
-    vocabularies = vocabularies or load_vocabulary_set()
     context = context or SuggestionContext(kpis=tuple(ready_kpis))
     # Scoped to `context.kpis` -- the subset the prompt actually rendered (`_render_kpis`) --
     # not the wider `ready_kpis` argument. A `kpi`-sourced chart may only reuse a metric the
@@ -479,27 +477,20 @@ def assemble(
             "or previewed"
         )
 
-    filters: List[wire.DashboardFilter] = []
+    # `filters` is now a chosen `(table, column)` (R13.1), which this agent has no basis to
+    # pick on its own -- a person adds filter columns afterward in the dashboard builder, from
+    # the candidates `GET /dashboards/{id}/filter-columns` derives off the charts above.
+    # `response.business_area` (still part of the model's own output schema/prompt) no longer
+    # becomes a stored filter; retiring the field itself means touching the prompt template
+    # too and is out of scope here.
     notes = response.notes.strip()
-    if response.business_area:
-        try:
-            vocabularies.validate("business_area", response.business_area)
-        except ValueError as error:
-            extra_notes.append(f"dropped business_area filter: {error}")
-        else:
-            filters.append(
-                wire.DashboardFilter(
-                    field=wire.DashboardFilterField.business_area,
-                    value=response.business_area,
-                )
-            )
     if extra_notes:
         notes = "\n".join(part for part in [notes, *extra_notes] if part)
 
     suggestion = wire.DashboardSuggestion(
         name=response.name.strip() or "Untitled dashboard",
         charts=charts,
-        filters=filters,
+        filters=[],
         notes=notes,
         context=context.summary(),
     )
@@ -511,7 +502,6 @@ async def aassemble(
     *,
     ready_kpis: Sequence[KpiDefinition],
     context: Optional[SuggestionContext] = None,
-    vocabularies: Optional[VocabularySet] = None,
     check: Optional[QueryCheck] = None,
     preview: Optional[QueryPreviewer] = None,
 ) -> AssemblyReport:
@@ -522,7 +512,6 @@ async def aassemble(
         response,
         ready_kpis=ready_kpis,
         context=context,
-        vocabularies=vocabularies,
         check=check,
         preview=preview,
     )

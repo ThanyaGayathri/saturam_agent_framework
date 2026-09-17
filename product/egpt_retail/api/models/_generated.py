@@ -124,9 +124,27 @@ class ContentOrigin(Enum):
     customer = "customer"
 
 
-class DashboardFilterField(Enum):
-    business_area = "business_area"
-    time_window = "time_window"
+class DashboardFilterColumn(BaseModel):
+    """
+    A column exposed as an end-user filter on the published dashboard -- a definition, never a
+    selection: it names which `(table, column)` becomes a dropdown, not a value someone picked
+    in it. What a viewer picks is per-viewer, transient view-time state carried in the URL of
+    `GET /dashboards/{id}/data`, never part of the saved dashboard (R13.1).
+
+    """
+
+    table: str
+    column: str
+
+
+class DashboardFilterValues(BaseModel):
+    """
+    Distinct values of one of a dashboard's chosen filter columns, for its dropdown.
+    """
+
+    table: str
+    column: str
+    values: list[str]
 
 
 class DashboardSuggestionRunRequest(BaseModel):
@@ -1282,24 +1300,19 @@ class DashboardChartSuggestion(BaseModel):
     preview: QueryPreview | None = None
 
 
-class DashboardFilter(BaseModel):
-    field: DashboardFilterField
-    value: str
-
-
 class DashboardSuggestion(BaseModel):
     """
-    A suggested dashboard for the given purpose, editable before creation: a name, the charts
-    the agent composed from the selected metrics and the tables behind them, and -- when the
-    purpose names one -- a `business_area` filter, the one `DashboardFilterField` with a
-    well-defined value space (`time_window` has no established value shape in this contract
-    yet, #222). `context` says what the agent was shown.
+    A suggested dashboard for the given purpose, editable before creation: a name and the
+    charts the agent composed from the selected metrics and the tables behind them. `filters`
+    is always empty here -- a filter is now a chosen `(table, column)` (R13.1), which the agent
+    has no basis to pick on its own; a person adds filter columns afterward in the dashboard
+    builder. `context` says what the agent was shown.
 
     """
 
     name: str
     charts: list[DashboardChartSuggestion]
-    filters: list[DashboardFilter]
+    filters: list[DashboardFilterColumn]
     notes: str = Field(
         ...,
         description="Empty on a clean run; otherwise what was missing, why the list is short, or what was dropped.",
@@ -1337,7 +1350,7 @@ class DashboardWrite(BaseModel):
     name: str
     description: str | None = None
     tiles: list[TileWrite] | None = None
-    filters: list[DashboardFilter] | None = None
+    filters: list[DashboardFilterColumn] | None = None
     refresh_schedule: RefreshSchedule | None = None
     visibility: Visibility | None = None
 
@@ -2139,7 +2152,7 @@ class Dashboard(BaseModel):
     name: str
     description: str | None = ""
     tiles: list[Tile]
-    filters: list[DashboardFilter]
+    filters: list[DashboardFilterColumn]
     refresh_schedule: RefreshSchedule
     visibility: Visibility
     owner: str

@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
+import sqlglot
 from egpt.guardrails.sql_guard import SQLGuard
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -25,11 +26,15 @@ from egpt_retail.contracts.dashboards import (
     ChartAxis,
     ChartKind,
     Dashboard,
+    DashboardFilterColumn,
+    RefreshSchedule,
     Tile,
     TilePosition,
     TileQuery,
     TileSource,
+    Visibility,
 )
+from egpt_retail.contracts.semantic import Column, Table, TableRef
 from egpt_retail.dashboards import queries as queries_module
 from egpt_retail.dashboards.data import query_tile_data
 from egpt_retail.dashboards.queries import check_query
@@ -407,6 +412,33 @@ class _FakeDashboardStore:
     def get(self, dashboard_id):
         return self.dashboards.get(dashboard_id)
 
+    def create(
+        self,
+        *,
+        name,
+        owner,
+        description="",
+        tiles=(),
+        filters=(),
+        refresh_schedule=RefreshSchedule.NIGHTLY,
+        visibility=Visibility.PRIVATE,
+    ):
+        dashboard_id = f"dsh_{len(self.dashboards) + 1}"
+        dashboard = Dashboard(
+            id=dashboard_id,
+            name=name,
+            owner=owner,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            description=description,
+            tiles=tuple(tiles),
+            filters=tuple(filters),
+            refresh_schedule=refresh_schedule,
+            visibility=visibility,
+        )
+        self.dashboards[dashboard_id] = dashboard
+        return dashboard
+
     def upsert_tile(self, dashboard_id, owner, tile):
         current = self.dashboards[dashboard_id]
         tiles = list(current.tiles)
@@ -436,7 +468,7 @@ class _FakeDashboardStore:
         return updated
 
 
-def _dashboard(*tiles) -> Dashboard:
+def _dashboard(*tiles, filters=()) -> Dashboard:
     return Dashboard(
         id="dsh_1",
         name="Northern region",
@@ -444,6 +476,7 @@ def _dashboard(*tiles) -> Dashboard:
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
         tiles=tuple(tiles),
+        filters=tuple(filters),
     )
 
 
@@ -895,6 +928,9 @@ class _RecordingEngine:
     def raw_connection(self):
         return _RecordingRawConnection(self.calls)
 
+    def dispose(self):
+        self.calls.append(("<engine.dispose>", ()))
+
 
 def test_run_query_inlines_the_statement_timeout_rather_than_binding_it():
     """PostgreSQL takes no bind parameter in a ``SET`` statement, and psycopg 3 binds
@@ -929,3 +965,394 @@ def test_run_query_casts_the_timeout_to_an_integer_before_inlining_it():
         engine, "SELECT 1 AS n", limit=1, statement_timeout_ms=2500.9
     )
     assert engine.calls[0] == ("SET LOCAL statement_timeout = 2500", ())
+
+
+# ---------------------------------------------------------------------------
+# Filter columns (R13.1): candidates, WHERE injection, distinct values, live filtered reads
+# ---------------------------------------------------------------------------
+
+
+class _FakeSemanticReader:
+    """A reader with a small, fixed set of tables/columns -- enough to exercise
+    `available_filter_columns`'s type/personal-data filtering without a real semantic layer."""
+
+    def __init__(self, tables):
+        self._tables = tables
+
+    def get_table(self, name, *, include_proposed=False):
+        return self._tables.get(name)
+
+    async def aget_table(self, name, *, include_proposed=False):
+        return self._tables.get(name)
+
+
+_TEXT_AND_PII_COLUMNS = (
+    Column(name="region", data_type="text"),
+    Column(name="category", data_type="character varying"),
+    Column(name="customer_email", data_type="text", is_personal_data=True),
+    Column(name="total", data_type="numeric"),
+)
+
+
+def _fake_table(name, columns=_TEXT_AND_PII_COLUMNS):
+    return Table(ref=TableRef(name=name, schema="silver"), columns=tuple(columns))
+
+
+def test_available_filter_columns_keeps_only_text_non_personal_columns():
+    reader = _FakeSemanticReader({"orders": _fake_table("orders")})
+    candidates = queries_module.available_filter_columns(reader, ["orders"])
+    assert candidates == (
+        DashboardFilterColumn(table="orders", column="category"),
+        DashboardFilterColumn(table="orders", column="region"),
+    )
+
+
+@pytest.mark.anyio
+async def test_aavailable_filter_columns_agrees_with_its_sync_twin():
+    reader = _FakeSemanticReader({"orders": _fake_table("orders")})
+    assert await queries_module.aavailable_filter_columns(
+        reader, ["orders"]
+    ) == queries_module.available_filter_columns(reader, ["orders"])
+
+
+def test_available_filter_columns_skips_a_table_the_layer_does_not_expose():
+    assert (
+        queries_module.available_filter_columns(_FakeSemanticReader({}), ["ghost"])
+        == ()
+    )
+
+
+def test_apply_filter_predicates_and_combines_two_active_columns():
+    statement = sqlglot.parse_one(
+        "SELECT o.id, o.region FROM orders o WHERE o.status = 'open' LIMIT 100",
+        read="postgres",
+    )
+    changed = queries_module._apply_filter_predicates(
+        statement,
+        {("orders", "region"): ("North", "South"), ("orders", "channel"): ("Online",)},
+        personal={},
+    )
+    sql = statement.sql(dialect="postgres")
+    assert changed is not None
+    assert "o.status = 'open'" in sql
+    assert "o.region IN ('North', 'South')" in sql
+    assert "o.channel IN ('Online')" in sql
+    assert " AND " in sql
+
+
+def test_apply_filter_predicates_skips_a_table_the_statement_does_not_reference():
+    statement = sqlglot.parse_one("SELECT id FROM orders LIMIT 10", read="postgres")
+    changed = queries_module._apply_filter_predicates(
+        statement, {("customers", "region"): ("North",)}, personal={}
+    )
+    assert changed is None
+    assert "customers" not in statement.sql(dialect="postgres")
+
+
+def test_apply_filter_predicates_refuses_a_personal_data_column():
+    statement = sqlglot.parse_one("SELECT id FROM orders LIMIT 10", read="postgres")
+    changed = queries_module._apply_filter_predicates(
+        statement,
+        {("orders", "customer_email"): ("a@x.com",)},
+        personal={"orders": frozenset({"customer_email"})},
+    )
+    assert changed is None
+    assert "customer_email" not in statement.sql(dialect="postgres")
+
+
+def test_apply_filter_predicates_with_no_predicates_is_a_no_op():
+    statement = sqlglot.parse_one("SELECT id FROM orders LIMIT 10", read="postgres")
+    assert queries_module._apply_filter_predicates(statement, {}, personal={}) is None
+
+
+def test_distinct_column_values_runs_a_guard_checked_statement():
+    engine = _RecordingEngine()
+    values = queries_module.distinct_column_values(
+        engine, _guard("orders"), "orders", "region"
+    )
+    executed = next(c[0] for c in engine.calls if c[0].upper().startswith("SELECT"))
+    assert "DISTINCT" in executed.upper()
+    assert '"region"' in executed
+    assert '"orders"' in executed
+    assert values == (
+        "1",
+    )  # `_RecordingCursor` always answers one row, column "n" -> 1
+
+
+def test_distinct_column_values_refuses_a_table_outside_the_allow_list():
+    engine = _RecordingEngine()
+    values = queries_module.distinct_column_values(
+        engine, _guard("orders"), "shipments", "carrier"
+    )
+    assert values == ()
+    assert engine.calls == []  # never ran -- the guard refused before execution
+
+
+@pytest.mark.anyio
+async def test_arun_filtered_tile_ignores_a_filter_column_absent_from_the_tile_sql(
+    monkeypatch,
+):
+    """A dashboard filter on a table this tile's own SQL never reads must not change what the
+    tile runs -- it just isn't affected by that filter (a dashboard mixing tiles over
+    different tables works exactly as it does without any filter active)."""
+    engine = _RecordingEngine()
+    tile = _query_tile()  # reads `stock_level`, not `orders`
+    columns, rows, duration, error, sql = await queries_module.arun_filtered_tile(
+        tile,
+        _FakeSemanticReader({"stock_level": _fake_table("stock_level")}),
+        _guard("stock_level"),
+        engine,
+        {("orders", "region"): ("North",)},
+    )
+    assert error is None
+    assert "region" not in sql
+    assert sql == tile.query.sql  # the guard's own check made no rewrite either
+
+
+@pytest.mark.anyio
+async def test_arun_filtered_tile_applies_a_matching_predicate():
+    engine = _RecordingEngine()
+    tile = _query_tile(
+        query=_query(
+            sql="SELECT wk, stockouts FROM stock_level LIMIT 100",
+            source_tables=frozenset({"stock_level"}),
+        )
+    )
+    columns, rows, duration, error, sql = await queries_module.arun_filtered_tile(
+        tile,
+        _FakeSemanticReader({"stock_level": _fake_table("stock_level")}),
+        _guard("stock_level"),
+        engine,
+        {("stock_level", "region"): ("North", "South")},
+    )
+    assert error is None
+    assert "region IN ('North', 'South')" in sql
+
+
+@pytest.mark.anyio
+async def test_arun_filtered_query_tiles_never_writes_to_the_cache(monkeypatch):
+    """The whole point of a filtered read: it is computed live and handed back as
+    `QueryResultRecord`s, never persisted -- unlike `arefresh_query_tiles`."""
+
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _NoTablesReader()
+
+    monkeypatch.setattr(queries_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        queries_module, "build_warehouse_read_guard", lambda reader: _guard()
+    )
+    monkeypatch.setattr(
+        queries_module, "build_query_engine", lambda settings: _RecordingEngine()
+    )
+
+    dashboard = _dashboard(_query_tile())
+    records = await queries_module.arun_filtered_query_tiles(
+        dashboard, RetailSettings(), {}
+    )
+    assert set(records) == {"tl_q1"}
+    assert isinstance(records["tl_q1"], QueryResultRecord)
+
+
+# ---------------------------------------------------------------------------
+# Router: filter validation on write, the two new endpoints, GET /data's `f` param
+# ---------------------------------------------------------------------------
+
+
+def test_create_dashboard_accepts_a_valid_filter_column(monkeypatch):
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _FakeSemanticReader({"orders": _fake_table("orders")})
+
+    monkeypatch.setattr(dashboards_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        dashboards_module, "build_warehouse_read_guard", lambda reader: _guard("orders")
+    )
+    store = _FakeDashboardStore(_dashboard())
+    with _client(monkeypatch, store) as client:
+        response = client.post(
+            "/dashboards",
+            json={
+                "name": "Regional",
+                "tiles": [
+                    {
+                        "source": "query",
+                        "query": {
+                            "sql": "SELECT region, count(*) AS n FROM silver.orders GROUP BY 1 LIMIT 10"
+                        },
+                        "chart": "bar",
+                        "position": {"x": 0, "y": 0, "w": 3, "h": 2},
+                    }
+                ],
+                "filters": [{"table": "orders", "column": "region"}],
+            },
+        )
+    assert response.status_code == 201, response.text
+    assert response.json()["filters"] == [{"table": "orders", "column": "region"}]
+
+
+def test_create_dashboard_422s_on_a_filter_column_not_offered(monkeypatch):
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _FakeSemanticReader({"orders": _fake_table("orders")})
+
+    monkeypatch.setattr(dashboards_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        dashboards_module, "build_warehouse_read_guard", lambda reader: _guard("orders")
+    )
+    store = _FakeDashboardStore(_dashboard())
+    with _client(monkeypatch, store) as client:
+        response = client.post(
+            "/dashboards",
+            json={
+                "name": "Regional",
+                "tiles": [
+                    {
+                        "source": "query",
+                        "query": {
+                            "sql": "SELECT region, count(*) AS n FROM silver.orders GROUP BY 1 LIMIT 10"
+                        },
+                        "chart": "bar",
+                        "position": {"x": 0, "y": 0, "w": 3, "h": 2},
+                    }
+                ],
+                # `customer_email` is personal data -- never offered as a candidate.
+                "filters": [{"table": "orders", "column": "customer_email"}],
+            },
+        )
+    assert response.status_code == 422
+    assert "orders.customer_email" in response.json()["detail"]
+
+
+def test_get_filter_columns_returns_candidates_for_the_dashboards_query_tiles(
+    monkeypatch,
+):
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _FakeSemanticReader({"stock_level": _fake_table("stock_level")})
+
+    monkeypatch.setattr(dashboards_module, "open_semantic_reader", _fake_open_reader)
+    store = _FakeDashboardStore(_dashboard(_query_tile()))
+    with _client(monkeypatch, store) as client:
+        response = client.get("/dashboards/dsh_1/filter-columns")
+    assert response.status_code == 200
+    assert response.json() == [
+        {"table": "stock_level", "column": "category"},
+        {"table": "stock_level", "column": "region"},
+    ]
+
+
+def test_get_filter_columns_is_empty_for_a_dashboard_with_no_query_tile(monkeypatch):
+    store = _FakeDashboardStore(_dashboard())
+    with _client(monkeypatch, store) as client:
+        response = client.get("/dashboards/dsh_1/filter-columns")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_filter_values_422s_for_a_column_not_in_the_dashboards_filters(monkeypatch):
+    store = _FakeDashboardStore(_dashboard(_query_tile()))  # declares no filters
+    with _client(monkeypatch, store) as client:
+        response = client.get(
+            "/dashboards/dsh_1/filter-values",
+            params={"table": "stock_level", "column": "region"},
+        )
+    assert response.status_code == 422
+
+
+def test_get_filter_values_returns_distinct_values_for_a_declared_column(monkeypatch):
+    @contextmanager
+    def _fake_open_reader(settings):
+        yield _NoTablesReader()
+
+    monkeypatch.setattr(dashboards_module, "open_semantic_reader", _fake_open_reader)
+    monkeypatch.setattr(
+        dashboards_module,
+        "build_warehouse_read_guard",
+        lambda reader: _guard("stock_level"),
+    )
+    monkeypatch.setattr(
+        dashboards_module, "build_query_engine", lambda settings: _RecordingEngine()
+    )
+    store = _FakeDashboardStore(
+        _dashboard(
+            _query_tile(),
+            filters=(DashboardFilterColumn(table="stock_level", column="region"),),
+        )
+    )
+    with _client(monkeypatch, store) as client:
+        response = client.get(
+            "/dashboards/dsh_1/filter-values",
+            params={"table": "stock_level", "column": "region"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {"table": "stock_level", "column": "region", "values": ["1"]}
+
+
+def test_get_dashboard_data_with_no_filter_never_computes_live(monkeypatch):
+    store = _FakeDashboardStore(_dashboard(_query_tile()))
+    monkeypatch.setattr(
+        dashboards_module, "_load_query_results", lambda dashboard, settings: {}
+    )
+
+    async def _boom(*a, **kw):
+        raise AssertionError("must not run a live filtered read with no filter active")
+
+    monkeypatch.setattr(dashboards_module, "arun_filtered_query_tiles", _boom)
+    with _client(monkeypatch, store) as client:
+        response = client.get("/dashboards/dsh_1/data")
+    assert response.status_code == 200
+
+
+def test_get_dashboard_data_with_a_declared_filter_computes_live(monkeypatch):
+    store = _FakeDashboardStore(
+        _dashboard(
+            _query_tile(),
+            filters=(DashboardFilterColumn(table="stock_level", column="region"),),
+        )
+    )
+    monkeypatch.setattr(
+        dashboards_module, "_load_query_results", lambda dashboard, settings: {}
+    )
+    seen_predicates = {}
+
+    async def _fake_filtered(dashboard, settings, predicates):
+        seen_predicates.update(predicates)
+        return {
+            "tl_q1": QueryResultRecord(
+                dashboard_id=dashboard.id,
+                tile_id="tl_q1",
+                computed_at=datetime.now(timezone.utc),
+                columns=("region",),
+                rows=({"region": "North"},),
+                duration_ms=5,
+            )
+        }
+
+    monkeypatch.setattr(dashboards_module, "arun_filtered_query_tiles", _fake_filtered)
+    with _client(monkeypatch, store) as client:
+        response = client.get(
+            "/dashboards/dsh_1/data", params={"f": "stock_level.region:North,South"}
+        )
+    assert response.status_code == 200
+    assert seen_predicates == {("stock_level", "region"): ("North", "South")}
+
+
+def test_get_dashboard_data_ignores_a_filter_param_for_an_undeclared_column(
+    monkeypatch,
+):
+    store = _FakeDashboardStore(_dashboard(_query_tile()))  # no `filters` declared
+    monkeypatch.setattr(
+        dashboards_module, "_load_query_results", lambda dashboard, settings: {}
+    )
+
+    async def _boom(*a, **kw):
+        raise AssertionError("an undeclared filter column must be ignored, not applied")
+
+    monkeypatch.setattr(dashboards_module, "arun_filtered_query_tiles", _boom)
+    with _client(monkeypatch, store) as client:
+        response = client.get(
+            "/dashboards/dsh_1/data", params={"f": "stock_level.region:North"}
+        )
+    assert response.status_code == 200

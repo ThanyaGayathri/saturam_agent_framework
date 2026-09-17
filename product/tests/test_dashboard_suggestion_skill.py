@@ -389,21 +389,14 @@ def test_assemble_without_a_check_takes_the_statement_as_is():
 # ---------------------------------------------------------------------------
 
 
-def test_assemble_accepts_a_valid_business_area_as_a_filter():
+def test_assemble_always_leaves_filters_empty():
+    """A filter is now a chosen `(table, column)` (R13.1), which this agent has no basis to
+    pick -- `filters` is always `[]` regardless of what `business_area` the model proposed, a
+    person adds filter columns afterward in the dashboard builder."""
     report = dsg.assemble(
         _draft(business_area="supply_chain"), ready_kpis=[_kpi()], context=_context()
     )
-    assert len(report.suggestion.filters) == 1
-    assert report.suggestion.filters[0].field.value == "business_area"
-    assert report.suggestion.filters[0].value == "supply_chain"
-
-
-def test_assemble_drops_an_unknown_business_area_and_notes_why():
-    report = dsg.assemble(
-        _draft(business_area="not-a-real-area"), ready_kpis=[_kpi()], context=_context()
-    )
     assert report.suggestion.filters == []
-    assert "not-a-real-area" in report.suggestion.notes
 
 
 def test_assemble_leaves_filters_empty_when_no_business_area_is_proposed():

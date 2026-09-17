@@ -12,7 +12,7 @@ run R4/R5 (the local ``deploy/compose.yaml`` stack, after ``warehouse-migrate`` 
 nightly-refresh or ``R05_gold_materialisation.py``). Without one, section 5 says so and skips
 rather than guessing -- everything else here still runs.
 
-Five sections:
+Six sections:
 
 1. A dashboard with a tile naming an unregistered KPI is refused at creation (422),
    over the real HTTP router, before anything is written.
@@ -31,13 +31,19 @@ Five sections:
    (issue #227): one point per materialised business date, and the change against the
    previous one when there is one -- reported as read, `delta: null` when the warehouse
    holds a single night.
+6. Filter columns (R13.1): a `query` tile is created with a filter on one real, text-typed,
+   non-personal-data column from a harvested table; `GET /dashboards/{id}/filter-columns`
+   offers it back, `GET /dashboards/{id}/filter-values` returns its distinct values, and
+   `GET /dashboards/{id}/data?f=table.column:value` recomputes the tile live -- every
+   returned row matches the picked value, unlike the unfiltered read just before it.
 
 Run:
     .venvs/demo/bin/python cookbook/94_retail/R13_dashboards.py
 
 Needs: the local Postgres (``cookbook/scripts/run_pgvector.sh``) and Neo4j
 (``EGPT_RETAIL_NEO4J_URI``/``_PASSWORD``) for the readiness gate in sections 1-2; a
-materialised warehouse (see above) for section 5.
+materialised warehouse (see above) for section 5; section 6 needs both a harvested semantic
+snapshot with at least one text column and a real warehouse, and skips otherwise.
 """
 
 import json
@@ -138,7 +144,6 @@ created = client.post(
     json={
         "name": "Supply chain",
         "description": "Supplier reliability at a glance.",
-        "filters": [{"field": "business_area", "value": "supply_chain"}],
         "refresh_schedule": "nightly",
         "visibility": "team",
     },
@@ -299,6 +304,105 @@ else:
                     "a single materialised night has no previous period -> "
                     f"delta={trend['delta']} (null, not invented)",
                 )
+
+# --- 6. Filter columns (R13.1): candidates, distinct values, a live filtered read -----------
+
+print()
+print(
+    "6. Filter columns: candidates from a query tile's tables, distinct values, a live, "
+    "filtered GET /data"
+)
+print("-" * 78)
+
+if not settings.retail_warehouse_db_url:
+    print("   skipped: EGPT_RETAIL_WAREHOUSE_DB_URL is not set in this environment")
+else:
+    from egpt_retail.app.semantic import open_semantic_reader
+
+    with open_semantic_reader(settings) as reader:
+        text_types = {"text", "varchar", "character varying", "char", "character"}
+        candidate = None
+        for ref in reader.list_tables():
+            table = reader.get_table(ref.name)
+            if table is None:
+                continue
+            for column in table.columns:
+                if (
+                    not column.is_personal_data
+                    and column.data_type.lower() in text_types
+                ):
+                    candidate = (table.ref.name, column.name)
+                    break
+            if candidate:
+                break
+
+    if candidate is None:
+        print(
+            "   skipped: no harvested table in this environment has a filterable text column"
+        )
+    else:
+        table_name, column_name = candidate
+        filtered_dashboard = client.post(
+            "/dashboards",
+            json={
+                "name": "Filter columns demo",
+                "tiles": [
+                    {
+                        "source": "query",
+                        "query": {
+                            "sql": (
+                                f"SELECT {column_name}, count(*) AS n FROM silver.{table_name} "
+                                f"GROUP BY 1 LIMIT 50"
+                            ),
+                        },
+                        "chart": "table",
+                        "position": {"x": 0, "y": 0, "w": 6, "h": 2},
+                    }
+                ],
+                "filters": [{"table": table_name, "column": column_name}],
+            },
+        )
+        print(
+            "   OK " if filtered_dashboard.status_code == 201 else "   FAIL",
+            f"created with a {table_name}.{column_name} filter ->",
+            filtered_dashboard.status_code,
+            filtered_dashboard.json() if filtered_dashboard.status_code != 201 else "",
+        )
+        filtered_id = filtered_dashboard.json()["id"]
+
+        columns_response = client.get(f"/dashboards/{filtered_id}/filter-columns")
+        offered = {(c["table"], c["column"]) for c in columns_response.json()}
+        print(
+            "   OK " if (table_name, column_name) in offered else "   FAIL",
+            f"the chosen column is among {len(offered)} candidate(s) the picker would offer",
+        )
+
+        values_response = client.get(
+            f"/dashboards/{filtered_id}/filter-values",
+            params={"table": table_name, "column": column_name},
+        )
+        values = values_response.json().get("values", [])
+        print(
+            "   OK " if values_response.status_code == 200 else "   FAIL",
+            f"{len(values)} distinct value(s) for {table_name}.{column_name}",
+        )
+
+        unfiltered = client.get(f"/dashboards/{filtered_id}/data").json()["tiles"][0]
+        if not values:
+            print("   skipped: no non-null values to filter on")
+        else:
+            picked = values[0]
+            filtered = client.get(
+                f"/dashboards/{filtered_id}/data",
+                params={"f": f"{table_name}.{column_name}:{picked}"},
+            ).json()["tiles"][0]
+            print(
+                "   OK "
+                if all(row.get(column_name) == picked for row in filtered["rows"])
+                else "   FAIL",
+                f"filtered to {column_name}={picked!r} -> every row matches "
+                f"({len(filtered['rows'])} of {len(unfiltered['rows'])} unfiltered rows)",
+            )
 
 print()
 print("=" * 78)
