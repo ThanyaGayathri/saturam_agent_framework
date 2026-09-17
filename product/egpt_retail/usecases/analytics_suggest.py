@@ -154,6 +154,7 @@ class AnalyticsSuggestion:
     comparison_reason: str = ""
     schedule: str = "weekly"
     schedule_reason: str = ""
+    window: Optional[int] = None
     outputs: List[str] = field(default_factory=list)
     recipients: List[str] = field(default_factory=list)
     uncovered: List[str] = field(default_factory=list)
@@ -170,6 +171,7 @@ class AnalyticsSuggestion:
             "comparison_reason": self.comparison_reason,
             "schedule": self.schedule,
             "schedule_reason": self.schedule_reason,
+            "window": self.window,
             "outputs": self.outputs,
             "recipients": self.recipients,
             "uncovered": self.uncovered,
@@ -291,6 +293,10 @@ def suggest_analytics(
         if grain in wanted_grains:
             score += 2
             hits = hits + [f"by {grain.replace('_', ' ')}"]
+        elif grain not in {"overall", "time_period"} and score > 0:
+            # A breakdown the ask did not name ("quotes by state" for an ask about
+            # quotes) steps back behind the overall KPI; the person can still add it.
+            score //= 2
         if score <= 0:
             continue
         latest = gold_latest.get(str(kpi.get("identifier")))
@@ -325,8 +331,12 @@ def suggest_analytics(
     areas = sorted(
         {str(k.get("business_area")) for k in chosen if k.get("business_area")}
     )
+    # The breakdowns: the grains the ask names, when some registered KPI carries them
+    # (so the data supports them), plus the grains of the KPIs chosen.
+    supported = {str(k.get("grain") or "overall") for k in registry}
     dimensions = sorted(
-        {k["grain"] for k in chosen if k["grain"] not in {"overall", "time_period"}}
+        ({g for g in wanted_grains if g in supported} | {k["grain"] for k in chosen})
+        - {"overall", "time_period"}
     )
 
     if re.search(r"last year|year over year|yoy|same period", low):
@@ -343,7 +353,7 @@ def suggest_analytics(
         schedule, schedule_reason = "weekly", "the ask says weekly"
     elif re.search(r"\b(daily|every day|each day|every morning)\b", low):
         schedule, schedule_reason = "daily", "the ask says daily"
-    elif re.search(r"\b(every month|monthly report|each month)\b", low):
+    elif re.search(r"\b(monthly|every month|each month|per month)\b", low):
         schedule, schedule_reason = "monthly", "the ask says monthly"
     elif kind == "diagnostic":
         schedule, schedule_reason = "weekly", "run once now; weekly if kept"
@@ -352,6 +362,18 @@ def suggest_analytics(
             "weekly",
             "weekly, the default for a monitoring report",
         )
+
+    # The window the numbers cover, in days, when the ask names a period; blank means
+    # each KPI's own declared window.
+    window: Optional[int] = None
+    if re.search(r"\b(last|past|previous|this) (week|7 days)\b|\bweekly\b", low):
+        window = 7
+    elif re.search(r"\b(last|past|previous|this) (month|30 days)\b|\bmonthly\b", low):
+        window = 30
+    elif re.search(r"\b(last|past|previous|this) quarter\b|\bquarterly\b", low):
+        window = 90
+    elif re.search(r"\b(yesterday|last 24 hours|today)\b|\bdaily\b", low):
+        window = 1
 
     outputs: List[str] = []
     if re.search(r"dashboard|visibility|live view", low):
@@ -400,6 +422,7 @@ def suggest_analytics(
         comparison_reason=comparison_reason,
         schedule=schedule,
         schedule_reason=schedule_reason,
+        window=window,
         outputs=outputs,
         recipients=recipients,
         uncovered=uncovered,

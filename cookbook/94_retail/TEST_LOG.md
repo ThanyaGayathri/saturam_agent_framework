@@ -6465,6 +6465,30 @@ nine for that goal. `vite build` clean; suite 1517 passed.
 
 ---
 
+### K23 follow-up -- a different question than the RFQ ask (17 Sep, later)
+
+**Status:** PASS. Asked whether an analytics use case other than the RFQ report works, three
+other asks were put to `POST /use-cases/analytics/suggest` over the same registry. The chain
+itself (read gold, compare, explain, ground, render, send, dashboard) is generic -- it reads
+the KPIs the spec names, whatever they are -- and three gaps in the *suggestion* showed:
+"monthly" alone set neither cadence nor window; a breakdown the ask named (`territory`)
+was dropped when the KPI chosen carried a different grain; and an ask about quotes pulled
+every `quotes_by_*` breakdown. Fixed in `analytics_suggest.py`: `monthly` / `weekly` /
+`last week` / `last month` set the schedule and a `window` in days (7, 30, 90, 1; new
+nullable `AnalyticsSuggestion.window`, contract 1.11.1, applied on the form); the dimensions
+are the grains the ask names that some registered KPI carries, plus the chosen KPIs' own;
+a breakdown the ask did not name scores half. "why is our closed-won rate dropping? monthly,
+by territory and brand, compared with last year" -> `rfq__closed_won_rate_by_brand`,
+`rfq__closed_won_rate`; brand, sales_territory; prior year; window 30; monthly; report.
+Tests +2 (16 in `test_k23_analytics_automation.py`); suite 1537 passed.
+
+The precondition, unchanged: a KPI must be in the registry with a gold formula over data the
+warehouse holds (the readiness probe says ready / buildable / blocked per KPI). Locally only
+the RFQ KPIs are registered, so every ask resolves to those; a retail question ("why is
+revenue low") needs the retail silver loaded and its KPIs registered first.
+
+---
+
 ### K24 -- the Process Automation form: sample first, target then objects, no master-data section
 
 **Package:** K24, branch `usecase_processautomation`. Contract 1.10.0 (additive):

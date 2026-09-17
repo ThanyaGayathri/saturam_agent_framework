@@ -24,6 +24,7 @@ export function patchFromSuggestion(suggestion, spec) {
   dimensions: suggestion?.dimensions?.length ? suggestion.dimensions : spec.dimensions,
   comparison: suggestion?.comparison || spec.comparison || "prior_period",
   schedule: suggestion?.schedule || spec.schedule,
+  window: suggestion?.window ?? spec.window ?? null,
   notify: (suggestion?.recipients || []).join(", ") || spec.notify,
   outputs: suggestion?.outputs?.length ? suggestion.outputs.filter((o) => o !== "alert") : spec.outputs,
   title: spec.title || suggestion?.title || "",
@@ -34,6 +35,7 @@ export function patchFromSuggestion(suggestion, spec) {
  if (patch.dimensions?.length) understood.push(`broken down by ${patch.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}`);
  if (suggestion?.comparison_reason) understood.push(`compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} — ${suggestion.comparison_reason}`);
  if (suggestion?.schedule_reason) understood.push(`${suggestion.schedule} — ${suggestion.schedule_reason}`);
+ if (suggestion?.window) understood.push(`the numbers cover the last ${suggestion.window} day${suggestion.window === 1 ? "" : "s"}`);
  if (patch.outputs?.length) understood.push(`outputs: ${patch.outputs.join(" + ")}`);
  if (suggestion?.recipients?.length) understood.push(`to ${suggestion.recipients.join(", ")}`);
  if (suggestion?.uncovered?.length) understood.push(`nothing registered covers: ${suggestion.uncovered.slice(0, 6).join(", ")}`);

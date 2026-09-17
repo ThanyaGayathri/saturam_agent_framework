@@ -109,6 +109,13 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.11.1 — 2026-09-17 — `AnalyticsSuggestion.window` (additive)
+
+Agreed by: Lane K. One new, nullable field: the days the numbers should cover when the ask
+names a period ("last week", "monthly"), null for each KPI's own declared window. The
+suggestion also keeps every breakdown the ask names that some registered KPI carries, and
+steps unasked-for breakdowns back behind the overall KPI.
+
 ## 1.11.0 — 2026-09-17 — merge: reconcile `usecase_processautomation` with main (additive)
 
 Agreed by: Lane K. Additive on top of both lines -- the use-case work below (1.3.0 .. 1.10.0)

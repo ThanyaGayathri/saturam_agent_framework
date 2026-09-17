@@ -934,6 +934,7 @@ AnalyticsSuggestion:
     comparison_reason: {type: string}
     schedule: {type: string, description: "A `ScheduleCadence` value."}
     schedule_reason: {type: string}
+    window: {type: [integer, "null"], minimum: 1, description: "Days the numbers cover, when the ask names a period (last week, monthly); null means each KPI's own declared window."}
     outputs: {type: array, items: {type: string, enum: [report, dashboard, alert]}}
     recipients: {type: array, items: {type: string}}
     uncovered: {type: array, items: {type: string}, description: "Words of the ask no registered KPI covers."}

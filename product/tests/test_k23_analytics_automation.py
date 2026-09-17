@@ -544,6 +544,26 @@ class TestSuggestion:
         )
         assert out.comparison == "prior_year" and "churn" in out.uncovered
 
+    def test_a_different_question_keeps_the_grains_it_names_and_reads_monthly(self):
+        # Not the RFQ ask: a diagnostic on one rate, monthly, by two breakdowns. The
+        # breakdowns come from the words, kept only where a registered KPI carries them
+        # (brand and lost reason do; "channel" no KPI does), and "monthly" sets both the
+        # cadence and a thirty-day window.
+        out = suggest_analytics(
+            "why is our closed-won rate dropping? monthly, by brand, lost reason and channel",
+            REGISTRY,
+        )
+        ids = [k["identifier"] for k in out.kpis]
+        assert out.kind == "diagnostic" and "rfq__closed_won_rate" in ids
+        assert out.dimensions == ["brand", "lost_reason"]
+        assert out.schedule == "monthly" and out.window == 30
+
+    def test_a_breakdown_the_ask_did_not_name_steps_back(self):
+        out = suggest_analytics("how many quotes were generated last week?", REGISTRY)
+        ids = [k["identifier"] for k in out.kpis]
+        assert ids[0] == "rfq__quotes_generated"
+        assert "rfq__quotes_by_brand" not in ids and out.window == 7
+
 
 class TestCompilerInform:
     def test_the_inform_sequence_and_its_defaults(self):

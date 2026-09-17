@@ -85,6 +85,11 @@ class AnalyticsSuggestion(BaseModel):
     comparison_reason: str | None = None
     schedule: str = Field(..., description="A `ScheduleCadence` value.")
     schedule_reason: str | None = None
+    window: int | None = Field(
+        None,
+        description="Days the numbers cover, when the ask names a period (last week, monthly); null means each KPI's own declared window.",
+        ge=1,
+    )
     outputs: list[Output]
     recipients: list[str]
     uncovered: list[str] = Field(
