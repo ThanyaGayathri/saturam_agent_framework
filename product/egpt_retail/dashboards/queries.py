@@ -462,15 +462,20 @@ def run_query(
     string literal (``'10:30'``). ``SET LOCAL statement_timeout`` scopes the bound to this
     transaction, which is rolled back on the way out -- it never wrote, and must never look
     as though it could have.
+
+    The timeout is inlined into the ``SET`` text, never bound: psycopg 3 sends parameters
+    server-side (``$1``), and PostgreSQL does not accept a parameter in a ``SET`` statement --
+    ``SET LOCAL statement_timeout = %s`` fails with ``syntax error at or near "$1"`` before
+    the chart's own SQL ever runs, which surfaced as every composed chart's preview being
+    "refused by the warehouse". Same shape ``gold.py``'s ``_run_one`` already uses; the value
+    is an ``int`` cast, so nothing from the request reaches the statement text.
     """
     started = dt.datetime.now(dt.timezone.utc)
     raw = engine.raw_connection()
     try:
         cursor = raw.cursor()
         try:
-            cursor.execute(
-                "SET LOCAL statement_timeout = %s", (int(statement_timeout_ms),)
-            )
+            cursor.execute(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}")
             cursor.execute(sql)
             columns = [d[0] for d in (cursor.description or ())]
             fetched = cursor.fetchmany(int(limit)) if columns else []

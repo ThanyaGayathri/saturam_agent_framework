@@ -94,10 +94,13 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [JSON.stringify(sourceTables)]);
 
- // The SQL this editor opened with -- already live (persisted and previously validated) or,
- // for a brand-new/just-detached chart, empty. Trusted as-is regardless of `guard`, so editing
- // an unrelated field (the title, the description) on an otherwise-untouched chart never
- // requires a fresh preview. `previewedSql` is the text of the most recent `runPreview()` call
+ // The SQL this editor opened with -- already live (persisted and previously validated), just
+ // composed (guarded and previewed by the run that wrote it), or, for a brand-new/just-detached
+ // chart, empty. Trusted as-is unless the chart arrived with a `refused` verdict, so editing an
+ // unrelated field (the title, the description) on an otherwise-untouched chart never requires
+ // a fresh preview -- while a composed chart the guard refused cannot be saved untouched
+ // (the server would 422 it anyway; the pill already says why, so Save says so too rather
+ // than letting the person find out from the write). `previewedSql` is the text of the most recent `runPreview()` call
  // this session, or `null` before the first one. Together these are what `canSave` checks
  // (round-1 review, finding #9): editing `sql` away from both leaves neither satisfied, so
  // Save is blocked until a fresh preview backs the new text -- closing the gap where editing
@@ -126,7 +129,8 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
   }
  };
 
- const sqlIsOriginal = sql === originalSql;
+ const originalRefused = chart.guard?.status === "refused";
+ const sqlIsOriginal = sql === originalSql && !originalRefused;
  const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
  const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
  const canSave =
@@ -186,7 +190,9 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
         !canSave && isQuery
          ? sql.trim().length === 0
            ? "Write a query before saving."
-           : "Run the preview again -- the query changed since it was last checked."
+           : originalRefused && sql === originalSql
+             ? "The read guard refused this query. Change it and run the preview."
+             : "Run the preview again -- the query changed since it was last checked."
          : undefined
        }
        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
