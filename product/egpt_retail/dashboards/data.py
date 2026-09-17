@@ -55,7 +55,11 @@ from egpt_retail.contracts.dashboards import (
     TileSource,
 )
 from egpt_retail.dashboards.query_results import QueryResultRecord
-from egpt_retail.executors.gold import read_gold, row_for_grain_value
+from egpt_retail.executors.gold import (
+    GOLD_ROW_METADATA_KEYS,
+    read_gold,
+    row_for_grain_value,
+)
 from egpt_retail.kpi.series import (
     end_of_business_day as _end_of_business_day,
 )
@@ -177,6 +181,16 @@ def _series_and_delta(
     return series, delta
 
 
+def _breakdown_row(row: Mapping[str, Any]) -> Dict[str, Any]:
+    """A gold row as a listing row: the grain keys first, then ``value``, without the
+    per-row metadata (``as_of``, ``computed_at``, ``run_id``) a table would otherwise show."""
+    keys = {
+        k: v for k, v in row.items() if k not in GOLD_ROW_METADATA_KEYS and k != "value"
+    }
+    value = row.get("value")
+    return {**keys, "value": float(value) if value is not None else None}
+
+
 def _tile_data(
     tile: Tile, result: Optional[Dict[str, Any]], missing_reason: str
 ) -> TileData:
@@ -194,9 +208,14 @@ def _tile_data(
     # "fresh and empty". A table tile *with* a `grain_value` that matched nothing must not
     # fall through to showing the unrelated, unfiltered listing -- that is as wrong as
     # reporting `fresh` with an empty value.
+    # A bar tile with no grain_value on a KPI at a grain is the breakdown across that grain
+    # -- quotes by brand, lost reasons -- drawn as category bars from the same rows a table
+    # tile lists (K22). One value per bar, the current business date's; no series.
     table_showing_everything = (
-        tile.chart is ChartKind.TABLE and tile.grain_value is None
-    )
+        tile.chart in (ChartKind.TABLE, ChartKind.BAR)
+        and tile.grain_value is None
+        and len(rows) > 1
+    ) or (tile.chart is ChartKind.TABLE and tile.grain_value is None)
     if target_row is None and not table_showing_everything:
         return _empty_tile_data(
             tile,
@@ -208,9 +227,18 @@ def _tile_data(
 
     raw_value = target_row.get("value") if target_row is not None else None
     value = float(raw_value) if raw_value is not None else None
-    table_rows = rows if target_row is None else []
-    series, delta = _series_and_delta(
-        tile, result, None if raw_value is None else str(raw_value)
+    table_rows = (
+        sorted(
+            (_breakdown_row(row) for row in rows),
+            key=lambda r: (r["value"] is None, -(r["value"] or 0)),
+        )
+        if target_row is None
+        else []
+    )
+    series, delta = (
+        _series_and_delta(tile, result, None if raw_value is None else str(raw_value))
+        if target_row is not None
+        else ([], None)
     )
 
     return TileData(

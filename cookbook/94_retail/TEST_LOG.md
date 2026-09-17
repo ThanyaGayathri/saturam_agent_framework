@@ -6317,3 +6317,65 @@ restart, `GET /use-cases/uc_07831f3a/mailbox/messages` returned 0 and the mailbo
 "0 message(s) match the filter right now" for the filter "e234324". Suite 1335 passed.
 
 ---
+
+### K22 -- the semantic layer for a customer's own data: Middleby RFQ, source to dashboard
+
+**Package:** K22, branch `usecase_processautomation` (after merging `main` at `d4bd94b0`).
+No contract change.
+
+**Status:** PASS (17 Sep 2026): PA04 and PA05 cookbooks, `egpt-retail harvest` /
+`propose` / `suggest`, the review screen, the KPI screens and the dashboard in the browser,
+unit tests.
+
+**Description:** Four Middleby extracts (quotes, chat inquiries, web sessions, customers;
+5,000 rows each) loaded by `PA04_middleby_rfq_load.py` into the local warehouse as
+`source.dc_*` (text, as delivered) and typed into `silver.dc_*` by
+`sql/middleby_silver.sql` with the column comments the harvest reads; the load records its
+own `quality.load_run` so gold's "last load passed" gate reflects it. Walking the
+colleague's KPI and dashboard flow over that data found four gaps between harvest and
+dashboard, all closed here:
+
+1. **The K8 proposers had no runner.** The mapping and enrichment proposers existed as
+   skills and a cookbook that deleted its own output; nothing on a deployment filed
+   table-to-concept proposals, so every business area but one was "not yet supported".
+   `semantic/propose.py` and `egpt-retail propose` (also `harvest --propose`) run both
+   proposers through R8's routing, with the deployment's ontology overlay, and file
+   PENDING proposals.
+2. **Accepting a graph-bound proposal over HTTP recorded the decision and applied nothing**
+   (the router's own docstring said so). The accept routes now call
+   `ProposalStore.apply_accepted` for mapping, enrichment, join, authoritative-source and
+   column-meaning kinds -- a graph that cannot be opened is recorded as the row's
+   `apply_error`, never a 500 -- and `apply_accepted` applies enrichments before what
+   points at their concept, so a set reviewed in any order lands in one sweep.
+3. **The registry ignored the overlay's vocabulary.** The RFQ report breaks quotes down by
+   lost reason, pipeline stage and sales territory, none a core grain. The Middleby overlay
+   now carries `vocabularies.grain`, and `KpiRegistryStore` validates against the shipped
+   vocabularies with the deployment overlay applied.
+4. **A dashboard could not show a KPI's breakdown across its grain.** A `bar` tile at a
+   grain with no `grain_value` was "never computed". It is now the breakdown: the current
+   business date's rows, sorted by value, drawn as category bars; a `number` tile in the
+   same position is still a gap, as before.
+
+Also: the API reads `EGPT_RETAIL_ONTOLOGY_OVERLAY` (Quote, QuoteRequest, RepGroup and the
+grains) through `warehouse.env`, which `run_local_api.sh` now sources.
+
+**Verification:** `harvest`: 9 tables, 120 columns, snapshot written, mappings and
+enrichments survive a re-harvest. `propose`: 8 mappings (dc_rfq_quotes -> Quote
+authoritative, dc_customers -> Customer, dc_web_sessions -> WebSession, dc_chat_inquiries ->
+QuoteRequest, plus the retail five), 5 enrichments, 38 column meanings, 53 filed. Accepting
+them through `POST /semantic/proposals/accept`: every one `applied`, business areas Sales
+(2 concepts, 3 tables), Customer and Marketing supported. `suggest --dry-run`: 25 KPIs, 14
+use cases, the RFQ ones ready with SQL over `silver.dc_rfq_quotes`; `POST /kpis/suggestions`
+focused on sales: 18 suggestions, all `ready`. `PA05_middleby_rfq_kpis.py`: 16 RFQ KPIs
+registered through `POST /kpis` (quotes generated, by week, by brand / PIM category /
+territory / state / segment, closed-won rate overall and by brand, lost reasons count and
+share, days to close, open pipeline by stage and value, live-chat buy inquiries,
+chat-to-quote rate), all 16 materialised into gold through `POST /kpis/{id}/compute`
+(1 to 34 rows each), and the "RFQ & Quote Pipeline Performance" dashboard created with
+15 tiles under KPIs -> Dashboards -- opened in the browser: 358 quotes (28d), closed-won
+55.8 %, 15.2 days to close, US$10.5M open pipeline, weekly bars, and the breakdowns by
+brand, category, territory, segment, lost reason and stage from gold rows.
+`test_k22_semantic_for_customer_data.py` (7 tests); suite 1502 passed; ruff, mypy, contract
+check and `vite build` clean.
+
+---

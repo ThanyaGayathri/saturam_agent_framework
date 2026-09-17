@@ -176,9 +176,11 @@ export default function ChartTile({
  const columns = data?.columns?.length ? data.columns : rows.length ? Object.keys(rows[0]) : [];
  const hasTrend = series.length > 1;
  const isQuery = tile.source === "query";
- const xColumn = tile.query?.x?.column;
+ // A KPI tile at a grain with no grain_value carries the breakdown across the grain as rows
+ // (dashboards/data.py, K22): the first column is the grain key, the last is the value.
+ const xColumn = tile.query?.x?.column || (!isQuery && rows.length > 0 ? columns[0] : undefined);
  const yColumn = tile.query?.y?.[0]?.column || columns[columns.length - 1];
- const categoryBars = tile.chart === "bar" && !hasTrend && isQuery && rows.length > 0 && xColumn;
+ const categoryBars = tile.chart === "bar" && !hasTrend && rows.length > 0 && xColumn && (isQuery || value === null);
  const showScalar =
   tile.chart === "number" || (tile.chart !== "table" && !hasTrend && !categoryBars && value !== null);
  const statusMessage =

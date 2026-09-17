@@ -13,7 +13,7 @@
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
-for f in gmail.env salesforce.env azure_key.env; do
+for f in gmail.env salesforce.env azure_key.env warehouse.env; do
   if [ -f "$f" ]; then
     set -a; # shellcheck disable=SC1090
     source "$f"; set +a
