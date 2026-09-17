@@ -81,6 +81,47 @@ function conversationToTranscriptMessages(rows) {
  * @param {Array<{ role: string, text: string, meta?: object }> | null | undefined} [conversationSnapshot] rows after the latest user message was persisted
  * @returns {Promise<{ text: string, meta?: object }>}
  */
+
+/** Is the real R11 backend wired in? `VITE_PLAYGROUND_BACKEND=true` in `frontend/.env`. */
+export function isRealBackendEnabled() {
+ const v = String(import.meta.env.VITE_PLAYGROUND_BACKEND || "").toLowerCase();
+ return v === "true" || v === "1" || v === "yes";
+}
+
+/**
+ * Ask R11 and shape the answer for the renderer.
+ *
+ * Returns `null` on a transport failure so the caller falls through to the scripted path
+ * rather than showing the user a broken chat — a backend that is not running should degrade
+ * to the demo, not to an error. A *refusal* is not a failure and is returned: the whole point
+ * of `resolve_mode_scope` declining before an agent is built is that the user is told why.
+ */
+async function tryRealPlayground(userText, userMeta) {
+ try {
+  const { askPlayground, fetchProvenance, lineageFromProvenance, blocksFromAnswer } = await import(
+   "../services/playground-api.js"
+  );
+  const { runId, answer, refused } = await askPlayground({
+   question: userText,
+   mode: userMeta?.playgroundMode || "data",
+   scopeId: userMeta?.scopeId || null,
+  });
+
+  // Citations come from R7's provenance record, never from the model describing its own
+  // sources. The renderer builds its citation block from `meta.lineage`.
+  const lineage = lineageFromProvenance(await fetchProvenance(runId));
+  const meta = blocksFromAnswer(answer, { lineage });
+
+  if (refused || !meta.blocks.length) {
+   return { text: answer?.notes || "That question could not be answered in this mode.", meta: undefined };
+  }
+  return { text: "", meta };
+ } catch (err) {
+  console.warn("[playground] real backend unavailable, using the scripted reply:", err?.message);
+  return null;
+ }
+}
+
 export async function resolvePlaygroundAssistantReplyAsync(
  userText,
  profileId,
@@ -92,6 +133,22 @@ export async function resolvePlaygroundAssistantReplyAsync(
  // Gated to the Middleby profile so it can't accidentally appear elsewhere.
  if (profileId === MIDDLEBY_PROFILE_ID && isBlocksPreviewTrigger(userText)) {
   return buildBlocksPreviewReply();
+ }
+
+ // The real playground (R11), ahead of every scripted path below.
+ //
+ // This function is the seam: PlaygroundActiveChat calls it from six places and none of them
+ // change. Everything under this branch is the mock — scripted routers, seeded panels, and a
+ // direct /api/llm proxy that bypasses EGPT's routing, modes, grounding and provenance.
+ //
+ // Off unless VITE_PLAYGROUND_BACKEND is set, and that is deliberate rather than timidity:
+ // the scripted replies render journeys, RCA panels and region maps that the backend has no
+ // vocabulary to request and no executor to fill, so switching wholesale would visibly remove
+ // capability from the demo. The flag is what lets the real path be exercised and the demo
+ // keep working until that decision is made deliberately.
+ if (isRealBackendEnabled()) {
+  const reply = await tryRealPlayground(userText, userMeta);
+  if (reply) return reply;
  }
 
  // Middleby hero use cases: return rich answer-block responses before falling
