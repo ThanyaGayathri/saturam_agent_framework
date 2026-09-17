@@ -31,7 +31,7 @@ export function useDataCatalog() {
           Promise.all(
             tables.map((ref) => fetchSemanticTable(ref.name, { signal: controller.signal }).catch(() => null))
           ),
-          fetchKpiList().catch(() => []),
+          fetchKpiList({ signal: controller.signal }).catch(() => []),
           fetchBusinessAreas({ signal: controller.signal })
             .then((r) => r?.areas || [])
             .catch(() => []),

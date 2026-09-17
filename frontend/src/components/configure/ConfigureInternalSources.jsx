@@ -241,7 +241,10 @@ export default function ConfigureInternalSources() {
   // Seeded demo rows (`seed: true`) are static placeholders, not real connections -- hide
   // them from the grid (and everything computed from it: counts, readiness) so this page
   // only ever shows sources someone actually connected. They stay in storage rather than
-  // being deleted, so nothing here reverts a user's own edits to an unrelated row.
+  // being deleted, so nothing here reverts a user's own edits to an unrelated row, and
+  // `ConfigureInternalSourceForm`'s save path clears `seed` the moment someone actually
+  // edits one -- so a seed row a person points at a real connection reappears here as a
+  // normal source rather than staying hidden forever.
   const internal = (data.internalSources || [])
    .filter((s) => !s.seed)
    .map((s) => ({
@@ -260,12 +263,8 @@ export default function ConfigureInternalSources() {
   const labelFor = (pid) => catalog.find((c) => c.id === pid)?.label || pid;
   const categoryFor = (pid) => catalog.find((c) => c.id === pid)?.category || "Platform";
 
-  // `normalizeExternal` doesn't carry a `seed` flag through (unlike `normalizeInternal`), so
-  // fall back to the one thing every seed row reliably has: its id, always built as
-  // `seed_*` (see `CONFIGURE_SEED_EXTERNAL`), never something a real integration gets --
-  // `createExternalIntegration` always mints `ext_*` via `genId`.
   const external = (data.externalIntegrations || [])
-   .filter((e) => !String(e.id || "").startsWith("seed_"))
+   .filter((e) => !e.seed)
    .map((e) => ({
    id: e.id,
    name: e.name || labelFor(e.providerId),

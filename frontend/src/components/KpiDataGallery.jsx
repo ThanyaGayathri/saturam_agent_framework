@@ -296,10 +296,16 @@ export default function KpiDataGallery() {
         })}
       </div>
 
-      {filtered.length === 0 && status === "ready" ? (
+      {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-primary/35 bg-surface-secondary/80 py-14 text-center dark:bg-surface-secondary/40">
-          <p className="text-sm font-semibold text-text-primary">No datasets match the current filters.</p>
-          <p className="mt-1 text-[13px] text-text-muted">Try clearing a filter or widening your search.</p>
+          <p className="text-sm font-semibold text-text-primary">
+            {status === "error" ? "No datasets to show." : "No datasets match the current filters."}
+          </p>
+          <p className="mt-1 text-[13px] text-text-muted">
+            {status === "error"
+              ? "The catalog couldn't be loaded — see the message above."
+              : "Try clearing a filter or widening your search."}
+          </p>
         </div>
       ) : null}
 
