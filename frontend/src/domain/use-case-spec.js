@@ -59,6 +59,7 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   // inform
   metricIds: [],
   outputs: [],
+  window: null,
   analytics: null,
   metricTerms: [],
   dimensions: [],

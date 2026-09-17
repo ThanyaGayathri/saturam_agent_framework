@@ -267,7 +267,10 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
     comparison = str(slot(step_input, "comparison") or "prior_period").strip().lower()
     if comparison not in COMPARISONS:
         comparison = "prior_period"
-    window_days = int(slot(step_input, "window") or DEFAULT_WINDOW_DAYS)
+    # The window slot, when the form set one, is the person's choice and wins over each
+    # KPI's declared window; blank means "each KPI's own", then the default.
+    chosen_window = _number(slot(step_input, "window"))
+    window_days = int(chosen_window) if chosen_window else DEFAULT_WINDOW_DAYS
 
     previous = step_input.previous_step_content
     current: Dict[str, Any] = {}
@@ -301,9 +304,8 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
     baseline_for: Dict[str, date] = {}
     for identifier in identifiers:
         declared = (definitions.get(identifier) or {}).get("window_days")
-        baseline_for[identifier] = _baseline_date(
-            as_of, comparison, int(declared or window_days)
-        )
+        days = int(chosen_window) if chosen_window else int(declared or window_days)
+        baseline_for[identifier] = _baseline_date(as_of, comparison, days)
     baseline_values: Dict[str, Any] = {}
     baseline_missing: Dict[str, str] = {}
     backfilled: List[str] = []

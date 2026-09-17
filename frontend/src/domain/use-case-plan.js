@@ -160,7 +160,7 @@ export function slotValue(spec, slot) {
  const doc = spec.template === "document_to_record";
  const alias = doc ? { guardrails: "recordGuardrails", recipient: "exceptionsTo", schedule: "pollInterval" } : {};
  if (slot === "title") return spec.title || spec.goal?.split(/[.\n]/)[0] || null;
- if (slot === "window") return "each KPI's own window";
+ if (slot === "window") return spec.window ? `${spec.window} days back` : "each KPI's own window";
  const field = alias[slot] || Object.keys(FIELD_META).find((f) => FIELD_META[f].slot === slot);
  if (!field) return null;
  switch (field) {

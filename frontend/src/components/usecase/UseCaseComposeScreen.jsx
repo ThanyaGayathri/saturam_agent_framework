@@ -580,13 +580,47 @@ export default function UseCaseComposeScreen() {
     );
    case "dimensions":
     if (isAnalyticsInform(spec)) {
+     // Every breakdown the registry can actually make: the grains its KPIs carry, with the
+     // ones the chosen and suggested KPIs offer first; plus one typed by hand.
      const chosen = new Set(spec.metricIds);
-     const grains = [...new Set([...(spec.analytics?.kpis || []).filter((k) => chosen.has(k.identifier)).map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"), ...(spec.analytics?.dimensionsSuggested || []), ...spec.dimensions])];
-     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{grains.length ? grains.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d.replace(/_/g, " ")}</button>; }) : <span className="text-xs text-text-muted">The breakdowns follow the KPIs chosen above.</span>}</div></Field>;
+     const offered = [...new Set([...(spec.analytics?.kpis || []).filter((k) => chosen.has(k.identifier)).map((k) => k.grain), ...(spec.analytics?.dimensionsSuggested || [])])].filter((g) => g && g !== "overall" && g !== "time_period");
+     const registryGrains = [...new Set(platformKpis.map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"))].sort();
+     const grains = [...new Set([...offered, ...registryGrains, ...spec.dimensions])];
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="flex flex-wrap gap-1.5">
+        {grains.map((d) => { const on = spec.dimensions.includes(d); const hasKpi = platformKpis.some((k) => k.grain === d); return <button key={d} type="button" aria-pressed={on} title={hasKpi ? `KPIs at this grain: ${platformKpis.filter((k) => k.grain === d).map((k) => k.name).join(", ")}` : "No registered KPI breaks down by this yet; the run will report it as missing"} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={`${chip(on)} ${!hasKpi ? "border-dashed" : ""}`}>{d.replace(/_/g, " ")}</button>; })}
+        <input placeholder="other… (Enter)" className={`${input} w-40`} onKeyDown={(e) => { const v = e.currentTarget.value.trim().toLowerCase().replace(/\s+/g, "_"); if (e.key === "Enter" && v) { e.preventDefault(); setField(f, [...new Set([...spec.dimensions, v])]); e.currentTarget.value = ""; } }} />
+       </div>
+       <p className="mt-1.5 text-[11px] text-text-muted">A breakdown is a KPI at that grain in the registry{offered.length ? `; the ones your chosen KPIs carry come first` : ""}. A dashed one has no KPI yet — add one on the KPI screen or the report will say it is missing.</p>
+      </Field>
+     );
     }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;
    case "comparison":
-    return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{(isAnalyticsInform(spec) ? COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)) : COMPARISONS).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select>{spec.analytics?.comparisonReason && <p className="mt-1 text-[11px] text-text-muted">{spec.analytics.comparisonReason}</p>}</Field>;
+    if (isAnalyticsInform(spec)) {
+     const w = spec.window || null;
+     // What "each KPI's own window" means for the KPIs chosen, from their registry entries.
+     const windows = [...new Set(platformKpis.filter((k) => spec.metricIds.includes(k.identifier) && k.time_window).map((k) => `${k.time_window.length} ${k.time_window.unit}${k.time_window.length === 1 ? "" : "s"}`))];
+     const ownWindow = windows.length ? `as each registry entry declares: ${windows.join(", ")}` : "as each registry entry declares";
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="flex flex-wrap items-center gap-1.5">
+        {COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)).map((c) => <button key={c.value} type="button" aria-pressed={spec.comparison === c.value} onClick={() => setField(f, c.value)} className={chip(spec.comparison === c.value)}>{c.label}</button>)}
+       </div>
+       {spec.comparison !== "prior_year" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+         <span>How far back:</span>
+         <button type="button" aria-pressed={!w} onClick={() => setSpec((s) => applyPatch(s, { window: null }, ORIGIN.authored))} className={chip(!w)}>each KPI's own window</button>
+         {[7, 14, 28, 90].map((d) => <button key={d} type="button" aria-pressed={w === d} onClick={() => setSpec((s) => applyPatch(s, { window: d }, ORIGIN.authored))} className={chip(w === d)}>{d} days</button>)}
+         <input type="number" min="1" placeholder="other" value={w && ![7, 14, 28, 90].includes(w) ? w : ""} onChange={(e) => setSpec((s) => applyPatch(s, { window: e.target.value ? Number(e.target.value) : null }, ORIGIN.authored))} className={`${input} w-20`} /><span className="text-text-muted">days</span>
+        </div>
+       )}
+       <p className="mt-1.5 text-[11px] text-text-muted">{spec.comparison === "prior_year" ? "The same date a year earlier; the baseline is computed from each KPI's formula if gold has none for it." : w ? `Each KPI is compared with its value ${w} days earlier, whatever its own window.` : `Each KPI is compared with its value one window earlier, ${ownWindow}.`}{spec.analytics?.comparisonReason ? ` Suggested: ${spec.analytics.comparisonReason}.` : ""}</p>
+      </Field>
+     );
+    }
+    return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{COMPARISONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>;
    case "outputs":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>

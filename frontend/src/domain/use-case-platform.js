@@ -69,6 +69,7 @@ export function kpiParameters(spec, sources = []) {
   // The Inform shape's report slots (K23): what to produce, and the report's title.
   outputs: spec.outputs && spec.outputs.length ? spec.outputs : undefined,
   title: spec.title || undefined,
+  window: spec.window || undefined,
   candidates: spec.candidates || null,
   guardrails: spec.guardrails || [],
   approver: spec.approver || "",
