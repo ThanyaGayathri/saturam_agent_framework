@@ -5,7 +5,7 @@ import ChartTile, { GuardPill } from "../ChartTile";
 import { fetchSemanticTable } from "../../../services/semantic-tables-api";
 import { fetchKpi } from "../../../services/kpis-api";
 import { previewDashboardQuery } from "../../../services/dashboards-api";
-import { tileDataFromPreview } from "../../../storage/dashboards";
+import { OVERALL_GRAIN, tileDataFromPreview } from "../../../storage/dashboards";
 
 const CHART_OPTIONS = [
  { value: "number", label: "Number" },
@@ -13,6 +13,15 @@ const CHART_OPTIONS = [
  { value: "bar", label: "Bar" },
  { value: "table", label: "Table" },
 ];
+
+/** How long the KPI-grain lookup below gets before it's treated as failed (round-4 review: an
+ * unresolved -- not rejected -- request used to leave "Checking…" showing, and Table blocked,
+ * forever with no way out). */
+const KPI_GRAIN_FETCH_TIMEOUT_MS = 10000;
+
+/** Sentinel for "asked, but couldn't tell" -- a real `grain` is always a non-empty vocabulary
+ * term (`product`, `supplier`, `"overall"`, ...), never this, so it can't collide with one. */
+const KPI_GRAIN_UNKNOWN = "__unknown__";
 
 /** One column of the schema pane -- the same description/meaning text the compose agent was
  * shown, so a person editing SQL by hand has the same vocabulary the model had. */
@@ -73,25 +82,33 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
 
  // The KPI's own `grain` (round-3 review: a `Tile` never carries it, only `grain_value`, so a
  // KPI at the "overall" grain -- always exactly one row, no `grain_value` to set -- slipped
- // past the round-2 guard below entirely). `undefined` until fetched or for a query tile
- // (never needed); `null` once fetched if the lookup failed, so a lookup failure never blocks
- // Save forever on the "still checking" branch below.
+ // past the round-2 guard below entirely). `undefined` while loading (or not needed: a query
+ // tile, or `grain_value` alone already settles it); `KPI_GRAIN_FETCH_TIMEOUT_MS` and
+ // `kpiGrainAttempt` below are round-4's answer to the same fetch hanging (not rejecting)
+ // forever on "Checking…" with Table stuck blocked and no way out.
  const [kpiGrain, setKpiGrain] = useState(undefined);
+ const [kpiGrainAttempt, setKpiGrainAttempt] = useState(0);
  useEffect(() => {
-  if (isQuery || !chart.kpi_identifier) return undefined;
+  if (isQuery || !chart.kpi_identifier || chart.grain_value != null) return undefined;
+  setKpiGrain(undefined);
   let cancelled = false;
-  fetchKpi(chart.kpi_identifier)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KPI_GRAIN_FETCH_TIMEOUT_MS);
+  fetchKpi(chart.kpi_identifier, { signal: controller.signal })
    .then((kpi) => {
-    if (!cancelled) setKpiGrain(kpi.grain ?? null);
+    if (!cancelled) setKpiGrain(kpi.grain || KPI_GRAIN_UNKNOWN);
    })
    .catch(() => {
-    if (!cancelled) setKpiGrain(null);
-   });
+    if (!cancelled) setKpiGrain(KPI_GRAIN_UNKNOWN);
+   })
+   .finally(() => clearTimeout(timer));
   return () => {
    cancelled = true;
+   controller.abort();
+   clearTimeout(timer);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [isQuery, chart.kpi_identifier]);
+ }, [isQuery, chart.kpi_identifier, chart.grain_value, kpiGrainAttempt]);
 
  // A KPI tile scoped to one grain (`grain_value`, e.g. one supplier) always resolves to a
  // single row server-side (`_tile_data`'s `_resolve_row`), so it can never come back with the
@@ -99,17 +116,21 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  // same collapse hits a KPI at the "overall" grain even with `grain_value` unset: that grain's
  // formula returns exactly one column and no keys (`warehouse/gold.py`'s `GRAIN_OVERALL`), so
  // `_resolve_row` always finds exactly one row too. Query tiles and un-scoped per-dimension KPI
- // tiles (a real top-N table) are unaffected.
+ // tiles (a real top-N table) are unaffected. Unknown -- still loading, timed out, or failed --
+ // fails closed (blocks Table) rather than risk saving the exact bug this guards against.
  const tableUnavailableReason = (() => {
   if (isQuery) return null;
   if (chart.grain_value != null) {
    return "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown.";
   }
-  if (kpiGrain === "overall") {
+  if (kpiGrain === OVERALL_GRAIN) {
    return "This metric has no breakdown to list (grain: overall) -- a table has nothing to show beyond the single value. Detach and edit as a query to build one.";
   }
   if (kpiGrain === undefined) {
    return "Checking whether this metric has a breakdown to list…";
+  }
+  if (kpiGrain === KPI_GRAIN_UNKNOWN) {
+   return "Couldn't check whether this metric has a breakdown to list.";
   }
   return null;
  })();
@@ -303,7 +324,21 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
        })}
       </div>
       {tableUnavailableReason && kind === "table" && (
-       <p className="mt-1.5 text-[11px] text-status-warning">{tableUnavailableReason}</p>
+       <p className="mt-1.5 text-[11px] text-status-warning">
+        {tableUnavailableReason}
+        {kpiGrain === KPI_GRAIN_UNKNOWN && (
+         <>
+          {" "}
+          <button
+           type="button"
+           onClick={() => setKpiGrainAttempt((n) => n + 1)}
+           className="font-semibold underline hover:no-underline"
+          >
+           Retry
+          </button>
+         </>
+        )}
+       </p>
       )}
      </div>
 

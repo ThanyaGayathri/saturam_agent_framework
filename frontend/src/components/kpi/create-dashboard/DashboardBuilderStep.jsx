@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CalendarClock, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import MetricPicker from "./MetricPicker";
 import ChartEditorPanel from "./ChartEditorPanel";
 import ChartTile from "../ChartTile";
-import { spanForChart, tileDataFromPreview } from "../../../storage/dashboards";
+import { spanForChart, tableUnavailableForChart, tileDataFromPreview } from "../../../storage/dashboards";
 
 const AI_BADGE = (
  <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
@@ -51,7 +51,27 @@ export default function DashboardBuilderStep({
  // A not-yet-added chart's draft, or `null`. Distinct from `editingId`/`editingChart` below,
  // which only ever point at a chart already in `charts` -- see `addBlankQueryChart`'s comment.
  const [addingChart, setAddingChart] = useState(null);
- const canSubmit = charts.length > 0 && !submitting;
+
+ // `readyKpis` (round-4 review: this is the same guard `ChartEditorPanel.jsx`'s
+ // `tableUnavailableReason` applies, but that only ever fires for a chart someone actually
+ // opened in the editor -- an accepted AI suggestion never has to) already carries every ready
+ // KPI's `grain` (`CreateDashboardModal.jsx`'s `metricFromKpi`), so this is a lookup, not a
+ // fetch: no extra round trip per chart, and no risk of blocking "Create dashboard" on a
+ // network call the way a per-chart fetch would.
+ const kpiGrainByIdentifier = useMemo(
+  () => Object.fromEntries(readyKpis.filter((k) => k.grain).map((k) => [k.identifier, k.grain])),
+  [readyKpis],
+ );
+ const tableUnavailableChartIds = useMemo(
+  () =>
+   new Set(
+    charts
+     .filter((c) => tableUnavailableForChart(c, kpiGrainByIdentifier[c.kpi_identifier]))
+     .map((c) => c.id),
+   ),
+  [charts, kpiGrainByIdentifier],
+ );
+ const canSubmit = charts.length > 0 && tableUnavailableChartIds.size === 0 && !submitting;
  const editingChart = editingId ? charts.find((c) => c.id === editingId) : null;
 
  const removeChart = (id) => setCharts(charts.filter((c) => c.id !== id));
@@ -169,36 +189,57 @@ export default function DashboardBuilderStep({
      </div>
     )}
 
+    {tableUnavailableChartIds.size > 0 && (
+     <div className="mb-3 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2.5 text-xs text-text-secondary">
+      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
+      <p>
+       {tableUnavailableChartIds.size} chart{tableUnavailableChartIds.size === 1 ? " has" : "s have"} no
+       breakdown to show as a table -- open the flagged chart{tableUnavailableChartIds.size === 1 ? "" : "s"}{" "}
+       below (the pencil icon) and pick a different chart type before creating.
+      </p>
+     </div>
+    )}
+
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-     {charts.map((chart) => (
-      <ChartTile
-       key={chart.id}
-       className={spanForChart(chart.chart) === 2 ? "sm:col-span-2" : ""}
-       tile={chart}
-       data={chart.source === "query" ? tileDataFromPreview(chart, chart.preview) : null}
-       guard={chart.guard}
-       actions={
-        <>
-         <button
-          type="button"
-          onClick={() => setEditingId(chart.id)}
-          aria-label={`Edit ${chart.title}`}
-          className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
-         >
-          <Pencil size={13} />
-         </button>
-         <button
-          type="button"
-          onClick={() => removeChart(chart.id)}
-          aria-label={`Remove ${chart.title}`}
-          className="rounded-md p-1.5 text-text-muted hover:bg-status-critical/10 hover:text-status-critical"
-         >
-          <Trash2 size={13} />
-         </button>
-        </>
-       }
-      />
-     ))}
+     {charts.map((chart) => {
+      const tableBlocked = tableUnavailableChartIds.has(chart.id);
+      return (
+       <div key={chart.id} className={spanForChart(chart.chart) === 2 ? "sm:col-span-2" : ""}>
+        <ChartTile
+         className={tableBlocked ? "ring-1 ring-status-warning/60" : ""}
+         tile={chart}
+         data={chart.source === "query" ? tileDataFromPreview(chart, chart.preview) : null}
+         guard={chart.guard}
+         actions={
+          <>
+           <button
+            type="button"
+            onClick={() => setEditingId(chart.id)}
+            aria-label={`Edit ${chart.title}`}
+            className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+           >
+            <Pencil size={13} />
+           </button>
+           <button
+            type="button"
+            onClick={() => removeChart(chart.id)}
+            aria-label={`Remove ${chart.title}`}
+            className="rounded-md p-1.5 text-text-muted hover:bg-status-critical/10 hover:text-status-critical"
+           >
+            <Trash2 size={13} />
+           </button>
+          </>
+         }
+        />
+        {tableBlocked && (
+         <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-status-warning">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          This metric has no breakdown to list as a table -- edit it to pick a different chart type.
+         </p>
+        )}
+       </div>
+      );
+     })}
      <button
       type="button"
       onClick={addBlankQueryChart}
