@@ -2206,6 +2206,10 @@ class Kpi(BaseModel):
     source: KpiOrigin
     dataset_ids: list[str] | None = None
     process_ids: list[str] | None = None
+    dashboard_names: list[str] | None = Field(
+        [],
+        description="Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.",
+    )
     feasibility: Feasibility
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 

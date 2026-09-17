@@ -249,7 +249,11 @@ def _feasibility_out(
 
 
 def _kpi_out(
-    kpi: KpiDefinition, feasibility: wire.Feasibility, *, include_sql: bool
+    kpi: KpiDefinition,
+    feasibility: wire.Feasibility,
+    *,
+    include_sql: bool,
+    dashboard_names: Sequence[str] = (),
 ) -> wire.Kpi:
     return wire.Kpi(
         id=kpi.identifier,
@@ -279,6 +283,7 @@ def _kpi_out(
         # contract has no third state to tell them apart, and no consumer has needed to yet.
         dataset_ids=list(kpi.dataset_ids) or None,
         process_ids=list(kpi.process_ids) or None,
+        dashboard_names=list(dashboard_names),
         feasibility=feasibility,
         updated_at=kpi.updated_at,
     )
@@ -472,10 +477,14 @@ def _respond_with_kpi(
         raise HTTPException(
             status_code=404, detail=f"No KPI {definition.identifier!r}."
         )
+    dashboard_names = store.dashboard_names_by_kpi([definition.identifier]).get(
+        definition.identifier, ()
+    )
     return _kpi_out(
         definition,
         _feasibility_out(feasibility, snapshot_version),
         include_sql=_may_read_sql(request),
+        dashboard_names=dashboard_names,
     )
 
 
@@ -499,6 +508,9 @@ def list_kpis(
 
     settings = RetailSettings()
     feasibility_map, snapshot_version = _feasibility_map(settings, store, definitions)
+    dashboard_names_map = store.dashboard_names_by_kpi(
+        [d.identifier for d in definitions]
+    )
     include_sql = _may_read_sql(request)
     kpis = []
     for definition in definitions:
@@ -516,6 +528,7 @@ def list_kpis(
                 definition,
                 _feasibility_out(verdict, snapshot_version),
                 include_sql=include_sql,
+                dashboard_names=dashboard_names_map.get(definition.identifier, ()),
             )
         )
     return [k for k in kpis if _matches_filters(k, subject_area, active, feasibility)]
