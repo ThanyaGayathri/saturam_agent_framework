@@ -167,8 +167,8 @@ _THEIR_PART = re.compile(
     r"^(customer|buyer|their|client)_?(part|item|sku|code|ref|product)"
 )
 _OUR_CODE = re.compile(
-    r"^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|item_code|code|"
-    r"product_id|material_number|catalogue_number)$"
+    r"^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|part_no|part|"
+    r"item_code|item_number|item_no|code|product_id|material_number|catalogue_number)$"
 )
 _REFERENCE = re.compile(r"(number|reference|ref|id|no)$")
 

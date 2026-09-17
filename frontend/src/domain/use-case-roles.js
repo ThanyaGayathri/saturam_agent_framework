@@ -81,7 +81,7 @@ const ACCOUNT_NAME_LOOSE = /(customer|supplier|vendor|account|client)_name/;
 const SHIP_TO = /(ship|deliver|delivery|shipping).*(address|to|site)|^(site|location)$/;
 const ITEM = /^(description|product|item|material|article|sku_description|product_description|item_description|product_name|item_name)$/;
 const THEIR_PART = /^(customer|buyer|their|client)_?(part|item|sku|code|ref|product)/;
-const OUR_CODE = /^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|item_code|code|product_id|material_number|catalogue_number)$/;
+const OUR_CODE = /^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|part_no|part|item_code|item_number|item_no|code|product_id|material_number|catalogue_number)$/;
 const REFERENCE = /(number|reference|ref|id|no)$/;
 const first = (names, re) => names.find((n) => re.test(n)) || null;
 
@@ -108,6 +108,22 @@ export function resolutionSources(template) {
   else if (value) derived[role] = value;
  }
  return derived;
+}
+
+/**
+ * The document fields each role is resolved from, by `MASTER_DATA_ROLES` id:
+ * `{ customer: ["customer_name", "sender email"], contact: ["sender email"], shipTo: ["ship_to_address"],
+ *   product: ["part_no", "description"] }` — what the mapping form shows beside a resolved value,
+ * so `ship-to site street` reads as `ship_to_address → ship-to site street`.
+ */
+export function roleFeeds(template) {
+ const sources = resolutionSources(template);
+ return {
+  customer: ["sender email", sources.customer.name].filter(Boolean),
+  contact: ["sender email"],
+  shipTo: [sources.ship_to.address].filter(Boolean),
+  product: [sources.product.customer_part_number, sources.product.supplier_product_code, sources.product.description].filter(Boolean),
+ };
 }
 
 /** What each needed role will read from this spec's template — for the plan and the readiness check. */

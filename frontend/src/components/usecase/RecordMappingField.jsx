@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { headerFields, lineFields } from "../../domain/extraction-templates";
 import {
- TRANSFORMS, loadMappingCatalogue, normalizeMapping, normalizeRow, removeMappingFromCatalogue, saveMappingToCatalogue,
- sourceOptions, uncoveredRequired,
+ LITERAL, TRANSFORMS, describeSource, describeSources, loadMappingCatalogue, normalizeMapping, normalizeRow, removeMappingFromCatalogue,
+ saveMappingToCatalogue, sourceGroups, staleSources, uncoveredRequired,
 } from "../../domain/record-mappings";
+import { roleFeeds } from "../../domain/use-case-roles";
 import { describeTargetObject, fetchTargetObjects, suggestRecordMapping, suggestTargetObjects } from "../../services/use-cases-api";
 
 /**
@@ -17,18 +18,59 @@ import { describeTargetObject, fetchTargetObjects, suggestRecordMapping, suggest
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
 const input = "rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px] focus:border-primary focus:outline-none";
 
-function SourceCell({ value, options, onChange }) {
- const text = (value || []).join(" | ");
- const listId = useMemo(() => `src-${Math.random().toString(36).slice(2, 8)}`, []);
+const KIND_TONE = { document: "bg-primary-light/40 text-primary", line: "bg-primary-light/40 text-primary", resolved: "bg-status-success-light text-status-success", run: "bg-surface-secondary text-text-secondary", literal: "bg-surface-secondary text-text-secondary", unknown: "bg-status-warning-light text-status-warning" };
+const KIND_WORD = { document: "document", line: "line", resolved: "resolved", run: "run", literal: "fixed", unknown: "missing" };
+
+/** One source, named for what it is: a field of the document, a value resolved in the target, a run value. */
+function SourceTag({ source, template, feeds }) {
+ const d = describeSource(source, template, feeds);
+ return <span className={`inline-flex items-baseline gap-1 rounded px-1.5 py-0.5 ${KIND_TONE[d.kind]}`} title={d.detail}><span className="font-mono">{d.label}</span><span className="text-[9px] uppercase tracking-wide opacity-80">{KIND_WORD[d.kind]}</span></span>;
+}
+
+/**
+ * A row's sources as a chain of selects -- the value, then what to use if it is empty -- each
+ * option grouped by where it comes from (the document, a resolved role, the run) and a fixed
+ * value typed in place. Nothing to type from memory.
+ */
+function SourceChain({ value, groups, onChange }) {
+ const sources = value && value.length ? value : [""];
+ const set = (i, next) => { const out = [...sources]; out[i] = next; onChange(out.filter(Boolean)); };
+ const known = new Set(groups.flatMap((g) => g.options.map((o) => o.value)));
  return (
-  <>
-   <input list={listId} value={text} onChange={(e) => onChange(e.target.value.split("|").map((s) => s.trim()).filter(Boolean))} placeholder="source, or =literal" className={`${input} w-full font-mono`} aria-label="Source" />
-   <datalist id={listId}>{options.map((o) => <option key={o.value} value={o.value}>{o.group}</option>)}</datalist>
-  </>
+  <div className="flex flex-wrap items-center gap-1">
+   {sources.map((source, i) => {
+    const literal = source.startsWith(LITERAL);
+    const selected = literal ? LITERAL : source;
+    return (
+     <span key={i} className="inline-flex items-center gap-1">
+      {i > 0 && <span className="text-[10px] uppercase tracking-wide text-text-muted">else</span>}
+      <select value={selected} onChange={(e) => set(i, e.target.value === LITERAL ? LITERAL : e.target.value)} className={`${input} max-w-[15rem] font-mono`} aria-label={i === 0 ? "Source" : `Fallback ${i}`}>
+       <option value="">{i === 0 ? "choose a value…" : "(none)"}</option>
+       {groups.map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.value} value={o.value} title={o.detail}>{o.label}</option>)}</optgroup>)}
+       <option value={LITERAL}>a fixed value…</option>
+       {source && !literal && !known.has(source) && <option value={source}>{source} (not in this template)</option>}
+      </select>
+      {literal && <input value={source.slice(1)} onChange={(e) => set(i, `${LITERAL}${e.target.value}`)} placeholder="type the value" className={`${input} w-28`} aria-label={`Fixed value ${i + 1}`} />}
+     </span>
+    );
+   })}
+   {sources[sources.length - 1] && sources.length < 3 && <button type="button" onClick={() => onChange([...sources, ""])} className="rounded border border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-primary hover:text-primary">+ if empty</button>}
+  </div>
  );
 }
 
-function RowTable({ title, rows, described, options, onChange, parentField }) {
+/** One mapped field in the summary: the target, then the value in words with where it comes from. */
+function MappedRow({ object, row, template, feeds, stale, perLine }) {
+ return (
+  <tr className={`border-t border-border-light align-baseline ${stale ? "text-status-warning" : ""}`} title={describeSources(row.source, template, feeds)}>
+   <td className="py-1 pr-3 font-mono text-text-primary">{object}.{row.target}{row.required ? <span className="text-status-critical">*</span> : null}</td>
+   <td className="py-1 pr-3"><span className="inline-flex flex-wrap items-baseline gap-1">{row.source.map((src, i) => <span key={i} className="inline-flex items-baseline gap-1">{i > 0 && <span className="text-[9px] uppercase text-text-muted">else</span>}<SourceTag source={src} template={template} feeds={feeds} /></span>)}</span></td>
+   <td className="py-1 text-[9px] uppercase tracking-wide text-text-muted">{perLine ? "per line" : ""}</td>
+  </tr>
+ );
+}
+
+function RowTable({ title, rows, described, groups, onChange, parentField }) {
  const byName = Object.fromEntries((described?.fields || []).map((f) => [f.name, f]));
  const uncovered = uncoveredRequired(described, rows).filter((n) => n !== parentField);
  const [adding, setAdding] = useState("");
@@ -37,12 +79,12 @@ function RowTable({ title, rows, described, options, onChange, parentField }) {
   <div>
    <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{title} · {rows.length} rows</p>
    <table className="mt-1 w-full text-[11px]">
-    <thead><tr className="text-left text-text-muted"><th className="py-0.5 pr-2 font-semibold">Target field</th><th className="py-0.5 pr-2 font-semibold">← source (first non-empty wins; "|" between)</th><th className="py-0.5 pr-2 font-semibold">as</th><th /></tr></thead>
+    <thead><tr className="text-left text-text-muted"><th className="py-0.5 pr-2 font-semibold">Target field</th><th className="py-0.5 pr-2 font-semibold">← value</th><th className="py-0.5 pr-2 font-semibold">as</th><th /></tr></thead>
     <tbody>
      {rows.map((r) => (
       <tr key={r.target} className="border-t border-border-light align-middle">
        <td className="py-1 pr-2 font-mono text-text-primary" title={byName[r.target]?.label}>{r.target}{(r.required || byName[r.target]?.required) && <span className="text-status-critical">*</span>}{byName[r.target] && <span className="ml-1 text-[10px] text-text-muted">{byName[r.target].type}</span>}</td>
-       <td className="py-1 pr-2"><SourceCell value={r.source} options={options} onChange={(source) => onChange(rows.map((x) => (x.target === r.target ? { ...x, source } : x)))} /></td>
+       <td className="py-1 pr-2"><SourceChain value={r.source} groups={groups} onChange={(source) => onChange(rows.map((x) => (x.target === r.target ? { ...x, source } : x)))} /></td>
        <td className="py-1 pr-2"><select value={r.transform || ""} onChange={(e) => onChange(rows.map((x) => (x.target === r.target ? { ...x, transform: e.target.value || null } : x)))} className={input} aria-label={`${r.target} transform`}>{[...TRANSFORMS, ...(r.transform && !TRANSFORMS.some((t) => t.value === r.transform) ? [{ value: r.transform, label: r.transform.replace("text:", "text, ") + (r.transform.startsWith("text:") ? " chars" : "") }] : [])].map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></td>
        <td className="py-1"><button type="button" onClick={() => onChange(rows.filter((x) => x.target !== r.target))} className="text-text-muted hover:text-status-critical" aria-label={`Remove ${r.target}`}><X size={11} /></button></td>
       </tr>
@@ -75,6 +117,14 @@ export default function RecordMappingField({ spec, template, target, setMapping,
   return catalogue.find((m) => m.id === spec.targetObjects) || null;
  }, [spec.targetObjects, spec.recordMappingDef, catalogue]);
  const offered = catalogue.filter((m) => m.target === targetKey);
+ // Rows of the chosen mapping whose source is not a field of the current template: the
+ // shipped purchase-order mapping under a template drafted from a customer's sample, or a
+ // template edited after the mapping was chosen. Named here, and re-suggested on request.
+ const stale = useMemo(() => staleSources(chosen, template), [chosen, template]);
+ // Which document fields feed each resolved role (K21's regexes over this template), so a
+ // resolved value is shown with the extracted field it came from.
+ const feeds = useMemo(() => roleFeeds(template), [template]);
+ const staleKey = new Set(stale.map((s) => `${s.object}.${s.target}`));
 
  // The objects the target holds for this document kind (K24): asked once the target and
  // the template are known, shown as a suggestion the person uses or ignores.
@@ -111,6 +161,11 @@ export default function RecordMappingField({ spec, template, target, setMapping,
  const startEdit = (m) => setEditing({ ...m, id: m.source === "shipped" ? undefined : m.id, basedOn: m.source === "shipped" ? m.id : null, source: m.source === "shipped" ? "authored" : m.source, label: m.source === "shipped" ? `${m.label.replace(/ \(standard\)$/, "")} (custom)` : m.label });
  const keep = () => { const m = saveMappingToCatalogue({ ...editing, target: targetKey }); setCatalogue(loadMappingCatalogue()); setEditing(null); setMapping(m.id, m); };
  const remove = (m) => { removeMappingFromCatalogue(m.id); setCatalogue(loadMappingCatalogue()); if (spec.targetObjects === m.id) setMapping("", null); };
+ const resuggest = () => {
+  if (!chosen) return;
+  startEdit(chosen);
+  setTimeout(() => suggestFor(chosen.object, chosen.child?.object || null), 0);
+ };
  const suggestFor = async (object, child) => {
   if (!object || !template) return;
   setBusy(true); setNote("");
@@ -130,9 +185,25 @@ export default function RecordMappingField({ spec, template, target, setMapping,
   } catch (err) { setNote(`Could not suggest: ${err?.detail || err?.message || "the platform did not answer"}.`); } finally { setBusy(false); }
  };
  const valid = editing && editing.label.trim() && editing.object.trim() && editing.fields.some((r) => r.source?.length);
+ // The org's objects in three groups so the long tail does not bury the likely ones: what the
+ // platform suggested for this template, the org's own (custom) objects, then every standard one.
+ const objectGroups = useMemo(() => {
+  if (!objects || !objects.length) return [];
+  const suggested = new Set((objectSuggestions || []).flatMap((s) => [s.object, s.child].filter(Boolean)));
+  const pick = (test) => objects.filter(test);
+  return [
+   { group: "Suggested for this template", options: pick((o) => suggested.has(o.name)) },
+   { group: "Your org's own objects", options: pick((o) => o.custom && !suggested.has(o.name)) },
+   { group: "Standard objects", options: pick((o) => !o.custom && !suggested.has(o.name)) },
+  ].filter((g) => g.options.length);
+ }, [objects, objectSuggestions]);
  const objectSelect = (value, onPick, label) => (
-  objects && objects.length ? (
-   <select value={value} onChange={(e) => onPick(e.target.value)} className={`${input} font-mono`} aria-label={label}><option value="">{label}…</option>{objects.map((o) => <option key={o.name} value={o.name}>{o.name}{o.label !== o.name ? ` — ${o.label}` : ""}</option>)}</select>
+  objectGroups.length ? (
+   <select value={value} onChange={(e) => onPick(e.target.value)} className={`${input} max-w-[18rem] font-mono`} aria-label={label}>
+    <option value="">{label}…</option>
+    {objectGroups.map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.name} value={o.name}>{o.name}{o.label !== o.name ? ` — ${o.label}` : ""}</option>)}</optgroup>)}
+    {value && !objects.some((o) => o.name === value) && <option value={value}>{value}</option>}
+   </select>
   ) : <input value={value} onChange={(e) => onPick(e.target.value)} placeholder={label} className={`${input} w-40 font-mono`} aria-label={label} />
  );
 
@@ -158,10 +229,20 @@ export default function RecordMappingField({ spec, template, target, setMapping,
    {chosen && !editing && (
     <div className="mt-2 rounded-md border border-border-light bg-surface-secondary/40 p-2.5 text-[11px]">
      <p className="font-semibold uppercase tracking-wide text-text-muted">{chosen.object}{chosen.child ? ` + ${chosen.child.object} per line` : ""} · {chosen.fields.length + (chosen.child?.fields.length || 0)} mapped fields</p>
-     <ul className="mt-1 grid gap-x-4 gap-y-0.5 font-mono text-text-secondary sm:grid-cols-2">
-      {chosen.fields.map((r) => <li key={r.target}>{chosen.object}.{r.target} ← {r.source.join(" | ")}{r.required ? " *" : ""}</li>)}
-      {(chosen.child?.fields || []).map((r) => <li key={`c-${r.target}`}>{chosen.child.object}.{r.target} ← {r.source.join(" | ")}{r.required ? " *" : ""}</li>)}
-     </ul>
+     <div className="overflow-x-auto"><table className="mt-1 text-text-secondary">
+      <thead><tr className="text-left text-[10px] uppercase tracking-wide text-text-muted"><th className="py-0.5 pr-3 font-semibold">Target field</th><th className="py-0.5 pr-3 font-semibold">← value</th><th /></tr></thead>
+      <tbody>
+       {chosen.fields.map((r) => <MappedRow key={r.target} object={chosen.object} row={r} template={template} feeds={feeds} stale={staleKey.has(`${chosen.object}.${r.target}`)} />)}
+       {(chosen.child?.fields || []).map((r) => <MappedRow key={`c-${r.target}`} object={chosen.child.object} row={r} template={template} feeds={feeds} stale={staleKey.has(`${chosen.child.object}.${r.target}`)} perLine />)}
+      </tbody>
+     </table></div>
+     <p className="mt-1.5 flex flex-wrap gap-x-3 text-[10px] text-text-muted"><span><span className="rounded bg-primary-light/40 px-1 text-primary">document</span> extracted by the AI step</span><span><span className="rounded bg-status-success-light px-1 text-status-success">resolved</span> the document field on the left, looked up in {target.split(/\s*[-–]\s*/)[0]} by the Resolve step, and the matched record's field on the right</span><span><span className="rounded bg-surface-secondary px-1">run</span> set by the run</span></p>
+     {stale.length > 0 && (
+      <p className="mt-1.5 text-status-warning">
+       {stale.length} source{stale.length === 1 ? "" : "s"} the template does not extract: {[...new Set(stale.map((s) => s.source))].join(", ")}. Those fields would be blank on every record.{" "}
+       <button type="button" onClick={resuggest} className="font-semibold underline hover:text-primary">Re-suggest from this template</button>
+      </p>
+     )}
      <div className="mt-2 flex flex-wrap items-center gap-2 text-text-muted">
       <span>{chosen.status_field ? `"Created as" sets ${chosen.object}.${chosen.status_field}.` : "The object has no status to set."} Rolled back by deleting the {chosen.object}.</span>
       <button type="button" onClick={() => startEdit(chosen)} className="ml-auto font-semibold text-primary hover:underline">{chosen.source === "shipped" ? "Copy and edit" : "Edit"}</button>
@@ -178,8 +259,8 @@ export default function RecordMappingField({ spec, template, target, setMapping,
       <button type="button" onClick={suggest} disabled={busy || !editing.object || !template} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-60"><Sparkles size={12} /> {busy ? "Suggesting…" : "Suggest from names"}</button>
      </div>
      {note && <p className="text-[11px] text-text-secondary">{note}</p>}
-     {editing.object && <RowTable title={editing.object} rows={editing.fields} described={described[editing.object]} options={sourceOptions(template)} onChange={(fields) => setEditing({ ...editing, fields })} />}
-     {editing.child?.object && <RowTable title={`${editing.child.object} per line`} rows={editing.child.fields} described={described[editing.child.object]} options={sourceOptions(template, { lineScope: true })} parentField={editing.child.parent_field} onChange={(fields) => setEditing({ ...editing, child: { ...editing.child, fields } })} />}
+     {editing.object && <RowTable title={editing.object} rows={editing.fields} described={described[editing.object]} groups={sourceGroups(template, { feeds })} onChange={(fields) => setEditing({ ...editing, fields })} />}
+     {editing.child?.object && <RowTable title={`${editing.child.object} per line`} rows={editing.child.fields} described={described[editing.child.object]} groups={sourceGroups(template, { lineScope: true, feeds })} parentField={editing.child.parent_field} onChange={(fields) => setEditing({ ...editing, child: { ...editing.child, fields } })} />}
      <div className="flex flex-wrap items-center gap-2 text-[11px]">
       <label className="text-text-muted">Status field <input value={editing.status_field || ""} onChange={(e) => setEditing({ ...editing, status_field: e.target.value || null })} placeholder="Status, or none" className={`${input} ml-1 w-28 font-mono`} /></label>
       {editing.status_field && <span className="text-text-muted">draft → <input value={editing.status_values?.draft ?? "Draft"} onChange={(e) => setEditing({ ...editing, status_values: { ...(editing.status_values || {}), draft: e.target.value } })} className={`${input} w-20`} aria-label="Draft status value" /> active → <input value={editing.status_values?.active ?? "Activated"} onChange={(e) => setEditing({ ...editing, status_values: { ...(editing.status_values || {}), active: e.target.value } })} className={`${input} w-20`} aria-label="Active status value" /></span>}

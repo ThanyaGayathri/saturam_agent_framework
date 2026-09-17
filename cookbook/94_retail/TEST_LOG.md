@@ -6497,4 +6497,52 @@ Order + OrderItem per line · the template creates order · mapping ready"), exc
 acknowledge, created as, change limit, rollback, owner. Suite 1518 passed; ruff, mypy,
 contract check, `vite build` clean.
 
+**Follow-up (17 Sep, later): the mapping against a drafted template.** Uploading a
+customer's own PO (`E-02-177948.pdf`) drafted a template with `requested_delivery_date` /
+`due_date`, `notes`, `part_no` / `part_number`, `total`, `line_total`; the form then still
+offered the shipped Order + OrderItem mapping, whose `Order.Description <-
+delivery_instructions` and `OrderItem.ServiceDate <- line.line_due_date | due_date` name
+fields that template never extracts -- blank on every record, unnoticed until a run. Fixed
+as data, not a special case: `mapping.stale_sources(mapping, template)` names each row whose
+document source (a header field, a `line.` field) the template lacks -- resolved roles, run
+values and literals are never stale; `suggest_objects` offers a shipped mapping as is only
+when it has none, otherwise says which fields it lacks and the chip reads "map the fields";
+the form's chosen-mapping summary flags the stale rows and offers "Re-suggest from this
+template", which copies the mapping and re-suggests it over the drafted names; readiness
+gains a `mapping_sources` check (fails when a *required* target would be blank, names the
+rest). `suggest_mapping` learnt the drafted names (`part_no`, `item_no`, `notes`,
+`requested_delivery_date`), lets one document date serve both `PoDate` and
+`EffectiveDate`, and falls back to a header date for a line date (`ServiceDate <-
+requested_delivery_date`, as the shipped mapping does); `roles._OUR_CODE` and the
+interface mirror accept `part_no`, `part`, `item_no`, `item_number`, so the product
+resolves by part number rather than description alone. Tests
+`product/tests/test_k24_drafted_template_mapping.py` (8). In the browser: sample uploaded,
+template kept -> the summary reads "2 sources the template does not extract:
+delivery_instructions, line.line_due_date. Those fields would be blank on every record.
+Re-suggest from this template"; one click -> 19 rows over the drafted names (`Description <-
+notes`, `PoDate <- po_date`, `ServiceDate <- due_date`), kept, no stale note. Suite 1526
+passed; ruff, mypy, contract check, `vite build` clean.
+
+**Follow-up (17 Sep, later still): the mapping in words.** The source cell was a free-text
+input over a `datalist` -- the browser's suggestion list showed only on a matching prefix,
+without its groups, and the person had to know `ship_to.state_name` by heart. Replaced by a
+chain of selects: the value, then "if empty" fallbacks (up to three), every option grouped by
+where it comes from -- *From the document* (the template's header fields, with their hints),
+*From the document line*, *Resolved: sender account / sender contact / ship-to site /
+product* (the roles of `MASTER_DATA_ROLES`, so a new role appears without a form change),
+*From the run* (today's date, the standard price book) -- and *a fixed value…* typed in
+place. The chosen-mapping summary is a table, each value tagged with its kind (document /
+line / resolved / run / fixed; *missing* in amber when the template lacks it) and a legend
+naming the step that produces each. The parent/child object select groups the org's 729
+createable objects as *Suggested for this template*, *Your org's own objects*, *Standard
+objects*. `record-mappings.js`: `sourceGroups`, `describeSource`, `describeSources`,
+`LITERAL`. Verified in the browser: dropping PoDate's fallback, adding one, choosing "a fixed
+value…" and typing it, all reflected in the row; the built mapping unchanged in shape.
+`vite build` clean. Then, asked to see the extracted field beside the resolved one: a
+resolved value reads `ship_to_address → ship-to site street`, `sender email, customer_name
+→ sender account Salesforce id`, `part_no, description → product price book entry` -- the
+left side is `roleFeeds(template)` (K21's `resolutionSources` over this template), so it
+follows the template's own names; the option group reads "Resolved in the target: ship-to
+site (from ship_to_address)".
+
 ---

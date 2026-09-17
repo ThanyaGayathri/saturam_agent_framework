@@ -12,6 +12,7 @@
  */
 import { readLocalJson, writeLocalJson } from "../storage/local-json";
 import { headerFields, lineFields } from "./extraction-templates";
+import { MASTER_DATA_ROLES } from "./use-case-autonomy";
 
 export const MAPPING_CATALOGUE_KEY = "retailgpt:record-mappings:v1";
 
@@ -101,17 +102,94 @@ export const mappingLabel = (spec, catalogue = null) => findMapping(spec, catalo
 
 /** What a row's source may be, for the editor: the template's fields, the resolved entities,
  *  run values, and a literal. Grouped for a select. */
-export function sourceOptions(template, { lineScope = false } = {}) {
- const header = headerFields(template).map((f) => ({ value: f.name, label: f.name, group: "Document header" }));
- const lines = lineScope ? lineFields(template).map((f) => ({ value: `line.${f.name}`, label: `line.${f.name}`, group: "Document line" })) : [];
- const resolved = [
-  { value: "customer.id", label: "customer.id", group: "Resolved" }, { value: "customer.name", label: "customer.name", group: "Resolved" },
-  { value: "contact.id", label: "contact.id", group: "Resolved" }, { value: "contact.name", label: "contact.name", group: "Resolved" }, { value: "contact.email", label: "contact.email", group: "Resolved" },
-  { value: "ship_to.street", label: "ship_to.street", group: "Resolved" }, { value: "ship_to.city", label: "ship_to.city", group: "Resolved" }, { value: "ship_to.state", label: "ship_to.state", group: "Resolved" }, { value: "ship_to.postcode", label: "ship_to.postcode", group: "Resolved" }, { value: "ship_to.country", label: "ship_to.country", group: "Resolved" },
-  ...(lineScope ? [{ value: "product.id", label: "product.id", group: "Resolved" }, { value: "product.pricebook_entry_id", label: "product.pricebook_entry_id", group: "Resolved" }, { value: "product.unit_price", label: "product.unit_price", group: "Resolved" }, { value: "product.name", label: "product.name", group: "Resolved" }] : []),
- ];
- const run = [{ value: "$pricebook_id", label: "$pricebook_id (standard pricebook)", group: "Run" }, { value: "$today", label: "$today", group: "Run" }];
- return [...header, ...lines, ...resolved, ...run];
+// --- where a value can come from, in words ---------------------------------------------------
+// Three kinds of source, and the form names each as what it is: a field the AI step extracts
+// from the document, a value the Resolve step looked up in the target (the roles of
+// `MASTER_DATA_ROLES`), or a value of the run. A literal is the fourth: typed, never looked up.
+const RESOLVED_FIELDS = {
+ customer: [["id", "Salesforce id"], ["name", "name"]],
+ contact: [["id", "Salesforce id"], ["name", "name"], ["email", "email"]],
+ shipTo: [["street", "street"], ["city", "city"], ["state", "state code"], ["state_name", "state name"], ["postcode", "postcode"], ["country", "country"]],
+ product: [["id", "Salesforce id"], ["pricebook_entry_id", "price book entry"], ["unit_price", "list price"], ["name", "name"]],
+};
+const RUN_VALUES = [["$today", "today's date"], ["$pricebook_id", "the standard price book"]];
+export const LITERAL = "=";
+
+/** "ship_to_address → ship-to site street": the document fields a role is resolved from, then the role's field. */
+const resolvedLabel = (role, fieldLabel, feeds) => {
+ const from = (feeds?.[role.id] || []).join(", ");
+ return `${from ? `${from} → ` : ""}${role.label.toLowerCase()} ${fieldLabel}`;
+};
+
+/**
+ * The sources a row may read, grouped for a select: `[{ group, options: [{ value, label, detail }] }]`.
+ * `feeds` (from `roleFeeds(template)`) names the document fields each role is resolved from, so a
+ * resolved value shows the extracted field it came from beside it.
+ */
+export function sourceGroups(template, { lineScope = false, feeds = null } = {}) {
+ const doc = (fields, prefix) => fields.map((f) => ({ value: `${prefix}${f.name}`, label: f.name, detail: f.hint || "" }));
+ const groups = [{ group: "From the document", options: doc(headerFields(template), "") }];
+ if (lineScope) groups.push({ group: "From the document line", options: doc(lineFields(template), "line.") });
+ for (const role of MASTER_DATA_ROLES) {
+  if (!role.prefix || (role.id === "product" && !lineScope)) continue;
+  const from = (feeds?.[role.id] || []).join(", ");
+  groups.push({ group: `Resolved in the target: ${role.label.toLowerCase()}${from ? ` (from ${from})` : ""}`, options: RESOLVED_FIELDS[role.id].map(([f, label]) => ({ value: `${role.prefix}${f}`, label: resolvedLabel(role, label, feeds), detail: role.hint })) });
+ }
+ groups.push({ group: "From the run", options: RUN_VALUES.map(([value, label]) => ({ value, label, detail: "" })) });
+ return groups;
+}
+
+/** Flat form of `sourceGroups`, for a datalist. */
+export function sourceOptions(template, opts) {
+ return sourceGroups(template, opts).flatMap((g) => g.options.map((o) => ({ ...o, group: g.group })));
+}
+
+/** One source expression in words: `{ kind, label, detail }` — kind is document | line | resolved | run | literal | unknown. */
+export function describeSource(source, template, feeds = null) {
+ const text = String(source || "");
+ if (!text) return { kind: "unknown", label: "", detail: "" };
+ if (text.startsWith("=")) return { kind: "literal", label: `"${text.slice(1)}"`, detail: "a fixed value" };
+ if (text.startsWith("$")) { const run = RUN_VALUES.find(([v]) => v === text); return { kind: "run", label: run ? run[1] : text, detail: "from the run" }; }
+ const dot = text.indexOf(".");
+ if (dot < 0) { const f = headerFields(template).find((x) => x.name === text); return { kind: "document", label: text, detail: f ? f.hint || "from the document" : "not in this template" }; }
+ const head = text.slice(0, dot); const rest = text.slice(dot + 1);
+ if (head === "line") { const f = lineFields(template).find((x) => x.name === rest); return { kind: "line", label: rest, detail: f ? f.hint || "from the document line" : "not in this template" }; }
+ const role = MASTER_DATA_ROLES.find((r) => r.prefix === `${head}.`);
+ if (role) { const f = (RESOLVED_FIELDS[role.id] || []).find(([n]) => n === rest); return { kind: "resolved", label: resolvedLabel(role, f ? f[1] : rest, feeds), detail: role.hint }; }
+ return { kind: "unknown", label: text, detail: "" };
+}
+
+/** A row's sources as one sentence: "po_number", "ship-to country, else "United States"". */
+export function describeSources(sources, template, feeds = null) {
+ const parts = (sources || []).map((s) => describeSource(s, template, feeds));
+ return parts.map((p, i) => (i === 0 ? p.label : `else ${p.label}`)).join(", ");
+}
+
+/**
+ * The mapping's document sources this template does not extract (K24): a header source the
+ * header lacks, a `line.x` source the line lacks. Resolved roles (customer., product.,
+ * ship_to., contact.), run values ($today) and literals (=Draft) are never stale. Mirrors
+ * `mapping.stale_sources`; each entry is { object, target, source }.
+ */
+export function staleSources(mapping, template) {
+ if (!mapping || !template) return [];
+ const header = new Set(headerFields(template).map((f) => f.name));
+ const lines = new Set(lineFields(template).map((f) => f.name));
+ const out = [];
+ const walk = (rows, object, lineScope) => {
+  for (const r of rows || []) {
+   for (const source of r.source || []) {
+    if (source.startsWith("=") || source.startsWith("$")) continue;
+    const dot = source.indexOf(".");
+    if (dot < 0) { if (!header.has(source)) out.push({ object, target: r.target, source }); continue; }
+    const head = source.slice(0, dot); const rest = source.slice(dot + 1);
+    if (head === "line" && lineScope && !lines.has(rest)) out.push({ object, target: r.target, source });
+   }
+  }
+ };
+ walk(mapping.fields, mapping.object, false);
+ if (mapping.child) walk(mapping.child.fields, mapping.child.object, true);
+ return out;
 }
 
 /** Required target fields no row covers, given the object's live description. */

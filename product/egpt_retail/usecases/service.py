@@ -37,7 +37,7 @@ from egpt_retail.documents.golden import (
     score_case,
 )
 from egpt_retail.documents.guardrails import rules_from
-from egpt_retail.documents.mapping import mapping_from
+from egpt_retail.documents.mapping import mapping_from, stale_sources
 from egpt_retail.documents.roles import ROLES, roles_needed
 from egpt_retail.documents.mailbox import fetch_messages, filter_from, mailbox_from
 from egpt_retail.documents.samples import (
@@ -306,6 +306,41 @@ class UseCaseService:
                     ),
                 )
             )
+            # The mapping's document sources against the template's fields (K24): a
+            # shipped mapping under a template drafted from the customer's own sample names
+            # fields it never extracts. A required target left blank is an exception on
+            # every document, so it fails readiness; an optional one is named and passes.
+            mapping = self._mapping_for(params)
+            try:
+                template = template_from(
+                    params.get("extraction template") or "purchase_order"
+                )
+            except (KeyError, ValueError):
+                template = None
+            if mapping is not None and template is not None:
+                stale = stale_sources(mapping, template)
+                blank_required = sorted(
+                    {f"{s['object']}.{s['target']}" for s in stale if s["required"]}
+                )
+                sources = list(dict.fromkeys(str(s["source"]) for s in stale))
+                checks.append(
+                    (
+                        "mapping_sources",
+                        not blank_required or mode == "rehearse",
+                        f"Mapping {mapping.label} fits template {template.label}."
+                        if not stale
+                        else (
+                            f"Mapping {mapping.label} reads "
+                            f"{', '.join(sources)}, which template {template.label} does "
+                            "not extract"
+                            + (
+                                f"; required {', '.join(blank_required)} would be blank."
+                                if blank_required
+                                else "; those fields stay blank."
+                            )
+                        ),
+                    )
+                )
             golden = self.golden_summary(use_case_id)
             if golden["with_expected"]:
                 checks.append(

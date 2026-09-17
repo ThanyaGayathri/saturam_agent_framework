@@ -43,6 +43,7 @@ __all__ = [
     "ChildMapping",
     "RecordMapping",
     "SHIPPED_MAPPINGS",
+    "stale_sources",
     "mapping_from",
     "mapping_to_dict",
     "apply_mapping",
@@ -569,6 +570,19 @@ _SYNONYMS: Mapping[str, Tuple[str, ...]] = MappingProxyType(
         "customer_name": ("accountname", "customer"),
         "supplier_name": ("vendorname", "suppliername", "accountname", "name"),
         "description": ("description", "name", "productname", "itemdescription"),
+        "part_no": ("productcode", "partnumber", "sku", "itemcode"),
+        "part_number": ("productcode", "partnumber", "sku", "itemcode"),
+        "item_no": ("productcode", "partnumber", "sku", "itemcode"),
+        "sku": ("productcode", "sku", "partnumber"),
+        "requested_delivery_date": (
+            "servicedate",
+            "duedate",
+            "requesteddate",
+            "deliverydate",
+            "closedate",
+        ),
+        "notes": ("description", "notes", "comments"),
+        "line_due_date": ("servicedate", "duedate", "deliverydate"),
         "quantity": ("quantity", "qty"),
         "unit_price": ("unitprice", "price", "listprice"),
         "line_total": ("totalprice", "linetotal", "amount"),
@@ -664,8 +678,11 @@ def suggest_mapping(
                 # free text: the person picks a literal (=Email), or 'created as' sets it.
                 candidate = None
             else:
+                # A field serves one target, except a date: the document's one PO date
+                # is both the order's PoDate and its EffectiveDate.
                 candidate = match(
-                    [c for c in candidates if c not in used], target_field
+                    [c for c in candidates if c not in used or kind == "date"],
+                    target_field,
                 )
                 if candidate:
                     used.add(candidate)
@@ -680,6 +697,13 @@ def suggest_mapping(
                         transform = "number"
                     elif kind in {"string", "textarea"} and target_field.get("length"):
                         transform = f"text:{int(target_field['length'])}"
+                if kind == "date" and not source and line_scope:
+                    # A line date the line does not carry falls back to the header's
+                    # (the order's requested delivery date on every line), as the
+                    # shipped mapping's ServiceDate does.
+                    fallback = match(header, target_field)
+                    if fallback:
+                        source, transform = [fallback], "date"
                 if (
                     kind == "date"
                     and not source
@@ -851,6 +875,45 @@ _DESCRIPTION_STOP = {
 }
 
 
+def stale_sources(mapping: RecordMapping, template: Any) -> List[Dict[str, Any]]:
+    """The mapping's document sources this template does not extract: ``field`` rows the
+    header lacks, ``line.field`` rows the line lacks. Resolved roles (``customer.``,
+    ``product.``, ``ship_to.``, ``contact.``), run values (``$today``) and literals
+    (``=Draft``) are never stale. Each entry is ``{object, target, source, required}``;
+    empty means the mapping fits the template.
+    """
+    header = {name for name, _ in getattr(template, "header", ()) or ()}
+    lines = {name for name, _ in getattr(template, "lines", ()) or ()}
+    out: List[Dict[str, Any]] = []
+
+    def walk(rows: Sequence[FieldRow], object_name: str, *, line_scope: bool) -> None:
+        for row in rows:
+            for source in row.source:
+                if source.startswith(("=", "$")):
+                    continue
+                head, _, rest = source.partition(".")
+                if not rest:
+                    known = head in header
+                elif head == "line" and line_scope:
+                    known = rest in lines
+                else:
+                    continue  # a resolved role: customer, contact, product, ship_to
+                if not known:
+                    out.append(
+                        {
+                            "object": object_name,
+                            "target": row.target,
+                            "source": source,
+                            "required": row.required,
+                        }
+                    )
+
+    walk(mapping.fields, mapping.object, line_scope=False)
+    if mapping.child is not None:
+        walk(mapping.child.fields, mapping.child.object, line_scope=True)
+    return out
+
+
 def suggest_objects(
     template: Any,
     objects: Sequence[Mapping[str, Any]],
@@ -916,14 +979,22 @@ def suggest_objects(
                 and _LINE_CHILD.search(n[len(name) :] or n)
             ]
             child = candidates[0] if candidates else None
-        pair = next(
-            (
-                m.id
-                for m in shipped.values()
-                if m.object == name and ((m.child.object if m.child else None) == child)
-            ),
-            None,
-        )
+        # A shipped mapping is offered as is only when every document source it names is
+        # a field of this template; a template drafted from the customer's own sample
+        # gets a mapping suggested over its fields instead (K24).
+        pair = None
+        for m in shipped.values():
+            if m.object != name or (m.child.object if m.child else None) != child:
+                continue
+            stale = stale_sources(m, template)
+            if stale:
+                why.append(
+                    "the shipped mapping names fields this template lacks: "
+                    + ", ".join(dict.fromkeys(str(s["source"]) for s in stale))
+                )
+            else:
+                pair = m.id
+            break
         out.append(
             {
                 "object": name,
