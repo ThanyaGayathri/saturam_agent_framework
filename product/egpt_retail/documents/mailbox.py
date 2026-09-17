@@ -350,8 +350,10 @@ def send_mail(
     subject: str,
     body: str,
     smtp_factory: Any = None,
+    html: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Send one plain-text message. ``smtp_factory(host, port)`` returns an object with
+    """Send one message: plain text, with an HTML alternative when ``html`` is given (the
+    report email, K23). ``smtp_factory(host, port)`` returns an object with
     ``smtplib.SMTP``'s ``starttls``/``login``/``send_message``/``quit``."""
     if not config.configured:
         raise ValueError(
@@ -362,6 +364,8 @@ def send_mail(
     message["To"] = ", ".join(to)
     message["Subject"] = subject
     message.set_content(body)
+    if html:
+        message.add_alternative(html, subtype="html")
     factory = smtp_factory or smtplib.SMTP
     client = factory(config.smtp_host, config.smtp_port)
     try:

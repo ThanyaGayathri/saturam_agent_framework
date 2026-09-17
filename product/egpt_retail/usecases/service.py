@@ -21,12 +21,14 @@ import os
 import time
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from egpt.workflow.types import StepInput
 
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.contracts.use_case import UseCaseTemplate
+from egpt_retail.contracts.use_case import UseCaseShape, UseCaseTemplate
 from egpt_retail.orchestration.compiler import CompiledWorkflow, compile_workflow
 from egpt_retail.documents.golden import (
     GENERATED_CASE_SOURCE,
@@ -47,6 +49,7 @@ from egpt_retail.documents.samples import (
 from egpt_retail.documents.templates import template_from
 from egpt_retail.usecases.credentials import CredentialUnavailable, resolve_credentials
 from egpt_retail.usecases.runtime import (
+    build_explanation_agent,
     build_extraction_agent,
     run_parameters,
     workflow_from_compiled,
@@ -324,7 +327,275 @@ class UseCaseService:
                         + ".",
                     )
                 )
+        if compiled.shape is UseCaseShape.INFORM:
+            checks += self._inform_checks(compiled.parameters, mode=mode)
         return self._preflight_result(use_case_id, checks)
+
+    def _probe_gold(self, parameters: Mapping[str, Any], result: Any) -> Dict[str, Any]:
+        """Every KPI the use case names has a gold row, and how fresh it is."""
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.kpi.store import KpiRegistryStore
+        from egpt_retail.warehouse.gold import latest_as_of
+        from egpt_retail.app.db import build_warehouse_engine
+
+        metrics = [str(m) for m in (parameters.get("metrics") or [])]
+        if not metrics:
+            return result(False, "No KPI named.")
+        settings = self.settings or RetailSettings()
+        connection = pooled_control_plane_connection(settings)
+        try:
+            store = KpiRegistryStore(connection)
+            unknown = [m for m in metrics if store.get(m) is None]
+        finally:
+            connection.close()
+        if unknown:
+            return result(False, f"Not in the registry: {', '.join(unknown)}.")
+        engine = build_warehouse_engine(settings)
+        try:
+            dates = {m: latest_as_of(engine, m) for m in metrics}
+        finally:
+            engine.dispose()
+        missing = [m for m, d in dates.items() if d is None]
+        latest = {m: d.isoformat() for m, d in dates.items() if d is not None}
+        if missing:
+            return result(
+                False,
+                f"No gold row yet for {', '.join(missing)}; compute them on the KPI screen "
+                "(or the nightly run will).",
+                latest=latest,
+            )
+        oldest = min(latest.values())
+        return result(
+            True,
+            f"{len(metrics)} KPI(s) in gold; latest business date {max(latest.values())}"
+            + (f", oldest {oldest}" if oldest != max(latest.values()) else "")
+            + ".",
+            latest=latest,
+        )
+
+    def _probe_dry_answer(
+        self, parameters: Mapping[str, Any], result: Any
+    ) -> Dict[str, Any]:
+        """The numbers as they are now: read gold for the KPIs and say each value -- the
+        analytics equivalent of "36 messages match the filter"."""
+        from egpt_retail.executors.gold import read_gold
+
+        metrics = [str(m) for m in (parameters.get("metrics") or [])]
+        output = asyncio.run(
+            read_gold(StepInput(additional_data={"kpi_identifiers": metrics}))
+        )
+        content = output.content if isinstance(output.content, Mapping) else {}
+        values = content.get("kpis") or {}
+        parts = []
+        for identifier in metrics:
+            entry = values.get(identifier)
+            if not entry:
+                parts.append(f"{identifier}: no value")
+                continue
+            rows = entry.get("rows") or []
+            if len(rows) == 1 and set(rows[0]) <= {
+                "value",
+                "as_of",
+                "computed_at",
+                "run_id",
+                "source_snapshot",
+            }:
+                parts.append(f"{identifier} = {rows[0].get('value')}")
+            else:
+                parts.append(f"{identifier}: {len(rows)} rows")
+        missing = [m.get("kpi_identifier") for m in content.get("missing") or []]
+        return result(
+            not missing,
+            "; ".join(parts) + ".",
+            values={k: v.get("rows") for k, v in values.items()},
+        )
+
+    def _inform_checks(
+        self, parameters: Mapping[str, Any], *, mode: str
+    ) -> List[tuple]:
+        """The Inform shape's preflight (K23): every KPI named is in the registry, the
+        delivery has an address and a mailbox to send from, and a model is configured for
+        the explanation (the report goes out without one; the check says so)."""
+        checks: List[tuple] = []
+        metrics = [str(m) for m in (parameters.get("metrics") or [])]
+        if not metrics:
+            checks.append(
+                ("kpis_registered", False, "No KPI named; nothing to report.")
+            )
+        else:
+            registered, unknown = self._registered_kpis(metrics)
+            checks.append(
+                (
+                    "kpis_registered",
+                    not unknown,
+                    f"{len(registered)} KPI(s) in the registry: {', '.join(registered)}."
+                    if not unknown
+                    else f"Not in the registry: {', '.join(unknown)}.",
+                )
+            )
+        recipient = str(parameters.get("recipient") or "")
+        outputs = [str(o) for o in (parameters.get("outputs") or ["report"])]
+        if "@" in recipient:
+            try:
+                resolve_credentials(
+                    {"credentialRef": "env:gmail"},
+                    kind="mailbox",
+                    environ=self._environ,
+                )
+                checks.append(
+                    ("delivery", True, f"Report to {recipient} through the mailbox.")
+                )
+            except CredentialUnavailable as exc:
+                checks.append(
+                    (
+                        "delivery",
+                        mode == "rehearse",
+                        f"Report to {recipient}, but no mailbox to send from: {exc}",
+                    )
+                )
+        else:
+            checks.append(
+                (
+                    "delivery",
+                    True,
+                    "In-app only; no email address, so nothing is sent outside the app."
+                    if "report" in outputs
+                    else "No delivery configured.",
+                )
+            )
+        env = self._environ if self._environ is not None else os.environ
+        has_model = bool(env.get("AZURE_OPENAI_API_KEY"))
+        checks.append(
+            (
+                "explanation_model",
+                True,
+                "Azure OpenAI configured for the explanation step; every figure it writes is checked against the numbers."
+                if has_model
+                else "AZURE_OPENAI_API_KEY is not set: the report goes out with the numbers and no narrative.",
+            )
+        )
+        return checks
+
+    @staticmethod
+    def _dashboard_url(compiled: Mapping[str, Any]) -> str:
+        dashboard_id = compiled.get("dashboard_id")
+        base = os.environ.get("EGPT_RETAIL_APP_URL", "http://localhost:3001").rstrip(
+            "/"
+        )
+        return f"{base}/kpis/dashboards/{dashboard_id}" if dashboard_id else ""
+
+    def compose_dashboard(self, row: Mapping[str, Any], compiled: Any) -> Optional[str]:
+        """The dashboard an Inform use case's ``outputs`` ask for (K23): one tile per KPI
+        -- a number for a KPI at grain overall, a bar breakdown otherwise -- under
+        KPIs -> Dashboards, named after the use case, refreshed nightly like any other.
+        Idempotent by name: a second activation reuses the dashboard it made. Returns
+        the dashboard id, or None when the use case asked for no dashboard."""
+        parameters = dict(
+            getattr(compiled, "parameters", None) or compiled.get("parameters") or {}
+        )
+        outputs = [str(o) for o in (parameters.get("outputs") or ["report"])]
+        if "dashboard" not in outputs:
+            return None
+        metrics = [str(m) for m in (parameters.get("metrics") or [])]
+        if not metrics:
+            return None
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.contracts.dashboards import (
+            ChartKind,
+            RefreshSchedule,
+            Tile,
+            TilePosition,
+            Visibility,
+        )
+        from egpt_retail.dashboards.store import DashboardStore
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        settings = self.settings or RetailSettings()
+        name = str(row.get("title") or row["id"])
+        connection = pooled_control_plane_connection(settings)
+        try:
+            dashboards = DashboardStore(connection)
+            dashboards.ensure_schema()
+            for existing in dashboards.list_visible_to("use_case"):
+                if existing.name == name:
+                    return existing.id
+            registry = KpiRegistryStore(connection)
+            tiles: List[Tile] = []
+            definitions = {m: d for m in metrics if (d := registry.get(m)) is not None}
+            number_row = [
+                m
+                for m in metrics
+                if m in definitions and definitions[m].grain == "overall"
+            ]
+            breakdowns = [
+                m for m in metrics if m in definitions and m not in number_row
+            ]
+            for index, identifier in enumerate(number_row):
+                definition = registry.get(identifier)
+                tiles.append(
+                    Tile(
+                        id=f"tl_{index + 1}",
+                        kpi_identifier=identifier,
+                        title=definition.name if definition else identifier,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(
+                            x=(index % 4) * 3, y=(index // 4) * 2, w=3, h=2
+                        ),
+                    )
+                )
+            y = ((len(number_row) + 3) // 4) * 2
+            for index, identifier in enumerate(breakdowns):
+                definition = registry.get(identifier)
+                chart = (
+                    ChartKind.BAR
+                    if definition and definition.grain != "time_period"
+                    else ChartKind.LINE
+                )
+                tiles.append(
+                    Tile(
+                        id=f"tl_{len(number_row) + index + 1}",
+                        kpi_identifier=identifier,
+                        title=definition.name if definition else identifier,
+                        chart=chart,
+                        position=TilePosition(
+                            x=(index % 2) * 6, y=y + (index // 2) * 4, w=6, h=4
+                        ),
+                    )
+                )
+            dashboard = dashboards.create(
+                name=name,
+                owner="use_case",
+                description=str(
+                    (row.get("spec") or {}).get("question")
+                    or row.get("description")
+                    or ""
+                ),
+                tiles=tiles,
+                refresh_schedule=RefreshSchedule.NIGHTLY,
+                visibility=Visibility.TEAM,
+            )
+            return dashboard.id
+        finally:
+            connection.close()
+
+    def _registered_kpis(self, metrics: Sequence[str]) -> Tuple[List[str], List[str]]:
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        settings = self.settings or RetailSettings()
+        registered: List[str] = []
+        unknown: List[str] = []
+        try:
+            connection = pooled_control_plane_connection(settings)
+        except Exception:
+            return [], list(metrics)
+        try:
+            store = KpiRegistryStore(connection)
+            for identifier in metrics:
+                (registered if store.get(identifier) else unknown).append(identifier)
+        finally:
+            connection.close()
+        return registered, unknown
 
     def current_parameters(self, row: Mapping[str, Any]) -> Dict[str, Any]:
         """The parameters a probe, a mailbox listing or a generated case should use: the
@@ -475,6 +746,32 @@ class UseCaseService:
                 if golden["untested"]:
                     reason += f", {golden['untested']} not run yet"
                 return result(golden["failed"] == 0, reason + ".", **extra)
+            if check == "gold":
+                return self._probe_gold(parameters, result)
+            if check == "delivery":
+                recipient = str(parameters.get("recipient") or "")
+                if "@" not in recipient:
+                    return result(True, "In-app only; nothing is emailed.")
+                credentials = resolve_credentials(
+                    {"credentialRef": "env:gmail"},
+                    kind="mailbox",
+                    environ=self._environ,
+                )
+                mailbox = mailbox_from(credentials)
+                import smtplib
+
+                smtp = smtplib.SMTP(mailbox.smtp_host, mailbox.smtp_port, timeout=20)
+                try:
+                    smtp.starttls()
+                    smtp.login(mailbox.user, mailbox.password)
+                finally:
+                    smtp.quit()
+                return result(
+                    True,
+                    f"SMTP login as {mailbox.user}; the report will go to {recipient}.",
+                )
+            if check == "dry_answer":
+                return self._probe_dry_answer(parameters, result)
             raise NotFound(check)
         except NotFound:
             raise
@@ -516,11 +813,20 @@ class UseCaseService:
             raise ActivationRefused(result)
         compiled = self.compile(row)
         version = int(row.get("version") or 0) + 1
+        snapshot = compiled_to_dict(compiled)
+        if compiled.shape is UseCaseShape.INFORM:
+            try:
+                dashboard_id = self.compose_dashboard(row, compiled)
+            except Exception as exc:  # the dashboard is an output, not the activation
+                log.warning("dashboard composition failed for %s: %s", use_case_id, exc)
+                dashboard_id = None
+            if dashboard_id:
+                snapshot["dashboard_id"] = dashboard_id
         updated = self.store.update(
             use_case_id,
             status="activated",
             version=version,
-            compiled=compiled_to_dict(compiled),
+            compiled=snapshot,
             workflow_component_id=f"usecase__{use_case_id}",
         )
         assert updated is not None
@@ -551,6 +857,12 @@ class UseCaseService:
         from egpt.integrations.models.azure import AzureOpenAI
 
         settings = self.settings or RetailSettings()
+        if role == "explanation":
+            model = AzureOpenAI(
+                id=settings.retail_azure_small_deployment
+                or settings.retail_azure_deployment
+            )
+            return build_explanation_agent(model, agent_id=agent_id)
         model = AzureOpenAI(id=settings.retail_azure_deployment)
         return build_extraction_agent(model, agent_id=agent_id, template_id=template_id)
 
@@ -584,6 +896,19 @@ class UseCaseService:
                 ),
             }
         )
+        if compiled.get("shape") == UseCaseShape.INFORM.value:
+            spec = row.get("spec") or {}
+            options.update(
+                {
+                    "as_of": str(
+                        (request or {}).get("as_of") or date.today().isoformat()
+                    ),
+                    "question": str(spec.get("question") or ""),
+                    "use_case_title": str(row.get("title") or ""),
+                    "dashboard_url": self._dashboard_url(compiled),
+                    "backfill_baseline": True,
+                }
+            )
         if (
             mode == "rehearse"
             and compiled.get("template") == UseCaseTemplate.DOCUMENT_TO_RECORD.value
@@ -1134,6 +1459,15 @@ def _provenance_of(output: Any) -> Optional[str]:
 def _summary_of(result: Optional[Mapping[str, Any]]) -> str:
     if not result:
         return ""
+    if isinstance(result.get("report"), Mapping):
+        comparison = result.get("comparison_result") or {}
+        kpis = comparison.get("kpis") or []
+        delivery = result.get("delivery") or {}
+        status = str(delivery.get("status") or "in-app")
+        grounded = (result.get("grounding") or {}).get("passed")
+        return f"{len(kpis)} KPI(s) compared, report {status}" + (
+            ", narrative withheld (grounding)" if grounded is False else ""
+        )
     documents = result.get("documents") or []
     exceptions = result.get("exceptions") or []
     written = sum(

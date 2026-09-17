@@ -7,6 +7,7 @@ import { templateLabel } from "../../domain/extraction-templates";
 import { mappingLabel } from "../../domain/record-mappings";
 import { AUTONOMY, MASTER_DATA_ROLES, displayName } from "../../domain/use-case-autonomy";
 import { rolesNeeded } from "../../domain/use-case-roles";
+import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
 import { runUseCasePreflightProbe } from "../../services/use-cases-api";
 import { syncUseCaseToPlatform } from "../../services/use-case-platform";
@@ -37,7 +38,7 @@ const LEVEL = {
 
 // Checks read in groups (K19): what is connected, what data it reads, what keeps it safe.
 const GROUP_ORDER = ["Connections", "Data", "Safeguards", "Checks"];
-const GROUP_OF_ID = { mailbox: "Connections", target: "Connections", model: "Connections", writeback: "Connections", masterdata: "Data", template: "Data", golden: "Data", sources: "Data", measurable: "Data", stale: "Data", guardrails: "Safeguards", exceptions: "Safeguards", unattended: "Safeguards", approver: "Safeguards" };
+const GROUP_OF_ID = { mailbox: "Connections", target: "Connections", model: "Connections", writeback: "Connections", masterdata: "Data", template: "Data", golden: "Data", sources: "Data", measurable: "Data", stale: "Data", guardrails: "Safeguards", exceptions: "Safeguards", unattended: "Safeguards", approver: "Safeguards", gold: "Data", dry_answer: "Data", delivery: "Connections", coverage: "Data", outputs: "Checks", grounding: "Safeguards" };
 const groupOf = (c) => GROUP_OF_ID[c.id] || (/pii|personal|privacy|owner/i.test(`${c.id} ${c.title}`) ? "Safeguards" : "Checks");
 
 const SOURCE_TYPE = { SAP: "sap_s4hana", Snowflake: "snowflake", PostgreSQL: "postgres", Salesforce: "salesforce" };
@@ -52,7 +53,7 @@ export default function UseCasePreflightScreen() {
  // computed from the form -- the platform logs into the mailbox, takes a token from the
  // target, reads the master data, calls the model once and reads the golden cases, one
  // after another, and each row lands when its probe answers.
- const PROBES = spec.template === "document_to_record" ? ["mailbox", "target", "master_data", "model", "golden"] : [];
+ const PROBES = spec.template === "document_to_record" ? ["mailbox", "target", "master_data", "model", "golden"] : isAnalyticsInform(spec) ? ["gold", "delivery", "model", "dry_answer"] : [];
  const [probes, setProbes] = useState({});
  const [probeError, setProbeError] = useState(null);
  const [runKey, setRunKey] = useState(0);
@@ -103,6 +104,22 @@ export default function UseCasePreflightScreen() {
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "No owner.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
     { id: "golden", title: "Golden cases", level: "warn", detail: "Probing…", fix: null },
     { id: "unattended", title: "Unattended action", level: spec.blastRadius && spec.rollback ? "warn" : "fail", detail: spec.blastRadius && spec.rollback ? `Change limit ${spec.blastRadius} per run; rollback plan "${spec.rollback}". Going live requires an admin.` : "Set the change limit and rollback plan.", fix: spec.blastRadius && spec.rollback ? null : { label: "Set the change limit and rollback plan", to: spec_ } },
+   ];
+  }
+  if (isAnalyticsInform(spec)) {
+   // An Analytics Automation the platform runs (K23): the rows are the platform's probes --
+   // gold for every KPI, the SMTP login for the report, one model call, and the numbers as
+   // they are now -- plus what the form alone can say.
+   const recipients = (spec.notify || "").split(/[,;]/).map((x) => x.trim()).filter((x) => /@/.test(x));
+   return [
+    { id: "gold", title: "KPIs in gold", level: "warn", detail: "Probing…", fix: null },
+    { id: "dry_answer", title: "The numbers now", level: "warn", detail: "Probing…", fix: null },
+    { id: "delivery", title: "Report delivery", level: "warn", detail: "Probing…", fix: null },
+    { id: "model", title: "Explanation model", level: "warn", detail: "Probing…", fix: null },
+    { id: "coverage", title: "Coverage", level: spec.metricIds.length === 0 ? "fail" : spec.metricIds.length === 1 ? "warn" : "pass", detail: spec.metricIds.length === 0 ? "No KPI chosen." : spec.metricIds.length === 1 ? "One KPI: the report will say what moved, not where." : `${spec.metricIds.length} KPIs${spec.dimensions.length ? ` broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, compared with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}.`, fix: spec.metricIds.length === 0 ? { label: "Choose KPIs", to: spec_ } : null },
+    { id: "outputs", title: "Outputs", level: (spec.outputs || []).length ? "pass" : "warn", detail: (spec.outputs || []).length ? `${spec.outputs.includes("report") ? "The report, every run" : ""}${spec.outputs.includes("report") && spec.outputs.includes("dashboard") ? "; " : ""}${spec.outputs.includes("dashboard") ? "a dashboard composed at activation under KPIs → Dashboards" : ""}.${recipients.length ? ` Emailed to ${recipients.join(", ")}.` : " In-app only: no email address given."}` : "No output chosen; the report alone will be produced.", fix: null },
+    { id: "grounding", title: "Narrative checked against the numbers", level: "pass", detail: "The AI step writes the narrative from the comparison; a deterministic check rejects it if any figure is not one the numbers carry, and the report then goes out with the numbers alone.", fix: null },
+    { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "Nobody owns this yet.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
    ];
   }
   const measurable = new Set();
@@ -221,7 +238,7 @@ export default function UseCasePreflightScreen() {
   }
   return out;
  }, [spec, level]);
- const PROBE_FOR_ID = { mailbox: "mailbox", target: "target", masterdata: "master_data", model: "model", golden: "golden" };
+ const PROBE_FOR_ID = { mailbox: "mailbox", target: "target", masterdata: "master_data", model: "model", golden: "golden", gold: "gold", delivery: "delivery", dry_answer: "dry_answer" };
  const checks = useMemo(() => {
   const merged = rawChecks.map((c) => {
    const probe = PROBES.length ? PROBE_FOR_ID[c.id] : null;

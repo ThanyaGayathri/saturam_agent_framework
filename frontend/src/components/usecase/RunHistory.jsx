@@ -37,12 +37,12 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
 
    {live.length > 0 && (
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-     <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{totals.received}</p><p className="text-[11px] text-text-muted">documents received, live</p></div>
-     <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{totals.created}</p><p className="text-[11px] text-text-muted">records created</p></div>
+     <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{totals.received}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "KPI comparisons, live" : "documents received, live"}</p></div>
+     <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{totals.created}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "reports sent" : "records created"}</p></div>
      {totals.hasValue
       ? <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{money(totals.value)}</p><p className="text-[11px] text-text-muted">value of the {objectLabel.toLowerCase()}s created</p></div>
-      : <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{objectLabel}</p><p className="text-[11px] text-text-muted">what each document becomes</p></div>}
-     <div className="rounded-lg bg-status-critical-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-critical">{totals.exceptions}</p><p className="text-[11px] text-text-muted">held for a person, with a reason</p></div>
+      : <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{objectLabel}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "what each run produces" : "what each document becomes"}</p></div>}
+     <div className="rounded-lg bg-status-critical-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-critical">{stats.some((x) => x.s.report) ? live.filter((x) => x.s.withheld).length : totals.exceptions}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "narratives withheld by the grounding check" : "held for a person, with a reason"}</p></div>
     </div>
    )}
 
@@ -69,7 +69,8 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
            <span className="bg-status-critical-dot" style={{ width: `${(s.exceptions / maxReceived) * 100}%` }} />
            <span className="bg-status-warning-dot" style={{ width: `${(s.held / maxReceived) * 100}%` }} />
           </span>
-          <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.hasValue && s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>
+          {s.report ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> KPIs compared → report {s.notify === "sent" ? <strong className="text-status-success">emailed</strong> : s.notify === "held" ? "composed, not sent" : "in-app"}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
+          : <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.hasValue && s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>}
           {Object.keys(s.byClass).length > 0 && (
            <span className="flex flex-wrap gap-1">{Object.entries(s.byClass).slice(0, 4).map(([k, n]) => <span key={k} className="rounded bg-status-critical-light px-1.5 py-0.5 font-mono text-[10px] text-status-critical">{k}{n > 1 ? ` ×${n}` : ""}</span>)}{Object.keys(s.byClass).length > 4 && <span className="text-[10px] text-text-muted">+{Object.keys(s.byClass).length - 4}</span>}</span>
           )}

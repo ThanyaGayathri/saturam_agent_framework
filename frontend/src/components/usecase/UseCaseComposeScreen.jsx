@@ -22,6 +22,9 @@ import {
  withCategory, withShape, withTemplate,
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
+import { REPORT_OUTPUTS, isAnalyticsInform, patchFromSuggestion } from "../../domain/use-case-analytics";
+import { suggestAnalyticsUseCase } from "../../services/use-cases-api";
+import { fetchKpiList } from "../../services/kpis-api";
 import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-templates";
 import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardrail-rules";
 import ExtractionTemplateField from "./ExtractionTemplateField";
@@ -199,8 +202,16 @@ export default function UseCaseComposeScreen() {
  const lastAsked = useRef(null);
 
  const registry = useMemo(() => flattenKpiIndexRows(data?.categories || []).map((r) => r.kpi), [data?.categories]);
- const registryNames = useMemo(() => registry.map((k) => k.name), [registry]);
- const measurable = useMemo(() => { const set = new Set(); for (const ds of KPI_DATA_CATALOG_DATASETS) for (const n of ds.linkedKpiNames || []) set.add(n); return set; }, []);
+ // The platform's own registry (K23): the KPIs an Analytics Automation actually runs on --
+ // identifiers, not the prototype catalogue's names. Read once; empty when the API is away.
+ const [platformKpis, setPlatformKpis] = useState([]);
+ useEffect(() => {
+  let cancelled = false;
+  fetchKpiList().then((rows) => { if (!cancelled) setPlatformKpis(Array.isArray(rows) ? rows : rows?.kpis || []); }).catch(() => {});
+  return () => { cancelled = true; };
+ }, []);
+ const registryNames = useMemo(() => [...registry.map((k) => k.name), ...platformKpis.map((k) => k.identifier)], [registry, platformKpis]);
+ const measurable = useMemo(() => { const set = new Set(); for (const ds of KPI_DATA_CATALOG_DATASETS) for (const n of ds.linkedKpiNames || []) set.add(n); for (const k of platformKpis) set.add(k.identifier); return set; }, [platformKpis]);
  const concepts = useMemo(() => KPI_DATA_CATALOG_DATASETS.map((d) => ({ id: d.id, name: entityName(d.technicalName), technicalName: d.technicalName, sourceLabel: d.sourceLabel, columns: d.attributeTags || [], kpis: d.linkedKpiNames || [] })), []);
  const workspace = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId), [storageKeys.CONFIGURE_WORKSPACE, profileId]);
  const writeTargets = useMemo(() => (workspace.internalSources || []).filter((s) => s.permissionLevel === "read_write" && !/gmail|microsoft365/.test(s.sourceType)).map((s) => s.name), [workspace]);
@@ -371,10 +382,30 @@ export default function UseCaseComposeScreen() {
  };
 
  const [filledNote, setFilledNote] = useState(null);
- const fillFromDescription = () => {
+ const [suggesting, setSuggesting] = useState(false);
+ const fillFromDescription = async () => {
   const msg = oneGoText.trim();
   if (!msg) return;
-  const { next, understood } = ingest(msg, { viaAssistant: false });
+  let { next, understood } = ingest(msg, { viaAssistant: false });
+  // An Analytics Automation asks the platform what the connected data supports for these
+  // words (K23): the KPIs from the registry with gold behind them, their breakdowns, the
+  // baseline, the cadence, the outputs and the recipients. The reader above only knew the
+  // prototype's catalogue; this is the form's intelligence.
+  if (next.category === "analytics_automation" && next.shape === "inform") {
+   setSuggesting(true);
+   try {
+    const suggestion = await suggestAnalyticsUseCase(msg);
+    const { patch, understood: said } = patchFromSuggestion(suggestion, next);
+    next = commit(applyPatch(next, patch, ORIGIN.spec));
+    // The local reader's guesses about KPIs and dimensions came from the prototype's
+    // catalogue; the platform's answer replaces them.
+    understood = [...said, ...understood.filter((u) => !/^(kpi|you mean|analysed by|compared with|runs )/i.test(u))];
+   } catch (err) {
+    understood = [...understood, `the platform could not suggest KPIs: ${err?.detail || err?.message || "not reachable"}`];
+   } finally {
+    setSuggesting(false);
+   }
+  }
   const open = blockingGaps(gapsFor(next, registryNames, measurable));
   setOneGo(false);
   // The form is the surface: say what was filled here, and let the empty fields' own
@@ -460,6 +491,38 @@ export default function UseCaseComposeScreen() {
  const renderField = (f) => {
   switch (f) {
    case "metrics": case "metric":
+    if (isAnalyticsInform(spec)) {
+     const byId = Object.fromEntries((spec.analytics?.kpis || []).map((k) => [k.identifier, k]));
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="grid gap-1">
+        {spec.metricIds.map((m) => {
+         const sug = byId[m]; const kpi = known[m];
+         return (
+          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
+           <div className="min-w-0">
+            <span className="text-xs font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
+            <span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
+            {sug?.why && <p className="truncate text-[11px] text-text-muted">chosen because you said: {sug.why}</p>}
+           </div>
+           <div className="flex items-center gap-1.5">
+            {sug && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${sug.feasibility === "ready" ? "bg-status-success-light text-status-success" : "bg-status-warning-light text-status-warning"}`}>{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</span>}
+            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+           </div>
+          </div>
+         );
+        })}
+        <select value="" onChange={(e) => e.target.value && setField(f, [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[20rem]`}>
+         <option value="">Add a KPI from the registry…</option>
+         {platformKpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+        </select>
+       </div>
+       {spec.analytics?.uncovered?.length > 0 && <p className="mt-1.5 text-[11px] text-status-warning">Nothing registered covers: {spec.analytics.uncovered.slice(0, 8).join(", ")}. Use "Suggest KPIs" under KPIs → What my data supports to propose one from the data.</p>}
+       {spec.metricIds.length === 0 && !spec.analytics && <p className="mt-1.5 text-[11px] text-text-muted">Describe the ask above and choose "Fill the form from this": the platform picks the KPIs your data supports.</p>}
+      </Field>
+     );
+    }
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -480,9 +543,22 @@ export default function UseCaseComposeScreen() {
      </Field>
     );
    case "dimensions":
+    if (isAnalyticsInform(spec)) {
+     const grains = [...new Set([...(spec.analytics?.kpis || []).map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"), ...spec.dimensions])];
+     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{grains.length ? grains.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d.replace(/_/g, " ")}</button>; }) : <span className="text-xs text-text-muted">The breakdowns follow the KPIs chosen above.</span>}</div></Field>;
+    }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;
    case "comparison":
-    return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{COMPARISONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>;
+    return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{(isAnalyticsInform(spec) ? COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)) : COMPARISONS).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select>{spec.analytics?.comparisonReason && <p className="mt-1 text-[11px] text-text-muted">{spec.analytics.comparisonReason}</p>}</Field>;
+   case "outputs":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap gap-1.5">
+       {REPORT_OUTPUTS.map((o) => { const on = (spec.outputs || []).includes(o.value); const off = o.value === "alert"; return <button key={o.value} type="button" title={o.hint} disabled={off} aria-pressed={on} onClick={() => setField(f, on ? spec.outputs.filter((x) => x !== o.value) : [...(spec.outputs || []), o.value])} className={`${chip(on)} ${off ? "cursor-not-allowed border-dashed opacity-50" : ""}`}>{o.label}</button>; })}
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">The report always carries the numbers; the narrative is written by the AI step and every figure in it is checked against the numbers before it is sent. A dashboard is composed from the same KPIs at activation.</p>
+     </Field>
+    );
    case "operator":
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{OPERATORS.map((o) => <button key={o.value} type="button" aria-pressed={spec.condition?.operator === o.value} onClick={() => setCondition("operator", o.value)} className={chip(spec.condition?.operator === o.value)}>{o.label}</button>)}</div></Field>;
    case "threshold":
@@ -735,7 +811,7 @@ export default function UseCaseComposeScreen() {
       <div className="space-y-2 px-3.5 pb-3">
        <textarea rows={2} value={oneGoText} onChange={(e) => setOneGoText(e.target.value)} placeholder={example ? `e.g. ${example.prompt}` : "Say what you want, as you would to a colleague."} className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
        <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={!oneGoText.trim()} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">Fill the form from this</button>
+        <button type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</button>
         {examples.map((ex) => <button key={ex.title} type="button" onClick={() => setOneGoText(ex.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {ex.title} example</button>)}
         <span className="text-[11px] text-text-muted">Whatever it recognises is filled in; the rest stays for you or the assistant.</span>
        </div>

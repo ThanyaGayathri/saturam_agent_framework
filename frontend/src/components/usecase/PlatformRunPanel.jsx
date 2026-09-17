@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ExternalLink, Loader2, Play, RefreshCw } from "lucide-react";
 import { runResultRows } from "../../domain/use-case-platform";
+import ReportResultView from "./ReportResultView";
 import { runOnPlatform } from "../../services/use-case-platform";
 
 /**
@@ -98,6 +99,8 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
 /** A finished run's result, as the panel and the use-case page render it. */
 export function RunResultView({ run, live, createdAs, onAccept }) {
  const [open, setOpen] = useState(null);
+ // An Inform run's result is a report, not a batch of documents (K23).
+ if (run?.result?.report) return <ReportResultView run={run} live={live} />;
  const rows = run?.result ? runResultRows(run.result) : null;
  if (!rows) return null;
  return (

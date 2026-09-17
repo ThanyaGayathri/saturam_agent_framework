@@ -7,6 +7,8 @@ import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { syncUseCaseToPlatform } from "../../services/use-case-platform";
 import RehearsalSources from "./RehearsalSources";
+import PlatformRunPanel from "./PlatformRunPanel";
+import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 
@@ -161,7 +163,22 @@ export default function UseCaseRehearseScreen() {
     </>
    )}
 
-   {!doc && shape.id === "inform" && (
+   {!doc && isAnalyticsInform(spec) && (
+    <Section title="The report it would have sent">
+     <p className="mb-2 text-sm text-text-secondary">The platform reads the KPIs from gold as they are now, compares them with {spec.comparison === "prior_year" ? "the same period last year" : "the period before"} (computing that date's values from the KPI formulas when gold has none yet), has the AI step write the narrative, checks every figure in it against the numbers, and renders the report. Nothing is emailed; the in-app copy is previewed.</p>
+     <PlatformRunPanel
+      compact
+      mode="rehearse"
+      useCaseId={spec.platform?.useCaseId}
+      beforeRun={rehearseOnPlatform}
+      label="Run the report now"
+      description="Over the current data, every side effect held."
+      buttonLabel="Run the report"
+     />
+    </Section>
+   )}
+
+   {!doc && shape.id === "inform" && !isAnalyticsInform(spec) && (
     <Section title="The answer it would have given">
      <p className="text-sm text-text-secondary">
       <strong className="text-text-primary">{inform.worst.name}</strong> accounts for most of the movement in {metric}

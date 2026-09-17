@@ -11,6 +11,7 @@ import { emptySpec } from "../../domain/use-case-spec";
 import { relativeTimeFromNow as _rel } from "../../domain/alerts-view";
 const relativeTimeFromNow = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
 import { activateUseCase, fetchUseCase, fetchUseCaseSpec, listUseCaseRuns, pauseUseCase } from "../../services/use-cases-api";
+import { fetchDashboardList } from "../../services/dashboards-api";
 
 /**
  * One use case on the platform (K20): what it is, how it is triggered, its run history with
@@ -40,6 +41,16 @@ export default function UseCasePlatformPage() {
   // "How it runs": the plan derived from the spec the platform holds -- the same views the
   // person approved in the builder, without reopening the builder or touching the draft.
   const [tab, setTab] = useState("runs");
+  // An Analytics Automation composes a dashboard at activation, named after the use case
+  // (K23). Found by that name under KPIs -> Dashboards; the page links to it.
+  const [dashboard, setDashboard] = useState(null);
+  useEffect(() => {
+    if (!useCase || !(useCase.tags || []).includes("analytics_automation")) return;
+    fetchDashboardList().then((rows) => {
+      const list = Array.isArray(rows) ? rows : rows?.dashboards || [];
+      setDashboard(list.find((d) => d.name === useCase.title && d.owner === "use_case") || null);
+    }).catch(() => {});
+  }, [useCase]);
   const [fullSpec, setFullSpec] = useState(null);
   useEffect(() => {
     if (tab !== "flow" || fullSpec || !useCase) return;
@@ -74,6 +85,7 @@ export default function UseCasePlatformPage() {
               <p className="mt-1 max-w-2xl text-sm text-text-secondary">{useCase.description}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {dashboard && <button type="button" onClick={() => navigate(`/kpis/dashboards/${dashboard.id}`)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-light/80"><ExternalLink size={14} /> Dashboard</button>}
               <button type="button" onClick={edit} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary"><Pencil size={14} /> Edit</button>
               {useCase.status === "activated"
                 ? <button type="button" disabled={busy} onClick={pause} className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-status-warning-light px-3 py-2 text-sm font-semibold text-status-warning disabled:opacity-60"><Pause size={14} /> Pause</button>
@@ -99,11 +111,11 @@ export default function UseCasePlatformPage() {
           {tab === "flow" && (fullSpec ? <PlanViews spec={fullSpec} /> : <p className="text-sm text-text-muted">Reading the specification…</p>)}
 
           {tab === "runs" && useCase.status === "activated" && (
-            <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description="Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new." createdAs="draft" onFinished={load} />
+            <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description={(useCase.tags || []).includes("analytics_automation") ? "Reads the KPIs from gold, compares them with the baseline, writes and checks the narrative, and sends the report: the same run the schedule makes." : "Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new."} createdAs="draft" onFinished={load} />
           )}
 
           {tab === "runs" && <RunHistory runs={runs} onRefresh={load} createdAs="draft" />}
-          {tab === "runs" && <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : ""}</p>}
+          {tab === "runs" && <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : (useCase.tags || []).includes("analytics_automation") ? "Each run compares today's gold with the baseline date's; the report and its numbers are kept on the run." : ""}</p>}
         </>
       )}
     </div>

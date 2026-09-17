@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -125,6 +126,64 @@ async def list_use_cases(
 ) -> List[wire.UseCase]:
     rows = await service.store.alist(status=status.value if status else None)
     return [_use_case_out(service, row) for row in rows]
+
+
+@router.post("/use-cases/analytics/suggest", response_model=wire.AnalyticsSuggestion)
+async def suggest_analytics_use_case(
+    body: wire.AnalyticsSuggestRequest,
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> wire.AnalyticsSuggestion:
+    """The Analytics Automation form's suggestion from the ask (K23): the registry's KPIs
+    that match the words and have gold behind them, their breakdowns, the baseline, the
+    cadence, the outputs and the recipients. Deterministic; nothing stored."""
+    suggestion = await asyncio.to_thread(
+        _suggest_analytics_sync, body.question, body.recipient or ""
+    )
+    return wire.AnalyticsSuggestion.model_validate(suggestion)
+
+
+def _suggest_analytics_sync(question: str, recipient: str) -> Dict[str, Any]:
+    from egpt_retail.app.db import (
+        build_warehouse_engine,
+        pooled_control_plane_connection,
+    )
+    from egpt_retail.kpi.store import KpiRegistryStore
+    from egpt_retail.usecases.analytics_suggest import suggest_analytics
+    from egpt_retail.warehouse.gold import latest_as_of
+
+    settings = RetailSettings()
+    connection = pooled_control_plane_connection(settings)
+    try:
+        rows = [
+            {
+                "identifier": k.identifier,
+                "name": k.name,
+                "description": k.description,
+                "business_area": k.business_area,
+                "grain": k.grain,
+                "concept": k.concept,
+                "subject_area": k.subject_area,
+                "unit": k.unit,
+                "active": k.active,
+            }
+            for k in KpiRegistryStore(connection).list()
+        ]
+    finally:
+        connection.close()
+    latest: Dict[str, Any] = {}
+    if settings.retail_warehouse_readonly_db_url or settings.retail_warehouse_db_url:
+        try:
+            engine = build_warehouse_engine(settings)
+            try:
+                identifiers = [str(r["identifier"]) for r in rows]
+                latest = {i: latest_as_of(engine, i) for i in identifiers}
+            finally:
+                engine.dispose()
+        except Exception:  # no gold reachable: every KPI is "buildable"
+            latest = {}
+    return suggest_analytics(
+        question, rows, gold_latest=latest, default_recipient=recipient
+    ).as_dict()
 
 
 @router.post("/use-cases", response_model=wire.UseCase, status_code=201)

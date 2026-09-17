@@ -44,6 +44,9 @@ FULL = frozenset(
     {
         "read_gold",
         "compare_to_baseline",
+        "check_report_grounding",
+        "render_report",
+        "send_report",
         "record_provenance",
         "deliver_in_app",
         "evaluate_alert_condition",
@@ -191,8 +194,11 @@ def test_a_missing_non_gate_stage_still_emits_what_it_could_build():
     assert [s["name"] for s in normalise_config(report.config)] == [
         "Read gold",
         "Explain",
+        "Check grounding",
         "Record provenance",
+        "Render report",
         "Deliver",
+        "Send report",
     ]
 
 

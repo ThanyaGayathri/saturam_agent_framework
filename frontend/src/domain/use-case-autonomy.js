@@ -34,7 +34,7 @@ export const SHAPES = {
    templateId: "gallery-uc-09",
    prompt: "Every Monday, explain gross margin rate by category and channel against plan and the same period last year. Send it to the finance team.",
   },
-  fields: ["metrics", "dimensions", "comparison", "schedule", "recipient"],
+  fields: ["metrics", "dimensions", "comparison", "outputs", "schedule", "recipient"],
  },
  alert: {
   id: "alert",
@@ -228,6 +228,7 @@ export const FIELD_META = {
  metric: { slot: "metric", key: "metricIds", label: "KPI", hint: "One KPI. Monitoring watches one thing." },
  dimensions: { slot: "dimensions", key: "dimensions", label: "Analyse by", hint: "The dimensions the analysis cuts across." },
  comparison: { slot: "comparison", key: "comparison", label: "Baseline", hint: "What turns a value into a change." },
+ outputs: { slot: "outputs", key: "outputs", label: "Outputs", hint: "What each run produces: the report (email + in-app), a dashboard composed at activation, or both." },
  operator: { slot: "operator", key: "condition", label: "Trigger condition", hint: "The direction of the breach." },
  threshold: { slot: "threshold", key: "condition", label: "Threshold", hint: "The number worth notifying someone for." },
  scope: { slot: "scope", key: "scope", label: "Scope", hint: "Where the condition is evaluated." },
@@ -268,8 +269,16 @@ export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "sever
 export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
  switch (spec.shape) {
-  case "inform":
+  case "inform": {
+   if (spec.category === "analytics_automation" && spec.analytics) {
+    const names = (spec.analytics.kpis || []).filter((k) => spec.metricIds?.includes(k.identifier)).map((k) => k.name);
+    const n = spec.metricIds?.length || 0;
+    const outputs = spec.outputs || [];
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    return `Reads ${n} KPI${n === 1 ? "" : "s"} the data supports${names.length ? ` (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""})` : ""}, compares each with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}${spec.dimensions?.length ? ` and by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, has the AI step explain what moved -- every figure checked against the numbers -- and ${outputs.includes("report") ? `sends the report ${cadence}${spec.notify ? ` to ${spec.notify}` : " in-app"}` : "keeps the result in-app"}${outputs.includes("dashboard") ? "; a dashboard is composed from the same KPIs at activation" : ""}. Changes nothing.`;
+   }
    return `Explains ${spec.metricIds?.length ? spec.metricIds.join(" and ") : "the KPIs"}${spec.dimensions?.length ? ` by ${spec.dimensions.join(", ").toLowerCase()}` : ""}, and delivers it to ${spec.notify || "someone"}. Changes nothing.`;
+  }
   case "alert":
    return `Watches ${m || "one KPI"} and tells ${spec.notify || "someone"}${(spec.notifyChannels || []).filter((c) => c !== "in_app").length ? ` (in app, plus ${(spec.notifyChannels || []).filter((c) => c !== "in_app").map((c) => CHANNELS.find((x) => x.value === c)?.label || c).join(" and ")})` : " in app"} when it ${OPERATORS.find((o) => o.value === spec.condition?.operator)?.label || "crosses"} ${spec.condition?.threshold ?? "a threshold"}${spec.condition?.threshold != null ? spec.condition.unit || "" : ""}${spec.scope ? ` in ${spec.scope.toLowerCase()}` : ""}. Changes nothing.`;
   case "recommend":

@@ -49,6 +49,12 @@ from pydantic import BaseModel
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.act import ACT_EXECUTORS
 from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
+from egpt_retail.executors.analytics import (
+    check_report_grounding,
+    compare_to_baseline,
+    render_report,
+    send_report,
+)
 from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.documents import DOCUMENT_EXECUTORS
@@ -205,6 +211,17 @@ GOLDEN_EXECUTORS = (check_golden_gate,)
 #: registered, ``capability_report`` shows both ``act`` rows publishable for the first time;
 #: the one stage still not an executor is Extract, which is a model step by design.
 K15_EXECUTORS = DOCUMENT_EXECUTORS + ACT_EXECUTORS
+
+#: K23's four: the Inform shape's stages after ``read_gold`` (``executors/analytics.py``)
+#: -- the comparison with its baseline backfill, the grounding check on the narrative, the
+#: HTML report and its email. ``compare_to_baseline`` was named by the compiler's Inform
+#: stages since K15 and registered nowhere, which is why no Inform use case could publish.
+K23_EXECUTORS = (
+    compare_to_baseline,
+    check_report_grounding,
+    render_report,
+    send_report,
+)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -566,6 +583,7 @@ def build_registry() -> Registry:
         + K_EXECUTORS
         + GOLDEN_EXECUTORS
         + K15_EXECUTORS
+        + K23_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

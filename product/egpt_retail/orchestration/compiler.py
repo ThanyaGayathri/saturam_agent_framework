@@ -32,6 +32,7 @@ import copy
 import difflib
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Collection, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from egpt_retail.contracts.use_case import (
@@ -88,6 +89,8 @@ class ParameterOrigin(str, Enum):
     AUTHORED = "authored"
     #: Derived from the conversation by the spec extractor -- the KPIs, grain and window.
     SPEC = "spec"
+    #: Neither supplied: an optional slot bound to its declared default (``SLOT_DEFAULTS``).
+    DEFAULT = "default"
 
 
 class StageKind(str, Enum):
@@ -171,7 +174,12 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             "Compare to baseline",
             StageKind.EXECUTOR,
             "compare_to_baseline",
-            consumes=("comparison",),
+            consumes=("comparison", "window"),
+            description=(
+                "Each KPI at the run's date against gold at the baseline date -- the "
+                "period before, or the same period last year -- per KPI and per breakdown "
+                "row. A baseline date gold does not hold yet is materialised for it."
+            ),
         ),
         Stage(
             "Explain",
@@ -179,8 +187,33 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             role="explanation",
             description="One model step. Explains the numbers; never decides anything.",
         ),
+        Stage(
+            "Check grounding",
+            StageKind.EXECUTOR,
+            "check_report_grounding",
+            guards_write=False,
+            description=(
+                "Every figure in the explanation must be one the comparison carried; an "
+                "explanation that invents one is withheld and the report carries the "
+                "numbers alone."
+            ),
+        ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
+        Stage(
+            "Render report",
+            StageKind.EXECUTOR,
+            "render_report",
+            consumes=("title", "outputs"),
+            description="The comparison and the narrative as an HTML report and its text twin.",
+        ),
         Stage("Deliver", StageKind.EXECUTOR, "deliver_in_app", consumes=("recipient",)),
+        Stage(
+            "Send report",
+            StageKind.EXECUTOR,
+            "send_report",
+            consumes=("recipient",),
+            description="The HTML report by email to the recipients; held in a rehearsal.",
+        ),
     ),
     UseCaseShape.ALERT: (
         Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metric",)),
@@ -453,8 +486,27 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
 #: An example document improves extraction but a template's schema is enough to run; an
 #: acknowledgement is a courtesy, not a guard; an empty message filter means every new
 #: message, which is a filter too.
+#: Optional slots that bind a default when the spec leaves them blank (K23). A callable
+#: derives the default from the spec.
+SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
+    {
+        "window": None,
+        "title": lambda spec: str(spec.get("question") or "Report"),
+        "outputs": ["report"],
+    }
+)
+
 OPTIONAL_SLOTS: FrozenSet[str] = frozenset(
-    {"example document", "acknowledge", "message filter"}
+    {
+        "example document",
+        "acknowledge",
+        "message filter",
+        # The Inform shape's report slots: a window falls back to the KPI's own, a title
+        # to the question, outputs to the report alone.
+        "window",
+        "title",
+        "outputs",
+    }
 )
 
 
@@ -813,6 +865,13 @@ def compile_workflow(
         elif _filled(spec_value):
             compiled.parameters[slot] = spec_value
             compiled.parameter_origins[slot] = ParameterOrigin.SPEC
+        elif slot in SLOT_DEFAULTS:
+            # An optional slot with a sensible default binds it, so the plan shows what will
+            # actually run rather than a blank: the report's title is the question, its
+            # outputs the report alone, its window the KPI's own declared one.
+            value = SLOT_DEFAULTS[slot]
+            compiled.parameters[slot] = value(spec) if callable(value) else value
+            compiled.parameter_origins[slot] = ParameterOrigin.DEFAULT
         elif slot not in OPTIONAL_SLOTS:
             compiled.unfilled_slots.append(slot)
 

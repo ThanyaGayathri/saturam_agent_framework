@@ -20,6 +20,79 @@ class AlertEventStatus(Enum):
     resolved = "resolved"
 
 
+class AnalyticsFeasibility(Enum):
+    """
+    `ready` when gold holds a row; `buildable` when the first run computes it.
+    """
+
+    ready = "ready"
+    buildable = "buildable"
+
+
+class AnalyticsKpiSuggestion(BaseModel):
+    identifier: str
+    name: str
+    grain: str
+    business_area: str | None = None
+    unit: str | None = None
+    score: int = Field(
+        ..., description="The lexical match, for ordering; not a probability."
+    )
+    why: str = Field(..., description="The ask's own words that chose this KPI.")
+    feasibility: AnalyticsFeasibility
+    latest_as_of: date | None = None
+
+
+class AnalyticsSuggestRequest(BaseModel):
+    question: str = Field(..., description="The ask, in the person's own words.")
+    recipient: str | None = Field(
+        None, description="A default address when the ask names none."
+    )
+
+
+class Kind(Enum):
+    """
+    A standing report, or a question about one movement run once and promoted if kept.
+    """
+
+    monitoring = "monitoring"
+    diagnostic = "diagnostic"
+
+
+class Comparison(Enum):
+    prior_period = "prior_period"
+    prior_year = "prior_year"
+
+
+class Output(Enum):
+    report = "report"
+    dashboard = "dashboard"
+    alert = "alert"
+
+
+class AnalyticsSuggestion(BaseModel):
+    kind: Kind = Field(
+        ...,
+        description="A standing report, or a question about one movement run once and promoted if kept.",
+    )
+    title: str
+    business_areas: list[str]
+    kpis: list[AnalyticsKpiSuggestion]
+    dimensions: list[str] = Field(
+        ..., description="The grains the chosen KPIs break down by."
+    )
+    comparison: Comparison
+    comparison_reason: str | None = None
+    schedule: str = Field(..., description="A `ScheduleCadence` value.")
+    schedule_reason: str | None = None
+    outputs: list[Output]
+    recipients: list[str]
+    uncovered: list[str] = Field(
+        ..., description="Words of the ask no registered KPI covers."
+    )
+    notes: list[str]
+
+
 class AnswerBlockKind(Enum):
     text = "text"
     finding = "finding"
@@ -724,6 +797,9 @@ class ProbeName(Enum):
     master_data = "master_data"
     model = "model"
     golden = "golden"
+    gold = "gold"
+    delivery = "delivery"
+    dry_answer = "dry_answer"
 
 
 class ProbeResult(BaseModel):

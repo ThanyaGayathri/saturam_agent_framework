@@ -41,6 +41,8 @@ __all__ = [
     "workflow_from_compiled",
     "run_parameters",
     "make_extraction_step",
+    "make_explanation_step",
+    "build_explanation_agent",
 ]
 
 log = logging.getLogger(__name__)
@@ -99,6 +101,74 @@ def make_extraction_step(
     return Step(name=name, executor=extract, on_error=OnError.fail)
 
 
+def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
+    """The Explain stage as a step (K23): the comparison in, the comparison out with the
+    model's ``explanation`` beside it. ``additional_data["explainer"]`` overrides the agent
+    (a rehearsal's stand-in); no agent and no override is an honest empty explanation --
+    the report then carries the numbers only -- never a refusal of the run.
+    """
+    from egpt_retail.executors.analytics import comparison_of
+    from egpt_retail.skills.report_explanation import render_message
+
+    async def explain(step_input: StepInput) -> StepOutput:
+        comparison = comparison_of(step_input)
+        if comparison is None:
+            return StepOutput(
+                content={"refused": "no comparison to explain"},
+                success=False,
+                stop=True,
+            )
+        options = step_input.additional_data or {}
+        override = options.get("explainer")
+        explanation: Optional[Dict[str, Any]] = None
+        notes = ""
+        if override is not None:
+            explanation = dict(await asyncio.to_thread(override, comparison))
+        elif agent is None:
+            notes = "no explanation model is configured; the report carries the numbers only"
+        else:
+            message = render_message(
+                comparison, question=str(options.get("question") or "")
+            )
+            response = await agent.arun(message)
+            content = getattr(response, "content", None)
+            if content is None:
+                notes = "the model returned no explanation"
+            elif hasattr(content, "model_dump"):
+                explanation = content.model_dump()
+            elif isinstance(content, Mapping):
+                explanation = dict(content)
+            else:
+                notes = "the model returned an explanation of the wrong shape"
+        return StepOutput(
+            content={
+                "comparison_result": comparison,
+                "explanation": explanation,
+                "notes": notes,
+            },
+            success=True,
+        )
+
+    return Step(name=name, executor=explain, on_error=OnError.fail)
+
+
+def build_explanation_agent(model: Any, *, agent_id: str, db: Any = None) -> Any:
+    """The explanation agent for one use case: the report_explanation skill's prompt and
+    output schema, on the small tier's model."""
+    from egpt.agent import Agent
+
+    from egpt_retail.skills.report_explanation import ReportExplanation, render_prompt
+
+    return Agent(
+        id=agent_id,
+        name=agent_id,
+        model=model,
+        instructions=render_prompt(),
+        output_schema=ReportExplanation,
+        db=db,
+    )
+
+
 def _step_name(step: Mapping[str, Any]) -> str:
     return str(
         step.get("name") or step.get("executor_ref") or step.get("agent_id") or "step"
@@ -128,7 +198,7 @@ def workflow_from_compiled(
         agent_id = raw.get("agent_id")
         if agent_id:
             role = str((model_steps.get(agent_id) or {}).get("role") or "")
-            if role != "extraction":
+            if role not in {"extraction", "explanation"}:
                 raise UnresolvableStep(
                     f"step {name!r}: no runtime for the {role or 'unnamed'} role yet"
                 )
@@ -137,7 +207,10 @@ def workflow_from_compiled(
                 if agent_factory is not None
                 else None
             )
-            steps.append(make_extraction_step(agent, name=name))
+            if role == "explanation":
+                steps.append(make_explanation_step(agent, name=name))
+            else:
+                steps.append(make_extraction_step(agent, name=name))
             continue
         ref = str(raw.get("executor_ref") or "")
         executor = executors.get(ref)

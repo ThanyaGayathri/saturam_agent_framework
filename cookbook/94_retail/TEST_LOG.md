@@ -6379,3 +6379,65 @@ brand, category, territory, segment, lost reason and stage from gold rows.
 check and `vite build` clean.
 
 ---
+
+### K23 -- Analytics Automation: the Inform shape run by the platform, RFQ weekly report
+
+**Package:** K23, branch `usecase_processautomation`. Contract 1.9.0 (additive):
+`suggestAnalyticsUseCase`, `AnalyticsSuggestion`; `PreflightProbe` + `gold`, `delivery`,
+`dry_answer`.
+
+**Status:** PASS (17 Sep 2026): unit tests, the platform API with the real model and gold,
+the whole builder flow in the browser, one live run that emailed the report.
+
+**Description:** The Inform shape could not publish before this package: the compiler named
+`compare_to_baseline` and nothing registered it, and the runtime had no step for the
+`explanation` role. Now the chain is complete and generic (`executors/analytics.py`):
+`compare_to_baseline` reads each KPI at the run's date against gold at the baseline date --
+the KPI's own declared window back for the period before, 365 days for last year -- per KPI
+and per breakdown row, materialising a baseline date gold does not hold yet from the KPI's
+own formula (so a first run has a comparison); a rate or share is never summed across a
+breakdown, and a series over time is shown, not compared. The Explain step runs the new
+`report_explanation` skill (small tier; every figure copied from the input);
+`check_report_grounding` rejects a narrative that states a figure the comparison did not
+carry (dates and magnitudes handled; a mistyped KPI id repaired, not fatal) and the report
+then goes out with the numbers alone; `render_report` renders an email-safe HTML report --
+tiles for the headline KPIs, tables with bars for each breakdown, the dashboard link -- and
+its text twin; `send_report` sends it as a multipart email through the mailbox, held in a
+rehearsal. `send_mail` gained an HTML alternative. The compiler's Inform stages carry the
+four; `window`, `title`, `outputs` are optional slots bound to defaults
+(`SLOT_DEFAULTS`, origin `default`).
+
+The form's intelligence: `POST /use-cases/analytics/suggest`
+(`usecases/analytics_suggest.py`) resolves an ask against the governed registry and the
+gold the deployment holds -- the KPIs that match on a subject word, ranked, each saying
+which words chose it and whether gold already has it; the grains they break down by; the
+baseline, cadence, outputs and recipients from the words; every word nothing covers.
+Deterministic. The compose screen calls it on "Fill the form from this" for an Analytics
+Automation, shows the registry's KPIs with their reasons (replacing the prototype
+catalogue's names), an Outputs field (report / dashboard), and describes and titles the use
+case in words. Readiness runs four real probes (gold per KPI, SMTP login, the model, the
+numbers now); the plan mirrors the nine stages; the simulation runs the report with sends
+held and shows it in a sandboxed frame with the grounding verdict and the numbers; activation
+composes the dashboard under KPIs -> Dashboards (number tiles for scalar KPIs, bar
+breakdowns otherwise, named after the use case) and the use-case page links to it; run
+history and Monitor read report runs as reports.
+
+**Verification:** `test_k23_analytics_automation.py` (14 tests): the comparison's
+arithmetic, movers, non-additive rates, series, backfill once per missing date and never for
+a series, prior-year offset, no-backfill honesty; grounding pass / withheld / repaired id /
+no narrative; render + dry-run send + no recipient; the explanation step's stand-in and
+no-model case; the suggestion for the RFQ ask, a diagnostic question, last-year and
+uncovered words; the compiler's Inform sequence and defaults. Suite 1517 passed; ruff, mypy,
+contract check, `vite build` clean. In-process against gold: 6 KPIs compared, 6 baselines
+backfilled, 38 figures checked, narrative grounded. On the platform through the API: a use
+case created from the suggestion, preflight passed (`kpis_registered`, `delivery`,
+`explanation_model`), probes gold "16 KPI(s) in gold", delivery "SMTP login", model
+"gpt-5.4 answered", dry answer with the numbers; rehearsal 16 KPIs compared, 52 figures
+checked, report composed and held; live run "report sent" to the owner's address. In the
+browser: category card -> ask typed -> "Fill the form from this" filled 10 fields (16 KPIs,
+7 breakdowns, weekly, dashboard + report, the recipient) -> readiness 8 passed with the four
+probes -> plan (9 steps, 1 AI step) -> simulation ran the report and showed it -> Go live
+composed the dashboard (16 tiles) -> the use-case page's Dashboard button and Run now:
+"16 KPIs compared -> report emailed · Closed-won rate improved to 55.8% from 47.3% …".
+
+---

@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from egpt_retail.api.models._generated import (
     ActivationRequest,
+    AnalyticsFeasibility,
+    AnalyticsKpiSuggestion,
+    AnalyticsSuggestion,
+    AnalyticsSuggestRequest,
     ActiveReportWrite,
     AlertDefinition,
     AlertDefinitionWrite,
@@ -374,6 +378,10 @@ __all__ = [
     "RowSample",
     "RunCost",
     "ExtractionTemplate",
+    "AnalyticsFeasibility",
+    "AnalyticsKpiSuggestion",
+    "AnalyticsSuggestion",
+    "AnalyticsSuggestRequest",
     "ExtractionTemplateDraft",
     "ExtractionTemplateDraftRequest",
     "ExtractionTemplateField",

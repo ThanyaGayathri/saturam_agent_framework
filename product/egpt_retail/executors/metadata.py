@@ -339,5 +339,38 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             False,
             5,
         ),
+        # K23 -- the Inform shape's report chain
+        "compare_to_baseline": ExecutorMetadata(
+            "Compare to baseline",
+            "Each KPI at the run's date against gold at the baseline date, per KPI and per breakdown row; a missing baseline date is materialised once from the KPI's own formula.",
+            ("kpis", "comparison", "window"),
+            ("comparison_result",),
+            False,
+            10,
+        ),
+        "check_report_grounding": ExecutorMetadata(
+            "Check the narrative against the numbers",
+            "Every figure the explanation states must be one the comparison carried; a narrative that invents one is withheld and the report goes out with the numbers alone.",
+            ("comparison_result", "explanation"),
+            ("grounding",),
+            False,
+            1,
+        ),
+        "render_report": ExecutorMetadata(
+            "Render the report",
+            "The comparison and the grounded narrative as an email-safe HTML report and its text twin.",
+            ("comparison_result", "explanation", "title"),
+            ("report", "headline"),
+            False,
+            1,
+        ),
+        "send_report": ExecutorMetadata(
+            "Send the report",
+            "The HTML report to the recipients through the mailbox's SMTP; composed and held under dry run.",
+            ("report", "recipient"),
+            ("delivery",),
+            False,
+            5,
+        ),
     }
 )

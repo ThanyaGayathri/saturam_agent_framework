@@ -864,7 +864,7 @@ GoldenCaseWrite:
 
 ProbeName:
   type: string
-  enum: [mailbox, target, master_data, model, golden]
+  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer]
 ProbeResult:
   type: object
   description: |
@@ -894,3 +894,47 @@ GoldenCaseUpdate:
       oneOf:
         - $ref: './use-cases.yaml#/CaseExpected'
         - type: "null"
+AnalyticsSuggestRequest:
+  type: object
+  required: [question]
+  properties:
+    question: {type: string, description: "The ask, in the person's own words."}
+    recipient: {type: string, description: "A default address when the ask names none."}
+AnalyticsFeasibility:
+  type: string
+  enum: [ready, buildable]
+  description: "`ready` when gold holds a row; `buildable` when the first run computes it."
+AnalyticsKpiSuggestion:
+  type: object
+  required: [identifier, name, grain, score, why, feasibility]
+  properties:
+    identifier: {type: string}
+    name: {type: string}
+    grain: {type: string}
+    business_area: {type: string, nullable: true}
+    unit: {type: string}
+    score: {type: integer, description: "The lexical match, for ordering; not a probability."}
+    why: {type: string, description: "The ask's own words that chose this KPI."}
+    feasibility:
+      $ref: './use-cases.yaml#/AnalyticsFeasibility'
+    latest_as_of: {type: string, format: date, nullable: true}
+AnalyticsSuggestion:
+  type: object
+  required: [kind, title, business_areas, kpis, dimensions, comparison, schedule, outputs, recipients, uncovered, notes]
+  properties:
+    kind: {type: string, enum: [monitoring, diagnostic], description: "A standing report, or a question about one movement run once and promoted if kept."}
+    title: {type: string}
+    business_areas: {type: array, items: {type: string}}
+    kpis:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/AnalyticsKpiSuggestion'
+    dimensions: {type: array, items: {type: string}, description: "The grains the chosen KPIs break down by."}
+    comparison: {type: string, enum: [prior_period, prior_year]}
+    comparison_reason: {type: string}
+    schedule: {type: string, description: "A `ScheduleCadence` value."}
+    schedule_reason: {type: string}
+    outputs: {type: array, items: {type: string, enum: [report, dashboard, alert]}}
+    recipients: {type: array, items: {type: string}}
+    uncovered: {type: array, items: {type: string}, description: "Words of the ask no registered KPI covers."}
+    notes: {type: array, items: {type: string}}

@@ -199,7 +199,14 @@ weekly if wanted.
 - Release 1 builds two use cases: **RFQ & Quote Pipeline Performance** (monitoring) and
   **"Why is my revenue low last week?"** (diagnostic).
 
-## 9. Still open
+## 9. Built (17 Sep, K23)
+
+Release 1 for the monitoring question: the suggestion from the ask, the Inform chain
+(compare with backfill, grounded narrative, HTML report by email and in-app), readiness
+probes, simulation, activation composing the dashboard, run history and Monitor. See
+`cookbook/94_retail/TEST_LOG.md`, K23.
+
+## 10. Still open
 
 1. **Proposed KPIs** -- approved by the use-case author on the spot, or by the KPI owner on
    the KPI screen (the K12 proposals path)?

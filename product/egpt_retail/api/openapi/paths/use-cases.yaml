@@ -889,6 +889,43 @@ x-egpt-parameters:
     required: true
     schema: {type: string}
 
+/use-cases/analytics/suggest:
+  post:
+    tags: [use-cases]
+    operationId: suggestAnalyticsUseCase
+    summary: What the connected data supports for an analytics ask, as a filled form.
+    description: |
+      The Analytics Automation form's intelligence (1.9.0). The person's own words -- "full
+      visibility into the quote pipeline by brand and territory, every Monday to the sales
+      team", or "why is my revenue low last week?" -- resolved against the governed KPI
+      registry and the gold the deployment holds: the KPIs that match and can be reported on,
+      the breakdowns they offer, the baseline, the cadence, the outputs and the recipients the
+      words name, and every word no registered KPI covers. Deterministic: the same ask over
+      the same registry suggests the same form, and each KPI says which of the ask's words
+      chose it. The person confirms; nothing is stored by this call.
+    x-egpt-scopes: [use-cases:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/AnalyticsSuggestRequest'
+          examples:
+            default:
+              value: {question: "Full visibility into the quote pipeline by brand, territory and state, every Monday to sales@example.com."}
+    responses:
+      "200":
+        description: The suggestion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/AnalyticsSuggestion'
+            examples:
+              default:
+                value: {kind: monitoring, title: "Full visibility into the quote pipeline by brand, territory and state", business_areas: [sales], kpis: [{identifier: rfq__quotes_by_brand, name: Quotes by brand, grain: brand, business_area: sales, unit: quotes, score: 24, why: "quote, pipeline, brand", feasibility: ready, latest_as_of: "2026-09-17"}], dimensions: [brand, location, sales_territory], comparison: prior_period, comparison_reason: "the period before, the default", schedule: weekly, schedule_reason: "the ask says weekly", outputs: [dashboard, report], recipients: [sales@example.com], uncovered: [], notes: []}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
 x-egpt-responses:
   InsufficientScope:
     description: The token lacks a scope this operation requires.

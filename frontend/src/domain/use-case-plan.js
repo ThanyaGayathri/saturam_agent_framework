@@ -60,10 +60,13 @@ export const SHAPE_STAGES = {
  inform: [
   stage("Read gold", STAGE_KIND.executor, "read_gold", { consumes: ["metrics"] }),
   computeSatisfied("Compute metrics", ["dimensions"]),
-  stage("Compare to baseline", STAGE_KIND.executor, "compare_to_baseline", { consumes: ["comparison"] }),
+  stage("Compare to baseline", STAGE_KIND.executor, "compare_to_baseline", { consumes: ["comparison", "window"], description: "Each KPI at the run's date against gold at the baseline date -- the period before, or the same period last year -- per KPI and per breakdown row. A baseline date gold does not hold yet is materialised for it." }),
   stage("Explain", STAGE_KIND.model, null, { role: "explanation", description: "One model step. Explains the numbers; never decides anything." }),
+  stage("Check grounding", STAGE_KIND.executor, "check_report_grounding", { description: "Every figure in the explanation must be one the comparison carried; an explanation that invents one is withheld and the report carries the numbers alone." }),
   stage("Record provenance", STAGE_KIND.executor, "record_provenance"),
+  stage("Render report", STAGE_KIND.executor, "render_report", { consumes: ["title", "outputs"], description: "The comparison and the narrative as an HTML report and its text twin." }),
   stage("Deliver", STAGE_KIND.executor, "deliver_in_app", { consumes: ["recipient"] }),
+  stage("Send report", STAGE_KIND.executor, "send_report", { consumes: ["recipient"], description: "The HTML report by email to the recipients; held in a rehearsal." }),
  ],
  alert: [
   stage("Read gold", STAGE_KIND.executor, "read_gold", { consumes: ["metric"] }),
@@ -156,6 +159,8 @@ const timeoutLabel = (v) => TIMEOUT_BEHAVIOURS.find((t) => t.value === v)?.label
 export function slotValue(spec, slot) {
  const doc = spec.template === "document_to_record";
  const alias = doc ? { guardrails: "recordGuardrails", recipient: "exceptionsTo", schedule: "pollInterval" } : {};
+ if (slot === "title") return spec.title || spec.goal?.split(/[.\n]/)[0] || null;
+ if (slot === "window") return "each KPI's own window";
  const field = alias[slot] || Object.keys(FIELD_META).find((f) => FIELD_META[f].slot === slot);
  if (!field) return null;
  switch (field) {
@@ -163,6 +168,7 @@ export function slotValue(spec, slot) {
   case "metric": return spec.metricIds[0] || null;
   case "dimensions": return spec.dimensions.join(", ") || null;
   case "comparison": return spec.comparison ? comparisonLabel(spec.comparison) : null;
+  case "outputs": return (spec.outputs || []).length ? spec.outputs.join(" + ") : "report";
   case "operator": return spec.condition?.operator ? opLabel(spec.condition.operator) : null;
   case "threshold": return spec.condition?.threshold != null ? `${spec.condition.threshold}${spec.condition.unit || ""}` : null;
   case "scope": return spec.scope || null;
@@ -212,6 +218,10 @@ const STEP_KIND_FOR_EXECUTOR = {
  resolve_entities: STEP_KIND.check,
  build_record: STEP_KIND.compute,
  send_email: STEP_KIND.notify,
+ compare_to_baseline: STEP_KIND.compute,
+ check_report_grounding: STEP_KIND.check,
+ render_report: STEP_KIND.compute,
+ send_report: STEP_KIND.notify,
 };
 
 /** Human wording per executor, from the spec. The stage table says WHAT runs; this says what it
@@ -322,6 +332,27 @@ function describe(st, spec, reads) {
    return { title: `Builds ${slotValue(spec, "target objects") || "the record"}`, detail: `Maps the resolved fields onto the target's objects, created as ${slotValue(spec, "created as")?.toLowerCase() || "draft"}. A required field the mapping cannot fill is an exception, not a blank.` };
   case "send_email":
    return { title: spec.acknowledge ? `Replies to the sender · exceptions to ${spec.exceptionsTo || "the exceptions address"}` : `Exceptions to ${spec.exceptionsTo || "the exceptions address"}`, detail: "The sender gets the created record's number, or the reason it was not created. The exception email carries the classification in words, what was extracted, and a link to the in-app record with the document and the candidate list." };
+  case "compare_to_baseline":
+   return {
+    title: `Compares with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}`,
+    detail: `Each KPI at the run's date against gold at the baseline date -- the KPI's own window back -- per KPI and per breakdown row${spec.dimensions?.length ? ` (${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")})` : ""}. A baseline date gold does not hold yet is computed from the KPI's formula, once. Deterministic.`,
+   };
+  case "check_report_grounding":
+   return {
+    title: "Checks the narrative against the numbers",
+    detail: "Every figure the AI step wrote must be one the comparison carried; a narrative that invents one is withheld and the report goes out with the numbers alone. Code, not a model.",
+    branch: { yes: "every figure in the numbers", no: "a figure not in the numbers", outcome: "Narrative withheld; numbers only" },
+   };
+  case "render_report":
+   return {
+    title: "Renders the report",
+    detail: `The comparison and the checked narrative as an HTML report -- tiles for the headline KPIs, tables with bars for each breakdown -- and its plain-text twin${(spec.outputs || []).includes("dashboard") ? ", with a link to the dashboard composed at activation" : ""}.`,
+   };
+  case "send_report":
+   return {
+    title: /@/.test(spec.notify || "") ? `Emails ${spec.notify}` : "No email address: in-app only",
+    detail: /@/.test(spec.notify || "") ? "The HTML report as a multipart email through the connected mailbox; composed and held in a rehearsal." : "Add an address under Recipients to have the report emailed each run.",
+   };
   case "record_provenance":
    return {
     title: "Records provenance",

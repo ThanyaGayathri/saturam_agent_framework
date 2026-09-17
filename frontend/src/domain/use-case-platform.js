@@ -66,6 +66,9 @@ export function kpiParameters(spec, sources = []) {
   threshold: spec.condition?.threshold ?? "",
   severity: spec.severity || "",
   recipient: spec.notify || "",
+  // The Inform shape's report slots (K23): what to produce, and the report's title.
+  outputs: spec.outputs && spec.outputs.length ? spec.outputs : undefined,
+  title: spec.title || undefined,
   candidates: spec.candidates || null,
   guardrails: spec.guardrails || [],
   approver: spec.approver || "",
@@ -277,6 +280,20 @@ export function specFromPlatform(useCase, platformSpec, base) {
  */
 export function runStats(run) {
  const result = run?.result || {};
+ // An Inform run (K23): a report, not a batch. "received" is the KPIs compared, "created"
+ // the report that went out; nothing is priced and a report run is never a quiet poll.
+ if (result.report) {
+  const kpis = (result.comparison_result?.kpis || []).length;
+  const status = result.delivery?.status || "";
+  const sent = status === "sent" ? 1 : 0;
+  const durationMs = run?.finished_at && run?.started_at ? new Date(run.finished_at) - new Date(run.started_at) : null;
+  return {
+   report: true, received: kpis, created: sent, previewed: status === "held" ? 1 : 0, exceptions: 0, held: 0, value: 0, hasValue: false, objects: ["Report"],
+   byClass: result.grounding?.passed === false ? { NARRATIVE_WITHHELD: 1 } : {}, idle: false, durationMs,
+   records: [], notify: status || null, recipients: result.delivery?.to || [],
+   headline: result.report.headline || "", withheld: result.grounding?.passed === false,
+  };
+ }
  const docs = result.documents || [];
  const exceptions = result.exceptions || [];
  const received = result.stats?.received ?? docs.length + exceptions.length;

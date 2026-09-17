@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -470,6 +470,170 @@
               "null"
             ],
             "description": "Which gold-view column `grain_value` is matched against, when the KPI's rows carry\nmore than one dimension column (e.g. both `region` and `channel`) and a bare\n`grain_value` could equal more than one of them. Optional and additive (CHANGELOG\n1.1.2): a legacy definition with no `grain_column` is matched only when the result\nset is unambiguous on shape alone -- refused, not guessed, when it is not.\n"
+          }
+        }
+      },
+      "AnalyticsFeasibility": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "buildable"
+        ],
+        "description": "`ready` when gold holds a row; `buildable` when the first run computes it."
+      },
+      "AnalyticsKpiSuggestion": {
+        "type": "object",
+        "required": [
+          "identifier",
+          "name",
+          "grain",
+          "score",
+          "why",
+          "feasibility"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "grain": {
+            "type": "string"
+          },
+          "business_area": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "description": "The lexical match, for ordering; not a probability."
+          },
+          "why": {
+            "type": "string",
+            "description": "The ask's own words that chose this KPI."
+          },
+          "feasibility": {
+            "$ref": "#/components/schemas/AnalyticsFeasibility"
+          },
+          "latest_as_of": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          }
+        }
+      },
+      "AnalyticsSuggestRequest": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The ask, in the person's own words."
+          },
+          "recipient": {
+            "type": "string",
+            "description": "A default address when the ask names none."
+          }
+        }
+      },
+      "AnalyticsSuggestion": {
+        "type": "object",
+        "required": [
+          "kind",
+          "title",
+          "business_areas",
+          "kpis",
+          "dimensions",
+          "comparison",
+          "schedule",
+          "outputs",
+          "recipients",
+          "uncovered",
+          "notes"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "monitoring",
+              "diagnostic"
+            ],
+            "description": "A standing report, or a question about one movement run once and promoted if kept."
+          },
+          "title": {
+            "type": "string"
+          },
+          "business_areas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsKpiSuggestion"
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The grains the chosen KPIs break down by."
+          },
+          "comparison": {
+            "type": "string",
+            "enum": [
+              "prior_period",
+              "prior_year"
+            ]
+          },
+          "comparison_reason": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string",
+            "description": "A `ScheduleCadence` value."
+          },
+          "schedule_reason": {
+            "type": "string"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "report",
+                "dashboard",
+                "alert"
+              ]
+            }
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uncovered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Words of the ask no registered KPI covers."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3857,7 +4021,10 @@
           "target",
           "master_data",
           "model",
-          "golden"
+          "golden",
+          "gold",
+          "delivery",
+          "dry_answer"
         ]
       },
       "ProbeResult": {
@@ -12140,6 +12307,108 @@
                     "value": {
                       "detail": "No use case 'uc_9999'.",
                       "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/analytics/suggest": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestAnalyticsUseCase",
+        "summary": "What the connected data supports for an analytics ask, as a filled form.",
+        "description": "The Analytics Automation form's intelligence (1.9.0). The person's own words -- \"full\nvisibility into the quote pipeline by brand and territory, every Monday to the sales\nteam\", or \"why is my revenue low last week?\" -- resolved against the governed KPI\nregistry and the gold the deployment holds: the KPIs that match and can be reported on,\nthe breakdowns they offer, the baseline, the cadence, the outputs and the recipients the\nwords name, and every word no registered KPI covers. Deterministic: the same ask over\nthe same registry suggests the same form, and each KPI says which of the ask's words\nchose it. The person confirms; nothing is stored by this call.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSuggestRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "question": "Full visibility into the quote pipeline by brand, territory and state, every Monday to sales@example.com."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsSuggestion"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "kind": "monitoring",
+                      "title": "Full visibility into the quote pipeline by brand, territory and state",
+                      "business_areas": [
+                        "sales"
+                      ],
+                      "kpis": [
+                        {
+                          "identifier": "rfq__quotes_by_brand",
+                          "name": "Quotes by brand",
+                          "grain": "brand",
+                          "business_area": "sales",
+                          "unit": "quotes",
+                          "score": 24,
+                          "why": "quote, pipeline, brand",
+                          "feasibility": "ready",
+                          "latest_as_of": "2026-09-17"
+                        }
+                      ],
+                      "dimensions": [
+                        "brand",
+                        "location",
+                        "sales_territory"
+                      ],
+                      "comparison": "prior_period",
+                      "comparison_reason": "the period before, the default",
+                      "schedule": "weekly",
+                      "schedule_reason": "the ask says weekly",
+                      "outputs": [
+                        "dashboard",
+                        "report"
+                      ],
+                      "recipients": [
+                        "sales@example.com"
+                      ],
+                      "uncovered": [],
+                      "notes": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
                     }
                   }
                 }

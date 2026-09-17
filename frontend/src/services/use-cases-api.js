@@ -182,3 +182,11 @@ export function fetchSilentSchedules({ signal } = {}) {
 export function fetchUseCaseSpec(useCaseId, { signal } = {}) {
   return apiGet(`/use-cases/${enc(useCaseId)}/spec`, { signal });
 }
+
+/** The Analytics Automation form's suggestion from the ask (K23): `POST
+ *  /use-cases/analytics/suggest` -- the registry's KPIs that match the words and have gold
+ *  behind them, their breakdowns, baseline, cadence, outputs and recipients. Deterministic;
+ *  nothing stored. */
+export function suggestAnalyticsUseCase(question, { recipient, signal } = {}) {
+  return apiJson("/use-cases/analytics/suggest", "POST", { question, recipient: recipient || undefined }, { signal });
+}

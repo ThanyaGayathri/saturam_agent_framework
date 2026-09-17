@@ -109,6 +109,18 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.9.0 — 2026-09-17 — Analytics Automation: the suggestion from the ask (additive)
+
+Agreed by: Lane K. One new operation, `suggestAnalyticsUseCase` (`POST
+/use-cases/analytics/suggest`), with `AnalyticsSuggestRequest`, `AnalyticsKpiSuggestion` and
+`AnalyticsSuggestion`. The Analytics Automation form's intelligence: an ask in the person's
+own words resolved against the governed KPI registry and the gold the deployment holds --
+the KPIs that match and can be reported on, their breakdowns, baseline, cadence, outputs,
+recipients, and every word nothing covers. Deterministic and explained per KPI. Nothing
+stored. `PreflightProbe` gains the Inform shape's three: `gold` (every KPI has a gold row,
+and how fresh), `delivery` (SMTP login for the report), `dry_answer` (the numbers now). The Inform shape's `SHAPE_PARAMETERS` gained three optional slots (`window`,
+`title`, `outputs`) bound to defaults when a spec leaves them blank; not on the wire.
+
 ## 1.8.0 — 2026-09-17 — merge: `main` (1.1.8–1.2.1, KPI suggestion and dashboards) into Lane K's use-case work (1.2.0–1.7.0) (additive)
 
 Agreed by: Lane K. Both lines were authored in parallel from 1.1.7 and both are additive, so

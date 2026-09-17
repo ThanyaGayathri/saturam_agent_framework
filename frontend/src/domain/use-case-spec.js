@@ -58,6 +58,8 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   successMeasure: "",
   // inform
   metricIds: [],
+  outputs: [],
+  analytics: null,
   metricTerms: [],
   dimensions: [],
   comparison: null,
@@ -144,6 +146,16 @@ export function applyPatch(spec, patch, origin) {
 export function proposeTitle(spec) {
  const m = spec.metricIds?.[0];
  if (spec.template === "document_to_record") { const t = findTemplate(spec); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
+ if (spec.category === "analytics_automation" && spec.analytics) {
+  // Named from the ask, the way a person would title a report; the identifier is not a name.
+  // The first clause of the ask, the way a person would title a report: "Full visibility
+  // into the quote pipeline, from a quote…" -> "Visibility into the quote pipeline".
+  const first = String(spec.goal || "").split(/[.\n]/)[0].split(/[,;:—–(]/)[0].replace(/^(full|complete|give me|show me|i want|we need|please)\s+/i, "").trim();
+  const cadence = spec.schedule === "weekly" ? "weekly" : spec.schedule === "daily" ? "daily" : spec.schedule === "monthly" ? "monthly" : "";
+  const words = first.split(/\s+/);
+  const short = words.length > 8 ? words.slice(0, 8).join(" ") : first;
+  return short ? `${short.charAt(0).toUpperCase()}${short.slice(1)}${cadence ? ` — ${cadence} report` : ""}` : "";
+ }
  if (!m) return "";
  switch (spec.shape) {
   case "inform": return `${m}${spec.dimensions?.length ? ` by ${spec.dimensions.slice(0, 2).join(" and ").toLowerCase()}` : ""}`;
