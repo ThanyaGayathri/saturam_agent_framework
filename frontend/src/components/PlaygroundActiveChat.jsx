@@ -13,7 +13,9 @@ import { CHAT_SESSIONS } from "../storage/idb/chat-db";
 import { getPlaygroundChatSeed } from "../storage/chat-seeds";
 import { PLAYGROUND_HUB_CHAT_MESSAGE_KEY, HUB_CHAT_ATTACH_HANDOFF_KEY, BUILDER_PREFILL_FROM_TEMPLATE_KEY, PLAYGROUND_HUB_SHOW_PREVIEW_KEY } from "../storage/keys";
 import { lensDisplayToHorizon, parsePlaygroundHubHandoff } from "../domain/playground-hub-handoff";
-import { resolvePlaygroundAssistantReplyAsync } from "../domain/resolve-playground-assistant";
+// The playground answers from R11 only -- no scripted fallback. `resolve-playground-assistant`
+// remains the use-case builder's resolver; see `resolve-playground-reply.js`.
+import { resolvePlaygroundReply as resolvePlaygroundAssistantReplyAsync } from "../domain/resolve-playground-reply";
 import { collapseAdjacentDuplicateUserMessages } from "../domain/chat-message-utils";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { PendingAttachmentChips, SentAttachmentChips } from "./shared/ChatAttachmentChips";
