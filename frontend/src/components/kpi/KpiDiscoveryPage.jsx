@@ -15,6 +15,7 @@ import { buildDashboardWritePayload } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
 import { rowFromSuggestion } from "./suggested-candidates";
 import { metricsUnlockedBy } from "../configure/source-model-state";
+import { useCaseActivationPath } from "../../domain/automation-registry";
 import {
  fetchKpiList,
  startKpiSuggestionRun,
@@ -151,6 +152,9 @@ export default function KpiDiscoveryPage() {
  // panel is open. A suggestion's edit never reaches here -- it is a local patch to
  // `suggestionState.suggestions`, always synchronous, with nothing to load or fail.
  const [updateState, setUpdateState] = useState({ identifier: null, saving: false, error: null });
+ // Which registry row's Status switch (hierarchy table) is mid-toggle -- one at a time, since
+ // a second click on the same row before the first PATCH lands would race two writes.
+ const [togglingActiveId, setTogglingActiveId] = useState(null);
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
@@ -266,6 +270,7 @@ export default function KpiDiscoveryPage() {
  // The manual "Add KPI" form's `POST /kpis` (`onCreateManual` below) -- one at a time, since
  // the modal refuses to close while it is in flight.
  const createAbortRef = useRef(null);
+ const toggleActiveAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
@@ -275,6 +280,7 @@ export default function KpiDiscoveryPage() {
    removeAbortRef.current?.abort();
    updateAbortRef.current?.abort();
    createAbortRef.current?.abort();
+   toggleActiveAbortRef.current?.abort();
   },
   []
  );
@@ -793,6 +799,47 @@ export default function KpiDiscoveryPage() {
    });
  };
 
+ // The hierarchy table's Status switch -- `PATCH /kpis/{id}` with everything `KpiWrite` requires
+ // resent unchanged (same constraint `handleUpdateKpi` documents) and only `active` flipped.
+ // Not optimistic: the switch stays where it was until the server confirms, so a failure never
+ // shows a status the registry doesn't actually have.
+ const handleToggleActive = (row) => {
+  const kpi = row?.kpi;
+  if (!kpi?.identifier) return;
+  toggleActiveAbortRef.current?.abort();
+  const controller = new AbortController();
+  toggleActiveAbortRef.current = controller;
+  setTogglingActiveId(kpi.identifier);
+  updateKpi(
+   kpi.identifier,
+   {
+    name: kpi.name,
+    description: kpi.desc,
+    business_area: kpi.businessAreaId,
+    grain: kpi.grain,
+    sql: kpi.sql,
+    source_tables: kpi.sourceTables || [],
+    active: !kpi.active,
+   },
+   { signal: controller.signal }
+  )
+   .then((updated) => {
+    if (controller.signal.aborted) return;
+    setRealKpiState((prev) => ({
+     ...prev,
+     kpis: prev.kpis.map((k) => (k.identifier === kpi.identifier ? updated : k)),
+    }));
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    window.alert(err?.detail || err?.message || "Couldn't update this KPI's status.");
+   })
+   .finally(() => {
+    if (toggleActiveAbortRef.current === controller) toggleActiveAbortRef.current = null;
+    setTogglingActiveId((prev) => (prev === kpi.identifier ? null : prev));
+   });
+ };
+
  const realAreaLabelById = useMemo(
   () => Object.fromEntries(areaState.areas.map((a) => [a.id, a.label])),
   [areaState.areas]
@@ -827,6 +874,9 @@ export default function KpiDiscoveryPage() {
    identifier: k.identifier,
    feasibility: k.feasibility,
    resultShape: k.result_shape,
+   // Dashboards with a tile built from this KPI -- the hierarchy table's "Maps to" column.
+   // Always empty for a suggestion, which has no registry identifier yet.
+   dashboardNames: k.dashboard_names || [],
    // Null for a hand-authored KPI or one adopted before the registry kept them; the panel
    // renders the section only when at least one is present.
    rationale: k.rationale || "",
@@ -956,6 +1006,10 @@ export default function KpiDiscoveryPage() {
     adoptingIds={adoptingIds}
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
+    onToggleActive={handleToggleActive}
+    togglingActiveId={togglingActiveId}
+    profileId={profileId}
+    onOpenUseCase={(cid) => navigate(useCaseActivationPath(cid))}
    />
 
    {/* The agent's own account of why it proposed nothing, in the schema's refusal channel. An

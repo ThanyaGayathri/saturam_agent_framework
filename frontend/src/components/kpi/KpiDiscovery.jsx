@@ -1,23 +1,47 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, Check, Database, GitMerge, Info, Plus, Sparkles, XCircle } from "lucide-react";
+import {
+ AlertTriangle,
+ Briefcase,
+ CalendarClock,
+ Check,
+ ChevronDown,
+ CircleHelp,
+ Database,
+ Info,
+ LayoutGrid,
+ Plus,
+ Sparkles,
+ Zap,
+} from "lucide-react";
 import { mappingStatusForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
+import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
+import { Select, Switch } from "../ui";
 import KpiFocusPrompt from "./KpiFocusPrompt";
 
 /**
  * Discovery view of the KPI mapping screen: "given the data you connected, what can you measure?"
  *
- * This is the same relationship the admin table shows, read in the other direction. The table
- * starts from a metric and asks which data backs it; this starts from the connected data and asks
- * which metrics that supports. One underlying binding, two readings -- which is why they are two
- * views of one screen rather than two screens that would drift apart.
+ * Grouped as a Business Area -> Subject Area -> KPI hierarchy (mirroring the enterprise KPI
+ * registry's own shape) rather than by feasibility bucket -- the registry is what a customer
+ * browses and governs, and a metric belongs to exactly one place in it regardless of whether
+ * it happens to be measurable yet. Feasibility still gates what can be picked for a dashboard
+ * (`bucketFor`, `notSelectableReasonFor`) -- it stopped being how the page is organized.
  *
- * The page is split ONCE, by feasibility, and sorted by relevance inside each bucket. Splitting by
- * both at the top level produces "available" and "available but less relevant", which nobody can
- * act on.
+ * Two inputs, merged into the same tree (the seed "Retail standard" catalogue that used to be a
+ * third is not mixed in here -- it has no real identifiers, so nothing on it could be adopted or
+ * put on a dashboard):
  *
- * Blocked metrics are shown, never hidden: the gap list is the most commercially useful output
- * here, because it tells the customer exactly what to fix to unlock the rest.
+ *  1. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
+ *     `kpi_suggestion` agent. Every suggestion carries a real `business_area` (validated against
+ *     the deployment's vocabulary), so it always finds a real Business Area group; it never
+ *     carries a `subject_area`, so it always lands in that area's "Unsorted" group until adopted.
+ *  2. REAL registry KPIs -- `GET /kpis`, each with a real `kpi_identifier`, `feasibility`, and
+ *     (once adopted) a `subject_area` of its own.
+ *
+ * A registry row whose `business_area` matches nothing in the deployment's current vocabulary
+ * (a stale row from before a rename, say) falls into a top-level "Uncategorized" group instead
+ * of silently disappearing from the tree.
  */
 
 /** Distinct source systems behind a KPI, in stable order. Empty when nothing is mapped. */
@@ -49,139 +73,6 @@ export function bucketFor(row) {
  return "blocked";
 }
 
-const BUCKETS = [
- {
-  id: "ready",
-  title: "Ready to measure",
-  blurb: "Every field these need is present in your connected data.",
-  Icon: Check,
-  cls: "bg-status-success-light text-status-success border-status-success-border",
-  dot: "bg-status-success",
- },
- {
-  id: "partial",
-  title: "Partially available",
-  blurb: "Close, but not yet reliable: a piece is missing, stale or unresolved. Each card names it.",
-  Icon: AlertTriangle,
-  cls: "bg-status-warning-light text-status-warning border-status-warning-border",
-  dot: "bg-status-warning",
- },
- {
-  id: "blocked",
-  title: "Not yet possible",
-  blurb: "Nothing in your connected data backs these. The missing piece is named on each card.",
-  Icon: XCircle,
-  cls: "bg-status-critical-light text-status-critical border-status-critical-border",
-  dot: "bg-status-critical",
- },
-];
-
-/**
- * Provenance badge. Where a definition came from changes how far you should trust it: a curated
- * metric has a vetted formula behind it, an inferred one is a guess from column names. Shown as a
- * badge rather than as a section, because the user cares whether a metric is useful and works --
- * not where we got it.
- */
-function ProvenanceBadge({ inferred, suggested, fromRegistry }) {
- if (suggested) {
-  return (
-   <span className="inline-flex items-center gap-1 rounded-full bg-status-info-light px-2 py-0.5 text-[11px] font-semibold text-status-info">
-    <Sparkles size={10} />
-    Suggested — not in your registry
-   </span>
-  );
- }
- if (fromRegistry) {
-  return (
-   <span className="inline-flex items-center gap-1 rounded-full bg-status-success-light px-2 py-0.5 text-[11px] font-semibold text-status-success">
-    <Check size={10} />
-    In your KPI registry
-   </span>
-  );
- }
- if (!inferred) {
-  return (
-   <span className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 text-[11px] font-semibold text-text-secondary">
-    Retail standard
-   </span>
-  );
- }
- return (
-  <span className="inline-flex items-center gap-1 rounded-full bg-status-info-light px-2 py-0.5 text-[11px] font-semibold text-status-info">
-   <Sparkles size={10} />
-   Inferred from your data
-  </span>
- );
-}
-
-const CONFIDENCE = {
- high: { label: "High confidence", cls: "bg-status-success-light text-status-success" },
- medium: { label: "Medium confidence", cls: "bg-status-warning-light text-status-warning" },
- low: { label: "Low confidence", cls: "bg-surface-tertiary text-text-secondary" },
-};
-
-/** The agent's own confidence. Not a probability: a hint about which suggestions to read first. */
-function ConfidenceBadge({ level }) {
- const c = CONFIDENCE[level];
- if (!c) return null;
- return (
-  <span
-   title="How strongly the evidence supports this suggestion. Not a probability; read it as which cards to look at first."
-   className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${c.cls}`}
-  >
-   {c.label}
-  </span>
- );
-}
-
-/**
- * The tables the formula reads, each marked present or missing from the semantic layer. This is
- * the evidence behind both reason lines: the agent cites these tables, the executor subtracts them.
- */
-function EvidenceChips({ suggestion }) {
- const tables = suggestion.derived_from_tables || [];
- const missing = new Set(suggestion.feasibility?.missing_tables || []);
- return (
-  <>
-   {tables.map((table) =>
-    missing.has(table) ? (
-     <span
-      key={table}
-      title="Not in the semantic layer yet"
-      className="inline-flex items-center gap-1 rounded-full border border-status-critical-border bg-status-critical-light px-2 py-0.5 font-mono text-[11px] font-medium text-status-critical"
-     >
-      <XCircle size={10} />
-      {table}
-     </span>
-    ) : (
-     <span
-      key={table}
-      title="Present in the semantic layer"
-      className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 font-mono text-[11px] font-medium text-text-secondary"
-     >
-      <Database size={10} />
-      {table}
-     </span>
-    )
-   )}
-   {tables.length > 1 && (
-    <span
-     title="Reads more than one table. Whether they join is checked by the executor, not assumed by the agent."
-     className="inline-flex items-center gap-1 rounded-full border border-status-warning-border bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning"
-    >
-     <GitMerge size={10} />
-     Joins {tables.length}
-    </span>
-   )}
-  </>
- );
-}
-
-const VERDICT_LEAD = {
- partial: { text: "One piece short.", bar: "border-status-warning", lead: "text-status-warning" },
- blocked: { text: "Needs data you haven't connected.", bar: "border-status-critical", lead: "text-status-critical" },
-};
-
 /**
  * Shared with `KpiDetailPanel.jsx`, which renders the same two reasons in its own suggestion
  * section. One pair of constants instead of two hand-typed copies, so a wording change is a
@@ -191,63 +82,10 @@ export const SUGGESTION_RATIONALE_LABEL = "Why the model proposed it";
 export const SUGGESTION_VALUE_LABEL = "What value it provides";
 
 /**
- * The reasons a suggestion arrives with, kept apart because they come from different places
- * and answer different questions. `rationale` is the agent's account of *why this metric
- * follows from these tables* -- traceability. `business_value` (nullable: a suggestion from
- * before this field existed has none) is the agent's account of *why anyone should look at
- * it* -- motivation, never a claim about the data. `feasibility.rationale` is the executor's:
- * whether the tables are actually here. When the verdict is negative the executor's line
- * leads, because "why you can't have it yet" is the one a person can act on; the agent's
- * lines stay underneath so the proposal itself is still judgeable.
- */
-function SuggestionReasons({ suggestion, bucket }) {
- if (bucket === "ready" && !suggestion.proposed_sql) {
-  return (
-   <p className="border-l-2 border-status-warning pl-2.5 text-xs text-text-secondary">
-    <span className="font-semibold text-status-warning">No formula was proposed for this one.</span>{" "}
-    The data is there, but the agent didn&apos;t write a query it was confident in.
-   </p>
-  );
- }
- if (bucket === "ready") {
-  return (
-   <div className="space-y-1.5">
-    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">
-     <span className="font-semibold text-status-info">{SUGGESTION_RATIONALE_LABEL}:</span> {suggestion.rationale}
-    </p>
-    {suggestion.business_value && (
-     <p className="pl-3 text-xs text-text-muted">
-      <span className="font-semibold text-primary">{SUGGESTION_VALUE_LABEL}:</span> {suggestion.business_value}
-     </p>
-    )}
-   </div>
-  );
- }
- const v = VERDICT_LEAD[bucket];
- return (
-  <div className="space-y-1.5">
-   <p className={`border-l-2 pl-2.5 text-xs text-text-secondary ${v.bar}`}>
-    <span className={`font-semibold ${v.lead}`}>{v.text}</span>{" "}
-    {suggestion.feasibility?.rationale || "The feasibility check did not run for this suggestion."}
-   </p>
-   <p className="pl-3 text-xs text-text-muted">
-    <span className="font-semibold">{SUGGESTION_RATIONALE_LABEL}:</span> {suggestion.rationale}
-   </p>
-   {suggestion.business_value && (
-    <p className="pl-3 text-xs text-text-muted">
-     <span className="font-semibold text-primary">{SUGGESTION_VALUE_LABEL}:</span> {suggestion.business_value}
-    </p>
-   )}
-  </div>
- );
-}
-
-/**
- * Why a card (or the detail panel) cannot be picked, keyed on the same `bucket` the buckets
- * themselves are sorted by -- not on `row.suggested` alone. A suggestion can *also* land in the
- * "blocked" bucket (missing data), and for that row "adopt it first" is actively wrong: adopting
- * won't make it selectable, because the real blocker is data, not registry status. Blocked beats
- * suggested, so the reason always agrees with the card's own body text (`SuggestionReasons`).
+ * Why a row cannot be picked for a dashboard. A suggestion can *also* land in the "blocked"
+ * bucket (missing data), and for that row "adopt it first" is actively wrong: adopting won't
+ * make it selectable, because the real blocker is data, not registry status. Blocked beats
+ * suggested, so the reason always agrees with the bucket the row is actually stuck in.
  * Shared with `KpiDetailPanel`, which gives the identical reason in full rather than on hover.
  */
 export const NOT_SELECTABLE_REASONS = {
@@ -269,148 +107,319 @@ export function notSelectableReasonFor(row, bucket) {
  return NOT_SELECTABLE_REASONS.blocked;
 }
 
-function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopting, adoptError }) {
- const { kpi } = row;
- const datasets = (kpi.datasetIds || []).map((id) => getDatasetById(id)).filter(Boolean);
- const sources = sourcesFor(kpi);
- // A candidate is not master data yet, so it cannot be put on a dashboard until it is adopted.
- // Blocked metrics stay inspectable -- "why can't I have this?" is answered in the panel.
- const selectable = bucket !== "blocked" && !row.suggested;
- // Why a card cannot be picked, said on the disabled box itself: a suggestion is not a
- // governed KPI yet (a dashboard tile needs a registered identifier, so "Add to my metrics"
- // comes first), and a blocked metric has nothing to compute from. A dashed box that just
- // sits there reads as broken.
- // `text` is the plain form (for assistive tech); `node` is what the hover tooltip renders,
- // which is a real element rather than a `title` so the action can be set in bold italics.
- const notSelectableReason = notSelectableReasonFor(row, bucket);
+const CONFIDENCE = {
+ high: { label: "High confidence", cls: "bg-status-success-light text-status-success" },
+ medium: { label: "Medium confidence", cls: "bg-status-warning-light text-status-warning" },
+ low: { label: "Low confidence", cls: "bg-surface-tertiary text-text-secondary" },
+};
 
+const UNCATEGORIZED_BA_ID = "__uncategorized__";
+const UNSORTED_SUBJECT = "__unsorted__";
+
+const STATUS_FILTERS = [
+ { value: "all", label: "Show all KPIs" },
+ { value: "accepted", label: "Show accepted KPIs" },
+ { value: "suggested", label: "Show only suggested KPIs" },
+];
+
+function PoweredByCell({ kpiName, profileId, onOpen }) {
+ const entries = useMemo(() => getCatalogEntriesForKpiName(kpiName, profileId), [kpiName, profileId]);
+ const [expanded, setExpanded] = useState(false);
+ if (!entries.length) return <span className="text-[13px] text-text-muted">-</span>;
+ const MAX_VISIBLE = 2;
+ const visible = expanded ? entries : entries.slice(0, MAX_VISIBLE);
+ const extra = entries.length - MAX_VISIBLE;
  return (
-  <div
-   role={selectable ? "button" : undefined}
-   tabIndex={selectable ? 0 : undefined}
-   onClick={selectable ? onToggle : undefined}
-   onKeyDown={selectable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } } : undefined}
-   className={`flex flex-col gap-2.5 rounded-xl border bg-surface p-4 text-left transition-shadow ${
-    selected ? "border-primary ring-2 ring-primary/20" : "border-border hover:shadow-md"
-   } ${selectable ? "cursor-pointer" : "opacity-75"}`}
-  >
-   <div className="flex items-start gap-2.5">
-    {selectable ? (
-     <span
-      className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border ${
-       selected ? "border-primary bg-primary text-white" : "border-border-light bg-surface"
-      }`}
-     >
-      {selected && <Check size={12} />}
-     </span>
-    ) : (
-     <span className="group relative mt-0.5 shrink-0">
-      <span
-       tabIndex={0}
-       aria-disabled="true"
-       aria-label={`Not selectable: ${notSelectableReason.text}`}
-       className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-      />
-      <span
-       role="tooltip"
-       className="pointer-events-none absolute left-0 top-6 z-20 hidden w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block group-focus-within:block"
-      >
-       {notSelectableReason.node}
-      </span>
-     </span>
-    )}
-    <div className="min-w-0 flex-1">
-     <h4 className="text-sm font-bold text-text-primary">{kpi.name}</h4>
-     {kpi.subjectArea && <p className="text-xs text-text-muted">{kpi.subjectArea}</p>}
-    </div>
-    {/* Separate affordance, because the card body already means "select". Clicking a card to
-        both pick it and open a panel would be one gesture doing two jobs. */}
+  <div className="flex min-w-0 flex-wrap items-center gap-1">
+   {visible.map((e) => (
+    <button
+     key={e.id}
+     type="button"
+     onClick={(ev) => { ev.stopPropagation(); onOpen(e.id); }}
+     title={`Open ${e.title}`}
+     className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-[#a9f0d1] bg-[#ecfdf3] px-1.5 py-0.5 text-[12px] font-medium text-[#067647] transition hover:border-[#067647] hover:bg-[#d1fadf] dark:border-[#067647]/35 dark:bg-[#067647]/10 dark:text-[#6ce9a6]"
+    >
+     <Zap className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+     <span className="truncate">{e.title}</span>
+    </button>
+   ))}
+   {extra > 0 && !expanded ? (
     <button
      type="button"
-     title="Definition, datasets, use cases"
-     aria-label={`Details for ${kpi.name}`}
-     onClick={(e) => { e.stopPropagation(); onOpenDetail?.(row); }}
-     className="-mr-1 -mt-1 shrink-0 rounded-md p-1 text-text-muted hover:bg-surface-tertiary hover:text-primary"
+     onClick={(ev) => { ev.stopPropagation(); setExpanded(true); }}
+     title={`Show ${extra} more`}
+     className="inline-flex items-center rounded-md border border-border bg-surface-secondary px-1.5 py-0.5 text-[12px] font-medium text-text-secondary transition hover:border-primary/40 hover:bg-primary-light hover:text-primary"
     >
-     <Info size={15} />
+     +{extra} more
     </button>
-   </div>
+   ) : null}
+   {expanded && entries.length > MAX_VISIBLE ? (
+    <button
+     type="button"
+     onClick={(ev) => { ev.stopPropagation(); setExpanded(false); }}
+     className="inline-flex items-center rounded-md border border-border bg-surface-secondary px-1.5 py-0.5 text-[12px] font-medium text-text-secondary transition hover:border-primary/40 hover:bg-primary-light hover:text-primary"
+    >
+     Show less
+    </button>
+   ) : null}
+  </div>
+ );
+}
 
-   {(kpi.desc || kpi.description) && (
-    <p className="text-xs text-text-secondary line-clamp-2">{kpi.desc || kpi.description}</p>
-   )}
+/** Dashboards this KPI has a tile on -- `dashboard_names` from `GET /kpis`. Always empty for a
+ * suggestion, since it has no registry identifier for a dashboard tile to reference yet. */
+function MapsToCell({ dashboardNames }) {
+ const names = Array.isArray(dashboardNames) ? dashboardNames : [];
+ if (names.length === 0) return <span className="text-[13px] text-text-muted">-</span>;
+ const MAX_VISIBLE = 2;
+ const visible = names.slice(0, MAX_VISIBLE);
+ const extra = names.length - visible.length;
+ return (
+  <div className="flex min-w-0 flex-wrap items-center gap-1">
+   {visible.map((name) => (
+    <span
+     key={name}
+     className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-primary/25 bg-primary-light/50 px-1.5 py-0.5 text-[12px] font-medium text-primary dark:border-primary/35 dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25"
+     title={name}
+    >
+     <LayoutGrid className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+     <span className="truncate">{name}</span>
+    </span>
+   ))}
+   {extra > 0 ? (
+    <span
+     className="inline-flex items-center rounded-md border border-border bg-surface-secondary px-1.5 py-0.5 text-[12px] font-medium text-text-secondary"
+     title={names.slice(MAX_VISIBLE).join(", ")}
+    >
+     +{extra} more
+    </span>
+   ) : null}
+  </div>
+ );
+}
 
-   {/* Why we proposed it, and whether it can be computed. Without this a suggestion is an
-       assertion, and the user has no way to judge whether to trust it. */}
-   {row.suggested ? (
-    <>
-     <SuggestionReasons suggestion={row.suggestion} bucket={bucket} />
-     {adoptError && (
-      <p className="border-l-2 border-status-critical pl-2.5 text-xs text-status-critical">{adoptError}</p>
-     )}
-    </>
-   ) : (
-    <>
-     {/* Blocked: name the gap. This line is the reason blocked cards are shown at all. */}
-     {bucket === "blocked" && (
-      <p className="border-l-2 border-status-critical pl-2.5 text-xs text-text-secondary">
-       <span className="font-semibold text-status-critical">Needs data you haven&apos;t connected.</span>{" "}
-       No dataset in your workspace carries the fields this metric requires.
-      </p>
-     )}
+/** One Subject Area's KPI table: checkbox, name, description, maps to, powered by, status, actions. */
+function KpiTable({
+ title,
+ countLabel,
+ rows,
+ isOpen,
+ onToggleOpen,
+ selected,
+ onToggleSelect,
+ onOpenDetail,
+ onAdopt,
+ adoptingIds,
+ adoptErrors,
+ onToggleActive,
+ togglingActiveId,
+ profileId,
+ onOpenUseCase,
+}) {
+ const previewDesc = rows
+  .map((r) => r.kpi.desc)
+  .filter(Boolean)
+  .slice(0, 2)
+  .join(" · ");
 
-     {bucket === "partial" && (
-      <p className="border-l-2 border-status-warning pl-2.5 text-xs text-text-secondary">
-       <span className="font-semibold text-status-warning">Check before relying on this.</span>{" "}
-       A mapped dataset is stale or unresolved.
-      </p>
-     )}
-    </>
-   )}
-
-   <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
-    <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} fromRegistry={!!kpi.fromRegistry} />
-    {row.suggested && <ConfidenceBadge level={row.suggestion.confidence} />}
-    {row.suggested && <EvidenceChips suggestion={row.suggestion} />}
-    {/* One source is a read; two is a JOIN, and a join we inferred is where a plausible-but-wrong
-        number comes from. So the two cases get different treatment rather than N flat pills. */}
-    {sources.length > 1 ? (
-     <span
-      className="inline-flex items-center gap-1 rounded-full border border-status-warning-border bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning"
-      title={`Joins ${sources.join(" and ")}. The join path is inferred — confirm it in the semantic layer before relying on this.`}
-     >
-      <GitMerge size={10} />
-      Joins {sources.join(" + ")}
+ return (
+  <div className="w-full min-w-0 overflow-hidden rounded-xl border border-border bg-surface-default shadow-[0_1px_3px_rgba(16,24,40,0.06)] dark:shadow-none">
+   <button
+    type="button"
+    onClick={onToggleOpen}
+    aria-expanded={isOpen}
+    className="flex w-full min-w-0 items-center gap-2.5 border-b border-border bg-surface-secondary px-3 py-3 text-left sm:pl-4 sm:pr-3"
+   >
+    <ChevronDown
+     className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
+     strokeWidth={2}
+     aria-hidden
+    />
+    <LayoutGrid className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+    <h4 className="shrink-0 text-[15px] font-bold leading-snug tracking-[-0.01em] text-text-primary">{title}</h4>
+    <span className="shrink-0 rounded-md bg-surface-default/95 px-2 py-0.5 text-xs font-semibold text-text-tertiary ring-1 ring-border dark:bg-surface/10 dark:text-text-primary">
+     {countLabel}
+    </span>
+    {!isOpen && previewDesc ? (
+     <span className="min-w-0 flex-1 truncate text-[11px] leading-snug text-text-muted" title={previewDesc}>
+      · {previewDesc}
+      {rows.length > 2 ? "…" : ""}
      </span>
-    ) : (
-     sources.map((label) => (
-      <span
-       key={label}
-       className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 text-[11px] font-medium text-text-secondary"
-       title={datasets.map((d) => d.technicalName).join("\n")}
-      >
-       <Database size={10} />
-       {label}
-      </span>
-     ))
-    )}
-    {/* A suggestion can only become a real, governed KPI when it is actually ready AND has a
-        formula: `POST /kpis` validates the formula at construction and requires non-null `sql`,
-        and a `ready` verdict does not guarantee `proposed_sql` -- feasibility is judged purely
-        on table presence, independent of whether the agent wrote a query. "Why can't I adopt
-        this" is answered by the reason lines above instead. */}
-    {row.suggested && bucket === "ready" && row.suggestion.proposed_sql && (
-     <button
-      type="button"
-      disabled={adopting}
-      onClick={(e) => { e.stopPropagation(); onAdopt?.(row); }}
-      className="ml-auto inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-60"
-     >
-      <Plus size={11} />
-      {adopting ? "Adding…" : "Add to my metrics"}
-     </button>
-    )}
-   </div>
+    ) : null}
+   </button>
+
+   {isOpen ? (
+    <div className="overflow-x-auto bg-surface-default">
+     <table className="w-full min-w-[58rem] table-fixed border-collapse text-left text-[13px]">
+      <colgroup>
+       <col style={{ width: "2.75rem" }} />
+       <col style={{ width: "16%" }} />
+       <col style={{ width: "27%" }} />
+       <col style={{ width: "18%" }} />
+       <col style={{ width: "18%" }} />
+       <col style={{ width: "6.5rem" }} />
+       <col style={{ width: "4.5rem" }} />
+      </colgroup>
+      <thead>
+       <tr className="border-b border-border bg-surface-secondary">
+        <th scope="col" className="px-2 py-2.5 pl-4 sm:pl-5" />
+        <th scope="col" className="min-w-0 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
+         <span className="inline-flex items-center gap-1">
+          KPI name
+          <CircleHelp className="h-3 w-3 text-text-muted" strokeWidth={2} aria-hidden />
+         </span>
+        </th>
+        <th scope="col" className="min-w-0 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
+         <span className="inline-flex items-center gap-1">
+          Description
+          <CircleHelp className="h-3 w-3 text-text-muted" strokeWidth={2} aria-hidden />
+         </span>
+        </th>
+        <th
+         scope="col"
+         className="min-w-0 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted"
+         title="Dashboards that have a tile built from this KPI."
+        >
+         <span className="inline-flex items-center gap-1">
+          Maps to
+          <CircleHelp className="h-3 w-3 text-text-muted" strokeWidth={2} aria-hidden />
+         </span>
+        </th>
+        <th
+         scope="col"
+         className="min-w-0 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted"
+         title="Prebuilt use cases this KPI can power."
+        >
+         <span className="inline-flex items-center gap-1">
+          Powered by
+          <CircleHelp className="h-3 w-3 text-text-muted" strokeWidth={2} aria-hidden />
+         </span>
+        </th>
+        <th scope="col" className="w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
+         Status
+        </th>
+        <th scope="col" className="w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] px-2 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
+         Actions
+        </th>
+       </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+       {rows.map((r, rowIdx) => {
+        const key = `${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`;
+        const bucket = bucketFor(r);
+        const selectable = bucket !== "blocked" && !r.suggested;
+        const reason = !selectable ? notSelectableReasonFor(r, bucket) : null;
+        const isSelected = selected.has(key);
+        const confidence = r.suggested ? CONFIDENCE[r.suggestion?.confidence] : null;
+        return (
+         <tr
+          key={key}
+          className={`transition-colors duration-150 hover:bg-surface-secondary ${rowIdx % 2 === 1 ? "bg-surface-secondary/50" : "bg-surface-default"}`}
+         >
+          <td className="align-middle px-2 py-3 pl-4 sm:pl-5">
+           {selectable ? (
+            <button
+             type="button"
+             role="checkbox"
+             aria-checked={isSelected}
+             aria-label={isSelected ? `Deselect ${r.kpi.name}` : `Select ${r.kpi.name}`}
+             onClick={() => onToggleSelect(key)}
+             className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
+              isSelected ? "border-primary bg-primary text-white" : "border-border-light bg-surface hover:border-primary/50"
+             }`}
+            >
+             {isSelected && <Check size={12} />}
+            </button>
+           ) : (
+            <span className="group relative block">
+             <span
+              tabIndex={0}
+              aria-disabled="true"
+              aria-label={`Not selectable: ${reason.text}`}
+              className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+             />
+             <span
+              role="tooltip"
+              className="pointer-events-none absolute left-0 top-6 z-20 hidden w-56 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block group-focus-within:block"
+             >
+              {reason.node}
+             </span>
+            </span>
+           )}
+          </td>
+          <td className="min-w-0 align-middle px-3 py-3">
+           <div className="flex min-w-0 max-w-full items-center gap-2.5">
+            <span className="shrink-0 rounded border border-primary/30 bg-primary-light px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary dark:border-primary/40 dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25">
+             KPI
+            </span>
+            <span className="min-w-0 truncate text-[15px] font-semibold leading-snug text-text-primary" title={r.kpi.name}>
+             {r.kpi.name}
+            </span>
+           </div>
+          </td>
+          <td className="min-w-0 align-top px-3 py-3 text-[13px] leading-[1.45] text-text-secondary">
+           <span title={r.kpi.desc || undefined} className="line-clamp-2">
+            {r.kpi.desc || "-"}
+           </span>
+          </td>
+          <td className="min-w-0 align-middle px-3 py-3 text-[13px]">
+           <MapsToCell dashboardNames={r.kpi.dashboardNames} />
+          </td>
+          <td className="min-w-0 align-middle px-3 py-3 text-[13px]">
+           <PoweredByCell kpiName={r.kpi.name} profileId={profileId} onOpen={onOpenUseCase} />
+          </td>
+          <td className="w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] align-middle px-2 py-3">
+           <div className="flex w-full flex-col items-center justify-center gap-1 [&_button]:shrink-0">
+            {r.suggested ? (
+             <span
+              title={confidence ? confidence.label : undefined}
+              className="inline-flex items-center gap-1 rounded-full bg-status-info-light px-2 py-0.5 text-[11px] font-semibold text-status-info"
+             >
+              <Sparkles size={10} />
+              Suggested
+             </span>
+            ) : (
+             <Switch
+              aria-label={r.kpi.active ? `Disable KPI ${r.kpi.name ?? ""}` : `Enable KPI ${r.kpi.name ?? ""}`}
+              checked={r.kpi.active}
+              disabled={togglingActiveId === r.kpi.identifier}
+              onCheckedChange={() => onToggleActive(r)}
+              size="compact"
+             />
+            )}
+           </div>
+          </td>
+          <td className="w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] align-middle px-1 py-3 pr-3 text-right">
+           <div className="inline-flex items-center justify-end gap-0.5">
+            {r.suggested && bucket === "ready" && r.suggestion.proposed_sql ? (
+             <button
+              type="button"
+              disabled={adoptingIds.has(r.suggestion.identifier)}
+              onClick={() => onAdopt?.(r)}
+              title={adoptErrors?.[r.suggestion.identifier] || "Add to my metrics"}
+              className="rounded-md p-1.5 text-primary opacity-80 transition-all hover:bg-primary-light hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+             >
+              <Plus size={15} />
+             </button>
+            ) : null}
+            <button
+             type="button"
+             className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-surface-secondary hover:opacity-100 hover:text-primary"
+             aria-label={`Details for ${r.kpi.name}`}
+             title="Definition, datasets, use cases"
+             onClick={() => onOpenDetail?.(r)}
+            >
+             <Info size={15} />
+            </button>
+           </div>
+          </td>
+         </tr>
+        );
+       })}
+      </tbody>
+     </table>
+    </div>
+   ) : null}
   </div>
  );
 }
@@ -428,12 +437,21 @@ export default function KpiDiscovery({
  onAdopt,
  adoptingIds,
  adoptErrors,
+ onToggleActive,
+ togglingActiveId,
+ profileId,
+ onOpenUseCase,
 }) {
  const [selected, setSelected] = useState(() => new Set());
- // null means "every source" -- the default. Source is a facet here, not a gate: this screen's
- // object is a metric, and the product's value is correlation ACROSS systems, so making people
- // choose systems before seeing anything would work against the thing being sold.
+ const [search, setSearch] = useState("");
+ const [businessAreaFilter, setBusinessAreaFilter] = useState("");
+ const [statusFilter, setStatusFilter] = useState("all");
+ // Source is a facet, not a gate: null/empty means "every source" -- the default. Muting one
+ // means "show me what I could measure WITHOUT it", so a metric survives only if EVERY source
+ // it needs is still active; a metric with no source at all is never filtered out.
  const [mutedSources, setMutedSources] = useState(() => new Set());
+ const [openBa, setOpenBa] = useState({});
+ const [openSubject, setOpenSubject] = useState({});
 
  const allSources = useMemo(() => {
   const set = new Set();
@@ -441,65 +459,102 @@ export default function KpiDiscovery({
   return [...set].sort();
  }, [rows]);
 
- // Muting a source means "show me what I could measure WITHOUT it", so a metric survives only if
- // EVERY source it needs is still active. `some` would be wrong and quietly misleading: a metric
- // that joins SAP and Snowflake would keep showing as measurable after Snowflake was excluded,
- // which is the opposite of what the question is asking.
- //
- // Metrics with no source at all are never filtered out. "Not yet possible" is not a property of
- // any connected system, and that gap list is the most useful output on the page.
- const visibleRows = useMemo(() => {
-  if (mutedSources.size === 0) return rows;
-  return rows.filter((row) => {
-   const src = sourcesFor(row.kpi);
-   if (src.length === 0) return true;
-   return src.every((label) => !mutedSources.has(label));
-  });
- }, [rows, mutedSources]);
-
- // Feasibility first, relevance second. A focused area sorts ahead of everything else; within a
- // relevance tier, order is stable by name so the list does not reshuffle between renders.
- const buckets = useMemo(() => {
-  const focus = new Set(focusAreaIds);
-  const out = { ready: [], partial: [], blocked: [] };
-  for (const row of visibleRows) {
-   out[bucketFor(row)].push(row);
-  }
-  for (const key of Object.keys(out)) {
-   out[key].sort((a, b) => {
-    const aF = focus.has(a.kpi?.businessAreaId) ? 0 : 1;
-    const bF = focus.has(b.kpi?.businessAreaId) ? 0 : 1;
-    if (aF !== bF) return aF - bF;
-    return String(a.kpi?.name || "").localeCompare(String(b.kpi?.name || ""));
-   });
-  }
-  return out;
- }, [visibleRows, focusAreaIds]);
-
- // The bar reports a count, but the caller needs the rows themselves -- resolved here so the
- // selection stays a set of stable keys rather than a set of objects that re-render into new
- // identities.
- const selectedRows = useMemo(
-  () => visibleRows.filter((r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`)),
-  [visibleRows, selected]
+ const areaLabelById = useMemo(() => Object.fromEntries((areas || []).map((a) => [a.id, a.label])), [areas]);
+ const businessAreaOptions = useMemo(
+  () => [{ value: "", label: "All Business Area" }, ...(areas || []).map((a) => ({ value: a.id, label: a.label }))],
+  [areas]
  );
 
- // Nothing is ranked until the question is answered. While the areas are still being fetched
- // the question cannot be asked, so the list waits; if they cannot be fetched at all the list
- // is shown unranked rather than held hostage to a question with no options.
- const answered = areasStatus === "error" || (areasStatus === "ready" && focusAreaIds.length > 0);
+ const subjectToggleKey = (baId, subject) => `${baId}\0${subject}`;
 
- const toggle = (key) =>
+ const toggleSelect = (key) =>
   setSelected((prev) => {
    const next = new Set(prev);
    next.has(key) ? next.delete(key) : next.add(key);
    return next;
   });
 
- const rowKey = (r) => `${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`;
+ const { groups, businessAreaCount, subjectAreaCount, kpiCount } = useMemo(() => {
+  const needle = search.trim().toLowerCase();
+  const known = new Set((areas || []).map((a) => a.id));
+  /** baId -> Map subjectKey -> rows */
+  const baMap = new Map();
+
+  for (const row of rows) {
+   const { kpi } = row;
+   if (mutedSources.size > 0) {
+    const src = sourcesFor(kpi);
+    if (src.length > 0 && src.every((label) => mutedSources.has(label))) continue;
+   }
+   if (statusFilter === "accepted" && row.suggested) continue;
+   if (statusFilter === "suggested" && !row.suggested) continue;
+
+   const baId = kpi.businessAreaId && known.has(kpi.businessAreaId) ? kpi.businessAreaId : UNCATEGORIZED_BA_ID;
+   if (businessAreaFilter && baId !== businessAreaFilter) continue;
+
+   if (needle) {
+    const baLabel = areaLabelById[baId] || baId;
+    const match =
+     (kpi.name || "").toLowerCase().includes(needle) ||
+     (kpi.desc || "").toLowerCase().includes(needle) ||
+     (kpi.subjectArea || "").toLowerCase().includes(needle) ||
+     baLabel.toLowerCase().includes(needle);
+    if (!match) continue;
+   }
+
+   if (!baMap.has(baId)) baMap.set(baId, new Map());
+   const subjectMap = baMap.get(baId);
+   const subjectKey = kpi.subjectArea || UNSORTED_SUBJECT;
+   if (!subjectMap.has(subjectKey)) subjectMap.set(subjectKey, []);
+   subjectMap.get(subjectKey).push(row);
+  }
+
+  const focus = new Set(focusAreaIds);
+  const orderRank = (id) => {
+   if (id === UNCATEGORIZED_BA_ID) return 9999;
+   if (focus.has(id)) return -1;
+   const i = (areas || []).findIndex((a) => a.id === id);
+   return i >= 0 ? i : 3000;
+  };
+
+  const grouped = Array.from(baMap.entries())
+   .map(([baId, subjectMap]) => {
+    const label = baId === UNCATEGORIZED_BA_ID ? "Uncategorized" : areaLabelById[baId] || baId;
+    const subjects = Array.from(subjectMap.entries())
+     .map(([subject, subjectRows]) => ({
+      subject: subject === UNSORTED_SUBJECT ? "Unsorted" : subject,
+      sortKey: subject === UNSORTED_SUBJECT ? "￿" : subject,
+      rows: subjectRows,
+     }))
+     .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    return { id: baId, label, subjects };
+   })
+   .sort((a, b) => orderRank(a.id) - orderRank(b.id) || a.label.localeCompare(b.label));
+
+  const totals = grouped.reduce(
+   (acc, g) => {
+    acc.kpis += g.subjects.reduce((n, s) => n + s.rows.length, 0);
+    acc.subjects += g.subjects.length;
+    return acc;
+   },
+   { kpis: 0, subjects: 0 }
+  );
+
+  return {
+   groups: grouped,
+   businessAreaCount: grouped.length,
+   subjectAreaCount: totals.subjects,
+   kpiCount: totals.kpis,
+  };
+ }, [rows, search, businessAreaFilter, statusFilter, mutedSources, areas, areaLabelById, focusAreaIds]);
+
+ const selectedRows = useMemo(() => {
+  const flat = groups.flatMap((g) => g.subjects.flatMap((s) => s.rows));
+  return flat.filter((r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`));
+ }, [groups, selected]);
 
  return (
-  <div className="space-y-6">
+  <div className="space-y-5">
    <KpiFocusPrompt
     areas={areas}
     selectedIds={focusAreaIds}
@@ -509,7 +564,35 @@ export default function KpiDiscovery({
     onRetry={onRetryAreas}
    />
 
-   {answered && allSources.length > 1 && (
+   {areasStatus === "error" && (
+    <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
+     <AlertTriangle size={15} className="shrink-0 text-status-warning" />
+     Couldn't load your business areas. Names may show as raw ids until this is retried.
+    </div>
+   )}
+
+   <div className="rounded-xl border border-border bg-surface-secondary p-3 sm:p-4">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+     <div className="relative min-w-0 flex-1">
+      <svg className="absolute left-3.5 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input
+       type="text"
+       placeholder="Search for KPIs"
+       value={search}
+       onChange={(e) => setSearch(e.target.value)}
+       className="w-full rounded-lg border border-border bg-surface-default py-2.5 pl-10 pr-3 text-sm text-text-primary shadow-sm placeholder:text-text-muted outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/20"
+      />
+     </div>
+     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-2.5">
+      <Select label={null} options={businessAreaOptions} value={businessAreaFilter} onChange={(e) => setBusinessAreaFilter(e.target.value)} />
+      <Select label={null} options={STATUS_FILTERS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+     </div>
+    </div>
+   </div>
+
+   {allSources.length > 1 && (
     <div className="flex flex-wrap items-center gap-2 text-sm">
      <span className="text-text-muted">Sources</span>
      {allSources.map((label) => {
@@ -527,9 +610,7 @@ export default function KpiDiscovery({
          })
         }
         className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
-         on
-          ? "border-border-light bg-surface text-text-primary"
-          : "border-dashed border-border-light bg-transparent text-text-muted line-through"
+         on ? "border-border-light bg-surface text-text-primary" : "border-dashed border-border-light bg-transparent text-text-muted line-through"
         }`}
        >
         <Database size={11} />
@@ -538,91 +619,119 @@ export default function KpiDiscovery({
       );
      })}
      {mutedSources.size > 0 && (
-      <button
-       type="button"
-       onClick={() => setMutedSources(new Set())}
-       className="text-xs font-semibold text-primary hover:underline"
-      >
+      <button type="button" onClick={() => setMutedSources(new Set())} className="text-xs font-semibold text-primary hover:underline">
        Show all
       </button>
      )}
     </div>
    )}
 
-   {/* Nothing is ranked until the question is answered -- showing an arbitrary order first and
-       re-sorting after would make the ranking look like it did nothing. */}
-   {!answered && (
-    <p className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-8 text-center text-sm text-text-muted">
-     {areasStatus === "loading"
-      ? "Checking which areas your connected data supports…"
-      : "Pick at least one area above to see what your connected data can measure."}
-    </p>
-   )}
+   <div className="flex w-full min-w-0 items-stretch gap-0">
+    <div className="relative flex w-9 shrink-0 flex-col items-center self-stretch sm:w-10">
+     <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary-light shadow-[0_1px_2px_rgba(105,65,198,0.12)] dark:border-primary/35 dark:bg-surface-tertiary dark:shadow-none dark:ring-1 dark:ring-primary/25">
+      <Briefcase className="h-[18px] w-[18px] text-primary" strokeWidth={1.75} aria-hidden />
+     </div>
+     <div className="absolute left-1/2 top-10 z-0 h-[calc(100%-2.5rem)] w-px -translate-x-1/2 bg-gradient-to-b from-border via-border/70 to-transparent" aria-hidden />
+    </div>
 
-   {answered && (
-    <>
-     {BUCKETS.map(({ id, title, blurb, Icon, cls, dot }) => {
-      const list = buckets[id];
-      if (list.length === 0) return null;
-      return (
-       <section key={id}>
-        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-         <h3 className="flex items-center gap-2 text-base font-bold text-text-primary">
-          <span className={`flex h-6 w-6 items-center justify-center rounded-full border ${cls}`}>
-           <Icon size={13} />
-          </span>
-          {title}
-          <span className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{list.length}</span>
-         </h3>
-         <p className="text-sm text-text-muted">{blurb}</p>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-         {list.map((row) => (
-          <KpiCard
-           key={rowKey(row)}
-           row={row}
-           bucket={id}
-           selected={selected.has(rowKey(row))}
-           onToggle={() => toggle(rowKey(row))}
-           onOpenDetail={onOpenDetail}
-           onAdopt={onAdopt}
-           adopting={!!row.suggestion && adoptingIds.has(row.suggestion.identifier)}
-           adoptError={row.suggestion && adoptErrors?.[row.suggestion.identifier]}
-          />
-         ))}
-        </div>
-       </section>
-      );
-     })}
+    <div className="min-w-0 w-full flex-1 self-start pl-3 sm:pl-4">
+     <div className="flex h-fit w-full flex-wrap items-baseline gap-x-3 gap-y-1 pt-2 text-left">
+      <h2 className="text-[17px] font-bold tracking-tight text-text-primary">Enterprise KPIs</h2>
+      <span className="text-sm text-text-muted">
+       {businessAreaCount} Business Areas
+       <span className="mx-1.5 text-border-light">·</span>
+       {subjectAreaCount} Subject Areas
+       <span className="mx-1.5 text-border-light">·</span>
+       {kpiCount} KPIs
+      </span>
+     </div>
 
-     {/* Selection bar. Sticks to the bottom so the action stays reachable while scrolling a long
-         list -- the alternative is scrolling back to a toolbar after every pick. */}
-     {selected.size > 0 && (
-      <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-light bg-surface px-4 py-3 shadow-lg">
-       <p className="text-sm">
-        <span className="font-bold text-text-primary">{selected.size} selected</span>
-        <span className="text-text-secondary"> · all buildable from connected data</span>
-       </p>
-       <div className="flex flex-wrap items-center gap-2">
-        <button
-         type="button"
-         onClick={() => setSelected(new Set())}
-         className="rounded-lg px-3 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
-        >
-         Clear
-        </button>
-        <button
-         type="button"
-         onClick={() => onCreateDashboard?.(selectedRows)}
-         className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
-        >
-         <CalendarClock size={15} />
-         Create dashboard
-        </button>
-       </div>
+     {groups.length ? (
+      <div className="relative mt-4 w-full min-w-0 space-y-3.5">
+       {groups.map((ba) => {
+        const baKpiTotal = ba.subjects.reduce((n, s) => n + s.rows.length, 0);
+        const baOpen = openBa[ba.id] ?? true;
+        return (
+         <div key={ba.id} className="w-full min-w-0 space-y-2.5">
+          <button
+           type="button"
+           onClick={() => setOpenBa((prev) => ({ ...prev, [ba.id]: !baOpen }))}
+           aria-expanded={baOpen}
+           className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-default px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-colors hover:border-border-light hover:bg-surface-secondary dark:shadow-none sm:px-3.5"
+          >
+           <ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${baOpen ? "rotate-180" : "rotate-0"}`} strokeWidth={2} aria-hidden />
+           <Briefcase className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+           <span className="shrink-0 rounded-full bg-primary-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
+            Business area
+           </span>
+           <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
+           <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
+            {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
+            <span className="mx-1.5 text-border-light">·</span>
+            {baKpiTotal} Total KPI{baKpiTotal === 1 ? "" : "s"}
+           </span>
+          </button>
+
+          {baOpen ? (
+           <div className="ml-6 w-full min-w-0 space-y-3 border-l-2 border-primary/25 pl-3.5 dark:border-primary/35 sm:pl-4">
+            {ba.subjects.map((sec) => {
+             const stKey = subjectToggleKey(ba.id, sec.subject);
+             const open = openSubject[stKey] ?? true;
+             return (
+              <KpiTable
+               key={stKey}
+               title={sec.subject}
+               countLabel={`${sec.rows.length} KPIs`}
+               rows={sec.rows}
+               isOpen={open}
+               onToggleOpen={() => setOpenSubject((prev) => ({ ...prev, [stKey]: !open }))}
+               selected={selected}
+               onToggleSelect={toggleSelect}
+               onOpenDetail={onOpenDetail}
+               onAdopt={onAdopt}
+               adoptingIds={adoptingIds}
+               adoptErrors={adoptErrors}
+               onToggleActive={onToggleActive}
+               togglingActiveId={togglingActiveId}
+               profileId={profileId}
+               onOpenUseCase={onOpenUseCase}
+              />
+             );
+            })}
+           </div>
+          ) : null}
+         </div>
+        );
+       })}
       </div>
+     ) : (
+      <p className="mt-8 text-sm text-text-muted">No KPIs match the current filters.</p>
      )}
-    </>
+    </div>
+   </div>
+
+   {/* Selection bar. Sticks to the bottom so the action stays reachable while scrolling a long
+       tree -- the alternative is scrolling back to a toolbar after every pick. */}
+   {selected.size > 0 && (
+    <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-light bg-surface px-4 py-3 shadow-lg">
+     <p className="text-sm">
+      <span className="font-bold text-text-primary">{selected.size} selected</span>
+      <span className="text-text-secondary"> · all buildable from connected data</span>
+     </p>
+     <div className="flex flex-wrap items-center gap-2">
+      <button type="button" onClick={() => setSelected(new Set())} className="rounded-lg px-3 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary">
+       Clear
+      </button>
+      <button
+       type="button"
+       onClick={() => onCreateDashboard?.(selectedRows)}
+       className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+      >
+       <CalendarClock size={15} />
+       Create dashboard
+      </button>
+     </div>
+    </div>
    )}
   </div>
  );
