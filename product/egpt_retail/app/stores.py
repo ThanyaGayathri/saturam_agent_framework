@@ -25,7 +25,8 @@ the callers that never ask for the stores.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Iterator, Optional
@@ -34,7 +35,13 @@ from egpt.metrics import ProviderMode
 
 from egpt_retail.app.settings import RetailSettings
 
-__all__ = ["KnowledgeStores", "build_knowledge_stores", "open_knowledge_stores"]
+__all__ = [
+    "KnowledgeStores",
+    "abuild_knowledge_stores",
+    "build_knowledge_stores",
+    "aopen_knowledge_stores",
+    "open_knowledge_stores",
+]
 
 
 @dataclass(frozen=True)
@@ -109,6 +116,20 @@ def build_knowledge_stores(settings: RetailSettings, driver: Any) -> KnowledgeSt
     )
 
 
+async def abuild_knowledge_stores(
+    settings: RetailSettings, driver: Any
+) -> KnowledgeStores:
+    """:func:`build_knowledge_stores` off the event loop.
+
+    Not a formality. The first call loads ``bge-base-en-v1.5`` through sentence-transformers --
+    measured at **9.5s**, CPU-bound, plus the warm-up encode. Called inline from an ``async def``
+    tool, that blocks the whole ASGI loop: every other request, every in-flight SSE stream and
+    the health check stall behind one person's first question. ``knowledge/embedding.py``'s own
+    ``aresolve_knowledge_embedder`` makes the same move for the same reason.
+    """
+    return await asyncio.to_thread(build_knowledge_stores, settings, driver)
+
+
 @contextmanager
 def open_knowledge_stores(
     settings: RetailSettings, driver: Optional[Any] = None
@@ -124,6 +145,22 @@ def open_knowledge_stores(
     handle: Any = driver if driver is not None else semantic_driver(settings)
     try:
         yield build_knowledge_stores(settings, handle)
+    finally:
+        if owned:
+            handle.close()
+
+
+@asynccontextmanager
+async def aopen_knowledge_stores(
+    settings: RetailSettings, driver: Optional[Any] = None
+) -> Any:
+    """Async twin of :func:`open_knowledge_stores`, building off the event loop."""
+    from egpt_retail.app.semantic import semantic_driver
+
+    owned = driver is None
+    handle: Any = driver if driver is not None else semantic_driver(settings)
+    try:
+        yield await abuild_knowledge_stores(settings, handle)
     finally:
         if owned:
             handle.close()

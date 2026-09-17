@@ -40,7 +40,9 @@ from egpt.factory import RequestContext
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory.config import build_memory_provider_for
 from egpt.memory.provider import MemoryProvider
+from egpt.providers.model_provider import ModelResolveRequest
 from egpt.registry.registry import Registry
+from egpt.utils.log import log_warning
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
 from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
@@ -297,6 +299,42 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     return agents
 
 
+def _verified_user_id(ctx: Any) -> Optional[str]:
+    """The caller's identity, but only when something verified it.
+
+    ``RequestContext.user_id`` is **not** a verified value. Its own docstring says "From form
+    field or request.state": ``build_request_context`` takes the multipart ``user_id`` form
+    field verbatim, and the run route overrides it only when middleware stamped an identity.
+    Two reachable states leave the raw form field standing -- authorization off (retail's
+    documented local posture, ``app/scopes.py``), and a token that decodes but carries no
+    ``sub`` (``os/middleware/jwt.py`` sets ``request.state.user_id = None`` *explicitly*).
+
+    That matters because this value becomes the memory read scope. Trusting it would let
+    ``curl -F 'user_id=someone-else'`` read another person's memories -- cross-user, not
+    cross-tenant, and exactly what MEMORY_SCOPE.md's read table exists to prevent.
+
+    So: take the identity only from ``ctx.trusted``, which ``factory/utils.py`` documents as
+    "Populated by verified middleware only", and fall back to ``None``. ``None`` drops the
+    memory leg rather than widening it -- no memory is the honest answer for an unidentified
+    caller, and "everyone's" is the one answer that must never be returned.
+
+    This is the same posture ``api/routers/playground.py``'s ``_owner`` takes for saved
+    prompts and reports, which refuses rather than collapsing callers onto a shared identity.
+    The difference is the consequence: ``_owner`` raises 401 because an unowned prompt cannot
+    be stored, while here a degraded answer is better than a refused one -- the other three
+    legs still work without memory.
+    """
+    trusted = getattr(ctx, "trusted", None)
+    verified = getattr(trusted, "user_id", None) if trusted is not None else None
+    if verified:
+        return str(verified)
+    log_warning(
+        "playground: no verified caller identity on this request, so the memory leg is "
+        "dropped. An unverified user_id must never scope a memory read (MEMORY_SCOPE.md)."
+    )
+    return None
+
+
 def build_playground_agent_factory(
     settings: RetailSettings, db: PostgresDb, providers: TierProviders
 ) -> AgentFactory:
@@ -324,12 +362,14 @@ def build_playground_agent_factory(
         # can declare any schema; `input_schema=PlaygroundModeInput` below is what EgptOS
         # actually validates it against before this function ever runs.
         cfg = cast(PlaygroundModeInput, ctx.input)
-        # `ctx.user_id` is the *verified* identity (form field or request.state, set by
-        # AuthMiddleware) -- never anything the caller put in `factory_input`. The knowledge
-        # mode's memory leg reads as tenant + user on the strength of it; MEMORY_SCOPE.md's
-        # read table is why a tenant-only read would have returned every other user's rows.
         scope = await aresolve_mode_scope(
-            cfg.mode, cfg.scope_id, settings=settings, user_id=ctx.user_id
+            cfg.mode,
+            cfg.scope_id,
+            settings=settings,
+            user_id=_verified_user_id(ctx),
+            model=provider_for(tier_for(PLAYGROUND_AGENT_ID), providers).resolve(
+                ModelResolveRequest(agent_id=PLAYGROUND_AGENT_ID)
+            ),
         )
         if scope.refused:
             instructions = (

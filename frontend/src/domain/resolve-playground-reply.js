@@ -22,26 +22,46 @@ import {
   blocksFromAnswer,
   fetchProvenance,
   lineageFromProvenance,
-  PLAYGROUND_MODES,
 } from "../services/playground-api.js";
+import {
+  PLAYGROUND_MODES,
+  readPlaygroundMode,
+  rememberPlaygroundSession,
+} from "../storage/playground-mode.js";
 
-/** Which mode a turn runs in. Defaults to `data` — the mode that needs no scope id. */
-function modeFor(userMeta) {
-  const mode = userMeta?.playgroundMode;
-  return Object.values(PLAYGROUND_MODES).includes(mode) ? mode : PLAYGROUND_MODES.DATA;
+/**
+ * Which mode, scope and session this turn runs in.
+ *
+ * `userMeta` wins when a caller supplies it (a hand-off from the hub naming a business area,
+ * say); otherwise the user's stored choice. Two call sites in `PlaygroundActiveChat` — retry
+ * and the format preview — pass no `userMeta` at all, and reading the store here is what stops
+ * those silently running in `data` mode against different tools than the turn they are
+ * repeating.
+ */
+function turnContext(profileId, userMeta) {
+  const stored = readPlaygroundMode(profileId);
+  const requested = userMeta?.playgroundMode;
+  const mode = Object.values(PLAYGROUND_MODES).includes(requested) ? requested : stored.mode;
+  const scopeId =
+    userMeta?.scopeId ?? (mode === stored.mode ? stored.scopeId : null) ?? null;
+  // Only continue a session that belongs to this mode -- the tool set changes with the mode,
+  // and a history the agent can no longer act on is worse than no history.
+  const sessionId = mode === stored.mode && scopeId === stored.scopeId ? stored.sessionId : null;
+  return { mode, scopeId, sessionId };
 }
 
 /**
  * @returns {Promise<{ text: string, meta?: object }>} the shape `PlaygroundActiveChat` renders.
  */
-export async function resolvePlaygroundReply(userText, _profileId, _exploreHub, userMeta) {
+export async function resolvePlaygroundReply(userText, profileId, _exploreHub, userMeta) {
+  const { mode, scopeId, sessionId } = turnContext(profileId, userMeta);
   let result;
   try {
     result = await askPlayground({
       question: userText,
-      mode: modeFor(userMeta),
-      scopeId: userMeta?.scopeId || null,
-      sessionId: userMeta?.sessionId || null,
+      mode,
+      scopeId,
+      sessionId,
     });
   } catch (err) {
     // Said plainly rather than papered over with a seeded answer. `ApiError` carries the
@@ -52,18 +72,25 @@ export async function resolvePlaygroundReply(userText, _profileId, _exploreHub, 
     };
   }
 
-  const { runId, answer, refused } = result;
+  const { runId, sessionId: newSessionId, answer, refused } = result;
+  // Carry the backend session forward so "and Q2?" continues the conversation instead of
+  // opening a fresh one with no history.
+  rememberPlaygroundSession(profileId, newSessionId);
 
   // Citations come from R7's provenance record. The renderer derives its citation block from
   // `meta.lineage`; asking the model to cite itself is what provenance exists to replace.
   const lineage = lineageFromProvenance(await fetchProvenance(runId));
   const meta = blocksFromAnswer(answer, { lineage });
 
-  if (refused || !meta.blocks.length) {
-    return {
-      text: answer?.notes || "That question could not be answered in this mode.",
-      meta: undefined,
-    };
-  }
-  return { text: "", meta };
+  if (meta.blocks.length) return { text: "", meta };
+
+  // No blocks is not automatically a refusal. When the model answers in prose instead of
+  // filling the schema -- which the Azure Foundry Claude class makes likely, since it sets
+  // `supports_native_structured_outputs = False` and the schema is prompt-enforced -- the
+  // framework leaves `content` as a raw STRING. Reporting "could not be answered" there
+  // throws away a real answer and tells the user the mode refused, which it did not.
+  if (typeof answer === "string" && answer.trim()) return { text: answer, meta: undefined };
+  if (answer?.notes) return { text: answer.notes, meta: undefined };
+  if (refused) return { text: "That question could not be answered in this mode.", meta: undefined };
+  return { text: "The backend returned an empty answer.", meta: undefined };
 }

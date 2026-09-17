@@ -351,10 +351,12 @@ export default function PlaygroundActiveChat() {
   // Inject just an assistant preview message without a user bubble.
   const showFormatPreview = useCallback(async () => {
     try {
-      const { text, meta } = await resolvePlaygroundAssistantReplyAsync(
-        BLOCKS_PREVIEW_TRIGGER,
-        profileId
-      );
+      // Rendered locally, never sent to R11. This is a developer aid that draws one of every
+      // answer-block type; routing it through the resolver POSTed the literal trigger string
+      // to the real agent, which cannot produce those block kinds and would answer the string
+      // as if it were a question.
+      const { buildBlocksPreviewReply } = await import("../domain/answer-blocks/preview-message");
+      const { text, meta } = buildBlocksPreviewReply();
       await send(text, "assistant", meta);
     } catch (e) {
       console.error("[PlaygroundActiveChat] showFormatPreview failed", e);
@@ -563,7 +565,15 @@ export default function PlaygroundActiveChat() {
                         onRetry={async () => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           if (!prevUser?.text) return;
-                          const { text: rText, meta: rMeta } = await resolvePlaygroundAssistantReplyAsync(prevUser.text, profileId);
+                          // `prevUser.meta` carries the mode and scope the original turn ran
+                          // in. Dropping it made a retry silently re-ask in `data` mode against
+                          // a different tool set than the answer being retried.
+                          const { text: rText, meta: rMeta } = await resolvePlaygroundAssistantReplyAsync(
+                            prevUser.text,
+                            profileId,
+                            exploreHub,
+                            prevUser.meta
+                          );
                           await send(rText, "assistant", rMeta);
                         }}
                         onFollowUpSelect={(prompt) => {

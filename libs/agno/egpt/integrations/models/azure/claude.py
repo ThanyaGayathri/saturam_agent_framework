@@ -1,3 +1,4 @@
+import httpx
 from dataclasses import dataclass
 from os import getenv
 from typing import Any, Callable, Dict, Type, Union
@@ -39,7 +40,11 @@ def _sdk_accepts_httpx_client() -> bool:
 
         return int(str(_v).split(".", 1)[0]) < 1
     except Exception:  # noqa: BLE001 -- an unreadable version is not a reason to refuse to build
-        return True
+        # Fail toward *not* injecting. Guessing "0.x" on an unreadable version re-creates the
+        # exact failure this function exists to prevent -- an httpx client handed to an httpx2
+        # SDK, rejected at call time with the SDK's message surfacing as the agent's answer.
+        # Guessing "1.x" costs only the shared pool, and the SDK builds a working client.
+        return False
 
 
 @dataclass
@@ -112,8 +117,16 @@ class Claude(AnthropicClaude):
             return self.client
 
         _client_params = self._get_client_params()
+        # The isinstance guard is kept: `http_client` is one field for both the sync and the
+        # async client (`anthropic/claude.py`), so a caller who set an AsyncClient would
+        # otherwise have it passed to the sync constructor.
         if self.http_client is not None:
-            _client_params["http_client"] = self.http_client
+            if isinstance(self.http_client, httpx.AsyncClient):
+                log_warning("http_client is an AsyncClient; using the default sync client here.")
+                if _sdk_accepts_httpx_client():
+                    _client_params["http_client"] = get_default_sync_client()
+            else:
+                _client_params["http_client"] = self.http_client
         elif _sdk_accepts_httpx_client():
             _client_params["http_client"] = get_default_sync_client()
         self.client = AnthropicFoundry(**_client_params)
@@ -126,7 +139,12 @@ class Claude(AnthropicClaude):
 
         _client_params = self._get_client_params()
         if self.http_client is not None:
-            _client_params["http_client"] = self.http_client
+            if isinstance(self.http_client, httpx.AsyncClient):
+                _client_params["http_client"] = self.http_client
+            else:
+                log_warning("http_client is a sync Client; using the default async client here.")
+                if _sdk_accepts_httpx_client():
+                    _client_params["http_client"] = get_default_async_client()
         elif _sdk_accepts_httpx_client():
             _client_params["http_client"] = get_default_async_client()
         self.async_client = AsyncAnthropicFoundry(**_client_params)

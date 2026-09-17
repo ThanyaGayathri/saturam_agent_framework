@@ -31,7 +31,7 @@ from egpt.workflow.types import StepInput
 from egpt_retail.app.db import build_control_plane_engine
 from egpt_retail.app.semantic import open_semantic_reader, semantic_driver
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.app.stores import open_knowledge_stores
+from egpt_retail.app.stores import abuild_knowledge_stores
 from egpt_retail.executors.gold import read_gold
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
 from egpt_retail.playground.grounding import agrounded_read_instructions
@@ -71,14 +71,23 @@ def resolve_mode_scope(
     *,
     settings: Optional[RetailSettings] = None,
     user_id: Optional[str] = None,
+    model: Any = None,
 ) -> ModeScope:
-    """The bounded tool set for one mode. Synchronous: the only I/O at resolution time is
-    ``business_area``'s ontology file read (local disk, not the network); everything else
-    below constructs closures that open their own connection per call, not at resolution
-    time, so a chat session never holds a driver or engine open across turns."""
+    """The bounded tool set for one mode.
+
+    Synchronous, and two things now happen at resolution time rather than per call, both
+    deliberately: ``business_area``'s ontology file read (local disk), and ``knowledge``'s
+    memory provider, which opens the pgvector engine and provisions its schema. Both are paid
+    here because ``aresolve_mode_scope`` runs this on a worker thread, so the cost lands off
+    the event loop; doing either inside a tool closure would block the loop on the first
+    question instead. Everything else still opens its own connection per call.
+
+    ``model`` is the resolved model for this request's tier. It reaches ``data`` mode's SQL
+    sub-agent, which would otherwise be built with no model at all -- see ``query_warehouse``.
+    """
     settings = settings or RetailSettings()
     if mode is PlaygroundMode.DATA:
-        return _data_scope(settings)
+        return _data_scope(settings, model)
     if mode is PlaygroundMode.KNOWLEDGE:
         return _knowledge_scope(settings, user_id)
     if mode is PlaygroundMode.USE_CASE:
@@ -96,14 +105,20 @@ async def aresolve_mode_scope(
     *,
     settings: Optional[RetailSettings] = None,
     user_id: Optional[str] = None,
+    model: Any = None,
 ) -> ModeScope:
     """:func:`resolve_mode_scope` off the event loop."""
     return await asyncio.to_thread(
-        resolve_mode_scope, mode, scope_id, settings=settings, user_id=user_id
+        resolve_mode_scope,
+        mode,
+        scope_id,
+        settings=settings,
+        user_id=user_id,
+        model=model,
     )
 
 
-def _data_scope(settings: RetailSettings) -> ModeScope:
+def _data_scope(settings: RetailSettings, model: Any = None) -> ModeScope:
     """Chat with data: gold for what a KPI *is*, guarded SQL for everything else (G21).
 
     Two tools, and the split is the point. ``read_kpi_data`` answers "what is KPI X" from
@@ -137,38 +152,63 @@ def _data_scope(settings: RetailSettings) -> ModeScope:
     async def query_warehouse(question: str) -> Dict[str, Any]:
         """Answer a question from silver by reading it, grounded in the semantic layer.
 
-        The provider is built per call rather than held open: its two engines are pooled by
-        SQLAlchemy, and a chat session that parked one across turns would hold a warehouse
-        connection for the length of a conversation.
+        **The sub-agent is given an explicit model.** ``DatabaseContextProvider`` passes its
+        ``model`` straight to the agent it builds, and an agent with no model and no
+        ``model_provider`` falls through to ``get_model("openai-responses:gpt-5.4")`` --
+        ``agent/_init.py``'s own docstring says that path "would ship tenant prompts to
+        api.openai.com with nothing in the log to say why". Everything this tool handles is
+        exactly what must not go there: the grounding block (personal-data field names and
+        compliance tags included), the schema of every silver table, and up to ``row_cap``
+        rows of real customer data. Routing it through R8's small tier is also what keeps it
+        inside the routing table rather than invisible to it.
+
+        **Both engines are the read-only one.** ``sql_engine`` is what the provider would bind
+        to the *write* agent, and although ``write=False`` means that agent is never built,
+        handing a writable warehouse engine to an interactive surface leaves one boolean
+        between the playground and it. ``app/db.py`` argues for three layers, none of them the
+        whole story alone; this is the cheapest of the three. It also means the ``api`` role no
+        longer needs ``EGPT_RETAIL_WAREHOUSE_DB_URL``, which its own contract says it should
+        never have.
+
+        Engines come from the pooled accessor rather than ``create_engine`` per call: two
+        fresh pools per question is how a burst of chat exhausts ``max_connections``.
         """
         from egpt.integrations.context.database.provider import DatabaseContextProvider
 
-        from egpt_retail.app.db import (
-            build_warehouse_engine,
-            build_warehouse_readonly_engine,
-        )
+        from egpt_retail.app.db import pooled_warehouse_readonly_engine
         from egpt_retail.app.sql_guard import build_warehouse_read_guard
 
+        engine = pooled_warehouse_readonly_engine(settings)
         with open_semantic_reader(settings) as reader:
             instructions = await agrounded_read_instructions(reader)
             guard = build_warehouse_read_guard(reader)
             provider = DatabaseContextProvider(
                 id="warehouse",
-                sql_engine=build_warehouse_engine(settings),
-                readonly_engine=build_warehouse_readonly_engine(settings),
+                sql_engine=engine,
+                readonly_engine=engine,
                 schema=SILVER_SCHEMA,
                 read_instructions=instructions,
                 read_guard=guard,
+                model=model,
                 # Read-only by construction, not by instruction: the write agent is never
                 # built, so no prompt has to be trusted to keep the playground off the
                 # write path.
                 write=False,
             )
             answer = await provider.aquery(question)
+        content = getattr(answer, "content", answer)
+        # NO PROVENANCE ROW, and it is not an oversight. "Every answer writes a provenance
+        # record" is an alignment rule, and this path breaks it -- but the record is keyed by
+        # `run_id`, which only the run route mints, and `RequestContext` carries `user_id`,
+        # `session_id` and `tenant_id` and no run id. A tool closure therefore cannot write a
+        # correctly-keyed row, and writing a wrongly-keyed one is worse than none: the citation
+        # panel would show sources that belong to no run anyone can find. Threading the run id
+        # into the factory context is a framework change and is deliberately not smuggled in
+        # here. `read_kpi_data` has the same gap; this tool does not widen it, it inherits it.
         return {
-            "answer": answer,
+            "answer": content,
             "schema": SILVER_SCHEMA,
-            "grounded": bool(instructions),
+            "grounded": "## The semantic layer" in instructions,
         }
 
     return ModeScope(
@@ -265,25 +305,29 @@ def _knowledge_scope(
         driver = semantic_driver(settings)
         try:
             with open_semantic_reader(settings, driver=driver) as reader:
+                # Store construction and the fan-out are separate, and only construction is
+                # tolerated. The first version wrapped both, so a memory or semantic *leg*
+                # failure was logged as "the prose and ontology legs could not be built" --
+                # the wrong cause -- and then re-ran the same two failing legs a second time.
+                # `aunified_read` re-raises the first leg exception, so that was reachable.
+                # A leg failure now propagates; only a store that will not build degrades.
+                stores = None
                 try:
-                    with open_knowledge_stores(settings, driver=driver) as stores:
-                        result = await aretail_unified_read(
-                            scope,
-                            mem_query,
-                            memory=memory,
-                            knowledge=stores.knowledge,
-                            ontology=stores.ontology,
-                            semantic=reader,
-                        )
+                    stores = await abuild_knowledge_stores(settings, driver)
                 except Exception as exc:  # noqa: BLE001 -- a missing leg is not a failed answer
                     log_warning(
-                        "playground knowledge mode: the prose and ontology legs could not be "
-                        f"built ({exc.__class__.__name__}: {exc}); answering from the "
+                        "playground knowledge mode: the prose and ontology stores could not "
+                        f"be built ({exc.__class__.__name__}: {exc}); answering from the "
                         "semantic and memory legs only."
                     )
-                    result = await aretail_unified_read(
-                        scope, mem_query, memory=memory, semantic=reader
-                    )
+                result = await aretail_unified_read(
+                    scope,
+                    mem_query,
+                    memory=memory,
+                    knowledge=stores.knowledge if stores is not None else None,
+                    ontology=stores.ontology if stores is not None else None,
+                    semantic=reader,
+                )
         finally:
             driver.close()
         return {
