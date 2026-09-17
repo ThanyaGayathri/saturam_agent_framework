@@ -191,7 +191,7 @@ export default function KpiDataGallery() {
   const [businessArea, setBusinessArea] = useState("");
   const [sort, setSort] = useState("kpis");
 
-  const { status, datasets, snapshot, error } = useDataCatalog();
+  const { status, datasets, snapshot, error, reload } = useDataCatalog();
 
   const schemaOptions = useMemo(() => {
     const schemas = [...new Set(datasets.map((d) => d.schema).filter(Boolean))].sort();
@@ -268,7 +268,14 @@ export default function KpiDataGallery() {
       {status === "error" ? (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
           <AlertTriangle size={15} className="shrink-0 text-status-warning" />
-          {error || "Couldn't load the data catalog — try again shortly."}
+          <span className="flex-1">{error || "Couldn't load the data catalog — try again shortly."}</span>
+          <button
+            type="button"
+            onClick={reload}
+            className="shrink-0 rounded-lg border border-status-warning/40 px-2.5 py-1 text-xs font-semibold text-text-primary transition-colors hover:bg-status-warning/15"
+          >
+            Retry
+          </button>
         </div>
       ) : null}
 
