@@ -14,6 +14,15 @@ export function fetchKpiList() {
   return apiGet("/kpis");
 }
 
+/** `GET /kpis/{kpi_id}` - one KPI, resolved by `identifier` despite the path segment's name
+ * (same as `fetchKpiSeries`/`computeKpi`/`updateKpi`/`deleteKpi` below). Includes `grain`,
+ * which `fetchKpiList` also carries per row but which nothing needs fetched singly until the
+ * chart editor (`ChartEditorPanel.jsx`) started reading it to tell an "overall"-grain KPI
+ * (always exactly one row, no breakdown to table) from a per-dimension one. */
+export function fetchKpi(identifier, { signal } = {}) {
+  return apiGet(`/kpis/${encodeURIComponent(identifier)}`, { signal });
+}
+
 /** `POST /kpis/suggestions` - start a run of the `kpi_suggestion` agent over the current
  * semantic layer and get it back `queued` (a `KpiSuggestionRun`: `{id, status, business_area,
  * created_at, started_at, finished_at, result, error}`). A run is two frontier-tier model calls

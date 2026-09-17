@@ -3,6 +3,7 @@ import { Play, Trash2 } from "lucide-react";
 import SlidePanel from "../../ui/SlidePanel";
 import ChartTile, { GuardPill } from "../ChartTile";
 import { fetchSemanticTable } from "../../../services/semantic-tables-api";
+import { fetchKpi } from "../../../services/kpis-api";
 import { previewDashboardQuery } from "../../../services/dashboards-api";
 import { tileDataFromPreview } from "../../../storage/dashboards";
 
@@ -69,14 +70,49 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  const [tables, setTables] = useState({});
 
  const isQuery = detached;
+
+ // The KPI's own `grain` (round-3 review: a `Tile` never carries it, only `grain_value`, so a
+ // KPI at the "overall" grain -- always exactly one row, no `grain_value` to set -- slipped
+ // past the round-2 guard below entirely). `undefined` until fetched or for a query tile
+ // (never needed); `null` once fetched if the lookup failed, so a lookup failure never blocks
+ // Save forever on the "still checking" branch below.
+ const [kpiGrain, setKpiGrain] = useState(undefined);
+ useEffect(() => {
+  if (isQuery || !chart.kpi_identifier) return undefined;
+  let cancelled = false;
+  fetchKpi(chart.kpi_identifier)
+   .then((kpi) => {
+    if (!cancelled) setKpiGrain(kpi.grain ?? null);
+   })
+   .catch(() => {
+    if (!cancelled) setKpiGrain(null);
+   });
+  return () => {
+   cancelled = true;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [isQuery, chart.kpi_identifier]);
+
  // A KPI tile scoped to one grain (`grain_value`, e.g. one supplier) always resolves to a
  // single row server-side (`_tile_data`'s `_resolve_row`), so it can never come back with the
- // multiple rows a table needs -- "Table" would silently render as a plain number instead.
- // Query tiles and un-scoped ("overall"/top-N) KPI tiles are unaffected.
- const tableUnavailableReason =
-  !isQuery && chart.grain_value != null
-   ? "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown."
-   : null;
+ // multiple rows a table needs -- "Table" would silently render as a plain number instead. The
+ // same collapse hits a KPI at the "overall" grain even with `grain_value` unset: that grain's
+ // formula returns exactly one column and no keys (`warehouse/gold.py`'s `GRAIN_OVERALL`), so
+ // `_resolve_row` always finds exactly one row too. Query tiles and un-scoped per-dimension KPI
+ // tiles (a real top-N table) are unaffected.
+ const tableUnavailableReason = (() => {
+  if (isQuery) return null;
+  if (chart.grain_value != null) {
+   return "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown.";
+  }
+  if (kpiGrain === "overall") {
+   return "This metric has no breakdown to list (grain: overall) -- a table has nothing to show beyond the single value. Detach and edit as a query to build one.";
+  }
+  if (kpiGrain === undefined) {
+   return "Checking whether this metric has a breakdown to list…";
+  }
+  return null;
+ })();
  const sourceTables = isQuery ? preview?.guard?.tables || chart.query?.source_tables || [] : chart.query?.source_tables || [];
  // What this chart already declared as its tables when the editor opened, before any edit --
  // narrows the preview's own guard check to that set (round-1 review, finding #5: the client
