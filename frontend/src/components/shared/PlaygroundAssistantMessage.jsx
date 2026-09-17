@@ -5,6 +5,7 @@ import PlaygroundRichReplyBody from "./PlaygroundRichReplyBody";
 import { EnterpriseProductMark } from "./EnterpriseProductMark";
 import { AnswerBlockRenderer } from "./answer-blocks";
 import { isAnswerBlockMeta } from "../../domain/answer-blocks/schema";
+import MarkdownProse from "./answer-blocks/MarkdownProse";
 
 export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetry, onFollowUpSelect, onBlockAction, onPinToggle, onSaveMessage, onScheduleMessage, onAddMessageToReport, isMessagePinned = false, activeReportTitle, chatMode, isLatestAssistant = true, children }) {
   const isAnswerBlock = isAnswerBlockMeta(msg.meta);
@@ -36,7 +37,9 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
         {/* When rendering an answer-block message the intro paragraph lives inside
             the renderer, so we skip the plain-text bubble to avoid duplication. */}
         {!isAnswerBlock ? (
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-text-primary">{msg.text}</p>
+          <div className="text-[15px] leading-relaxed text-text-primary">
+            <MarkdownProse>{msg.text}</MarkdownProse>
+          </div>
         ) : null}
 
         {msg.meta?.variant === "playground-rich" ? (

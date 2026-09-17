@@ -3,6 +3,7 @@
 
 import { TrendingUp, TrendingDown, Info } from "lucide-react";
 import BlockShell from "../BlockShell";
+import MarkdownProse from "../MarkdownProse";
 
 const SENTIMENT_STYLES = {
   positive: {
@@ -41,9 +42,9 @@ export default function InsightBlock({ block, onPinToggle }) {
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-text-primary">{block.headline}</p>
-          {block.subtext ? (
-            <p className="mt-1 text-sm text-text-secondary">{block.subtext}</p>
-          ) : null}
+          {/* Markdown, not a plain string: the playground's prose comes from a model and
+              arrives with tables, bold and lists in it. */}
+          {block.subtext ? <MarkdownProse>{block.subtext}</MarkdownProse> : null}
         </div>
       </div>
     </BlockShell>
