@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, Database, Search } from "lucide-react";
-import { Select } from "./ui";
+import { Modal, Select } from "./ui";
 import { useDataCatalog } from "../hooks/useDataCatalog";
 
 const SORT_OPTIONS = [
@@ -41,7 +41,58 @@ function groupDatasetsBySchema(datasets) {
   return [...map.values()];
 }
 
+/** All of a dataset's columns, searchable and scrollable -- what the "+N" overflow on a card
+ * opens rather than leaving the rest of the attribute list with no way to see it. */
+function AttributeListModal({ dataset, onClose }) {
+  const [q, setQ] = useState("");
+  const all = dataset.attributeTags || [];
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter((t) => t.toLowerCase().includes(needle));
+  }, [all, q]);
+
+  return (
+    <Modal title="All attributes" onClose={onClose}>
+      <p className="-mt-2 mb-3 truncate font-mono text-xs text-text-muted" title={dataset.technicalName}>
+        {dataset.technicalName}
+      </p>
+      <div className="relative mb-3">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+          aria-hidden
+        />
+        <input
+          type="search"
+          autoFocus
+          placeholder="Search attributes…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-full rounded-lg border border-border bg-surface-default py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-primary focus:ring-4 focus:ring-primary/25"
+        />
+      </div>
+      <p className="mb-2 text-xs text-text-muted">
+        {filtered.length} of {all.length} attribute{all.length === 1 ? "" : "s"}
+      </p>
+      <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-6 text-center text-sm text-text-muted">No attributes match "{q}".</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {filtered.map((t) => (
+              <li key={t} className="px-3 py-2 font-mono text-[12.5px] text-text-secondary">
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function DatasetCard({ dataset, highlight }) {
+  const [showAllAttrs, setShowAllAttrs] = useState(false);
   const visibleTags = (dataset.attributeTags || []).slice(0, 4);
   const more = (dataset.attributeTags || []).length - visibleTags.length;
   const kpiCount = dataset.linkedKpiNames?.length ?? 0;
@@ -103,12 +154,17 @@ function DatasetCard({ dataset, highlight }) {
               </span>
             ))}
             {more > 0 ? (
-              <span className="rounded-md border border-dashed border-border-light px-1.5 py-0.5 text-[11px] font-medium text-text-muted">
+              <button
+                type="button"
+                onClick={() => setShowAllAttrs(true)}
+                className="rounded-md border border-dashed border-border-light px-1.5 py-0.5 text-[11px] font-medium text-text-muted transition hover:border-primary hover:text-primary"
+              >
                 +{more}
-              </span>
+              </button>
             ) : null}
           </div>
         ) : null}
+        {showAllAttrs ? <AttributeListModal dataset={dataset} onClose={() => setShowAllAttrs(false)} /> : null}
         {(dataset.businessTags || []).length > 0 ? (
           <div className="mb-1 flex flex-wrap gap-1.5">
             {(dataset.businessTags || []).map((t) => (
