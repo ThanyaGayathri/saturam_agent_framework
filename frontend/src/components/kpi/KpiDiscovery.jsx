@@ -445,6 +445,7 @@ export default function KpiDiscovery({
  const [selected, setSelected] = useState(() => new Set());
  const [search, setSearch] = useState("");
  const [businessAreaFilter, setBusinessAreaFilter] = useState("");
+ const [subjectAreaFilter, setSubjectAreaFilter] = useState("");
  const [statusFilter, setStatusFilter] = useState("all");
  // Source is a facet, not a gate: null/empty means "every source" -- the default. Muting one
  // means "show me what I could measure WITHOUT it", so a metric survives only if EVERY source
@@ -464,10 +465,27 @@ export default function KpiDiscovery({
  // header and the search match below, so "Uncategorized" (the synthetic group's real label,
  // not the `__uncategorized__` sentinel) is what a search for it actually matches.
  const labelForBa = (baId) => (baId === UNCATEGORIZED_BA_ID ? "Uncategorized" : areaLabelById[baId] || baId);
+ // Same reasoning as `labelForBa`: "Unsorted" (not the `__unsorted__` sentinel) is what the
+ // group heading actually shows, and what a search for it should match.
+ const labelForSubject = (key) => (key === UNSORTED_SUBJECT ? "Unsorted" : key);
  const businessAreaOptions = useMemo(
   () => [{ value: "", label: "All Business Area" }, ...(areas || []).map((a) => ({ value: a.id, label: a.label }))],
   [areas]
  );
+ // Scoped to the chosen Business Area's own declared vocabulary (`GET /business-areas`'s
+ // `subject_areas`) when one is picked; the union across every area otherwise. "Unsorted" is
+ // always offered -- it is a real, populated group (every suggestion lands there) even though
+ // it names no vocabulary term.
+ const subjectAreaOptions = useMemo(() => {
+  const list = businessAreaFilter
+   ? (areas || []).find((a) => a.id === businessAreaFilter)?.subject_areas || []
+   : Array.from(new Set((areas || []).flatMap((a) => a.subject_areas || [])));
+  return [
+   { value: "", label: "All Subject Area" },
+   ...list.map((s) => ({ value: s, label: s })),
+   { value: UNSORTED_SUBJECT, label: "Unsorted" },
+  ];
+ }, [areas, businessAreaFilter]);
 
  const subjectToggleKey = (baId, subject) => `${baId}\0${subject}`;
 
@@ -496,19 +514,22 @@ export default function KpiDiscovery({
    const baId = kpi.businessAreaId && known.has(kpi.businessAreaId) ? kpi.businessAreaId : UNCATEGORIZED_BA_ID;
    if (businessAreaFilter && baId !== businessAreaFilter) continue;
 
+   const subjectKey = kpi.subjectArea || UNSORTED_SUBJECT;
+   if (subjectAreaFilter && subjectKey !== subjectAreaFilter) continue;
+
    if (needle) {
     const baLabel = labelForBa(baId);
+    const subjectLabel = labelForSubject(subjectKey);
     const match =
      (kpi.name || "").toLowerCase().includes(needle) ||
      (kpi.desc || "").toLowerCase().includes(needle) ||
-     (kpi.subjectArea || "").toLowerCase().includes(needle) ||
+     subjectLabel.toLowerCase().includes(needle) ||
      baLabel.toLowerCase().includes(needle);
     if (!match) continue;
    }
 
    if (!baMap.has(baId)) baMap.set(baId, new Map());
    const subjectMap = baMap.get(baId);
-   const subjectKey = kpi.subjectArea || UNSORTED_SUBJECT;
    if (!subjectMap.has(subjectKey)) subjectMap.set(subjectKey, []);
    subjectMap.get(subjectKey).push(row);
   }
@@ -550,12 +571,43 @@ export default function KpiDiscovery({
    subjectAreaCount: totals.subjects,
    kpiCount: totals.kpis,
   };
- }, [rows, search, businessAreaFilter, statusFilter, mutedSources, areas, areaLabelById, focusAreaIds]);
+ }, [rows, search, businessAreaFilter, subjectAreaFilter, statusFilter, mutedSources, areas, areaLabelById, focusAreaIds]);
 
  const selectedRows = useMemo(() => {
   const flat = groups.flatMap((g) => g.subjects.flatMap((s) => s.rows));
   return flat.filter((r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`));
  }, [groups, selected]);
+
+ // Global expand/collapse -- every Business Area group and every Subject Area table under it,
+ // computed from the currently filtered `groups` so a search/filter narrows what "all" means.
+ const expandAll = () => {
+  const ba = {};
+  const subj = {};
+  for (const g of groups) {
+   ba[g.id] = true;
+   for (const s of g.subjects) subj[subjectToggleKey(g.id, s.subject)] = true;
+  }
+  setOpenBa(ba);
+  setOpenSubject(subj);
+ };
+ const collapseAll = () => {
+  const ba = {};
+  const subj = {};
+  for (const g of groups) {
+   ba[g.id] = false;
+   for (const s of g.subjects) subj[subjectToggleKey(g.id, s.subject)] = false;
+  }
+  setOpenBa(ba);
+  setOpenSubject(subj);
+ };
+ // Per-Business-Area: just that group's Subject Area tables, leaving the Business Area row
+ // itself (and every other group) untouched.
+ const setBaChildren = (ba, open) =>
+  setOpenSubject((prev) => {
+   const next = { ...prev };
+   for (const s of ba.subjects) next[subjectToggleKey(ba.id, s.subject)] = open;
+   return next;
+  });
 
  return (
   <div className="space-y-5">
@@ -590,7 +642,13 @@ export default function KpiDiscovery({
       />
      </div>
      <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-2.5">
-      <Select label={null} options={businessAreaOptions} value={businessAreaFilter} onChange={(e) => setBusinessAreaFilter(e.target.value)} />
+      <Select
+       label={null}
+       options={businessAreaOptions}
+       value={businessAreaFilter}
+       onChange={(e) => { setBusinessAreaFilter(e.target.value); setSubjectAreaFilter(""); }}
+      />
+      <Select label={null} options={subjectAreaOptions} value={subjectAreaFilter} onChange={(e) => setSubjectAreaFilter(e.target.value)} />
       <Select label={null} options={STATUS_FILTERS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
      </div>
     </div>
@@ -639,15 +697,28 @@ export default function KpiDiscovery({
     </div>
 
     <div className="min-w-0 w-full flex-1 self-start pl-3 sm:pl-4">
-     <div className="flex h-fit w-full flex-wrap items-baseline gap-x-3 gap-y-1 pt-2 text-left">
-      <h2 className="text-[17px] font-bold tracking-tight text-text-primary">Enterprise KPIs</h2>
-      <span className="text-sm text-text-muted">
-       {businessAreaCount} Business Areas
-       <span className="mx-1.5 text-border-light">·</span>
-       {subjectAreaCount} Subject Areas
-       <span className="mx-1.5 text-border-light">·</span>
-       {kpiCount} KPIs
-      </span>
+     <div className="flex h-fit w-full flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pt-2 text-left">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+       <h2 className="text-[17px] font-bold tracking-tight text-text-primary">Enterprise KPIs</h2>
+       <span className="text-sm text-text-muted">
+        {businessAreaCount} Business Areas
+        <span className="mx-1.5 text-border-light">·</span>
+        {subjectAreaCount} Subject Areas
+        <span className="mx-1.5 text-border-light">·</span>
+        {kpiCount} KPIs
+       </span>
+      </div>
+      {groups.length > 0 && (
+       <div className="flex shrink-0 items-center gap-2 text-xs font-semibold">
+        <button type="button" onClick={expandAll} className="text-primary hover:underline">
+         Expand all
+        </button>
+        <span className="text-border-light">·</span>
+        <button type="button" onClick={collapseAll} className="text-primary hover:underline">
+         Collapse all
+        </button>
+       </div>
+      )}
      </div>
 
      {groups.length ? (
@@ -657,24 +728,40 @@ export default function KpiDiscovery({
         const baOpen = openBa[ba.id] ?? true;
         return (
          <div key={ba.id} className="w-full min-w-0 space-y-2.5">
-          <button
-           type="button"
-           onClick={() => setOpenBa((prev) => ({ ...prev, [ba.id]: !baOpen }))}
-           aria-expanded={baOpen}
-           className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-default px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-colors hover:border-border-light hover:bg-surface-secondary dark:shadow-none sm:px-3.5"
-          >
-           <ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${baOpen ? "rotate-180" : "rotate-0"}`} strokeWidth={2} aria-hidden />
-           <Briefcase className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
-           <span className="shrink-0 rounded-full bg-primary-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
-            Business area
-           </span>
-           <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
-           <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
-            {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
-            <span className="mx-1.5 text-border-light">·</span>
-            {baKpiTotal} Total KPI{baKpiTotal === 1 ? "" : "s"}
-           </span>
-          </button>
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface-default px-3 py-2.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-colors hover:border-border-light hover:bg-surface-secondary dark:shadow-none sm:px-3.5">
+           <button
+            type="button"
+            onClick={() => setOpenBa((prev) => ({ ...prev, [ba.id]: !baOpen }))}
+            aria-expanded={baOpen}
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left"
+           >
+            <ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${baOpen ? "rotate-180" : "rotate-0"}`} strokeWidth={2} aria-hidden />
+            <Briefcase className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+            <span className="shrink-0 rounded-full bg-primary-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
+             Business area
+            </span>
+            <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
+            <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
+             {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
+             <span className="mx-1.5 text-border-light">·</span>
+             {baKpiTotal} Total KPI{baKpiTotal === 1 ? "" : "s"}
+            </span>
+           </button>
+           {/* Per-group children control: just this Business Area's Subject Area tables,
+               not the row itself and not any other group. Only worth showing once there is
+               more than one child to fold at once. */}
+           {baOpen && ba.subjects.length > 1 ? (
+            <div className="flex shrink-0 items-center gap-1.5 text-xs font-semibold">
+             <button type="button" onClick={() => setBaChildren(ba, true)} className="text-primary hover:underline">
+              Expand all
+             </button>
+             <span className="text-border-light">·</span>
+             <button type="button" onClick={() => setBaChildren(ba, false)} className="text-primary hover:underline">
+              Collapse all
+             </button>
+            </div>
+           ) : null}
+          </div>
 
           {baOpen ? (
            <div className="ml-6 w-full min-w-0 space-y-3 border-l-2 border-primary/25 pl-3.5 dark:border-primary/35 sm:pl-4">
