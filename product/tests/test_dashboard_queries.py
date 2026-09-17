@@ -849,3 +849,83 @@ async def test_arefresh_query_tiles_isolates_one_tiles_unexpected_exception(
     assert results.written["tl_good"].rows == ({"value": 1},)
     assert results.written["tl_bad"].error is not None
     assert "semantic layer hiccup" in results.written["tl_bad"].error
+
+
+# --- run_query: the dry run's session setup ------------------------------------------------
+
+
+class _RecordingCursor:
+    """A DBAPI cursor that records every ``execute`` call as it was made -- statement text
+    plus whatever parameters came with it -- and answers one row."""
+
+    def __init__(self, calls):
+        self.calls = calls
+        self.description = None
+
+    def execute(self, statement, *args):
+        self.calls.append((statement, args))
+        if statement.lstrip().upper().startswith("SELECT"):
+            self.description = [("n",)]
+
+    def fetchmany(self, size):
+        return [(1,)]
+
+    def close(self):
+        self.calls.append(("<cursor.close>", ()))
+
+
+class _RecordingRawConnection:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def cursor(self):
+        return _RecordingCursor(self.calls)
+
+    def rollback(self):
+        self.calls.append(("<rollback>", ()))
+
+    def close(self):
+        self.calls.append(("<connection.close>", ()))
+
+
+class _RecordingEngine:
+    def __init__(self):
+        self.calls = []
+
+    def raw_connection(self):
+        return _RecordingRawConnection(self.calls)
+
+
+def test_run_query_inlines_the_statement_timeout_rather_than_binding_it():
+    """PostgreSQL takes no bind parameter in a ``SET`` statement, and psycopg 3 binds
+    server-side (``$1``), so ``SET LOCAL statement_timeout = %s`` failed with ``syntax error
+    at or near "$1"`` before the chart's SQL ran -- every composed chart's preview came back
+    "refused by the warehouse". The timeout must land in the statement text as an integer,
+    with no parameters attached, the way ``gold.py`` already does it."""
+    engine = _RecordingEngine()
+
+    columns, rows, _duration = queries_module.run_query(
+        engine,
+        "SELECT COUNT(*) AS n FROM silver.crm_deal LIMIT 1000",
+        limit=50,
+        statement_timeout_ms=15_000,
+    )
+
+    set_calls = [c for c in engine.calls if c[0].startswith("SET LOCAL")]
+    assert set_calls == [("SET LOCAL statement_timeout = 15000", ())]
+    assert columns == ["n"]
+    assert rows == [{"n": 1}]
+    # Session hygiene is unchanged: the transaction is rolled back and both handles closed.
+    assert [c[0] for c in engine.calls][-3:] == [
+        "<cursor.close>",
+        "<rollback>",
+        "<connection.close>",
+    ]
+
+
+def test_run_query_casts_the_timeout_to_an_integer_before_inlining_it():
+    engine = _RecordingEngine()
+    queries_module.run_query(
+        engine, "SELECT 1 AS n", limit=1, statement_timeout_ms=2500.9
+    )
+    assert engine.calls[0] == ("SET LOCAL statement_timeout = 2500", ())
