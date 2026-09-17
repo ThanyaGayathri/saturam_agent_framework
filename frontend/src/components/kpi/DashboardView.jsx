@@ -69,6 +69,20 @@ export default function DashboardView() {
  // apart from `composeRun.error` (which is a failed *run*) because the run succeeded here --
  // it just had nothing to draft, and the note says what was missing.
  const [composeEmptyNote, setComposeEmptyNote] = useState(null);
+ // Drops any in-flight/failed run and its purpose/notes -- shared by the dashboard-switch
+ // effect below, "Change the purpose", and dismissing the empty-result note, so a future
+ // field added to the compose flow's state (already three pieces: the run, its purpose, its
+ // empty-result note) only has to be added at this one call site. Defined here, above every
+ // early return, rather than down with the rest of the plain handlers: the dashboard-switch
+ // effect just below calls it on every render including the initial `loading` one, and a
+ // `const` declared after an early return is never reached on that render -- calling it from
+ // an effect that *is* reached throws "Cannot access before initialization", not a caught
+ // error inside the callback but one that unmounts the whole component.
+ const resetCompose = () => {
+  composeRun.reset();
+  setComposePurpose("");
+  setComposeEmptyNote(null);
+ };
  // The refresh-schedule cadence picked but not yet confirmed -- `null` means the select just
  // shows `dashboard.refresh_schedule`. Kept separate from `dashboard` so Cancel is a no-op,
  // not a second write to undo the first (reapplies #272's editable-schedule control, silently
@@ -106,9 +120,7 @@ export default function DashboardView() {
   setBusy(false);
   // Same for a composition run and its draft: they were started for the dashboard being
   // left, and its composed chart must not land on the one being opened.
-  composeRun.reset();
-  setComposePurpose("");
-  setComposeEmptyNote(null);
+  resetCompose();
   setAddingChart(null);
   // Both requests only need `dashboardId`, so they fire together rather than sequentially
   // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
@@ -124,8 +136,9 @@ export default function DashboardView() {
   return () => {
    cancelled = true;
   };
-  // `composeRun.reset` is a stable callback; listing the whole `composeRun` object would
-  // re-run this effect (and refetch the dashboard) on every poll tick.
+  // `resetCompose`/`loadData` close over stable callbacks (`composeRun.reset` never changes
+  // identity); listing the whole `composeRun` object as a dep would re-run this effect (and
+  // refetch the dashboard) on every poll tick.
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [dashboardId, loadData]);
 
@@ -322,11 +335,12 @@ export default function DashboardView() {
  const composeFailed = composeRun.status === "error";
 
  // "Change the purpose": drop the run (or its failure) and put the text back in the bar.
+ // Reads `composePurpose` before `resetCompose` clears it -- the plain closure variable is
+ // unaffected by scheduling that state update, so the order here doesn't matter, but keeping
+ // the read first avoids relying on that.
  const editComposePurpose = () => {
-  composeRun.reset();
-  setComposeEmptyNote(null);
   setAddPrompt(composePurpose);
-  setComposePurpose("");
+  resetCompose();
  };
 
  // The semantic layer (Neo4j) and warehouse dependencies behind `/data` currently surface as a
@@ -415,8 +429,18 @@ export default function DashboardView() {
         <button
          type="button"
          onClick={() => setEditingTileId(tile.id)}
+         // Composing shows its progress inline, under the grid -- unlike `editingTile` and
+         // `addingChart` (each a full-screen `SlidePanel` with a click-catching backdrop),
+         // nothing here blocks a click on an existing tile's pencil while a run is in
+         // flight. Without this, opening one here while a run is still going would strand
+         // its composed chart: the hand-off effect calls `setAddingChart`, but
+         // `{addingChart && !editingTile && (...)}` below only renders it once this tile's
+         // editor is closed, so the composed chart would pop open unannounced afterward,
+         // its "Composing…" status having quietly vanished in the meantime.
+         disabled={composing}
+         title={composing ? "Wait for the chart being composed to finish." : undefined}
          aria-label={`Edit ${tile.title}`}
-         className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+         className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
          <Pencil size={13} />
         </button>
@@ -499,10 +523,7 @@ export default function DashboardView() {
        </button>
        <button
         type="button"
-        onClick={() => {
-         setComposeEmptyNote(null);
-         setComposePurpose("");
-        }}
+        onClick={resetCompose}
         className="font-semibold text-text-secondary hover:text-text-primary"
        >
         Dismiss

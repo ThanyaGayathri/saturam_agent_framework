@@ -96,11 +96,15 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
 
  // The SQL this editor opened with -- already live (persisted and previously validated), just
  // composed (guarded and previewed by the run that wrote it), or, for a brand-new/just-detached
- // chart, empty. Trusted as-is unless the chart arrived with a `refused` verdict, so editing an
+ // chart, empty. Trusted as-is unless the current guard verdict is `refused`, so editing an
  // unrelated field (the title, the description) on an otherwise-untouched chart never requires
  // a fresh preview -- while a composed chart the guard refused cannot be saved untouched
  // (the server would 422 it anyway; the pill already says why, so Save says so too rather
- // than letting the person find out from the write). `previewedSql` is the text of the most recent `runPreview()` call
+ // than letting the person find out from the write). Read live off `guard`, not a second
+ // boolean frozen from `chart.guard` at open time: `guard` already starts as `chart.guard`
+ // and only moves on a fresh `runPreview()`, so the two could never legitimately disagree --
+ // a separate `originalRefused` would just be another place for that fact to go stale.
+ // `previewedSql` is the text of the most recent `runPreview()` call
  // this session, or `null` before the first one. Together these are what `canSave` checks
  // (round-1 review, finding #9): editing `sql` away from both leaves neither satisfied, so
  // Save is blocked until a fresh preview backs the new text -- closing the gap where editing
@@ -129,8 +133,7 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
   }
  };
 
- const originalRefused = chart.guard?.status === "refused";
- const sqlIsOriginal = sql === originalSql && !originalRefused;
+ const sqlIsOriginal = sql === originalSql && guard?.status !== "refused";
  const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
  const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
  const canSave =
@@ -190,7 +193,7 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
         !canSave && isQuery
          ? sql.trim().length === 0
            ? "Write a query before saving."
-           : originalRefused && sql === originalSql
+           : guard?.status === "refused" && sql === originalSql
              ? "The read guard refused this query. Change it and run the preview."
              : "Run the preview again -- the query changed since it was last checked."
          : undefined
