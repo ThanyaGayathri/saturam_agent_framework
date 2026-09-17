@@ -243,9 +243,14 @@ def render_request(request: Optional[str]) -> str:
     text = normalise_request(request)
     if not text:
         return ""
+    # Escaped for the prompt only -- `normalise_request`'s own return value is what the api
+    # echoes back on the run row, so it must stay untouched. This quoting is local to the
+    # message: an embedded `"` in the customer's own words could otherwise close this quoted
+    # span early, making the rest of their text read as a new, unquoted instruction.
+    quoted = text.replace('"', "'")
     return (
         "request: the customer asked, in their own words: "
-        f'"{text}". Propose what answers this first and most thoroughly, and say in each '
+        f'"{quoted}". Propose what answers this first and most thoroughly, and say in each '
         "rationale how it does. If the harvest cannot support what was asked, do not invent "
         "a metric for it: say so in notes, and still propose what the data does support.\n\n"
     )

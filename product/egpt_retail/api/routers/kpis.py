@@ -309,7 +309,10 @@ def _derive_identifier(write: wire.KpiWrite) -> str:
     # Both halves slugified, not only the name: `concept` is free text on the wire (the
     # manual "Add KPI" form is the first place a person types it), and `KpiDefinition` refuses
     # any identifier that fails `str.isidentifier()` -- so "web-session" or "RFQ quote" would
-    # otherwise 422 about an `identifier` the form never shows.
+    # otherwise 422 about an `identifier` the form never shows. Only reachable today when the
+    # caller omits `identifier`, which is only the manual "Add KPI" form -- `handleAdopt`
+    # always sends `suggestion.identifier` explicitly, so this shape change does not touch the
+    # adopt path. Worth re-checking this note if a second caller starts omitting `identifier`.
     return kpi_identifier(_slugify(write.concept), _slugify(write.name))
 
 
@@ -414,6 +417,11 @@ def _kpi_from_write(
         industry_benchmark=_carried(
             write.industry_benchmark, "industry_benchmark", None
         ),
+        # Same omit-means-keep semantics as every other optional field here: there is no way
+        # to explicitly clear a suggestion's rationale/business_value once carried onto a KPI,
+        # even after a later edit changes the SQL enough that the original text no longer
+        # applies. Intentional, matching `unit`/`industry_benchmark` above -- not a gap unique
+        # to these two fields.
         rationale=_carried(write.rationale, "rationale", None),
         business_value=_carried(write.business_value, "business_value", None),
         active=active,

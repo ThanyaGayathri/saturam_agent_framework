@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
 import { useDemoProfile } from "../../context/DemoProfileContext";
-import { datasetIdsByLinkedKpiName } from "../../domain/kpi-mapping";
+import { datasetIdsByLinkedKpiName, flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { readLocalJson, writeLocalJson } from "../../storage/local-json";
 import { AlertTriangle, Sparkles } from "lucide-react";
 import KpiDiscovery from "./KpiDiscovery";
@@ -103,7 +103,7 @@ export default function KpiDiscoveryPage() {
   () => (unlockedBy ? new Set(metricsUnlockedBy(unlockedBy)) : null),
   [unlockedBy]
  );
- const { hydrated } = useKpiRegistry();
+ const { data, hydrated } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId } = useDemoProfile();
 
@@ -868,14 +868,27 @@ export default function KpiDiscoveryPage() {
   [suggestionState.suggestions]
  );
 
- // The seed "Retail standard" catalogue is not shown here: every card is either a live
- // suggestion or a real registry KPI, so each one has a real identifier and real feasibility
- // and can actually be adopted or put on a dashboard. The seed data still backs Configure >
- // KPIs and the tours; only this grid stopped mixing it in.
+ // The seed "Retail standard" catalogue is not shown in the unfiltered grid: every card there
+ // is either a live suggestion or a real registry KPI, so each one has a real identifier and
+ // real feasibility and can actually be adopted or put on a dashboard. The seed data still
+ // backs Configure > KPIs and the tours; only the unfiltered grid stopped mixing it in.
+ //
+ // The "See unlocked metrics" deep link (`unlockedNames`, from Configure right after a source
+ // connects) still needs it, though: `metricsUnlockedBy` promises specific named metrics before
+ // any suggestion run exists to propose them, so a fresh deployment has neither a matching
+ // suggestion nor a real registry row yet. Fall back to the (deduped) seed catalogue only in
+ // that filtered view, so the promise on the source card and what this page shows stay the same
+ // set -- exactly what unblocked this link before the seed catalogue left the unfiltered grid.
  const rows = useMemo(() => {
   const all = [...suggestionRows, ...realRows];
-  return unlockedNames ? all.filter((r) => unlockedNames.has(r.kpi?.name)) : all;
- }, [suggestionRows, realRows, unlockedNames]);
+  if (!unlockedNames) return all;
+  const named = all.filter((r) => unlockedNames.has(r.kpi?.name));
+  const seen = new Set(named.map((r) => r.kpi?.name));
+  const seedPreview = flattenKpiIndexRows(data?.categories || []).filter(
+   (r) => r.kpi?.active !== false && unlockedNames.has(r.kpi?.name) && !seen.has(r.kpi?.name)
+  );
+  return [...named, ...seedPreview];
+ }, [suggestionRows, realRows, unlockedNames, data?.categories]);
 
  const hasSuggestions = rows.some((r) => r.suggested);
 
