@@ -39,6 +39,10 @@ function FilterDropdown({ dashboardId, column, selected, onApply }) {
   setStaged(selected);
   setOpen(true);
   if (values !== null) return;
+  // Clear a stale error from a prior failed attempt before retrying, so a transient failure
+  // followed by a successful reopen doesn't leave this dropdown stuck showing the old message
+  // forever (`values` stays `null` on failure, which is exactly what makes this a retry).
+  setLoadError(null);
   fetchDashboardFilterValues(dashboardId, { table: column.table, column: column.column })
    .then((data) => setValues(data?.values || []))
    .catch((err) => setLoadError(err?.message || "Couldn't load values."));

@@ -879,7 +879,11 @@ async def arun_filtered_tile(
     personal-data columns -- applied exactly as it would be without any filter), then, only
     when a filter actually applies, mutates and re-checks *that* statement before running it:
     a filter predicate is never trusted without going through the same guard a filter-free
-    tile does.
+    tile does. This means a filtered read pays for ``acheck_query`` twice (once for the base
+    rewrite, once more for the filtered statement) -- deliberate defense-in-depth, not an
+    oversight: the second check is what actually verifies the mutated SQL is still safe to
+    run, since :func:`_apply_filter_predicates` builds new AST nodes ``check_query`` has never
+    seen.
     """
     assert tile.query is not None
     try:

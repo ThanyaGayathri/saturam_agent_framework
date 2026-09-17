@@ -345,6 +345,7 @@ def assemble(
     *,
     ready_kpis: Sequence[KpiDefinition],
     context: Optional[SuggestionContext] = None,
+    vocabularies: Optional[VocabularySet] = None,
     check: Optional[QueryCheck] = None,
     preview: Optional[QueryPreviewer] = None,
 ) -> AssemblyReport:
@@ -355,7 +356,15 @@ def assemble(
     summary rides on the result). ``check`` runs a composed statement through the guard and
     returns a verdict; ``preview`` runs a passed statement for a few rows. Both are optional
     so this stays unit-testable without a warehouse; a real run always supplies both.
+
+    ``vocabularies`` is used for exactly one thing: noting when the model's own
+    ``business_area`` guess (still part of its output schema/prompt, see the module's own
+    note by ``filters`` below) doesn't match the deployment's vocabulary -- a diagnostic
+    surfaced in ``notes``, not a filter (R13.1 retired the business-area filter this schema
+    field used to feed). Defaults to the real vocabulary set so a caller that doesn't pass one
+    still gets the check; a unit test can pass a small fixture instead.
     """
+    vocabularies = vocabularies or load_vocabulary_set()
     context = context or SuggestionContext(kpis=tuple(ready_kpis))
     # Scoped to `context.kpis` -- the subset the prompt actually rendered (`_render_kpis`) --
     # not the wider `ready_kpis` argument. A `kpi`-sourced chart may only reuse a metric the
@@ -482,7 +491,18 @@ def assemble(
     # the candidates `GET /dashboards/{id}/filter-columns` derives off the charts above.
     # `response.business_area` (still part of the model's own output schema/prompt) no longer
     # becomes a stored filter; retiring the field itself means touching the prompt template
-    # too and is out of scope here.
+    # too and is out of scope here. Still validated against the vocabulary purely for the
+    # diagnostic (round-2 review): a person reading `notes` should see when the model's own
+    # guess doesn't match the deployment's terms, the same visibility this schema field gave
+    # before R13.1, even though nothing consumes the guess itself any more.
+    if response.business_area:
+        try:
+            vocabularies.validate("business_area", response.business_area)
+        except ValueError as error:
+            extra_notes.append(
+                f"model suggested an unrecognized business area: {error}"
+            )
+
     notes = response.notes.strip()
     if extra_notes:
         notes = "\n".join(part for part in [notes, *extra_notes] if part)
@@ -502,6 +522,7 @@ async def aassemble(
     *,
     ready_kpis: Sequence[KpiDefinition],
     context: Optional[SuggestionContext] = None,
+    vocabularies: Optional[VocabularySet] = None,
     check: Optional[QueryCheck] = None,
     preview: Optional[QueryPreviewer] = None,
 ) -> AssemblyReport:
@@ -512,6 +533,7 @@ async def aassemble(
         response,
         ready_kpis=ready_kpis,
         context=context,
+        vocabularies=vocabularies,
         check=check,
         preview=preview,
     )

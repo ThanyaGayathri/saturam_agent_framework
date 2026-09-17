@@ -35,7 +35,7 @@ from egpt_retail.contracts.dashboards import (
     TileSource,
     Visibility,
 )
-from egpt_retail.contracts.semantic import Column, Table, TableRef
+from egpt_retail.contracts.semantic import Column, SemanticReadError, Table, TableRef
 from egpt_retail.dashboards import queries as queries_module
 from egpt_retail.dashboards.data import query_tile_data
 from egpt_retail.dashboards.queries import check_query
@@ -1499,6 +1499,15 @@ def test_parse_filter_selection_keeps_a_comma_inside_a_single_value_intact():
     assert parsed == {("stores", "city"): ("Dallas, TX",)}
 
 
+def test_parse_filter_selection_keeps_a_legitimately_empty_value(monkeypatch):
+    """`distinct_column_values` only excludes NULL, not empty strings -- a text column with
+    blank-but-non-null rows can offer `""` as a real, selectable value (round-2 review,
+    minor). Only a missing `:` (no value segment at all) is malformed."""
+    parsed = dashboards_module._parse_filter_selection(["orders.region:"])
+    assert parsed == {("orders", "region"): ("",)}
+    assert dashboards_module._parse_filter_selection(["orders.region"]) == {}
+
+
 def test_filter_from_wire_422s_instead_of_500ing_on_an_empty_column(monkeypatch):
     with pytest.raises(HTTPException) as excinfo:
         dashboards_module._filter_from_wire(
@@ -1570,3 +1579,77 @@ def test_update_dashboard_prunes_a_filter_whose_table_the_new_tiles_no_longer_re
         )
     assert response.status_code == 200, response.text
     assert response.json()["filters"] == []
+
+
+def test_validate_filters_503s_instead_of_500ing_when_the_semantic_layer_is_unreachable(
+    monkeypatch,
+):
+    """`_validate_filters` (unlike before round-2) now matches every other filter-touching
+    endpoint's posture: a `SemanticReadError` becomes a clean 503, not an uncaught 500. No
+    tiles in this write (so `_check_query_tiles` never opens a reader itself) isolates the
+    failure to `_validate_filters`'s own read."""
+
+    @contextmanager
+    def _fake_broken_reader(settings):
+        raise SemanticReadError("neo4j unreachable")
+        yield  # pragma: no cover -- unreachable, satisfies the generator/context-manager shape
+
+    monkeypatch.setattr(dashboards_module, "open_semantic_reader", _fake_broken_reader)
+    store = _FakeDashboardStore(_dashboard())
+    with _client(monkeypatch, store) as client:
+        response = client.post(
+            "/dashboards",
+            json={
+                "name": "Regional",
+                "filters": [{"table": "orders", "column": "region"}],
+            },
+        )
+    assert response.status_code == 503
+
+
+def test_update_dashboard_filter_pruning_503s_instead_of_500ing_when_unreachable(
+    monkeypatch,
+):
+    """Isolates the pruning branch's own read: the fake reader succeeds the first time
+    (`_check_query_tiles`, checking the new tiles) and fails the second (the pruning logic's
+    own `open_semantic_reader` call)."""
+    calls = {"n": 0}
+
+    @contextmanager
+    def _fake_reader_fails_on_second_use(settings):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise SemanticReadError("neo4j unreachable")
+        yield _FakeSemanticReader({"products": _fake_table("products")})
+
+    monkeypatch.setattr(
+        dashboards_module, "open_semantic_reader", _fake_reader_fails_on_second_use
+    )
+    monkeypatch.setattr(
+        dashboards_module,
+        "build_warehouse_read_guard",
+        lambda reader: _guard("products"),
+    )
+    store = _FakeDashboardStore(
+        _dashboard(
+            _query_tile(),
+            filters=(DashboardFilterColumn(table="stock_level", column="region"),),
+        )
+    )
+    with _client(monkeypatch, store) as client:
+        response = client.patch(
+            "/dashboards/dsh_1",
+            json={
+                "name": "Northern region",
+                "tiles": [
+                    {
+                        "source": "query",
+                        "query": {"sql": "SELECT region FROM silver.products LIMIT 10"},
+                        "chart": "table",
+                        "position": {"x": 0, "y": 0, "w": 3, "h": 2},
+                    }
+                ],
+            },
+        )
+    assert response.status_code == 503
+    assert calls["n"] == 2

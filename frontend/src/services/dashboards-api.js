@@ -42,7 +42,9 @@ export function fetchDashboardData(id, { filters } = {}) {
   const params = new URLSearchParams();
   for (const [key, values] of Object.entries(filters || {})) {
     for (const value of values || []) {
-      if (value) params.append("f", `${key}:${value}`);
+      // A distinct value can legitimately be an empty string (a blank-but-non-null row) -
+      // only actually-missing values (null/undefined) are skipped.
+      if (value !== null && value !== undefined) params.append("f", `${key}:${value}`);
     }
   }
   const query = params.toString();

@@ -158,7 +158,14 @@ export default function DashboardBuilderStep({
      .catch(() => ({ table, columns: [] })),
    ),
   ).then((results) => {
-   if (cancelled) return;
+   if (cancelled) {
+    // This effect was superseded before the fetch resolved - undo the "already fetched"
+    // mark for these tables so a later run (e.g. the same table reappearing after the user
+    // swaps which query chart is present) retries them instead of being permanently blocked
+    // from ever fetching their columns again this session.
+    toFetch.forEach((t) => fetchedTablesRef.current.delete(t));
+    return;
+   }
    setCandidateColumns((prev) => [
     ...prev,
     ...results.flatMap(({ table, columns }) => columns.map((column) => ({ table, column }))),

@@ -404,6 +404,26 @@ def test_assemble_leaves_filters_empty_when_no_business_area_is_proposed():
     assert report.suggestion.filters == []
 
 
+def test_assemble_notes_an_unrecognized_business_area_guess():
+    """R13.1 retired the business-area filter, but the diagnostic survives: a person reading
+    the suggestion's notes should still see when the model's own guess doesn't match the
+    deployment's vocabulary (round-2 review, nit) -- even though nothing consumes the guess
+    itself as a filter any more."""
+    report = dsg.assemble(
+        _draft(business_area="not-a-real-area"), ready_kpis=[_kpi()], context=_context()
+    )
+    assert report.suggestion.filters == []
+    assert "not-a-real-area" in report.suggestion.notes
+
+
+def test_assemble_does_not_note_a_recognized_business_area_guess():
+    report = dsg.assemble(
+        _draft(business_area="supply_chain"), ready_kpis=[_kpi()], context=_context()
+    )
+    assert report.suggestion.filters == []
+    assert report.suggestion.notes == ""
+
+
 def test_assemble_falls_back_to_a_default_name_when_the_draft_names_nothing():
     report = dsg.assemble(_draft(name="   "), ready_kpis=[_kpi()])
     assert report.suggestion.name == "Untitled dashboard"

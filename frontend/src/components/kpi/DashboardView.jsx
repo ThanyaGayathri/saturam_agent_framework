@@ -19,17 +19,19 @@ import {
  updateDashboardTile,
 } from "../../services/dashboards-api";
 
-/** Every filter selection lives in the URL as `f.<table>.<column>=value1,value2` - per-viewer,
- * shareable, bookmarkable view-time state (R13.1), same justification `KpiDiscoveryPage.jsx`
- * already documents for its own search params. A column left out, or with an empty list, is
- * "All" and is dropped from the query. */
+/** Every filter selection lives in the URL as one repeated `f.<table>.<column>=value` param
+ * per selected value - per-viewer, shareable, bookmarkable view-time state (R13.1), same
+ * justification `KpiDiscoveryPage.jsx` already documents for its own search params. Never a
+ * comma-joined list: a distinct value can itself contain a comma (a real city, "Dallas, TX"),
+ * the same reason `fetchDashboardData` sends the wire request this way. A column left out, or
+ * with no values, is "All" and is dropped from the query. */
 const FILTER_PARAM_PREFIX = "f.";
 
 function selectedFiltersFromParams(searchParams) {
  const result = {};
- for (const [key, value] of searchParams.entries()) {
+ for (const key of new Set(searchParams.keys())) {
   if (!key.startsWith(FILTER_PARAM_PREFIX)) continue;
-  const values = value.split(",").filter(Boolean);
+  const values = searchParams.getAll(key).filter(Boolean);
   if (values.length > 0) result[key.slice(FILTER_PARAM_PREFIX.length)] = values;
  }
  return result;
@@ -230,7 +232,9 @@ export default function DashboardView() {
    if (key.startsWith(FILTER_PARAM_PREFIX)) params.delete(key);
   }
   for (const [key, values] of Object.entries(next)) {
-   if (values && values.length > 0) params.set(`${FILTER_PARAM_PREFIX}${key}`, values.join(","));
+   for (const value of values || []) {
+    if (value) params.append(`${FILTER_PARAM_PREFIX}${key}`, value);
+   }
   }
   setSearchParams(params, { replace: true });
  };
