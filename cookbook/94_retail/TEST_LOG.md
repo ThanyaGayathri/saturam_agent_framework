@@ -6441,3 +6441,26 @@ composed the dashboard (16 tiles) -> the use-case page's Dashboard button and Ru
 "16 KPIs compared -> report emailed · Closed-won rate improved to 55.8% from 47.3% …".
 
 ---
+
+### K23 follow-up -- the fields suggest from the goal alone
+
+**Status:** PASS (17 Sep 2026): in the browser.
+
+**Description:** "Describe it in one go" was the only way to the platform's suggestion; a
+person filling the form field by field got the registry list and nothing else. Now an
+Analytics Automation reads the **Goal** as it is typed (debounced, one request per pause)
+and keeps the platform's answer beside the spec, applied to nothing: the KPIs field shows
+the suggested KPIs as click-to-add chips ("Suggested from your goal") and a one-click
+"Use" for all of them, Analyse by offers the grains those KPIs carry, and Baseline,
+Outputs, Recipients and Frequency each show their suggestion with its reason and a Use
+button. The person edits; nothing is applied until they click. The suggestion keeps only
+KPIs within reach of the best match, so a pointed ask ("by brand, territory and lost
+reason, with the closed-won rate") suggests nine, the broad RFQ ask fifteen, a diagnostic
+question two.
+
+**Verification:** Category card -> Goal typed -> within a second the KPIs field listed
+"Suggested from your goal — click to add: Closed-won rate by brand, Closed-won rate, Lost
+reasons, …" and "Suggested: 16 KPIs the data supports … Use"; after the relative threshold,
+nine for that goal. `vite build` clean; suite 1517 passed.
+
+---

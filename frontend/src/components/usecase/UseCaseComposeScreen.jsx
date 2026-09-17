@@ -22,7 +22,7 @@ import {
  withCategory, withShape, withTemplate,
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
-import { REPORT_OUTPUTS, isAnalyticsInform, patchFromSuggestion } from "../../domain/use-case-analytics";
+import { REPORT_OUTPUTS, analyticsFromSuggestion, analyticsSuggestionFor, isAnalyticsInform, patchFromSuggestion } from "../../domain/use-case-analytics";
 import { suggestAnalyticsUseCase } from "../../services/use-cases-api";
 import { fetchKpiList } from "../../services/kpis-api";
 import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-templates";
@@ -101,8 +101,9 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse }) 
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
        and a person without it sees the reason before deciding to ask. */}
-   {gap && (
+   {(gap || suggestion?.show) && (
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+     {suggestion?.lead && !gap && <span className="text-text-muted">{suggestion.lead}</span>}
      {pref && (
       <span className="inline-flex flex-wrap items-center gap-1.5 text-text-secondary">
        <Sparkles size={11} className="text-primary" />
@@ -383,6 +384,26 @@ export default function UseCaseComposeScreen() {
 
  const [filledNote, setFilledNote] = useState(null);
  const [suggesting, setSuggesting] = useState(false);
+ // The platform reads the goal as it is typed (K23): what the registry and gold support
+ // for these words, kept beside the spec as `analytics` and applied to nothing. Each field
+ // then carries its own suggestion -- the KPIs, the breakdowns, the baseline, the outputs,
+ // the recipients, the cadence -- for the person to use or edit. Debounced: a request per
+ // pause in typing, not per keystroke.
+ const goalForSuggestion = isAnalyticsInform(spec) ? String(spec.goal || "").trim() : "";
+ useEffect(() => {
+  if (goalForSuggestion.length < 12 || spec.analytics?.forGoal === goalForSuggestion) return undefined;
+  const ac = new AbortController();
+  const timer = setTimeout(async () => {
+   try {
+    const suggestion = await suggestAnalyticsUseCase(goalForSuggestion, { signal: ac.signal });
+    setSpec((s) => ({ ...s, analytics: analyticsFromSuggestion({ ...suggestion, _goal: goalForSuggestion }) }));
+   } catch (err) {
+    if (err?.name !== "AbortError") setSpec((s) => ({ ...s, analytics: { ...(s.analytics || {}), kpis: s.analytics?.kpis || [], error: err?.detail || err?.message || "not reachable", forGoal: goalForSuggestion } }));
+   }
+  }, 700);
+  return () => { clearTimeout(timer); ac.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [goalForSuggestion]);
  const fillFromDescription = async () => {
   const msg = oneGoText.trim();
   if (!msg) return;
@@ -477,8 +498,15 @@ export default function UseCaseComposeScreen() {
   if (["schedule", "severity", "timeoutBehaviour"].includes(field) && spec.assumed?.includes(field)) return ORIGIN.assumed;
   return null;
  };
- const suggestionFor = (field) => { const g = gapFor(field); return g ? suggestFor(g, spec, ctx) : null; };
- const useSuggestion = (field, opt) => { const g = gapFor(field); if (g) answer(g, opt.label, opt); };
+ const suggestionFor = (field) => {
+  // An Analytics Automation's fields suggest from the platform's answer to the goal.
+  if (isAnalyticsInform(spec)) { const s = analyticsSuggestionFor(field, spec); if (s) return s; }
+  const g = gapFor(field); return g ? suggestFor(g, spec, ctx) : null;
+ };
+ const useSuggestion = (field, opt) => {
+  if (opt?.patch && isAnalyticsInform(spec)) { setSpec((s) => commit(applyPatch(s, opt.patch, ORIGIN.spec))); return; }
+  const g = gapFor(field); if (g) answer(g, opt.label, opt);
+ };
 
  if (!category || !shape) return <CategoryPicker onChoose={choose} />;
  const CategoryIcon = CATEGORY_ICON[category.id];
@@ -513,6 +541,14 @@ export default function UseCaseComposeScreen() {
           </div>
          );
         })}
+        {(spec.analytics?.kpis || []).filter((k) => !spec.metricIds.includes(k.identifier)).length > 0 && (
+         <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />Suggested from your goal — click to add:</span>
+          {spec.analytics.kpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => (
+           <button key={k.identifier} type="button" title={`${k.identifier} — because you said: ${k.why}${k.feasibility === "ready" ? " · in gold" : " · computed on first run"}`} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>
+          ))}
+         </div>
+        )}
         <select value="" onChange={(e) => e.target.value && setField(f, [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[20rem]`}>
          <option value="">Add a KPI from the registry…</option>
          {platformKpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
@@ -544,7 +580,8 @@ export default function UseCaseComposeScreen() {
     );
    case "dimensions":
     if (isAnalyticsInform(spec)) {
-     const grains = [...new Set([...(spec.analytics?.kpis || []).map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"), ...spec.dimensions])];
+     const chosen = new Set(spec.metricIds);
+     const grains = [...new Set([...(spec.analytics?.kpis || []).filter((k) => chosen.has(k.identifier)).map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"), ...(spec.analytics?.dimensionsSuggested || []), ...spec.dimensions])];
      return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{grains.length ? grains.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d.replace(/_/g, " ")}</button>; }) : <span className="text-xs text-text-muted">The breakdowns follow the KPIs chosen above.</span>}</div></Field>;
     }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;

@@ -27,14 +27,7 @@ export function patchFromSuggestion(suggestion, spec) {
   notify: (suggestion?.recipients || []).join(", ") || spec.notify,
   outputs: suggestion?.outputs?.length ? suggestion.outputs.filter((o) => o !== "alert") : spec.outputs,
   title: spec.title || suggestion?.title || "",
-  analytics: {
-   kind: suggestion?.kind || "monitoring",
-   kpis: suggestion?.kpis || [],
-   uncovered: suggestion?.uncovered || [],
-   notes: suggestion?.notes || [],
-   comparisonReason: suggestion?.comparison_reason || "",
-   scheduleReason: suggestion?.schedule_reason || "",
-  },
+  analytics: analyticsFromSuggestion(suggestion),
  };
  const understood = [];
  if (ids.length) understood.push(`${ids.length} KPI${ids.length === 1 ? "" : "s"} the data supports: ${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}`);
@@ -67,5 +60,77 @@ export function reportResult(result) {
   grounding: result.grounding || null,
   delivery: result.delivery || null,
   inApp: result.in_app || null,
+ };
+}
+
+/**
+ * Per-field suggestions from the platform's answer, in the shape the form's Field renders
+ * (`{lead, options: [{label, why, patch}], preferred}`): the person sees the reason on the
+ * field itself and clicks Use, or edits. Nothing is applied until they do.
+ */
+export function analyticsSuggestionFor(field, spec) {
+ const a = spec?.analytics;
+ if (!a || !(a.kpis || []).length) return null;
+ const ids = a.kpis.map((k) => k.identifier);
+ switch (field) {
+  case "metrics": case "metric": {
+   const missing = ids.filter((id) => !(spec.metricIds || []).includes(id));
+   if (!missing.length) return null;
+   const names = a.kpis.filter((k) => missing.includes(k.identifier)).map((k) => k.name);
+   const label = `${missing.length} KPI${missing.length === 1 ? "" : "s"} the data supports`;
+   return {
+    show: true,
+    lead: `From your goal and the registry: ${names.slice(0, 5).join(", ")}${names.length > 5 ? ` and ${names.length - 5} more` : ""}.`,
+    options: [{ label, why: `${names.slice(0, 3).join(", ")}${names.length > 3 ? ", …" : ""} — each chosen by words in your goal`, patch: { metricIds: [...new Set([...(spec.metricIds || []), ...missing])], metricTerms: [] } }],
+    preferred: label,
+   };
+  }
+  case "dimensions": {
+   const dims = (a.dimensionsSuggested || []).filter((d) => !(spec.dimensions || []).includes(d));
+   if (!dims.length) return null;
+   const label = dims.map((d) => d.replace(/_/g, " ")).join(", ");
+   return { show: true, lead: null, options: [{ label, why: "the breakdowns the suggested KPIs offer", patch: { dimensions: [...new Set([...(spec.dimensions || []), ...dims])] } }], preferred: label };
+  }
+  case "comparison": {
+   if (spec.comparison === a.comparison) return null;
+   const label = a.comparison === "prior_year" ? "The same period last year" : "The period before";
+   return { show: true, lead: null, options: [{ label, why: a.comparisonReason || "", patch: { comparison: a.comparison } }], preferred: label };
+  }
+  case "outputs": {
+   const wanted = (a.outputs || []).filter((o) => o !== "alert");
+   if (!wanted.length || wanted.every((o) => (spec.outputs || []).includes(o))) return null;
+   const label = wanted.join(" + ");
+   return { show: true, lead: null, options: [{ label, why: a.kind === "diagnostic" ? "a question run once: the report alone" : "a standing report and a dashboard composed from the same KPIs", patch: { outputs: wanted } }], preferred: label };
+  }
+  case "recipient": {
+   const to = (a.recipients || []).join(", ");
+   if (!to || spec.notify === to) return null;
+   return { show: true, lead: null, options: [{ label: to, why: "named in your goal", patch: { notify: to } }], preferred: to };
+  }
+  case "schedule": {
+   if (!a.schedule || spec.schedule === a.schedule || !a.scheduleReason) return null;
+   return { show: true, lead: null, options: [{ label: a.schedule, why: a.scheduleReason, patch: { schedule: a.schedule } }], preferred: a.schedule };
+  }
+  default:
+   return null;
+ }
+}
+
+/** The platform's answer kept beside the spec, applied to nothing: what the fields suggest from. */
+export function analyticsFromSuggestion(suggestion) {
+ return {
+  kind: suggestion?.kind || "monitoring",
+  kpis: suggestion?.kpis || [],
+  dimensionsSuggested: suggestion?.dimensions || [],
+  uncovered: suggestion?.uncovered || [],
+  notes: suggestion?.notes || [],
+  comparison: suggestion?.comparison || "prior_period",
+  comparisonReason: suggestion?.comparison_reason || "",
+  schedule: suggestion?.schedule || "",
+  scheduleReason: suggestion?.schedule_reason || "",
+  outputs: suggestion?.outputs || [],
+  recipients: suggestion?.recipients || [],
+  title: suggestion?.title || "",
+  forGoal: suggestion?._goal || "",
  };
 }

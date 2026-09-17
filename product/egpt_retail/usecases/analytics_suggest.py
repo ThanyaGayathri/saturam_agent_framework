@@ -311,12 +311,12 @@ def suggest_analytics(
             )
         )
     scored.sort(key=lambda pair: (-pair[0], str(pair[1]["identifier"])))
-    # The ask's own breadth decides how many: a broad monitoring ask takes every KPI that
-    # matched on more than a stray word; a diagnostic one the few that matched best.
-    threshold = (
-        2 if kind == "monitoring" else max(2, (scored[0][0] // 2) if scored else 2)
-    )
-    chosen = [k for score, k in scored if score >= threshold][
+    # The ask's own breadth decides how many: a KPI that matched on a stray word or two
+    # while another matched on six is not what the person asked for. Kept: those within
+    # reach of the best match; a broad monitoring ask keeps more than a pointed question.
+    best = scored[0][0] if scored else 0
+    floor = max(2, int(best * (0.45 if kind == "monitoring" else 0.6)))
+    chosen = [k for score, k in scored if score >= floor][
         : 16 if kind == "monitoring" else 6
     ]
     if not chosen and scored:
