@@ -69,7 +69,7 @@ function flattenKpiCount(categories) {
 }
 
 export default function KpisHubLayout() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const { data, hydrated } = useKpiRegistry();
   const { total } = useMemo(() => flattenKpiCount(data?.categories), [data?.categories]);
@@ -96,6 +96,28 @@ export default function KpisHubLayout() {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
               >
                 + Add KPI source
+              </button>
+            </div>
+          ) : null}
+          {tab === "discover" ? (
+            <div className={catalogPrimaryAction}>
+              {/* Opens the discovery page's "Add KPI" modal through the URL (`?add=1`), the way
+                  `?run=` and `?unlocked=` already carry page state there -- the modal lives in the
+                  page (it needs the areas, the run and the registry), this header does not. The
+                  rest of the search string is kept so an in-flight `?run=` survives the click.
+                  A `replace`, like the page's own close: this button only shows on the discover
+                  tab, so a push would stack a second entry for the same page and leave Back with
+                  one dead press once the modal's close has replaced it again. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = new URLSearchParams(search);
+                  next.set("add", "1");
+                  navigate({ pathname: "/kpis/discover", search: `?${next.toString()}` }, { replace: true });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
+              >
+                + Add KPI
               </button>
             </div>
           ) : null}

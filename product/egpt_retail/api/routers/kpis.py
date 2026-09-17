@@ -118,6 +118,7 @@ from egpt_retail.executors.gold import materialise_gold
 from egpt_retail.kpi.series import DEFAULT_SERIES_DAYS, read_kpi_series
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
+from egpt_retail.suggestions.context import normalise_request
 from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
 from egpt_retail.suggestions.runs import (
     SuggestionRunPhase,
@@ -305,7 +306,11 @@ def _derive_identifier(write: wire.KpiWrite) -> str:
                 "the name."
             ),
         )
-    return kpi_identifier(write.concept, _slugify(write.name))
+    # Both halves slugified, not only the name: `concept` is free text on the wire (the
+    # manual "Add KPI" form is the first place a person types it), and `KpiDefinition` refuses
+    # any identifier that fails `str.isidentifier()` -- so "web-session" or "RFQ quote" would
+    # otherwise 422 about an `identifier` the form never shows.
+    return kpi_identifier(_slugify(write.concept), _slugify(write.name))
 
 
 def _carry_forward_validation(
@@ -709,6 +714,7 @@ def _list_kpi_suggestions(
     agents: Optional[Tuple[Any, Any]] = None,
     focus_areas: Sequence[str] = (),
     on_phase: Optional[PhaseCallback] = None,
+    ask: Optional[str] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
@@ -717,7 +723,10 @@ def _list_kpi_suggestions(
     Two different things can name areas here. ``business_area`` (the deprecated single id)
     narrows what comes *back*, after the fact. ``focus_areas`` (the run request's
     ``business_areas``) go *into* the message as a priority -- the agent proposes for them
-    first -- and nothing is dropped for being outside them.
+    first -- and nothing is dropped for being outside them. ``ask`` (the run request's
+    ``ask``, contract 1.2.3) goes into the message too, as the customer's own request to
+    answer first; same rule, a steer and never a filter. A replayed run ignores it: the file
+    is a fixed answer, whatever was asked.
 
     ``on_phase`` is forwarded to ``run_suggestions`` so a run row can record which stage
     the pass is in (``_execute_suggestion_run``); the synchronous route passes nothing.
@@ -816,6 +825,7 @@ def _list_kpi_suggestions(
             agents=resolved_agents,
             focus_areas=focus_areas,
             on_phase=on_phase,
+            request=ask,
         )
     suggestions = _finalize_suggestions(
         run.kpis.suggestions, business_area, include_sql
@@ -911,6 +921,7 @@ def _run_out(
         status=wire.KpiSuggestionRunStatus(record.status.value),
         business_area=record.business_area,
         business_areas=list(record.business_areas),
+        ask=record.ask,
         created_at=record.created_at,
         started_at=record.started_at,
         finished_at=record.finished_at,
@@ -983,6 +994,7 @@ async def _execute_suggestion_run(
     snapshot: _SuggestionRegistrySnapshot,
     business_area: Optional[str],
     focus_areas: Sequence[str] = (),
+    ask: Optional[str] = None,
 ) -> None:
     """The executor behind ``POST /kpis/suggestions``: ``queued`` -> ``running`` -> one
     bounded ``_list_kpi_suggestions`` -> ``succeeded``/``failed``. Each row write opens and
@@ -1006,6 +1018,7 @@ async def _execute_suggestion_run(
                     include_sql=True,
                     focus_areas=focus_areas,
                     on_phase=_phase_reporter(run_id, settings),
+                    ask=ask,
                 ),
                 settings.retail_suggestion_timeout_seconds,
             )
@@ -1055,7 +1068,8 @@ async def start_kpi_suggestion_run(
     ``business_areas`` is the focus (contract 1.1.8): the areas the customer cares about,
     handed to the agents as a priority. ``business_area`` is the older single narrowing
     filter, still honoured. The frontend sends the first; the second stays for callers
-    written against 1.1.5.
+    written against 1.1.5. ``ask`` (contract 1.2.3) is the customer's request in their own
+    words, handed to the agents as the thing to answer first; whitespace-only is absent.
     """
     settings = RetailSettings()
     business_area = _validated_business_area(
@@ -1064,17 +1078,23 @@ async def start_kpi_suggestion_run(
     focus_areas = _validated_business_areas(
         body.business_areas if body is not None else None, snapshot.vocabularies
     )
+    # The row echoes the ask exactly as the message will carry it (`normalise_request` is the
+    # one definition of both): blank reads as absent, so a screen that sends its empty
+    # textarea starts the same run as one that sent nothing, and the row never echoes a
+    # request made of spaces. Length is the contract's (`maxLength`), enforced by validation
+    # before this is reached.
+    ask = normalise_request(body.ask if body is not None else None)
     record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
         lambda store: (
-            store.create(business_area, focus_areas),
+            store.create(business_area, focus_areas, ask),
             store.typical_duration(),
         ),
     )
     task = asyncio.create_task(
         _execute_suggestion_run(
-            record.identifier, settings, snapshot, business_area, focus_areas
+            record.identifier, settings, snapshot, business_area, focus_areas, ask
         )
     )
     _suggestion_run_tasks.add(task)

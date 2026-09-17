@@ -100,6 +100,10 @@ class SuggestionRunRecord:
     #: Set while ``running``, as the pipeline reports each stage; left as it was once the
     #: row is terminal (a ``failed`` row's phase says where it failed).
     phase: Optional[SuggestionRunPhase] = None
+    #: What the customer asked for, in their own words (contract 1.2.3) -- a steer in the
+    #: agents' message, kept on the row so a poll can say what the run was for. ``None``
+    #: when the run was started without one.
+    ask: Optional[str] = None
 
     @property
     def terminal(self) -> bool:
@@ -138,6 +142,10 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         # EXISTS of its own.
         f"""ALTER TABLE {schema}.kpi_suggestion_run
         ADD COLUMN IF NOT EXISTS phase text""",
+        # A table provisioned before `ask` existed (contract 1.2.3) gains the column in
+        # place; every older row reads as "no request", which is what it was.
+        f"""ALTER TABLE {schema}.kpi_suggestion_run
+        ADD COLUMN IF NOT EXISTS ask text""",
         f"""DO $$ BEGIN
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -170,7 +178,7 @@ def _ddl(schema: str) -> Tuple[str, ...]:
 
 _COLUMNS = (
     "id, status, business_area, created_at, started_at, finished_at, result, error, "
-    "business_areas, phase"
+    "business_areas, phase, ask"
 )
 
 
@@ -211,17 +219,19 @@ class SuggestionRunStore:
         self,
         business_area: Optional[str],
         business_areas: Sequence[str] = (),
+        ask: Optional[str] = None,
     ) -> SuggestionRunRecord:
-        """Record a new, queued run and return it. ``business_areas`` is the focus the run
-        was started with, kept on the row so the poll can echo what was asked for."""
+        """Record a new, queued run and return it. ``business_areas`` is the focus and
+        ``ask`` the customer's request the run was started with, both kept on the row so
+        the poll can echo what was asked for."""
         identifier = f"sr_{uuid.uuid4().hex}"
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""INSERT INTO {self._schema}.kpi_suggestion_run
-                        (id, business_area, business_areas)
-                    VALUES (%s, %s, %s)
+                        (id, business_area, business_areas, ask)
+                    VALUES (%s, %s, %s, %s)
                     RETURNING {_COLUMNS}""",
-                (identifier, business_area, json.dumps(list(business_areas))),
+                (identifier, business_area, json.dumps(list(business_areas)), ask),
             )
             row = cursor.fetchone()
         self._connection.commit()
@@ -231,9 +241,10 @@ class SuggestionRunStore:
         self,
         business_area: Optional[str],
         business_areas: Sequence[str] = (),
+        ask: Optional[str] = None,
     ) -> SuggestionRunRecord:
         """Async variant."""
-        return await asyncio.to_thread(self.create, business_area, business_areas)
+        return await asyncio.to_thread(self.create, business_area, business_areas, ask)
 
     def mark_running(self, identifier: str) -> None:
         """``queued`` -> ``running``. A no-op on a row that has already moved on."""
@@ -394,6 +405,7 @@ def _record(row: Any) -> SuggestionRunRecord:
         error,
         business_areas,
         phase,
+        ask,
     ) = row
     if isinstance(result, str):  # a driver that hands jsonb back undecoded
         result = json.loads(result)
@@ -410,4 +422,5 @@ def _record(row: Any) -> SuggestionRunRecord:
         error=error,
         business_areas=tuple(business_areas or ()),
         phase=SuggestionRunPhase(phase) if phase is not None else None,
+        ask=ask,
     )

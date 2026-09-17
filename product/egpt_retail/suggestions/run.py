@@ -132,6 +132,7 @@ def run_suggestions(
     existing_definitions: Optional[Sequence[Any]] = None,
     focus_areas: Optional[Sequence[str]] = None,
     on_phase: Optional[PhaseCallback] = None,
+    request: Optional[str] = None,
 ) -> SuggestionRun:
     """Run both suggestion agents over the current semantic layer and file the results.
 
@@ -154,6 +155,11 @@ def run_suggestions(
     (:func:`render_focus`), never as a filter: what comes back is still judged by
     ``assemble`` and stamped with the ontology's area, and nothing is dropped for being
     outside the focus. ``None`` or empty means no focus, and the message is unchanged.
+
+    ``request`` is what the customer asked for, in their own words (contract 1.2.3, the
+    discovery page's "Add KPI" -> AI generated). It reaches both agents after the focus and
+    before the standing ask (:func:`render_request`), as the request to answer first -- a
+    steer, never a filter, for the same reason. ``None`` or blank means no request.
 
     ``on_phase`` hears each of the pass's three stages begin (:data:`PhaseCallback`). The
     two model calls run back to back and both assemblies follow, rather than interleaving
@@ -201,6 +207,7 @@ def run_suggestions(
                 context,
                 ask="Propose the KPIs this data supports.",
                 focus_areas=focus_areas,
+                request=request,
             )
         ),
         k12.KpiSuggestionDraftSet,
@@ -211,6 +218,7 @@ def run_suggestions(
                 context,
                 ask="Propose the use cases this data supports.",
                 focus_areas=focus_areas,
+                request=request,
             )
         ),
         k13.UseCaseSuggestionDraftSet,
@@ -274,6 +282,7 @@ async def arun_suggestions(
     existing_definitions: Optional[Sequence[Any]] = None,
     focus_areas: Optional[Sequence[str]] = None,
     on_phase: Optional[PhaseCallback] = None,
+    request: Optional[str] = None,
 ) -> SuggestionRun:
     """Async variant. Two model calls and several store reads happen off the event loop."""
     return await asyncio.to_thread(
@@ -291,4 +300,5 @@ async def arun_suggestions(
         existing_definitions=existing_definitions,
         focus_areas=focus_areas,
         on_phase=on_phase,
+        request=request,
     )

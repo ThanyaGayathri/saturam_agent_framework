@@ -109,6 +109,23 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the
+run request and its echo on the run -- so no negotiation and no major bump.
+
+- **`KpiSuggestionRunRequest.ask`** (string or null, at most 2000 characters, not required)
+  and **`KpiSuggestionRun.ask`** (its echo). The discovery page's "Add KPI" gains an
+  AI-generated path: the customer says what they want to measure, in their own words, and a
+  suggestion run is started with that as its request. It reaches both agents in the message
+  after the focus (1.1.8) and before the standing ask, worded as the request to answer first
+  -- a steer, never a filter, for the same reason the focus is one: what comes back is still
+  judged by `assemble`, stamped with the ontology's area, and checked for feasibility exactly
+  as an unprompted run's proposals are, so a request the harvest cannot back produces no
+  invented metric, only the agent's `notes` saying so. Whitespace-only reads as absent; the
+  message is then exactly what it was before this field existed. Echoed on the run row so a
+  screen restoring a run from its id can say what it was for.
+
 ## 1.2.2 — 2026-09-17 — kpis: `Kpi.rationale`, `Kpi.business_value` kept after adopt (additive)
 
 Agreed by: product (nandha-saturam). Additive -- two new, nullable, non-required fields on
