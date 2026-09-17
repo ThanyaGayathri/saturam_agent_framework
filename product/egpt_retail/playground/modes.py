@@ -34,7 +34,9 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.app.stores import open_knowledge_stores
 from egpt_retail.executors.gold import read_gold
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
+from egpt_retail.playground.grounding import agrounded_read_instructions
 from egpt_retail.retrieval.legs import aretail_unified_read
+from egpt_retail.warehouse.schema import SILVER_SCHEMA
 
 __all__ = ["PlaygroundMode", "ModeScope", "resolve_mode_scope", "aresolve_mode_scope"]
 
@@ -76,7 +78,7 @@ def resolve_mode_scope(
     time, so a chat session never holds a driver or engine open across turns."""
     settings = settings or RetailSettings()
     if mode is PlaygroundMode.DATA:
-        return _data_scope()
+        return _data_scope(settings)
     if mode is PlaygroundMode.KNOWLEDGE:
         return _knowledge_scope(settings, user_id)
     if mode is PlaygroundMode.USE_CASE:
@@ -101,10 +103,28 @@ async def aresolve_mode_scope(
     )
 
 
-def _data_scope() -> ModeScope:
-    """Semantic-layer-grounded: gold-only reads through R6's guard, the same seam R13's
-    dashboards read through (``executors/gold.py``'s own "the seam an interactive playground
-    reads through")."""
+def _data_scope(settings: RetailSettings) -> ModeScope:
+    """Chat with data: gold for what a KPI *is*, guarded SQL for everything else (G21).
+
+    Two tools, and the split is the point. ``read_kpi_data`` answers "what is KPI X" from
+    materialised gold -- stamped with source and computation time, which is the alignment
+    rule's whole reason for gold existing. ``query_warehouse`` answers the open-ended "why did
+    it move" questions no registered KPI covers, by putting a model in front of silver.
+
+    Not one or the other: a model writing SQL to recompute a number that already exists as a
+    governed gold row would produce an answer nobody could trace, which is exactly what gold's
+    stamps exist to prevent. Gold stays authoritative; SQL is for exploration.
+
+    **G21 is the instructions this provider runs under.** ``DEFAULT_READ_INSTRUCTIONS``
+    substitutes ``{schema}`` and nothing else, so without grounding the sub-agent sees
+    ``crm_deal`` and two columns called ``amount`` and cannot learn which is a quote, that this
+    customer says "RFQ", or that every quote query carries a scoping filter -- while the
+    semantic layer holds all of it, reviewed and accepted through K7.
+
+    Both paths run inside R6's guard. ``build_warehouse_read_guard`` is the same call R5's
+    materialiser and ``read_gold`` make, so "no SQL runs outside the guard" holds for the SQL
+    tool by construction rather than by the sub-agent behaving.
+    """
 
     async def read_kpi_data(kpi_identifiers: List[str]) -> Dict[str, Any]:
         """Materialised values for the named KPIs, through the guard. A KPI with nothing
@@ -114,11 +134,48 @@ def _data_scope() -> ModeScope:
         # Narrowing cast, not an assumption: `read_gold` always returns a dict content.
         return cast(Dict[str, Any], output.content)
 
+    async def query_warehouse(question: str) -> Dict[str, Any]:
+        """Answer a question from silver by reading it, grounded in the semantic layer.
+
+        The provider is built per call rather than held open: its two engines are pooled by
+        SQLAlchemy, and a chat session that parked one across turns would hold a warehouse
+        connection for the length of a conversation.
+        """
+        from egpt.integrations.context.database.provider import DatabaseContextProvider
+
+        from egpt_retail.app.db import (
+            build_warehouse_engine,
+            build_warehouse_readonly_engine,
+        )
+        from egpt_retail.app.sql_guard import build_warehouse_read_guard
+
+        with open_semantic_reader(settings) as reader:
+            instructions = await agrounded_read_instructions(reader)
+            guard = build_warehouse_read_guard(reader)
+            provider = DatabaseContextProvider(
+                id="warehouse",
+                sql_engine=build_warehouse_engine(settings),
+                readonly_engine=build_warehouse_readonly_engine(settings),
+                schema=SILVER_SCHEMA,
+                read_instructions=instructions,
+                read_guard=guard,
+                # Read-only by construction, not by instruction: the write agent is never
+                # built, so no prompt has to be trusted to keep the playground off the
+                # write path.
+                write=False,
+            )
+            answer = await provider.aquery(question)
+        return {
+            "answer": answer,
+            "schema": SILVER_SCHEMA,
+            "grounded": bool(instructions),
+        }
+
     return ModeScope(
         mode=PlaygroundMode.DATA,
         scope_id=None,
-        tools=(read_kpi_data,),
-        description="Gold-only reads over every ready KPI, through R6's guard.",
+        tools=(read_kpi_data, query_warehouse),
+        description="Gold for KPI values, guarded and grounded SQL over silver for the rest.",
     )
 
 
