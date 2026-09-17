@@ -1,10 +1,11 @@
 /**
  * Data catalog tab tour (formerly "KPI Gallery").
  *
- * The Data catalog is a read-only browse view of every dataset that
- * powers the KPIs in the registry, grouped by source system. Adding
- * or editing datasets happens elsewhere (Configure > Data Sources for
- * connections, or the Add KPI source button for new dataset entries).
+ * The Data catalog is a read-only, live view of every table the semantic layer actually
+ * exposes (`GET /semantic/tables`), grouped by schema (silver/gold) rather than by a
+ * source-system label the backend does not track per table. Connecting a new source
+ * happens in Configure > Data Sources; datasets appear here once the semantic layer has
+ * harvested and modelled them.
  *
  * Anchors target elements in KpisHubLayout.jsx and KpiDataGallery.jsx.
  */
@@ -12,24 +13,15 @@
 export const KPI_GALLERY_TOUR = {
   id: "kpi-gallery",
   title: "Data catalog",
-  subtitle: "Runs about 3 minutes.",
+  subtitle: "Runs about 2 minutes.",
   steps: [
     {
       id: "welcome",
       route: "/kpis/gallery",
       anchor: null,
       lines: [
-        { text: "This is the Data catalog. It's a browse-only view of every dataset that powers the KPIs in your registry.", rate: 0.97 },
-        { text: "A dataset here is more than a raw connection. It carries the business context — which columns matter, which business areas it serves, and which KPIs it feeds.", rate: 0.98, pauseAfter: 300 },
-      ],
-    },
-    {
-      id: "connect",
-      route: "/kpis/gallery",
-      anchor: "[data-tour-kpi='connect']",
-      lines: [
-        { text: "Add KPI source opens a form for registering a new dataset. Pick the underlying data source, name the dataset, list its attributes, tag the business areas, and link the KPIs it powers.", rate: 0.97, pauseAfter: 400 },
-        { text: "This is separate from adding a raw data source in Configure. A KPI source lives here because it carries metric-specific context that a bare connection doesn't.", rate: 0.98, pauseAfter: 350 },
+        { text: "This is the Data catalog. It's a live, browse-only view of every table the semantic layer exposes.", rate: 0.97 },
+        { text: "Every field here is real: which columns a table has, which business areas its linked KPIs serve, and which KPIs in the registry actually use it.", rate: 0.98, pauseAfter: 300 },
       ],
     },
     {
@@ -38,7 +30,7 @@ export const KPI_GALLERY_TOUR = {
       anchor: "[data-tour-kpi-gal='filters']",
       lines: [
         { text: "The search bar on the left matches dataset names, attributes, business tags, and KPI names, so you can find any dataset from any angle.", rate: 0.97 },
-        { text: "Four dropdowns on the right. Source narrows to one system, like SAP or Snowflake. Business area filters to datasets serving one area. Status shows only healthy or only stale feeds. Sort reorders by recent sync, name, or KPI count.", rate: 0.98, pauseAfter: 400 },
+        { text: "Schema narrows to silver or gold. Business area filters to datasets whose linked KPIs serve one area. Sort reorders by KPI count, row count, or name.", rate: 0.98, pauseAfter: 400 },
       ],
     },
     {
@@ -46,8 +38,8 @@ export const KPI_GALLERY_TOUR = {
       route: "/kpis/gallery",
       anchor: "[data-tour-kpi-gal='grid']",
       lines: [
-        { text: "Datasets are grouped by the source system they live in, so all the SAP tables sit together, all the Snowflake views sit together, and so on.", rate: 0.97 },
-        { text: "The count next to each source shows how many datasets it contributes, plus how many attributes and KPI links it adds in total.", rate: 0.97, pauseAfter: 350 },
+        { text: "Datasets are grouped by schema, so silver tables sit together and gold tables sit together.", rate: 0.97 },
+        { text: "The count next to each schema shows how many datasets it contributes, plus how many attributes and KPI links it adds in total.", rate: 0.97, pauseAfter: 350 },
       ],
     },
     {
@@ -56,13 +48,11 @@ export const KPI_GALLERY_TOUR = {
       anchor: "[data-tour-kpi-gal='grid']",
       lines: [
         { text: "Each dataset card has several fields worth pointing out.", rate: 0.97 },
-        { text: "The header shows the source icon and a Healthy or Stale pill. A green Healthy pill means the sync is current; a yellow Stale pill means the last sync is behind schedule.", rate: 0.98 },
-        { text: "Under the header, the fully-qualified name of the table or view, and a one-line description of what the dataset holds.", rate: 0.98 },
-        { text: "Rows and Last sync give you a quick read on scale and freshness.", rate: 0.98 },
-        { text: "Just below that, the KPIs linked count tells you how many metrics in the Registry this dataset feeds.", rate: 0.98 },
-        { text: "Attribute chips list the columns exposed by the dataset. Below them, business area chips tag which parts of the business the dataset serves.", rate: 0.98 },
-        { text: "At the very bottom, Edit and Remove buttons let you update or delete the source.", rate: 0.98 },
-        { text: "The KPIs linked count on each card is the same relationship you configure the other way around in Configure, under the KPIs tab. Data catalog is the dataset view. Configure KPIs is the KPI view.", rate: 0.98, pauseAfter: 400 },
+        { text: "The header shows which schema the table lives in. Below it, the fully-qualified table name and its description from the semantic layer.", rate: 0.98 },
+        { text: "Rows and Attributes give you a quick read on scale and shape.", rate: 0.98 },
+        { text: "Just below that, the KPIs linked count tells you how many metrics in the registry actually declare this table as a source.", rate: 0.98 },
+        { text: "Attribute chips list the columns exposed by the table. Below them, business area chips are drawn from the linked KPIs' own business areas.", rate: 0.98 },
+        { text: "The KPIs linked count is the same relationship you see the other way around on a KPI's own detail panel — this is the dataset view of it.", rate: 0.98, pauseAfter: 400 },
       ],
     },
     {
@@ -70,7 +60,7 @@ export const KPI_GALLERY_TOUR = {
       route: "/kpis/gallery",
       anchor: null,
       lines: [
-        { text: "That's the Data catalog. Every KPI needs at least one dataset here to have a real value. Add sources as your data grows, and edit KPI to dataset mappings from Configure.", rate: 0.98 },
+        { text: "That's the Data catalog. A table appears here once it's been connected and modelled in Configure — this page never shows a table that isn't real.", rate: 0.98 },
       ],
       advance: "manual",
     },

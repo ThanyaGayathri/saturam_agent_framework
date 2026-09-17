@@ -238,7 +238,13 @@ export default function ConfigureInternalSources() {
 
 
  const sources = useMemo(() => {
-  const internal = (data.internalSources || []).map((s) => ({
+  // Seeded demo rows (`seed: true`) are static placeholders, not real connections -- hide
+  // them from the grid (and everything computed from it: counts, readiness) so this page
+  // only ever shows sources someone actually connected. They stay in storage rather than
+  // being deleted, so nothing here reverts a user's own edits to an unrelated row.
+  const internal = (data.internalSources || [])
+   .filter((s) => !s.seed)
+   .map((s) => ({
    id: s.id,
    name: s.name,
    subtitle: `${s.host}${s.port ? `:${s.port}` : ""}`,
@@ -254,7 +260,13 @@ export default function ConfigureInternalSources() {
   const labelFor = (pid) => catalog.find((c) => c.id === pid)?.label || pid;
   const categoryFor = (pid) => catalog.find((c) => c.id === pid)?.category || "Platform";
 
-  const external = (data.externalIntegrations || []).map((e) => ({
+  // `normalizeExternal` doesn't carry a `seed` flag through (unlike `normalizeInternal`), so
+  // fall back to the one thing every seed row reliably has: its id, always built as
+  // `seed_*` (see `CONFIGURE_SEED_EXTERNAL`), never something a real integration gets --
+  // `createExternalIntegration` always mints `ext_*` via `genId`.
+  const external = (data.externalIntegrations || [])
+   .filter((e) => !String(e.id || "").startsWith("seed_"))
+   .map((e) => ({
    id: e.id,
    name: e.name || labelFor(e.providerId),
    subtitle: e.baseUrl || categoryFor(e.providerId),
