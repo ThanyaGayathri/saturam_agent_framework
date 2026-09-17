@@ -547,12 +547,15 @@
       what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each
       tile carries the computation stamp its rows hold.
 
-      `f` is zero or more `table.column:value1,value2` selections (repeat the parameter for
-      more than one column), read from the URL rather than the saved dashboard -- a filter's
-      *values* are per-viewer, transient view-time state (R13.1), never persisted, and
-      restricted to columns in the dashboard's own `filters`. With none given, this is exactly
-      the cached read above; with at least one, every `query` tile is (re)computed live through
-      the warehouse read guard instead, AND-combining every selection that applies to it.
+      `f` is zero or more `table.column:value` selections -- repeat the parameter once per
+      selected value, never a comma-joined list (a distinct value can itself contain a comma,
+      e.g. a city named "Dallas, TX") -- read from the URL rather than the saved dashboard,
+      since a filter's *values* are per-viewer, transient view-time state (R13.1), never
+      persisted, and restricted to columns in the dashboard's own `filters`. With none given,
+      this is exactly the cached read above; with at least one, every `query` tile it reaches
+      (its `source_tables` intersects an active predicate's table) is recomputed live through
+      the warehouse read guard, AND-combining every selection that applies to it; a tile no
+      active filter reaches keeps reading from the cache.
     x-egpt-scopes: [dashboards:read]
     parameters:
       - $ref: '#/x-egpt-parameters/dashboardId'
@@ -564,8 +567,8 @@
           items: {type: string}
         style: form
         explode: true
-        description: "A `table.column:value1,value2` filter selection; repeat for more than one column."
-        example: ["inventory.category:Produce,Dairy"]
+        description: "A `table.column:value` filter selection; repeat once per value, and again for more than one column."
+        example: ["inventory.category:Produce", "inventory.category:Dairy"]
     responses:
       "200":
         description: The data.

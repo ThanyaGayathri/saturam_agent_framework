@@ -313,7 +313,7 @@ export default function DashboardView() {
    });
    setDashboardState({ status: "ready", dashboard: saved, error: null });
    setEditingTileId(null);
-   loadData(dashboard.id);
+   loadData(dashboard.id, selectedFilters);
   } catch (err) {
    setActionError(err?.message || "Could not save that chart.");
   } finally {
@@ -641,7 +641,7 @@ export default function DashboardView() {
        const saved = await addDashboardTile(dashboard.id, write);
        setDashboardState({ status: "ready", dashboard: saved, error: null });
        setAddingChart(null);
-       loadData(dashboard.id);
+       loadData(dashboard.id, selectedFilters);
       } catch (err) {
        setActionError(err?.message || "Could not add that chart.");
       } finally {

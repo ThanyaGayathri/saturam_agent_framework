@@ -13955,7 +13955,7 @@
         ],
         "operationId": "getDashboardData",
         "summary": "Every tile's values -- kpi tiles from gold, query tiles from their cached result.",
-        "description": "One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is\nwhat keeps a four-tile dashboard from issuing four warehouse scans on every open. Each\ntile carries the computation stamp its rows hold.\n\n`f` is zero or more `table.column:value1,value2` selections (repeat the parameter for\nmore than one column), read from the URL rather than the saved dashboard -- a filter's\n*values* are per-viewer, transient view-time state (R13.1), never persisted, and\nrestricted to columns in the dashboard's own `filters`. With none given, this is exactly\nthe cached read above; with at least one, every `query` tile is (re)computed live through\nthe warehouse read guard instead, AND-combining every selection that applies to it.\n",
+        "description": "One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is\nwhat keeps a four-tile dashboard from issuing four warehouse scans on every open. Each\ntile carries the computation stamp its rows hold.\n\n`f` is zero or more `table.column:value` selections -- repeat the parameter once per\nselected value, never a comma-joined list (a distinct value can itself contain a comma,\ne.g. a city named \"Dallas, TX\") -- read from the URL rather than the saved dashboard,\nsince a filter's *values* are per-viewer, transient view-time state (R13.1), never\npersisted, and restricted to columns in the dashboard's own `filters`. With none given,\nthis is exactly the cached read above; with at least one, every `query` tile it reaches\n(its `source_tables` intersects an active predicate's table) is recomputed live through\nthe warehouse read guard, AND-combining every selection that applies to it; a tile no\nactive filter reaches keeps reading from the cache.\n",
         "x-egpt-scopes": [
           "dashboards:read"
         ],
@@ -13980,9 +13980,10 @@
             },
             "style": "form",
             "explode": true,
-            "description": "A `table.column:value1,value2` filter selection; repeat for more than one column.",
+            "description": "A `table.column:value` filter selection; repeat once per value, and again for more than one column.",
             "example": [
-              "inventory.category:Produce,Dairy"
+              "inventory.category:Produce",
+              "inventory.category:Dairy"
             ]
           }
         ],

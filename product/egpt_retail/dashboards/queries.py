@@ -657,8 +657,8 @@ def distinct_column_values(
     :func:`check_query` -- the same allow-list, schema and row-cap checks every other read
     goes through -- before it ever reaches the warehouse.
     """
-    qt = _quoted_identifier(table, "postgres")
-    qc = _quoted_identifier(column, "postgres")
+    qt = _quoted_identifier(table, guard.dialect)
+    qc = _quoted_identifier(column, guard.dialect)
     sql = f"SELECT DISTINCT {qc} FROM {qt} WHERE {qc} IS NOT NULL ORDER BY {qc} LIMIT {int(limit)}"
     verdict = check_query(sql, guard=guard, context_tables=frozenset({table.lower()}))
     if not verdict.runnable:
@@ -896,10 +896,21 @@ async def arun_filtered_tile(
 
     sql = verdict.sql
     if predicates:
-        statement = cast(exp.Expression, sqlglot.parse_one(sql, read=guard.dialect))
-        personal = await apersonal_data_columns(reader, tuple(tile.query.source_tables))
-        if _apply_filter_predicates(statement, predicates, personal) is not None:
-            sql = statement.sql(dialect=guard.dialect)
+        # Caught the same way the check/run steps above and below are (round-2 review on the
+        # original `_arun_one`, restated in this PR's own review): an unguarded exception here
+        # -- a malformed statement `sqlglot.parse_one` cannot re-parse, a semantic-layer hiccup
+        # inside `apersonal_data_columns` -- would otherwise propagate out of
+        # `arun_filtered_query_tiles`'s `asyncio.gather` and 503 the whole dashboard instead of
+        # failing just this one tile.
+        try:
+            statement = cast(exp.Expression, sqlglot.parse_one(sql, read=guard.dialect))
+            personal = await apersonal_data_columns(
+                reader, tuple(tile.query.source_tables)
+            )
+            if _apply_filter_predicates(statement, predicates, personal) is not None:
+                sql = statement.sql(dialect=guard.dialect)
+        except Exception as exc:
+            return [], [], 0, _first_line(exc), sql
 
     return await _acheck_and_run(
         sql,
@@ -977,14 +988,25 @@ async def arun_filtered_query_tiles(
     dashboard: Dashboard,
     settings: RetailSettings,
     predicates: Mapping[Tuple[str, str], Sequence[str]],
+    *,
+    only: Optional[Iterable[str]] = None,
 ) -> Dict[str, QueryResultRecord]:
     """Every ``query`` tile's live result with the dashboard's active filters applied,
-    concurrently, the same shape as :func:`arefresh_query_tiles` -- except nothing is written
-    to ``dashboard_query_result``: a filter selection is per-viewer, transient view-time
-    state, not the dashboard's saved data (R13.1). Only called by ``GET /dashboards/{id}/data``
-    when at least one filter has values selected; every tile a filter doesn't reach keeps its
-    normal, unfiltered numbers (see :func:`arun_filtered_tile`)."""
-    tiles = [t for t in dashboard.tiles if t.source is TileSource.QUERY]
+    concurrently, the same shape as :func:`arefresh_query_tiles` (including its ``only``
+    scoping) -- except nothing is written to ``dashboard_query_result``: a filter selection is
+    per-viewer, transient view-time state, not the dashboard's saved data (R13.1).
+
+    ``only``, when given, is the tile ids actually reachable by ``predicates`` -- the caller
+    (``GET /dashboards/{id}/data``) computes this by intersecting each tile's
+    ``source_tables`` with the predicates' tables, so a tile no active filter touches keeps
+    reading from the cache instead of paying for a warehouse round trip whose result
+    :func:`arun_filtered_tile` would have left unfiltered anyway."""
+    wanted = set(only) if only is not None else None
+    tiles = [
+        t
+        for t in dashboard.tiles
+        if t.source is TileSource.QUERY and (wanted is None or t.id in wanted)
+    ]
     if not tiles:
         return {}
 

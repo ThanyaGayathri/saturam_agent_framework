@@ -416,7 +416,10 @@ def _tile_from_write(write: wire.TileWrite) -> Tile:
 
 
 def _filter_from_wire(item: wire.DashboardFilterColumn) -> DashboardFilterColumn:
-    return DashboardFilterColumn(table=item.table, column=item.column)
+    try:
+        return DashboardFilterColumn(table=item.table, column=item.column)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _axis_out(axis: ChartAxis) -> wire.ChartAxis:
@@ -992,26 +995,28 @@ def _validate_filters(
 def _parse_filter_selection(
     values: Sequence[str],
 ) -> Dict[Tuple[str, str], Tuple[str, ...]]:
-    """``["orders.region:North,South", "orders.channel:Online"]`` -> ``{("orders", "region"):
-    ("North", "South"), ("orders", "channel"): ("Online",)}``. A malformed entry (no ``:``, no
-    ``.`` before it) is skipped rather than raising -- an unparsed filter is a display
+    """``["orders.region:North", "orders.region:South", "orders.channel:Online"]`` ->
+    ``{("orders", "region"): ("North", "South"), ("orders", "channel"): ("Online",)}``. One
+    ``f`` param per value -- never a comma-joined list -- because a distinct value can itself
+    contain a comma (a real city, "Dallas, TX"), which a comma-joined scheme could not tell
+    apart from the separator between values. A malformed entry (no ``:``, no ``.`` before it,
+    or an empty value) is skipped rather than raising -- an unparsed filter is a display
     convenience gone wrong, not something a made-up query string should be able to break the
     dashboard over. The caller further restricts the result to the dashboard's own declared
     filter columns."""
-    parsed: Dict[Tuple[str, str], Tuple[str, ...]] = {}
+    collected: Dict[Tuple[str, str], List[str]] = {}
     for raw in values:
-        key, sep, rest = raw.partition(":")
+        key, sep, value = raw.partition(":")
         if not sep or "." not in key:
             continue
         table, _, column = key.partition(".")
         table = table.strip().lower()
         column = column.strip().lower()
-        if not table or not column:
+        value = value.strip()
+        if not table or not column or not value:
             continue
-        picked = tuple(v.strip() for v in rest.split(",") if v.strip())
-        if picked:
-            parsed[(table, column)] = picked
-    return parsed
+        collected.setdefault((table, column), []).append(value)
+    return {key: tuple(values) for key, values in collected.items()}
 
 
 @router.post("/dashboards", response_model=wire.Dashboard, status_code=201)
@@ -1176,13 +1181,43 @@ def update_dashboard(
     filters: Any = UNSET
     if body.filters is not None:
         filters = [_filter_from_wire(f) for f in body.filters]
-        reference_tiles = (
-            tiles if tiles is not UNSET else (before.tiles if before else ())
+        if tiles is not UNSET:
+            reference_tiles: Optional[Sequence[Tile]] = tiles
+        elif before is not None:
+            reference_tiles = before.tiles
+        else:
+            # The dashboard doesn't exist (or a concurrent delete raced this read) and no
+            # fresh `tiles` were sent to validate against either -- defer to `store.update`'s
+            # own 404 rather than 422ing against an empty candidate set first (round-1 review,
+            # nit: a PATCH to a nonexistent dashboard carrying only a `filters` body must 404,
+            # not 422).
+            reference_tiles = None
+        if reference_tiles is not None:
+            try:
+                _validate_filters(filters, reference_tiles, settings)
+            except DashboardValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif tiles is not UNSET and before is not None and before.filters:
+        # `tiles` is being replaced but `filters` was not explicitly sent: drop any of the
+        # dashboard's existing filters whose backing table no longer appears among the new
+        # tiles' query tables, rather than leaving a dead filter dropdown that silently has
+        # zero effect (`_apply_filter_predicates` already no-ops a column absent from every
+        # tile's SQL, but the dropdown itself would keep showing as if it still worked --
+        # round-1 review, minor).
+        query_tables = sorted(
+            {
+                table
+                for tile in tiles
+                if tile.source is TileSource.QUERY and tile.query is not None
+                for table in tile.query.source_tables
+            }
         )
-        try:
-            _validate_filters(filters, reference_tiles, settings)
-        except DashboardValidationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        with open_semantic_reader(settings) as reader:
+            still_valid = {
+                (c.table, c.column)
+                for c in available_filter_columns(reader, query_tables)
+            }
+        filters = [f for f in before.filters if (f.table, f.column) in still_valid]
 
     try:
         dashboard = store.update(
@@ -1251,16 +1286,18 @@ async def get_dashboard_data(
     store: DashboardStore = Depends(_dashboard_store),
     _: None = Depends(require_scopes("dashboards:read")),
 ):
-    """``f`` is zero or more ``table.column:value1,value2`` selections (repeatable), read from
-    the URL rather than the saved dashboard -- a filter's *values* are per-viewer, transient
-    view-time state (R13.1), never persisted. Restricted to the dashboard's own declared
-    filter columns; anything else is silently ignored, the same tolerance
-    :func:`_parse_filter_selection` already has for a malformed entry.
+    """``f`` is zero or more ``table.column:value`` selections -- repeat the parameter once per
+    value (never a comma-joined list: a distinct value can itself contain a comma, e.g. a city
+    named "Dallas, TX") -- read from the URL rather than the saved dashboard, since a filter's
+    *values* are per-viewer, transient view-time state (R13.1), never persisted. Restricted to
+    the dashboard's own declared filter columns; anything else is silently ignored, the same
+    tolerance :func:`_parse_filter_selection` already has for a malformed entry.
 
     With no filter active, this is exactly today's cached read. With one active, every
-    ``query`` tile is (re)computed live through the guard instead of read from
-    ``dashboard_query_result`` -- including a tile the filter does not reach, so every tile
-    reflects one consistent moment rather than a mix of live and stale-cache numbers.
+    ``query`` tile the filter actually reaches (its ``source_tables`` intersects one of the
+    active predicates') is recomputed live through the guard instead of read from
+    ``dashboard_query_result``; a tile no active filter reaches keeps reading from the cache,
+    unchanged.
     """
     dashboard = store.get(dashboard_id)
     if dashboard is None or not dashboard.visible_to(_owner(request)):
@@ -1274,8 +1311,18 @@ async def get_dashboard_data(
     }
     cached = await asyncio.to_thread(_load_query_results, dashboard, settings)
     if predicates:
+        predicate_tables = {table for table, _ in predicates}
+        affected_ids = {
+            tile.id
+            for tile in dashboard.tiles
+            if tile.source is TileSource.QUERY
+            and tile.query is not None
+            and predicate_tables & tile.query.source_tables
+        }
         try:
-            live = await arun_filtered_query_tiles(dashboard, settings, predicates)
+            live = await arun_filtered_query_tiles(
+                dashboard, settings, predicates, only=affected_ids
+            )
         except SemanticReadError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         cached = {**cached, **live}
@@ -1354,6 +1401,14 @@ async def get_dashboard_filter_values(
                 engine.dispose()
     except SemanticReadError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        # Anything else -- a transient connection failure, the harvested metadata having
+        # drifted from the actual warehouse column -- is a live-read failure the same way a
+        # tile's own guarded read treats one (`_acheck_and_run`'s own exception handling);
+        # reported plainly rather than surfacing as an opaque 500.
+        raise HTTPException(
+            status_code=503, detail=f"Could not read filter values: {exc}"
+        ) from exc
     return wire.DashboardFilterValues(table=key[0], column=key[1], values=list(values))
 
 

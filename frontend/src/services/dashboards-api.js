@@ -30,12 +30,20 @@ export function fetchDashboard(id) {
  * gold, `query` tiles from their cached result unless a filter is active. `filters`, when
  * given, is a `{ "table.column": [value, ...] }` map of the dashboard's own filter columns
  * with values picked - a column left out or with an empty list is ignored (same as picking
- * "All"). With at least one active, every `query` tile is recomputed live through the guard,
- * AND-combining every selection that applies to it. */
+ * "All"). With at least one active, every `query` tile it reaches is recomputed live through
+ * the guard, AND-combining every selection that applies to it.
+ *
+ * One `f=table.column:value` param per selected value, never a comma-joined list: a distinct
+ * value can itself contain a comma (a real city, "Dallas, TX"), which a comma-joined list
+ * could not tell apart from the separator between values - `URLSearchParams` percent-encodes
+ * each occurrence independently, so a value's own comma (or colon) never collides with the
+ * one separating params. */
 export function fetchDashboardData(id, { filters } = {}) {
   const params = new URLSearchParams();
   for (const [key, values] of Object.entries(filters || {})) {
-    if (values && values.length > 0) params.append("f", `${key}:${values.join(",")}`);
+    for (const value of values || []) {
+      if (value) params.append("f", `${key}:${value}`);
+    }
   }
   const query = params.toString();
   return apiGet(`/dashboards/${id}/data${query ? `?${query}` : ""}`);

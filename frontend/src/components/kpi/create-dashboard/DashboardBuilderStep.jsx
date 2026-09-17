@@ -19,6 +19,30 @@ function newChartId() {
  return `draft_${Date.now()}_${_chartSeq}`;
 }
 
+// Mirrors `dashboards/queries.py`'s `_FILTERABLE_TEXT_TYPES`/`_is_filterable_type` -- a
+// dropdown-of-values filter suits text/categorical columns, not numeric or date ones. Checked
+// here too (not just server-side on submit) so a column the write would reject with a 422 is
+// never offered as pickable in the first place.
+const FILTERABLE_TEXT_TYPES = [
+ "text",
+ "varchar",
+ "character varying",
+ "char",
+ "character",
+ "citext",
+ "string",
+ "enum",
+];
+
+function isFilterableType(dataType) {
+ const normalized = String(dataType || "")
+  .trim()
+  .toLowerCase();
+ return FILTERABLE_TEXT_TYPES.some(
+  (kind) => normalized === kind || normalized.startsWith(`${kind}(`),
+ );
+}
+
 /**
  * The review step for both paths: for the AI path this *is* the composed dashboard --
  * every chart the agent wrote, with its SQL/metric, guard verdict, preview rows and
@@ -111,9 +135,10 @@ export default function DashboardBuilderStep({
  // Candidate `{table, column}` pairs, fetched once per table from the semantic layer's own
  // read surface (the same one the chart editor's schema pane uses) and never re-fetched --
  // `fetchedTablesRef` tracks what has been asked for, independent of render, so a table
- // dropped and re-added mid-session does not re-fetch. Personal-data columns are excluded
- // client-side as a courtesy; the write itself is re-checked server-side
- // (`_validate_filters`), which also enforces the column actually being text-typed.
+ // dropped and re-added mid-session does not re-fetch. Personal-data and non-text columns are
+ // excluded client-side (mirroring the server's `available_filter_columns`) so a numeric/date
+ // column is never offered here in the first place; the write is still re-checked
+ // server-side (`_validate_filters`), which stays the source of truth.
  const fetchedTablesRef = useRef(new Set());
  const [candidateColumns, setCandidateColumns] = useState([]);
  useEffect(() => {
@@ -126,7 +151,9 @@ export default function DashboardBuilderStep({
     fetchSemanticTable(table)
      .then((info) => ({
       table,
-      columns: (info?.columns || []).filter((c) => !c.is_personal_data).map((c) => c.name),
+      columns: (info?.columns || [])
+       .filter((c) => !c.is_personal_data && isFilterableType(c.data_type))
+       .map((c) => c.name),
      }))
      .catch(() => ({ table, columns: [] })),
    ),
