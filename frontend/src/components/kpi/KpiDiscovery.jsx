@@ -212,7 +212,7 @@ function KpiTable({
  adoptingIds,
  adoptErrors,
  onToggleActive,
- togglingActiveId,
+ togglingActiveIds,
  profileId,
  onOpenUseCase,
 }) {
@@ -382,7 +382,7 @@ function KpiTable({
              <Switch
               aria-label={r.kpi.active ? `Disable KPI ${r.kpi.name ?? ""}` : `Enable KPI ${r.kpi.name ?? ""}`}
               checked={r.kpi.active}
-              disabled={togglingActiveId === r.kpi.identifier}
+              disabled={togglingActiveIds.has(r.kpi.identifier)}
               onCheckedChange={() => onToggleActive(r)}
               size="compact"
              />
@@ -438,7 +438,7 @@ export default function KpiDiscovery({
  adoptingIds,
  adoptErrors,
  onToggleActive,
- togglingActiveId,
+ togglingActiveIds,
  profileId,
  onOpenUseCase,
 }) {
@@ -460,6 +460,10 @@ export default function KpiDiscovery({
  }, [rows]);
 
  const areaLabelById = useMemo(() => Object.fromEntries((areas || []).map((a) => [a.id, a.label])), [areas]);
+ // The one place a business area id becomes its displayed heading -- shared by the group
+ // header and the search match below, so "Uncategorized" (the synthetic group's real label,
+ // not the `__uncategorized__` sentinel) is what a search for it actually matches.
+ const labelForBa = (baId) => (baId === UNCATEGORIZED_BA_ID ? "Uncategorized" : areaLabelById[baId] || baId);
  const businessAreaOptions = useMemo(
   () => [{ value: "", label: "All Business Area" }, ...(areas || []).map((a) => ({ value: a.id, label: a.label }))],
   [areas]
@@ -484,7 +488,7 @@ export default function KpiDiscovery({
    const { kpi } = row;
    if (mutedSources.size > 0) {
     const src = sourcesFor(kpi);
-    if (src.length > 0 && src.every((label) => mutedSources.has(label))) continue;
+    if (src.length > 0 && src.some((label) => mutedSources.has(label))) continue;
    }
    if (statusFilter === "accepted" && row.suggested) continue;
    if (statusFilter === "suggested" && !row.suggested) continue;
@@ -493,7 +497,7 @@ export default function KpiDiscovery({
    if (businessAreaFilter && baId !== businessAreaFilter) continue;
 
    if (needle) {
-    const baLabel = areaLabelById[baId] || baId;
+    const baLabel = labelForBa(baId);
     const match =
      (kpi.name || "").toLowerCase().includes(needle) ||
      (kpi.desc || "").toLowerCase().includes(needle) ||
@@ -519,7 +523,7 @@ export default function KpiDiscovery({
 
   const grouped = Array.from(baMap.entries())
    .map(([baId, subjectMap]) => {
-    const label = baId === UNCATEGORIZED_BA_ID ? "Uncategorized" : areaLabelById[baId] || baId;
+    const label = labelForBa(baId);
     const subjects = Array.from(subjectMap.entries())
      .map(([subject, subjectRows]) => ({
       subject: subject === UNSORTED_SUBJECT ? "Unsorted" : subject,
@@ -692,7 +696,7 @@ export default function KpiDiscovery({
                adoptingIds={adoptingIds}
                adoptErrors={adoptErrors}
                onToggleActive={onToggleActive}
-               togglingActiveId={togglingActiveId}
+               togglingActiveIds={togglingActiveIds}
                profileId={profileId}
                onOpenUseCase={onOpenUseCase}
               />
@@ -712,10 +716,13 @@ export default function KpiDiscovery({
 
    {/* Selection bar. Sticks to the bottom so the action stays reachable while scrolling a long
        tree -- the alternative is scrolling back to a toolbar after every pick. */}
-   {selected.size > 0 && (
+   {selectedRows.length > 0 && (
     <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-light bg-surface px-4 py-3 shadow-lg">
      <p className="text-sm">
-      <span className="font-bold text-text-primary">{selected.size} selected</span>
+      {/* Counts `selectedRows`, not the raw `selected` key set: a search/Business Area/status
+          filter can hide a selected row without deselecting it, and the count shown here must
+          match what `onCreateDashboard` below actually receives. */}
+      <span className="font-bold text-text-primary">{selectedRows.length} selected</span>
       <span className="text-text-secondary"> · all buildable from connected data</span>
      </p>
      <div className="flex flex-wrap items-center gap-2">

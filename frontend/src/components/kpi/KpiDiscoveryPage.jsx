@@ -152,9 +152,12 @@ export default function KpiDiscoveryPage() {
  // panel is open. A suggestion's edit never reaches here -- it is a local patch to
  // `suggestionState.suggestions`, always synchronous, with nothing to load or fail.
  const [updateState, setUpdateState] = useState({ identifier: null, saving: false, error: null });
- // Which registry row's Status switch (hierarchy table) is mid-toggle -- one at a time, since
- // a second click on the same row before the first PATCH lands would race two writes.
- const [togglingActiveId, setTogglingActiveId] = useState(null);
+ // Which registry rows' Status switch (hierarchy table) is mid-toggle -- keyed by identifier,
+ // not a single scalar, because the table has every row's switch interactive at once (unlike
+ // the detail panel's own single-row edit state this mirrors): toggling one KPI must not abort
+ // another KPI's still-in-flight PATCH. A second click on the *same* row is what this guards
+ // against, same as `adoptingIds` above for adopt.
+ const [togglingActiveIds, setTogglingActiveIds] = useState(() => new Set());
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
@@ -270,7 +273,9 @@ export default function KpiDiscoveryPage() {
  // The manual "Add KPI" form's `POST /kpis` (`onCreateManual` below) -- one at a time, since
  // the modal refuses to close while it is in flight.
  const createAbortRef = useRef(null);
- const toggleActiveAbortRef = useRef(null);
+ // Keyed by KPI identifier, like `adoptAbortRefs` above -- every row's Status switch can be
+ // mid-PATCH at once, so aborting one row's request must never reach another's.
+ const toggleActiveAbortRefs = useRef(new Map());
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
@@ -280,7 +285,7 @@ export default function KpiDiscoveryPage() {
    removeAbortRef.current?.abort();
    updateAbortRef.current?.abort();
    createAbortRef.current?.abort();
-   toggleActiveAbortRef.current?.abort();
+   for (const controller of toggleActiveAbortRefs.current.values()) controller.abort();
   },
   []
  );
@@ -806,10 +811,12 @@ export default function KpiDiscoveryPage() {
  const handleToggleActive = (row) => {
   const kpi = row?.kpi;
   if (!kpi?.identifier) return;
-  toggleActiveAbortRef.current?.abort();
+  // Aborts only a second click on THIS row -- keyed by identifier, like `adoptAbortRefs`,
+  // so toggling one KPI's Status switch never aborts another row's still-in-flight PATCH.
+  toggleActiveAbortRefs.current.get(kpi.identifier)?.abort();
   const controller = new AbortController();
-  toggleActiveAbortRef.current = controller;
-  setTogglingActiveId(kpi.identifier);
+  toggleActiveAbortRefs.current.set(kpi.identifier, controller);
+  setTogglingActiveIds((prev) => new Set(prev).add(kpi.identifier));
   updateKpi(
    kpi.identifier,
    {
@@ -835,8 +842,13 @@ export default function KpiDiscoveryPage() {
     window.alert(err?.detail || err?.message || "Couldn't update this KPI's status.");
    })
    .finally(() => {
-    if (toggleActiveAbortRef.current === controller) toggleActiveAbortRef.current = null;
-    setTogglingActiveId((prev) => (prev === kpi.identifier ? null : prev));
+    toggleActiveAbortRefs.current.delete(kpi.identifier);
+    if (controller.signal.aborted) return;
+    setTogglingActiveIds((prev) => {
+     const next = new Set(prev);
+     next.delete(kpi.identifier);
+     return next;
+    });
    });
  };
 
@@ -1007,7 +1019,7 @@ export default function KpiDiscoveryPage() {
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
     onToggleActive={handleToggleActive}
-    togglingActiveId={togglingActiveId}
+    togglingActiveIds={togglingActiveIds}
     profileId={profileId}
     onOpenUseCase={(cid) => navigate(useCaseActivationPath(cid))}
    />
