@@ -324,7 +324,13 @@ def build_playground_agent_factory(
         # can declare any schema; `input_schema=PlaygroundModeInput` below is what EgptOS
         # actually validates it against before this function ever runs.
         cfg = cast(PlaygroundModeInput, ctx.input)
-        scope = await aresolve_mode_scope(cfg.mode, cfg.scope_id, settings=settings)
+        # `ctx.user_id` is the *verified* identity (form field or request.state, set by
+        # AuthMiddleware) -- never anything the caller put in `factory_input`. The knowledge
+        # mode's memory leg reads as tenant + user on the strength of it; MEMORY_SCOPE.md's
+        # read table is why a tenant-only read would have returned every other user's rows.
+        scope = await aresolve_mode_scope(
+            cfg.mode, cfg.scope_id, settings=settings, user_id=ctx.user_id
+        )
         if scope.refused:
             instructions = (
                 f"{prompt}\n\n"

@@ -19,16 +19,19 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from egpt.answer_provenance import alist_provenance_by_use_case, aread_provenance
 from egpt.memory.types import MemoryQuery, Scope
+from egpt.utils.log import log_warning
 from egpt.workflow.types import StepInput
 
 from egpt_retail.app.db import build_control_plane_engine
-from egpt_retail.app.semantic import open_semantic_reader
+from egpt_retail.app.semantic import open_semantic_reader, semantic_driver
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.app.stores import open_knowledge_stores
 from egpt_retail.executors.gold import read_gold
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
 from egpt_retail.retrieval.legs import aretail_unified_read
@@ -65,6 +68,7 @@ def resolve_mode_scope(
     scope_id: Optional[str],
     *,
     settings: Optional[RetailSettings] = None,
+    user_id: Optional[str] = None,
 ) -> ModeScope:
     """The bounded tool set for one mode. Synchronous: the only I/O at resolution time is
     ``business_area``'s ontology file read (local disk, not the network); everything else
@@ -74,7 +78,7 @@ def resolve_mode_scope(
     if mode is PlaygroundMode.DATA:
         return _data_scope()
     if mode is PlaygroundMode.KNOWLEDGE:
-        return _knowledge_scope(settings)
+        return _knowledge_scope(settings, user_id)
     if mode is PlaygroundMode.USE_CASE:
         return _use_case_scope(scope_id, settings)
     if mode is PlaygroundMode.BUSINESS_AREA:
@@ -89,10 +93,11 @@ async def aresolve_mode_scope(
     scope_id: Optional[str],
     *,
     settings: Optional[RetailSettings] = None,
+    user_id: Optional[str] = None,
 ) -> ModeScope:
     """:func:`resolve_mode_scope` off the event loop."""
     return await asyncio.to_thread(
-        resolve_mode_scope, mode, scope_id, settings=settings
+        resolve_mode_scope, mode, scope_id, settings=settings, user_id=user_id
     )
 
 
@@ -117,18 +122,113 @@ def _data_scope() -> ModeScope:
     )
 
 
-def _knowledge_scope(settings: RetailSettings) -> ModeScope:
-    """The knowledge base through K10's unified retrieval. Wires the semantic leg (table and
-    concept names from the deployment's own semantic layer); the ontology leg additionally
-    needs a resolved embedder (``ontology/store.py``'s ``OntologyStore``), which is out of
-    this mode's own scope -- a real, working K10 call either way, just one leg lighter than
-    the full four-store fan-out K10 itself supports."""
+@lru_cache(maxsize=4)
+def _memory_provider_for(slug: str) -> Optional[Any]:
+    """One memory provider per tenant slug, per process.
+
+    Cached because construction is not cheap: ``build_memory_provider_for`` opens the pgvector
+    engine and provisions its schema (``app/factory.py`` says so, which is why K1's own wiring
+    is a lifespan rather than part of ``build_agent_os``). Building one per tool call would
+    open an engine per question asked.
+
+    Built at *resolution* time, not inside the tool closure, so the cost lands on the thread
+    ``aresolve_mode_scope`` already runs the resolver in rather than on the event loop.
+
+    The import is function-local: ``app/components.py`` imports this module at module scope,
+    so naming it at the top of this one is a cycle.
+
+    **Not closed.** It lives for the process, which is what a shared provider is for -- but it
+    is a second provider alongside the one K1's lifespan builds and closes, so this process
+    holds two engines where it could hold one. Threading the lifespan's provider into the
+    agent factory instead is the better shape and is flagged for review rather than guessed at
+    here: it needs the factory to receive something the lifespan populates after startup, and
+    that is a change to how the factory is constructed, not to this module.
+    """
+    from egpt_retail.app.components import build_memory_provider
+
+    settings = RetailSettings()
+    if (settings.retail_customer_slug or "").strip() != slug:
+        # The cache key must be the thing the provider is built for. A caller whose settings
+        # disagree with the key would otherwise get another tenant's provider.
+        return None
+    return build_memory_provider(settings)
+
+
+def _shared_memory_provider(settings: RetailSettings) -> Optional[Any]:
+    """The cached provider for these settings, or ``None`` when no slug is configured."""
+    slug = (settings.retail_customer_slug or "").strip()
+    if not slug:
+        return None
+    try:
+        return _memory_provider_for(slug)
+    except Exception as exc:  # noqa: BLE001 -- no memory is a degraded answer, not a failed one
+        log_warning(
+            f"playground: memory leg unavailable ({exc.__class__.__name__}: {exc}); "
+            "answering from the prose, ontology and semantic legs only."
+        )
+        return None
+
+
+def _knowledge_scope(
+    settings: RetailSettings, user_id: Optional[str] = None
+) -> ModeScope:
+    """The knowledge base through K10's full four-leg fan-out.
+
+    All four legs, which is the point: domain prose, the shipped ontology, this deployment's
+    semantic layer and memory, fused by reciprocal rank fusion so a question needing a domain
+    rule *and* a table name gets both. The first cut wired the semantic leg alone, so "chat
+    with the knowledge base" searched table and column names and never reached the knowledge
+    base; the prose and ontology stores it was missing are ``app/stores.py``'s, the same ones
+    ``entrypoints/suggest.py`` builds.
+
+    **The memory leg reads as tenant + user, never tenant alone.** ``MEMORY_SCOPE.md``'s read
+    table is explicit that a tenant-wide read returns every row, including every *other*
+    user's -- so fanning memory in under the tenant-only scope this mode used to build would
+    have made one person's playground answer cite another person's memories. ``user_id`` is
+    threaded from the verified ``RequestContext``, never from anything the caller sends, and
+    an absent one drops the leg rather than widening it: no memory is the honest answer for an
+    unidentified caller, and "all of them" is the one answer that must not be.
+
+    A store that cannot be built (no embedder installed, graph unreachable) drops its leg and
+    logs; the remaining legs still answer. K10's own contract distinguishes a leg that ran and
+    matched nothing from one that did not run, and degrading to fewer legs is visible in the
+    per-hit ``origin`` the tool returns.
+    """
+
+    memory = _shared_memory_provider(settings) if user_id else None
 
     async def search_knowledge(query: str, limit: int = 5) -> Dict[str, Any]:
-        scope = Scope(tenant_id=settings.retail_customer_slug or "unscoped")
+        slug = settings.retail_customer_slug or "unscoped"
+        scope = (
+            Scope(tenant_id=slug, user_id=user_id) if user_id else Scope(tenant_id=slug)
+        )
         mem_query = MemoryQuery(text=query, limit=limit)
-        with open_semantic_reader(settings) as reader:
-            result = await aretail_unified_read(scope, mem_query, semantic=reader)
+        # One driver for both graph readers: OntologyStore and SemanticGraphStore read the
+        # same Neo4j, and opening two pools for one fan-out is two pools for one question.
+        driver = semantic_driver(settings)
+        try:
+            with open_semantic_reader(settings, driver=driver) as reader:
+                try:
+                    with open_knowledge_stores(settings, driver=driver) as stores:
+                        result = await aretail_unified_read(
+                            scope,
+                            mem_query,
+                            memory=memory,
+                            knowledge=stores.knowledge,
+                            ontology=stores.ontology,
+                            semantic=reader,
+                        )
+                except Exception as exc:  # noqa: BLE001 -- a missing leg is not a failed answer
+                    log_warning(
+                        "playground knowledge mode: the prose and ontology legs could not be "
+                        f"built ({exc.__class__.__name__}: {exc}); answering from the "
+                        "semantic and memory legs only."
+                    )
+                    result = await aretail_unified_read(
+                        scope, mem_query, memory=memory, semantic=reader
+                    )
+        finally:
+            driver.close()
         return {
             "results": [
                 {
@@ -145,7 +245,7 @@ def _knowledge_scope(settings: RetailSettings) -> ModeScope:
         mode=PlaygroundMode.KNOWLEDGE,
         scope_id=None,
         tools=(search_knowledge,),
-        description="Unified retrieval over the semantic layer (K10).",
+        description="Unified retrieval over prose, ontology, the semantic layer and memory (K10).",
     )
 
 
