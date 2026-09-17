@@ -16,6 +16,9 @@ import { AlertTriangle, BookOpen, Check, Clock, ShieldCheck, Sparkles } from "lu
  *  - error:   the failure, with "Try again"
  *
  * Purely presentational: the page owns the run (start, poll, cancel) and hands the state in.
+ * `onStart` is always called with an options object (`{ ask }`, or `{}` for a plain run) --
+ * never the click event -- so the receipt's "Suggest again" and the failure's "Try again"
+ * repeat a steered run *as* a steered run: the ask they print is the ask they resend.
  */
 
 const STEPS = [
@@ -146,17 +149,18 @@ function IdleBar({ onStart }) {
     <Sparkles size={15} className="shrink-0 text-primary" />
     Ask the model what else your connected data could measure.
    </span>
-   <StartButton onClick={onStart} />
+   <StartButton onClick={() => onStart({})} />
   </div>
  );
 }
 
 /** The request a steered run was started with ("Add KPI" -> AI generated, contract 1.2.3),
- * quoted back so the person sees the run is answering *their* words, not the standing ask. */
-function AskLine({ ask }) {
+ * quoted back so the person sees the run is answering *their* words, not the standing ask.
+ * `className` lets the receipt and the failure line fit it to their own row. */
+function AskLine({ ask, className = "mt-1 text-[13px] leading-snug text-text-secondary" }) {
  if (!ask) return null;
  return (
-  <p className="mt-1 text-[13px] leading-snug text-text-secondary">
+  <p className={className}>
    For: <q className="italic text-text-primary">{ask}</q>
   </p>
  );
@@ -273,35 +277,36 @@ function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask
      {at ? `Finished ${at}` : "Just now"}
      {shortId ? ` · run ${shortId}` : ""}
     </span>
-    {ask && (
-     <span className="basis-full text-xs text-text-secondary">
-      For: <q className="italic text-text-primary">{ask}</q>
-     </span>
-    )}
+    <AskLine ask={ask} className="basis-full text-xs text-text-secondary" />
    </div>
    <div className="flex items-center gap-2.5">
     <QuietButton onClick={onDismiss}>Dismiss</QuietButton>
-    <StartButton onClick={onStart} label="Suggest again" />
+    <StartButton onClick={() => onStart({ ask })} label="Suggest again" />
    </div>
   </div>
  );
 }
 
-function Failure({ error, phase, onStart }) {
+function Failure({ error, phase, ask, onStart }) {
  // The backend keeps `phase` on a failed row so it can say where the run got to (see
  // `mark_phase`'s only-from-`running` guard) -- surface it when we have it rather than
- // leaving that guarantee unread on the frontend.
+ // leaving that guarantee unread on the frontend. `ask` is kept across the failure for the
+ // same reason: the modal that collected it is long gone, so this line and the "Try again"
+ // beside it are the only way the person's words survive a timeout or a failed row.
  const step = STEPS.find((s) => s.phase === phase);
  return (
   <div
    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-2.5 text-sm text-status-critical"
    role="alert"
   >
-   <span className="flex items-center gap-2">
-    <AlertTriangle size={15} className="shrink-0" />
-    {step ? `Couldn't get suggestions while ${step.label.toLowerCase()}: ${error}` : `Couldn't get suggestions: ${error}`}
+   <span className="flex flex-col gap-0.5">
+    <span className="flex items-center gap-2">
+     <AlertTriangle size={15} className="shrink-0" />
+     {step ? `Couldn't get suggestions while ${step.label.toLowerCase()}: ${error}` : `Couldn't get suggestions: ${error}`}
+    </span>
+    <AskLine ask={ask} className="pl-[23px] text-xs text-text-secondary" />
    </span>
-   <StartButton onClick={onStart} label="Try again" />
+   <StartButton onClick={() => onStart({ ask })} label="Try again" />
   </div>
  );
 }
@@ -318,7 +323,9 @@ export default function SuggestionRunPanel({ run, elapsed, onStart, onCancel, on
    />
   );
  }
- if (run.status === "error") return <Failure error={run.error} phase={run.phase} onStart={onStart} />;
+ if (run.status === "error") {
+  return <Failure error={run.error} phase={run.phase} ask={run.ask} onStart={onStart} />;
+ }
  if (run.status === "ready" && run.receipt) {
   return (
    <Receipt

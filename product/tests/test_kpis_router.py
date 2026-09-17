@@ -358,6 +358,22 @@ def test_derive_identifier_derives_from_concept_and_name():
     assert _derive_identifier(body) == "supplier__fill_rate"
 
 
+def test_derive_identifier_slugifies_a_free_text_concept_too():
+    """`concept` is free text on the wire (the manual "Add KPI" form is where a person
+    types it); a space or hyphen in it must not surface as a 422 about `identifier`, a
+    field that form never shows. Both halves go through `_slugify`, so the result always
+    satisfies `str.isidentifier()` the way `KpiDefinition` demands."""
+    assert _derive_identifier(_write(concept="web-session", name="Quote to deal")) == (
+        "web_session__quote_to_deal"
+    )
+    assert _derive_identifier(_write(concept="RFQ quote", name="Quote to deal")) == (
+        "rfq_quote__quote_to_deal"
+    )
+    assert _derive_identifier(
+        _write(concept="RFQ quote", name="Quote to deal")
+    ).isidentifier()
+
+
 def test_derive_identifier_422s_with_neither_identifier_nor_concept():
     body = _write()
     with pytest.raises(HTTPException) as excinfo:

@@ -118,6 +118,7 @@ from egpt_retail.executors.gold import materialise_gold
 from egpt_retail.kpi.series import DEFAULT_SERIES_DAYS, read_kpi_series
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
+from egpt_retail.suggestions.context import normalise_request
 from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
 from egpt_retail.suggestions.runs import (
     SuggestionRunPhase,
@@ -305,7 +306,11 @@ def _derive_identifier(write: wire.KpiWrite) -> str:
                 "the name."
             ),
         )
-    return kpi_identifier(write.concept, _slugify(write.name))
+    # Both halves slugified, not only the name: `concept` is free text on the wire (the
+    # manual "Add KPI" form is the first place a person types it), and `KpiDefinition` refuses
+    # any identifier that fails `str.isidentifier()` -- so "web-session" or "RFQ quote" would
+    # otherwise 422 about an `identifier` the form never shows.
+    return kpi_identifier(_slugify(write.concept), _slugify(write.name))
 
 
 def _carry_forward_validation(
@@ -983,15 +988,6 @@ def _describe_failure(exc: BaseException) -> str:
     )
 
 
-def _normalised_ask(ask: Optional[str]) -> Optional[str]:
-    """The run request's ``ask`` as the row and the message carry it: whitespace collapsed,
-    blank read as absent -- so a screen that sends its empty textarea starts the same run
-    as one that sent nothing, and the row never echoes a request made of spaces. Length is
-    the contract's (``maxLength``), enforced by validation before this is reached."""
-    text = " ".join((ask or "").split())
-    return text or None
-
-
 async def _execute_suggestion_run(
     run_id: str,
     settings: RetailSettings,
@@ -1082,7 +1078,12 @@ async def start_kpi_suggestion_run(
     focus_areas = _validated_business_areas(
         body.business_areas if body is not None else None, snapshot.vocabularies
     )
-    ask = _normalised_ask(body.ask if body is not None else None)
+    # The row echoes the ask exactly as the message will carry it (`normalise_request` is the
+    # one definition of both): blank reads as absent, so a screen that sends its empty
+    # textarea starts the same run as one that sent nothing, and the row never echoes a
+    # request made of spaces. Length is the contract's (`maxLength`), enforced by validation
+    # before this is reached.
+    ask = normalise_request(body.ask if body is not None else None)
     record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,

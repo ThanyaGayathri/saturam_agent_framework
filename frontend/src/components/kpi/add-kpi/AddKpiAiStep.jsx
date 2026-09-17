@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Sparkles } from "lucide-react";
 
 /**
  * "Add KPI" -> AI generated: the request, in the person's own words. Submitting starts a
@@ -8,10 +8,16 @@ import { ArrowLeft, Sparkles } from "lucide-react";
  * on the discovery page itself, each with "Add to my metrics", exactly as an unprompted run's
  * do. Nothing is created here; a proposal becomes a KPI only when it is adopted.
  *
+ * `runInFlight` says a run is already going on the page behind this modal. Starting another
+ * replaces it -- the page stops watching the first one and its results are never read, the
+ * same as pressing Cancel -- which is fine when it is what the person means, and a surprise
+ * when it is not. Before this modal existed there was no way to start a run mid-run (the
+ * running panel hides every start button), so this is said here rather than left implicit.
+ *
  * Styled like `create-dashboard/AiPurposeStep.jsx`'s composer so the two AI entry points read
  * as the same kind of thing.
  */
-export default function AddKpiAiStep({ focusAreaLabels = [], onBack, onStart }) {
+export default function AddKpiAiStep({ focusAreaLabels = [], runInFlight = false, onBack, onStart }) {
  const [ask, setAsk] = useState("");
  const canStart = ask.trim().length > 0;
 
@@ -38,6 +44,19 @@ export default function AddKpiAiStep({ focusAreaLabels = [], onBack, onStart }) 
     )}
    </p>
 
+   {runInFlight && (
+    <p
+     role="status"
+     className="mb-3 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-xs text-text-secondary"
+    >
+     <AlertTriangle size={13} className="mt-0.5 shrink-0 text-status-warning" />
+     <span>
+      A suggestion run is already in progress. Submitting this request stops waiting for it and
+      starts a new run in its place — its results won't be shown.
+     </span>
+    </p>
+   )}
+
    <div className="mb-2.5 rounded-lg border border-border px-3.5 py-3">
     <textarea
      autoFocus
@@ -61,7 +80,7 @@ export default function AddKpiAiStep({ focusAreaLabels = [], onBack, onStart }) 
       className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
      >
       <Sparkles size={14} />
-      Suggest KPIs
+      {runInFlight ? "Replace the running run" : "Suggest KPIs"}
      </button>
     </div>
    </div>

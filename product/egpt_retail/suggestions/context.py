@@ -222,6 +222,15 @@ def render_focus(focus_areas: Optional[Sequence[str]]) -> str:
     )
 
 
+def normalise_request(request: Optional[str]) -> Optional[str]:
+    """A customer's request (contract 1.2.3's ``ask``) as everything downstream carries it:
+    whitespace collapsed, blank read as absent. The one definition of "the same request" --
+    the api echoes this on the run row and :func:`render_request` puts it in the message,
+    so the two agree by construction rather than by two copies of the same expression."""
+    text = " ".join((request or "").split())
+    return text or None
+
+
 def render_request(request: Optional[str]) -> str:
     """The paragraph that carries what the customer asked for, in their own words (contract
     1.2.3, the discovery page's "Add KPI" -> AI generated). Empty when there is none, so the
@@ -231,7 +240,7 @@ def render_request(request: Optional[str]) -> str:
     but everything it proposes is still judged, stamped and checked downstream as an
     unprompted proposal would be. Quoted so the agent reads it as the customer's words, not
     as an instruction from the deployment; the skill's own rules say what to do with it."""
-    text = " ".join((request or "").split())
+    text = normalise_request(request)
     if not text:
         return ""
     return (

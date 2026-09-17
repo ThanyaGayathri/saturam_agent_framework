@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Plus } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Plus, RefreshCw } from "lucide-react";
 import { fetchSemanticTables } from "../../../services/semantic-tables-api";
+import { FIELD_INPUT } from "../ModeCard";
 import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
 
 /**
@@ -9,17 +10,29 @@ import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
  * grain and business area against the deployment's vocabulary, a duplicate identifier -- and
  * refuses with a 422/409 naming the defect, which is shown here verbatim rather than guessed
  * at client-side. The form only insists on what the contract marks required plus `concept`,
- * which the server needs to derive the identifier (`<concept>__<slug of name>`).
+ * which the server needs to derive the identifier (`<concept>__<slug of name>`, both halves
+ * slugified server-side, so "RFQ quote" is as good as "rfq_quote").
  *
  * Source tables come from `GET /semantic/tables`: the same allow-list the SQL guard enforces,
- * so a formula can only ever name a table the semantic layer exposes.
+ * so a formula can only ever name a table the semantic layer exposes. Fetched once per mount
+ * -- and the modal keeps this step mounted (hidden) across "Change how", so a look back at the
+ * mode cards neither refetches nor loses the draft.
+ *
+ * `saving` is the modal's, not this step's: the modal needs it to refuse a backdrop / X
+ * dismiss while the POST is in flight (see `AddKpiModal.jsx`); this step only reports it.
  */
-const INPUT =
- "mt-1 w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60";
+const INPUT = `mt-1 ${FIELD_INPUT}`;
 const LABEL = "block text-xs font-semibold text-text-primary";
 const HINT = "mt-1 text-[11px] leading-relaxed text-text-muted";
 
-export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
+export default function AddKpiManualStep({
+ areaState = { status: "ready", areas: [], error: null },
+ onRetryAreas,
+ saving = false,
+ onSavingChange,
+ onBack,
+ onCreate,
+}) {
  const [name, setName] = useState("");
  const [description, setDescription] = useState("");
  const [businessArea, setBusinessArea] = useState("");
@@ -31,7 +44,6 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
  const [sql, setSql] = useState("");
  const [sourceTables, setSourceTables] = useState(() => new Set());
  const [tableState, setTableState] = useState({ status: "loading", tables: [], error: null });
- const [saving, setSaving] = useState(false);
  const [error, setError] = useState(null);
 
  useEffect(() => {
@@ -50,6 +62,7 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
 
  // Supported areas first (the ones the semantic graph can back), the rest still offered but
  // marked -- a KPI in an unsupported area is allowed, it just cannot be ready yet.
+ const areas = areaState.areas || [];
  const areaOptions = useMemo(
   () => [...areas].sort((a, b) => Number(!!b.supported) - Number(!!a.supported)),
   [areas]
@@ -77,7 +90,7 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
 
  const submit = async () => {
   if (!canSave) return;
-  setSaving(true);
+  onSavingChange?.(true);
   setError(null);
   try {
    await onCreate({
@@ -93,10 +106,20 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
     ...(level ? { level } : {}),
    });
   } catch (err) {
+   // Aborted means the page is gone (it aborts its in-flight create on unmount); there is
+   // nobody left to show the message to.
+   if (err?.name === "AbortError") return;
    setError(err?.detail || err?.message || "Couldn't add the KPI.");
-   setSaving(false);
+   onSavingChange?.(false);
   }
  };
+
+ // The three states the area list can be in, modelled the same way the source-tables block
+ // below already does: a failed `GET /business-areas` used to leave the select on "Loading
+ // areas..." for good, with the form unsubmittable and nothing saying why.
+ const areasLoading = areaState.status === "loading";
+ const areasFailed = areaState.status === "error";
+ const areasEmpty = areaState.status === "ready" && areaOptions.length === 0;
 
  return (
   <>
@@ -144,13 +167,37 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
       disabled={saving || areaOptions.length === 0}
       className={INPUT}
      >
-      {areaOptions.length === 0 && <option value="">Loading areas…</option>}
+      {areasLoading && <option value="">Loading areas…</option>}
+      {areasFailed && <option value="">Couldn't load the areas</option>}
+      {areasEmpty && <option value="">No business areas defined</option>}
       {areaOptions.map((a) => (
        <option key={a.id} value={a.id}>
         {a.label || a.id}{a.supported ? "" : " (no data mapped yet)"}
        </option>
       ))}
      </select>
+     {areasFailed && (
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-status-critical">
+       <span>
+        Couldn't load the business areas
+        {areaState.error?.detail ? `: ${areaState.error.detail}` : "."}
+       </span>
+       {onRetryAreas && (
+        <button
+         type="button"
+         onClick={onRetryAreas}
+         disabled={saving}
+         className="inline-flex items-center gap-1 rounded-md border border-border-light bg-surface px-2 py-0.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-secondary"
+        >
+         <RefreshCw size={11} />
+         Retry
+        </button>
+       )}
+      </p>
+     )}
+     {areasEmpty && (
+      <p className={HINT}>This deployment has no business areas yet — a KPI needs one before it can be added.</p>
+     )}
     </div>
     <div>
      <label htmlFor="kpi-concept" className={LABEL}>Concept</label>
@@ -162,7 +209,10 @@ export default function AddKpiManualStep({ areas = [], onBack, onCreate }) {
       placeholder="e.g. rfq, contact, websession"
       className={INPUT}
      />
-     <p className={HINT}>The ontology concept the metric hangs off. Sets the identifier: <code className="font-mono">concept__name</code>.</p>
+     <p className={HINT}>
+      The ontology concept the metric hangs off. Sets the identifier <code className="font-mono">concept__name</code>{" "}
+      (lower-cased, spaces and punctuation become <code className="font-mono">_</code>), which cannot be changed once added.
+     </p>
     </div>
     <div>
      <label htmlFor="kpi-grain" className={LABEL}>Grain</label>

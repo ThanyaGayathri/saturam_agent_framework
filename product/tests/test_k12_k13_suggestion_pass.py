@@ -27,7 +27,7 @@ from egpt_retail.suggestions import (
     gather_context,
     run_suggestions,
 )
-from egpt_retail.suggestions.context import render_context
+from egpt_retail.suggestions.context import normalise_request, render_context
 from egpt_retail.suggestions.runs import SuggestionRunPhase
 
 # --- stand-ins ------------------------------------------------------------------------
@@ -509,6 +509,18 @@ def test_a_customer_request_reaches_both_agents_between_the_focus_and_the_ask():
         assert message.index("request:") < message.index("Propose the")
         assert message.count("request:") == 1
     assert run.kpis.suggestions and run.use_cases.suggestions
+
+
+def test_normalise_request_is_the_one_definition_the_row_and_the_message_share():
+    """The api echoes `normalise_request(ask)` on the run row and `render_request` quotes
+    the same call in the message, so the two cannot drift: what the row says was asked is
+    exactly what the agents were told."""
+    assert normalise_request("  How many quotes turn into\n deals,   by brand? ") == (
+        "How many quotes turn into deals, by brand?"
+    )
+    assert normalise_request("   \n\t ") is None
+    assert normalise_request(None) is None
+    assert normalise_request("already clean") == "already clean"
 
 
 def test_no_request_leaves_the_message_exactly_as_before():
