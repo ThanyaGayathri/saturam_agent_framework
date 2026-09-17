@@ -27,12 +27,13 @@ function newChartId() {
  * it is the KPI picker, one chart per metric, with the same edit surface. Name, filter and
  * refresh live in the header/foot, folded in rather than shown on an earlier screen.
  *
- * "Add a chart" offers two ways to add one more, whichever path built the rest of the list:
- * "Add manually" opens a blank query chart in the editor (`addBlankQueryChart`); "AI-assisted"
- * opens a one-line prompt bar that composes a single chart the same way `DashboardView.jsx`'s
- * add-chart-by-description bar does for an already-saved dashboard -- one
- * `dashboard_suggestion` run (`chartBudget: 1`), reviewed in the same editor before it joins
- * `charts`, never saved to a backend dashboard directly (there isn't one yet at this step).
+ * "Add a chart" is one button; clicking it reveals two ways to add one more, whichever path
+ * built the rest of the list: "Add manually" opens a blank query chart in the editor
+ * (`addBlankQueryChart`); "AI-assisted" opens a one-line prompt bar that composes a single
+ * chart the same way `DashboardView.jsx`'s add-chart-by-description bar does for an
+ * already-saved dashboard -- one `dashboard_suggestion` run (`chartBudget: 1`), reviewed in
+ * the same editor before it joins `charts`, never saved to a backend dashboard directly
+ * (there isn't one yet at this step).
  */
 export default function DashboardBuilderStep({
  name,
@@ -61,11 +62,17 @@ export default function DashboardBuilderStep({
  // which only ever point at a chart already in `charts` -- see `addBlankQueryChart`'s comment.
  const [addingChart, setAddingChart] = useState(null);
 
+ // "Add a chart" is one button; clicking it swaps that same slot for the two ways to add one
+ // (`addChartMenuOpen`), rather than showing both up front. Picking either collapses the menu
+ // back -- `addBlankQueryChart` opens straight into the editor, "AI-assisted" opens the prompt
+ // bar below (`showAiComposeBar`) in the menu's place.
+ const [addChartMenuOpen, setAddChartMenuOpen] = useState(false);
+
  // The AI-assisted "Add a chart" path -- a single-chart `dashboard_suggestion` run
  // (`chartBudget: 1`), the same run-then-poll seam `DashboardView.jsx`'s own add-chart-by-
  // description bar uses for an already-saved dashboard. `showAiComposeBar` toggles the prompt
- // bar in place of the two "Add manually"/"AI-assisted" boxes below; `aiPrompt` is the text box's
- // own value, kept separate from `composePurpose` (the text the *last started* run was for) so
+ // bar in place of the "Add a chart" button/menu below; `aiPrompt` is the text box's own
+ // value, kept separate from `composePurpose` (the text the *last started* run was for) so
  // "Change the description" can put it back without racing a run already in flight.
  const [showAiComposeBar, setShowAiComposeBar] = useState(false);
  const [aiPrompt, setAiPrompt] = useState("");
@@ -330,26 +337,50 @@ export default function DashboardBuilderStep({
        </div>
       );
      })}
-     {!showAiComposeBar && (
-      <>
+     {!showAiComposeBar &&
+      (addChartMenuOpen ? (
+       <div className="relative flex min-h-[140px] flex-col justify-center gap-2 rounded-xl border border-dashed border-border-light p-3">
+        <button
+         type="button"
+         onClick={() => setAddChartMenuOpen(false)}
+         aria-label="Cancel add chart"
+         className="absolute right-2 top-2 rounded-md p-1 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+        >
+         <X size={14} />
+        </button>
+        <button
+         type="button"
+         onClick={() => {
+          setAddChartMenuOpen(false);
+          addBlankQueryChart();
+         }}
+         className="flex items-center justify-center gap-1.5 rounded-lg border border-border-light px-3 py-2 text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+        >
+         <Plus size={14} />
+         Add manually
+        </button>
+        <button
+         type="button"
+         onClick={() => {
+          setAddChartMenuOpen(false);
+          setShowAiComposeBar(true);
+         }}
+         className="flex items-center justify-center gap-1.5 rounded-lg border border-border-light px-3 py-2 text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+        >
+         <Sparkles size={14} />
+         AI-assisted
+        </button>
+       </div>
+      ) : (
        <button
         type="button"
-        onClick={addBlankQueryChart}
+        onClick={() => setAddChartMenuOpen(true)}
         className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
        >
         <Plus size={16} />
-        Add manually
+        Add a chart
        </button>
-       <button
-        type="button"
-        onClick={() => setShowAiComposeBar(true)}
-        className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
-       >
-        <Sparkles size={16} />
-        AI-assisted
-       </button>
-      </>
-     )}
+      ))}
     </div>
 
     {showAiComposeBar && (
