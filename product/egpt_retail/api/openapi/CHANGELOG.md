@@ -109,6 +109,14 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.11.0 — 2026-09-17 — merge: reconcile `usecase_processautomation` with main (additive)
+
+Agreed by: Lane K. Additive on top of both lines -- the use-case work below (1.3.0 .. 1.10.0)
+was authored in parallel with the KPI discovery work on main (1.2.2, 1.2.3) and neither had
+incorporated the other. This version is the union: every path and schema of both, no
+operation or field changed in meaning. Bumped once, to 1.11.0, so a client pinned to either
+line sees a strictly later version.
+
 ## 1.10.0 — 2026-09-17 — the target objects suggested from the template (additive)
 
 Agreed by: Lane K. One new operation, `suggestTargetObjects` (`POST
@@ -239,6 +247,40 @@ activation screen reads them back; `Spec.delivery` stays, and `parameters.recipi
 carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
 document-template guardrail catalogue remain strings with their closed sets documented rather
 than enums -- they are content the product ships, not contract.
+## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the
+run request and its echo on the run -- so no negotiation and no major bump.
+
+- **`KpiSuggestionRunRequest.ask`** (string or null, at most 2000 characters, not required)
+  and **`KpiSuggestionRun.ask`** (its echo). The discovery page's "Add KPI" gains an
+  AI-generated path: the customer says what they want to measure, in their own words, and a
+  suggestion run is started with that as its request. It reaches both agents in the message
+  after the focus (1.1.8) and before the standing ask, worded as the request to answer first
+  -- a steer, never a filter, for the same reason the focus is one: what comes back is still
+  judged by `assemble`, stamped with the ontology's area, and checked for feasibility exactly
+  as an unprompted run's proposals are, so a request the harvest cannot back produces no
+  invented metric, only the agent's `notes` saying so. Whitespace-only reads as absent; the
+  message is then exactly what it was before this field existed. Echoed on the run row so a
+  screen restoring a run from its id can say what it was for.
+
+## 1.2.2 — 2026-09-17 — kpis: `Kpi.rationale`, `Kpi.business_value` kept after adopt (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two new, nullable, non-required fields on
+`Kpi` and `KpiWrite` -- so no negotiation and no major bump.
+
+- **`Kpi.rationale`, `Kpi.business_value`** (string or null, not required) and the same two on
+  **`KpiWrite`**. 1.1.10 gave a *suggestion* its "why the model proposed it" and "what value it
+  provides" text, and the discovery panel shows both -- until the customer clicks "Add to my
+  metrics", at which point the panel switches to the registry row and both vanish, because the
+  registry never had anywhere to keep them. Adopt now resends them on `KpiWrite` and the
+  registry stores them, so the panel says the same thing about a KPI after it is governed as it
+  did while it was a proposal, on every later visit and for every viewer. Presentation only,
+  like `unit`/`industry_benchmark`: neither participates in feasibility or execution, and an
+  update that omits them carries the stored value forward the way every optional `KpiWrite`
+  field does. Nullable and outside `required` rather than a breaking bump: a KPI authored by
+  hand, or adopted before this field existed, reads back with both `null`.
+
 ## 1.2.1 — 2026-09-16 — merge: reconcile with `fix/dashboard-suggestion-routing` (additive)
 
 Agreed by: product (nandha-saturam). Additive on top of 1.2.0 -- the dashboards work below was

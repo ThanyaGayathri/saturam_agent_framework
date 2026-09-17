@@ -23,11 +23,16 @@ export function fetchKpiList() {
  * areas the customer cares about, handed to the agents as a priority -- "propose for these
  * first" -- never as a filter, so nothing is dropped for being outside them. An empty list (or
  * none at all) means no focus -- the backend leaves the prompt untouched in that case, so there
- * is nothing to gain by listing every supported area when nothing was actually chosen. Nothing
- * is stored beyond the run row - a suggestion becomes a KPI only through `createKpi`. */
-export function startKpiSuggestionRun(businessAreas, { signal } = {}) {
+ * is nothing to gain by listing every supported area when nothing was actually chosen. `ask`
+ * (contract 1.2.3) is what the customer wants to measure, in their own words -- "Add KPI" ->
+ * AI generated -- handed to the agents as the request to answer first; blank is the same as
+ * none. Nothing is stored beyond the run row - a suggestion becomes a KPI only through
+ * `createKpi`. */
+export function startKpiSuggestionRun(businessAreas, { ask, signal } = {}) {
   const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
   const body = areas.length ? { business_areas: areas } : {};
+  const request = typeof ask === "string" ? ask.trim() : "";
+  if (request) body.ask = request;
   return apiJson("/kpis/suggestions", "POST", body, { signal });
 }
 

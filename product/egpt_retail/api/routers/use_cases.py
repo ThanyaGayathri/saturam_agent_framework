@@ -15,15 +15,14 @@ poller when it is switched on, or in the cloud by the orchestrator the deploymen
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from functools import lru_cache
-import asyncio
 from typing import Any, Dict, List, Optional
 
+from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-
-from egpt.os.scopes import has_required_scopes
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_engine

@@ -222,13 +222,49 @@ def render_focus(focus_areas: Optional[Sequence[str]]) -> str:
     )
 
 
+def normalise_request(request: Optional[str]) -> Optional[str]:
+    """A customer's request (contract 1.2.3's ``ask``) as everything downstream carries it:
+    whitespace collapsed, blank read as absent. The one definition of "the same request" --
+    the api echoes this on the run row and :func:`render_request` puts it in the message,
+    so the two agree by construction rather than by two copies of the same expression."""
+    text = " ".join((request or "").split())
+    return text or None
+
+
+def render_request(request: Optional[str]) -> str:
+    """The paragraph that carries what the customer asked for, in their own words (contract
+    1.2.3, the discovery page's "Add KPI" -> AI generated). Empty when there is none, so the
+    message is exactly what it was before requests existed.
+
+    Like :func:`render_focus`, a steer and not a filter: the agent answers the request first,
+    but everything it proposes is still judged, stamped and checked downstream as an
+    unprompted proposal would be. Quoted so the agent reads it as the customer's words, not
+    as an instruction from the deployment; the skill's own rules say what to do with it."""
+    text = normalise_request(request)
+    if not text:
+        return ""
+    # Escaped for the prompt only -- `normalise_request`'s own return value is what the api
+    # echoes back on the run row, so it must stay untouched. This quoting is local to the
+    # message: an embedded `"` in the customer's own words could otherwise close this quoted
+    # span early, making the rest of their text read as a new, unquoted instruction.
+    quoted = text.replace('"', "'")
+    return (
+        "request: the customer asked, in their own words: "
+        f'"{quoted}". Propose what answers this first and most thoroughly, and say in each '
+        "rationale how it does. If the harvest cannot support what was asked, do not invent "
+        "a metric for it: say so in notes, and still propose what the data does support.\n\n"
+    )
+
+
 def render_context(
     context: SuggestionContext,
     *,
     ask: str,
     focus_areas: Optional[Sequence[str]] = None,
+    request: Optional[str] = None,
 ) -> str:
-    """The message both agents receive: harvest, concepts, prose, the focus, then the ask."""
+    """The message both agents receive: harvest, concepts, prose, the focus, the customer's
+    request (if any), then the ask."""
     prose = (
         "\n\n".join(f"[{concept}] {text}" for concept, text in context.prose)
         or "(no domain prose retrieved)"
@@ -238,5 +274,6 @@ def render_context(
         f"concepts in this deployment:\n{context.concepts_text or '(none)'}\n\n"
         f"domain prose, retrieved for those concepts:\n{prose}\n\n"
         f"{render_focus(focus_areas)}"
+        f"{render_request(request)}"
         f"{ask}"
     )
