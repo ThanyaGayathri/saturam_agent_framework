@@ -40,13 +40,15 @@ function FieldList({ title, fields, onChange }) {
  );
 }
 
-export default function ExtractionTemplateField({ spec, setTemplate, description }) {
+export default function ExtractionTemplateField({ spec, setTemplate, description, setExampleDocument }) {
  const [catalogue, setCatalogue] = useState(() => loadTemplateCatalogue());
  const [editing, setEditing] = useState(null); // { id?, label, record, header: [{name,required,hint}], lines: [...] , source }
  const [drafting, setDrafting] = useState(false);
  const [draftNote, setDraftNote] = useState("");
- const [example, setExample] = useState(null); // { name, documentB64 }
+ const [example, setExampleState] = useState(() => (spec.exampleDocument?.documentB64 ? spec.exampleDocument : null)); // { name, documentB64 }
  const fileRef = useRef(null);
+ const topFileRef = useRef(null);
+ const setExample = (value) => { setExampleState(value); setExampleDocument?.(value); };
  const chosen = useMemo(() => {
   if (spec.extractionTemplateDef && spec.extractionTemplateDef.id === spec.extractionTemplate) return normalizeTemplate(spec.extractionTemplateDef);
   return catalogue.find((t) => t.id === spec.extractionTemplate) || null;
@@ -69,11 +71,31 @@ export default function ExtractionTemplateField({ spec, setTemplate, description
   setTemplate(template.id, template);
  };
  const remove = (t) => { removeTemplateFromCatalogue(t.id); setCatalogue(loadTemplateCatalogue()); if (spec.extractionTemplate === t.id) setTemplate("", null); };
- const onFile = (file) => {
+ const onFile = (file, { thenDraft = false } = {}) => {
   if (!file) return;
+  if (file.size > 4 * 1024 * 1024) { setDraftNote("That PDF is over 4 MB; a one- or two-page sample of the format is enough."); return; }
   const reader = new FileReader();
-  reader.onload = () => setExample({ name: file.name, documentB64: String(reader.result).split(",")[1] || "" });
+  reader.onload = () => {
+   const doc = { name: file.name, documentB64: String(reader.result).split(",")[1] || "" };
+   setExample(doc);
+   // A sample first (K24): the platform reads the document and proposes the fields; the
+   // person edits and keeps. The editor opens on the draft, the sample stays attached.
+   if (thenDraft) draftFrom(doc, file.name);
+  };
   reader.readAsDataURL(file);
+ };
+ const draftFrom = async (doc, name) => {
+  setDrafting(true); setDraftNote("");
+  const label = editing?.label || chosen?.label || "";
+  setEditing((e) => e || { label, record: "", header: [], lines: [], source: "drafted" });
+  try {
+   const out = await draftExtractionTemplate({ description: description || spec.goal || "", label: label || undefined, example: { documentB64: doc.documentB64 } });
+   const t = out.template;
+   setEditing((e) => ({ ...(e || {}), label: e?.label || t.label, record: t.record || e?.record || "", header: (t.header || []).map(fieldOf), lines: (t.lines || []).map(fieldOf), source: "drafted" }));
+   setDraftNote(`Suggested from ${name}${out.notes ? ` — the platform noted: ${out.notes}` : ""}. Edit the fields and keep.`);
+  } catch (err) {
+   setDraftNote(err?.status === 503 ? "The platform has no extraction model configured, so it cannot read the sample; start from a shipped kind and edit." : `Could not read the sample: ${err?.detail || err?.message || "the platform did not answer"}.`);
+  } finally { setDrafting(false); }
  };
  const draft = async () => {
   setDrafting(true); setDraftNote("");
@@ -90,6 +112,21 @@ export default function ExtractionTemplateField({ spec, setTemplate, description
 
  return (
   <div>
+   <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-primary/40 bg-primary-light/20 px-2.5 py-2">
+    <input ref={topFileRef} type="file" accept="application/pdf" className="hidden" onChange={(e) => { onFile(e.target.files?.[0], { thenDraft: true }); e.target.value = ""; }} />
+    {example ? (
+     <span className="inline-flex items-center gap-1.5 text-xs text-text-secondary"><FileText size={12} className="text-primary" /> Sample: <strong className="text-text-primary">{example.name}</strong>
+      <button type="button" onClick={() => draftFrom(example, example.name)} disabled={drafting} className="ml-1 font-semibold text-primary hover:underline disabled:opacity-60">{drafting ? "Reading…" : "Propose the fields again"}</button>
+      <button type="button" onClick={() => setExample(null)} className="text-text-muted hover:text-status-critical" aria-label="Remove sample"><X size={11} /></button>
+     </span>
+    ) : (
+     <>
+      <button type="button" onClick={() => topFileRef.current?.click()} disabled={drafting} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-60"><Upload size={12} /> {drafting ? "Reading the sample…" : "Upload a sample document"}</button>
+      <span className="text-[11px] text-text-muted">The platform reads it and proposes the fields; you edit and keep. It also becomes the AI step's example and the first golden case.</span>
+     </>
+    )}
+   </div>
+   <p className="mb-1 text-[11px] text-text-muted">{example ? "Or start from a shipped kind:" : "No sample yet? Start from a shipped kind and edit it:"}</p>
    <div className="flex flex-wrap items-center gap-1.5">
     {catalogue.map((t) => (
      <span key={t.id} className="inline-flex items-center">

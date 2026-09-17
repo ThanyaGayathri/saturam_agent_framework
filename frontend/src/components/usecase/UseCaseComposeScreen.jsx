@@ -763,7 +763,7 @@ export default function UseCaseComposeScreen() {
    case "extractionTemplate":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      <ExtractionTemplateField spec={spec} setTemplate={setExtractionTemplate} description={spec.goal} />
+      <ExtractionTemplateField spec={spec} setTemplate={setExtractionTemplate} description={spec.goal} setExampleDocument={(doc) => setSpec((s) => applyPatch(s, { exampleDocument: doc }, ORIGIN.authored))} />
      </Field>
     );
    case "exampleDocument":
@@ -833,7 +833,7 @@ export default function UseCaseComposeScreen() {
    case "targetObjects":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      <RecordMappingField spec={spec} template={findTemplate(spec)} target={spec.writeback} setMapping={setRecordMapping} />
+      <RecordMappingField spec={spec} template={findTemplate(spec)} target={spec.writeback} setMapping={setRecordMapping} description={spec.goal} />
      </Field>
     );
    case "createdAs":

@@ -3,6 +3,7 @@ import { findTemplate } from "./extraction-templates";
 import { normalizeRules } from "./guardrail-rules";
 import { findMapping } from "./record-mappings";
 import { rolesNeeded } from "./use-case-roles";
+import { MATCH_THRESHOLD_DEFAULTS } from "./use-case-autonomy";
 
 /**
  * The spec as the platform's contract sees it (API 1.3.0): the catalog row, the stored spec
@@ -40,8 +41,10 @@ export function documentParameters(spec, sources = []) {
   "document type": spec.documentType || "pdf",
   "extraction template": (findTemplate(spec)?.source !== "shipped" && findTemplate(spec)) || spec.extractionTemplate || "",
   "example document": spec.exampleDocument?.name || spec.exampleDocument || null,
-  "master data": spec.masterData || {},
-  "match thresholds": spec.matchThresholds || {},
+  // The roles follow from the mapping and the guardrails and are loaded from the target
+  // (K24); an empty binding means "the target's own data, every role the run needs".
+  "master data": spec.masterData && Object.values(spec.masterData).some(Boolean) ? spec.masterData : {},
+  "match thresholds": { ...MATCH_THRESHOLD_DEFAULTS, ...(spec.matchThresholds || {}) },
   guardrails: normalizeRules(spec.recordGuardrails).map((g) => ({ id: g.id, kind: g.kind, label: g.label, field: g.field, line_field: g.line_field, params: g.params, exception: g.exception })),
   recipient: spec.exceptionsTo || "",
   acknowledge: spec.acknowledge !== false,

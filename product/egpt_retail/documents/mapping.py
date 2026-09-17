@@ -49,6 +49,7 @@ __all__ = [
     "record_value",
     "build_record_tree",
     "suggest_mapping",
+    "suggest_objects",
 ]
 
 
@@ -800,4 +801,137 @@ def suggest_mapping(
                 if r["target"] != parent_field
             ],
         }
+    return out
+
+
+# --- suggesting the objects a template lands in ---------------------------------------------------
+
+#: What a template's ``record`` kind is called in the targets people connect. Data, not a
+#: rule: a customer's overlay or a new target adds rows here.
+_RECORD_OBJECTS: Mapping[str, Tuple[str, ...]] = MappingProxyType(
+    {
+        "order": ("Order", "Opportunity", "Quote"),
+        "quote": ("Quote", "Opportunity"),
+        "opportunity": ("Opportunity",),
+        "return": ("Case", "ReturnOrder"),
+        "case": ("Case",),
+        "complaint": ("Case",),
+        "ticket": ("Case",),
+        "payable": ("Invoice", "Case"),
+        "invoice": ("Invoice",),
+        "receipt": ("Asset", "Task"),
+        "lead": ("Lead",),
+        "contract": ("Contract",),
+        "task": ("Task",),
+    }
+)
+_LINE_CHILD = re.compile(r"(item|lineitem|line)$", re.I)
+#: Objects that exist beside a record rather than being one: sharing rows, change events,
+#: histories, feeds, tags. Never a suggestion.
+_SIDE_OBJECT = re.compile(r"(Share|ChangeEvent|History|Feed|Tag|Summary)$")
+_DESCRIPTION_STOP = {
+    "from",
+    "into",
+    "with",
+    "the",
+    "and",
+    "for",
+    "that",
+    "this",
+    "each",
+    "per",
+    "create",
+    "creates",
+    "arrive",
+    "arrives",
+    "mailbox",
+    "email",
+    "pdf",
+    "pdfs",
+}
+
+
+def suggest_objects(
+    template: Any,
+    objects: Sequence[Mapping[str, Any]],
+    *,
+    description: str = "",
+    shipped: Mapping[str, RecordMapping] = SHIPPED_MAPPINGS,
+) -> List[Dict[str, Any]]:
+    """The target objects a document of this template plausibly becomes, ranked, each
+    with the reason: the template's ``record`` kind against the objects' names, the words
+    of the description against their labels, and -- for a template with lines -- the
+    child object that repeats per line (``<Parent>Item``, ``<Parent>LineItem``). A
+    shipped mapping for the pair is named so the form can offer it as is. Deterministic.
+    """
+    from egpt_retail.documents.salesforce import COMMON_OBJECTS
+
+    common = set(COMMON_OBJECTS)
+    by_name = {str(o.get("name")): o for o in objects}
+    names = list(by_name)
+    record = _slug(str(getattr(template, "record", "") or ""))
+    has_lines = bool(getattr(template, "lines", ()))
+    words = {
+        w
+        for w in _NORMALISE.split(str(description or "").lower())
+        if len(w) > 2 and w not in _DESCRIPTION_STOP
+    }
+    singular = {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in words}
+    scored: List[Tuple[int, str, List[str]]] = []
+    for name in names:
+        label = str(by_name[name].get("label") or name)
+        why: List[str] = []
+        score = 0
+        if record and name in _RECORD_OBJECTS.get(record, ()):
+            rank = _RECORD_OBJECTS[record].index(name)
+            score += 10 - rank
+            why.append(f"the template creates {record.replace('_', ' ')}")
+        if record and (_norm(name) == record or _norm(label) == record):
+            score += 8
+            why.append("named like the template's record kind")
+        label_words = set(_NORMALISE.split(label.lower()))
+        hits = sorted(
+            w
+            for w in singular
+            if w == _norm(name) or w == _norm(label) or w in label_words
+        )
+        if hits and (score > 0 or name in common):
+            score += 3 * len(hits)
+            why.append(f"the description says {', '.join(hits)}")
+        if _LINE_CHILD.search(name) or _SIDE_OBJECT.search(name):
+            continue  # a per-line object is a child; a side object is never the record
+        if score <= 0:
+            continue
+        scored.append((score, name, why))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    out: List[Dict[str, Any]] = []
+    for score, name, why in scored[:5]:
+        child = None
+        if has_lines:
+            candidates = [
+                n
+                for n in names
+                if n != name
+                and n.startswith(name)
+                and _LINE_CHILD.search(n[len(name) :] or n)
+            ]
+            child = candidates[0] if candidates else None
+        pair = next(
+            (
+                m.id
+                for m in shipped.values()
+                if m.object == name and ((m.child.object if m.child else None) == child)
+            ),
+            None,
+        )
+        out.append(
+            {
+                "object": name,
+                "label": str(by_name[name].get("label") or name),
+                "child": child,
+                "score": score,
+                "why": "; ".join(why),
+                "shipped_mapping": pair,
+            }
+        )
     return out

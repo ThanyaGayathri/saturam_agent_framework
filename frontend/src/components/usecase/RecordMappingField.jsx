@@ -5,7 +5,7 @@ import {
  TRANSFORMS, loadMappingCatalogue, normalizeMapping, normalizeRow, removeMappingFromCatalogue, saveMappingToCatalogue,
  sourceOptions, uncoveredRequired,
 } from "../../domain/record-mappings";
-import { describeTargetObject, fetchTargetObjects, suggestRecordMapping } from "../../services/use-cases-api";
+import { describeTargetObject, fetchTargetObjects, suggestRecordMapping, suggestTargetObjects } from "../../services/use-cases-api";
 
 /**
  * The target objects field (K18): a mapping catalogue the person extends, over the org's
@@ -62,7 +62,7 @@ function RowTable({ title, rows, described, options, onChange, parentField }) {
  );
 }
 
-export default function RecordMappingField({ spec, template, target, setMapping }) {
+export default function RecordMappingField({ spec, template, target, setMapping, description }) {
  const [catalogue, setCatalogue] = useState(() => loadMappingCatalogue());
  const [editing, setEditing] = useState(null);
  const [objects, setObjects] = useState(null); // live list or null when the API is unreachable
@@ -75,6 +75,25 @@ export default function RecordMappingField({ spec, template, target, setMapping 
   return catalogue.find((m) => m.id === spec.targetObjects) || null;
  }, [spec.targetObjects, spec.recordMappingDef, catalogue]);
  const offered = catalogue.filter((m) => m.target === targetKey);
+
+ // The objects the target holds for this document kind (K24): asked once the target and
+ // the template are known, shown as a suggestion the person uses or ignores.
+ const [objectSuggestions, setObjectSuggestions] = useState(null);
+ useEffect(() => {
+  if (!target || !template) { setObjectSuggestions(null); return undefined; }
+  const ac = new AbortController();
+  suggestTargetObjects({ template: { id: template.id, label: template.label, record: template.record, header: headerFields(template), lines: lineFields(template) }, description, target: targetKey }, { signal: ac.signal })
+   .then((rows) => setObjectSuggestions(rows || []))
+   .catch(() => setObjectSuggestions([]));
+  return () => ac.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [target, template?.id, JSON.stringify(headerFields(template || {}).map((f) => f.name))]);
+ const useObjectSuggestion = async (sug) => {
+  const shipped = sug.shipped_mapping && catalogue.find((m) => m.id === sug.shipped_mapping);
+  if (shipped) { choose(shipped); return; }
+  setEditing({ label: `${sug.object}${sug.child ? ` + ${sug.child}` : ""}`, object: sug.object, fields: [], child: sug.child ? { object: sug.child, parent_field: `${sug.object}Id`, fields: [] } : null, status_field: null, source: "authored" });
+  setTimeout(() => suggestFor(sug.object, sug.child), 0);
+ };
 
  useEffect(() => {
   if (!editing || objects !== null) return;
@@ -92,6 +111,15 @@ export default function RecordMappingField({ spec, template, target, setMapping 
  const startEdit = (m) => setEditing({ ...m, id: m.source === "shipped" ? undefined : m.id, basedOn: m.source === "shipped" ? m.id : null, source: m.source === "shipped" ? "authored" : m.source, label: m.source === "shipped" ? `${m.label.replace(/ \(standard\)$/, "")} (custom)` : m.label });
  const keep = () => { const m = saveMappingToCatalogue({ ...editing, target: targetKey }); setCatalogue(loadMappingCatalogue()); setEditing(null); setMapping(m.id, m); };
  const remove = (m) => { removeMappingFromCatalogue(m.id); setCatalogue(loadMappingCatalogue()); if (spec.targetObjects === m.id) setMapping("", null); };
+ const suggestFor = async (object, child) => {
+  if (!object || !template) return;
+  setBusy(true); setNote("");
+  try {
+   const out = await suggestRecordMapping({ template: { id: template.id, label: template.label, record: template.record, header: headerFields(template), lines: lineFields(template) }, parent: object, child: child || null, label: undefined });
+   setEditing((e) => ({ ...(e || {}), object, label: e?.label || out.label, fields: out.fields, child: out.child ? { ...out.child } : (child ? { object: child, parent_field: `${object}Id`, fields: [] } : null), status_field: out.status_field, status_values: out.status_values, record: out.record, source: "authored" }));
+   setNote(`Suggested from names over the org's ${object}${child ? ` and ${child}` : ""} fields; rows with no source need one. Edit and keep.`);
+  } catch (err) { setNote(`Could not suggest: ${err?.detail || err?.message || "the platform did not answer"}.`); } finally { setBusy(false); }
+ };
  const suggest = async () => {
   if (!editing?.object || !template) return;
   setBusy(true); setNote("");
@@ -111,6 +139,18 @@ export default function RecordMappingField({ spec, template, target, setMapping 
  if (!target) return <p className="text-sm text-text-muted">Choose the target system first.</p>;
  return (
   <div>
+   {objectSuggestions && objectSuggestions.length > 0 && !editing && (
+    <div className="mb-2 rounded-md border border-dashed border-primary/40 bg-primary-light/20 px-2.5 py-2 text-xs">
+     <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Suggested objects in {target.split(/\s*[-–]\s*/)[0]}</p>
+     <div className="flex flex-wrap items-center gap-1.5">
+      {objectSuggestions.slice(0, 3).map((sug) => (
+       <button key={sug.object} type="button" onClick={() => useObjectSuggestion(sug)} title={sug.why} className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-surface px-2.5 py-1 font-semibold text-primary hover:bg-primary hover:text-white">
+        {sug.object}{sug.child ? ` + ${sug.child} per line` : ""}<span className="font-normal opacity-80"> · {sug.why.split(";")[0]}</span>{sug.shipped_mapping ? <span className="rounded bg-status-success-light px-1 text-[10px] text-status-success">mapping ready</span> : <span className="rounded bg-surface-secondary px-1 text-[10px] text-text-muted">map the fields</span>}
+       </button>
+      ))}
+     </div>
+    </div>
+   )}
    <div className="flex flex-wrap items-center gap-1.5">
     {offered.map((m) => <button key={m.id} type="button" aria-pressed={spec.targetObjects === m.id} onClick={() => choose(m)} className={chip(spec.targetObjects === m.id)} title={m.source === "shipped" ? "Ships with the platform" : "Saved in this workspace"}>{m.label}</button>)}
     <button type="button" onClick={startNew} className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs font-semibold text-text-secondary hover:border-primary hover:text-primary"><Plus size={11} /> New mapping</button>

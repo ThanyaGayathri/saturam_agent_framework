@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -3809,6 +3809,62 @@
           "frontier"
         ],
         "description": "Which R8 routing tier this deployment binds the model to. Two deployments, composed through the escalation provider (G6)."
+      },
+      "ObjectSuggestRequest": {
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/ExtractionTemplate"
+          },
+          "description": {
+            "type": "string",
+            "description": "The use case's own words, for the object labels to be read against."
+          },
+          "target": {
+            "type": "string",
+            "description": "The target system; `salesforce` when absent."
+          }
+        }
+      },
+      "ObjectSuggestion": {
+        "type": "object",
+        "required": [
+          "object",
+          "label",
+          "score",
+          "why"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "child": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The per-line object, when the template has lines and the target has one."
+          },
+          "score": {
+            "type": "integer"
+          },
+          "why": {
+            "type": "string"
+          },
+          "shipped_mapping": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A shipped mapping's id for exactly this pair, when one exists."
+          }
+        }
       },
       "Operator": {
         "type": "string",
@@ -13878,6 +13934,112 @@
                       },
                       "rollback_action": "delete"
                     }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The target is not reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unreachable": {
+                    "value": {
+                      "detail": "Salesforce token request failed 400",
+                      "code": "target_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/record-mappings/suggest-objects": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestTargetObjects",
+        "summary": "Which of the target's objects a document of this template becomes.",
+        "description": "The Target objects section's suggestion (1.10.0): the target's createable objects,\nread live, ranked for the template -- its `record` kind against the objects' names, the\nwords of the description against their labels, and, for a template with lines, the\nper-line child object (`OrderItem` for `Order`). A shipped mapping for the pair is named\nso the form can offer it as is; otherwise the pair is what `suggestRecordMapping` maps.\nDeterministic; each suggestion says why.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObjectSuggestRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "template": {
+                      "id": "purchase_order",
+                      "label": "Purchase order",
+                      "record": "order",
+                      "header": [
+                        {
+                          "name": "po_number",
+                          "required": true
+                        }
+                      ],
+                      "lines": [
+                        {
+                          "name": "line_no",
+                          "required": true
+                        },
+                        {
+                          "name": "quantity",
+                          "required": true
+                        }
+                      ]
+                    },
+                    "description": "Create sales orders in Salesforce from purchase orders."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestions, best first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ObjectSuggestion"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "object": "Order",
+                        "label": "Order",
+                        "child": "OrderItem",
+                        "score": 21,
+                        "why": "the template creates order; the description says order",
+                        "shipped_mapping": "order_orderitem"
+                      },
+                      {
+                        "object": "Opportunity",
+                        "label": "Opportunity",
+                        "child": "OpportunityLineItem",
+                        "score": 9,
+                        "why": "the template creates order",
+                        "shipped_mapping": "opportunity"
+                      }
+                    ]
                   }
                 }
               }

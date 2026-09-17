@@ -938,3 +938,21 @@ AnalyticsSuggestion:
     recipients: {type: array, items: {type: string}}
     uncovered: {type: array, items: {type: string}, description: "Words of the ask no registered KPI covers."}
     notes: {type: array, items: {type: string}}
+ObjectSuggestRequest:
+  type: object
+  required: [template]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    description: {type: string, description: "The use case's own words, for the object labels to be read against."}
+    target: {type: string, description: "The target system; `salesforce` when absent."}
+ObjectSuggestion:
+  type: object
+  required: [object, label, score, why]
+  properties:
+    object: {type: string}
+    label: {type: string}
+    child: {type: [string, "null"], description: "The per-line object, when the template has lines and the target has one."}
+    score: {type: integer}
+    why: {type: string}
+    shipped_mapping: {type: [string, "null"], description: "A shipped mapping's id for exactly this pair, when one exists."}

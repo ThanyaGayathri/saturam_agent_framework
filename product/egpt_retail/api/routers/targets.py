@@ -19,6 +19,7 @@ from egpt_retail.documents.mapping import (
     SHIPPED_MAPPINGS,
     mapping_to_dict,
     suggest_mapping,
+    suggest_objects,
 )
 from egpt_retail.documents.templates import template_from
 from egpt_retail.usecases.credentials import CredentialUnavailable, resolve_credentials
@@ -92,6 +93,33 @@ def list_record_mappings(
     return [
         wire.RecordMapping.model_validate(mapping_to_dict(m))
         for m in SHIPPED_MAPPINGS.values()
+    ]
+
+
+@router.post(
+    "/record-mappings/suggest-objects", response_model=List[wire.ObjectSuggestion]
+)
+async def suggest_target_objects(
+    body: wire.ObjectSuggestRequest,
+    client: Any = Depends(target_client),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> List[wire.ObjectSuggestion]:
+    from egpt_retail.documents.salesforce import alist_objects
+
+    try:
+        template = template_from(body.template.model_dump(mode="json"))
+    except (KeyError, ValueError) as exc:
+        client.close()
+        raise HTTPException(status_code=422, detail=str(exc))
+    try:
+        objects = await alist_objects(client)
+    finally:
+        client.close()
+    return [
+        wire.ObjectSuggestion.model_validate(row)
+        for row in suggest_objects(
+            template, objects, description=body.description or ""
+        )
     ]
 
 

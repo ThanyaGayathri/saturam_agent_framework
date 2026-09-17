@@ -188,7 +188,7 @@ export function slotValue(spec, slot) {
   case "documentType": return DOCUMENT_TYPES.find((d) => d.value === spec.documentType)?.label || null;
   case "extractionTemplate": return findTemplate(spec)?.label || null;
   case "exampleDocument": return spec.exampleDocument?.name || null;
-  case "masterData": { const m = spec.masterData || {}; const bound = MASTER_DATA_ROLES.filter((r) => m[r.id]).map((r) => `${r.label} → ${m[r.id]}`); return bound.length ? bound.join(" · ") : null; }
+  case "masterData": { const m = spec.masterData || {}; const bound = MASTER_DATA_ROLES.filter((r) => m[r.id]).map((r) => `${r.label} → ${m[r.id]}`); if (bound.length) return bound.join(" · "); const roles = resolutionPlan(spec).map((r) => r.label.toLowerCase()); return roles.length ? `${spec.writeback || "the target"}'s own ${roles.join(", ")}` : null; }
   case "matchThresholds": { const t = spec.matchThresholds || {}; return `address ≥ ${t.address} · product ≥ ${t.product} · name ≥ ${t.name}${t.aiDisambiguation ? " · AI disambiguation on" : ""}`; }
   case "recordGuardrails": { const rows = normalizeRules(spec.recordGuardrails); return rows.length ? rows.map((g) => { const ps = Object.entries(g.params || {}).map(([k, v]) => `${PARAM_META[k]?.label || k} ${v}${PARAM_META[k]?.unit || ""}`).join(", "); return `${g.label}${ps ? ` (${ps})` : ""}`; }).join(" · ") : null; }
   case "exceptionsTo": return spec.exceptionsTo || null;

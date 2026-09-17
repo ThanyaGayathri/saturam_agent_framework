@@ -139,3 +139,47 @@
             examples:
               unreachable:
                 value: {detail: "Salesforce token request failed 400", code: target_unavailable}
+
+/record-mappings/suggest-objects:
+  post:
+    tags: [use-cases]
+    operationId: suggestTargetObjects
+    summary: Which of the target's objects a document of this template becomes.
+    description: |
+      The Target objects section's suggestion (1.10.0): the target's createable objects,
+      read live, ranked for the template -- its `record` kind against the objects' names, the
+      words of the description against their labels, and, for a template with lines, the
+      per-line child object (`OrderItem` for `Order`). A shipped mapping for the pair is named
+      so the form can offer it as is; otherwise the pair is what `suggestRecordMapping` maps.
+      Deterministic; each suggestion says why.
+    x-egpt-scopes: [use-cases:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/ObjectSuggestRequest'
+          examples:
+            default:
+              value: {template: {id: purchase_order, label: Purchase order, record: order, header: [{name: po_number, required: true}], lines: [{name: line_no, required: true}, {name: quantity, required: true}]}, description: "Create sales orders in Salesforce from purchase orders."}
+    responses:
+      "200":
+        description: The suggestions, best first.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/ObjectSuggestion'
+            examples:
+              default:
+                value: [{object: Order, label: Order, child: OrderItem, score: 21, why: "the template creates order; the description says order", shipped_mapping: order_orderitem}, {object: Opportunity, label: Opportunity, child: OpportunityLineItem, score: 9, why: "the template creates order", shipped_mapping: opportunity}]
+      "503":
+        description: The target is not reachable.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              unreachable:
+                value: {detail: "Salesforce token request failed 400", code: target_unavailable}

@@ -6464,3 +6464,37 @@ reasons, …" and "Suggested: 16 KPIs the data supports … Use"; after the rela
 nine for that goal. `vite build` clean; suite 1517 passed.
 
 ---
+
+### K24 -- the Process Automation form: sample first, target then objects, no master-data section
+
+**Package:** K24, branch `usecase_processautomation`. Contract 1.10.0 (additive):
+`suggestTargetObjects`.
+
+**Status:** PASS (17 Sep 2026): unit tests, the live org, the compose screen in the browser.
+
+**Description:** The document-to-record form now reads in the person's order and asks for
+nothing the platform can derive. **Extraction template:** upload a sample PDF first -- the
+platform reads it (the drafting agent) and proposes the fields, which the person edits and
+keeps; the sample stays attached as the AI step's example. Without a sample, the shipped
+kinds are offered to copy and edit. **Match thresholds:** gone from the form; the defaults
+travel with the spec. **Target system:** the connected sources with write permission.
+**Target objects:** `POST /record-mappings/suggest-objects` ranks the target's createable
+objects for the template and the description (the template's record kind against the
+names, the description's words against the labels of the common objects, the per-line child
+object, a shipped mapping named where one fits the pair; sharing/history/event objects never
+suggested); one click either picks the shipped mapping or opens the field mapping already
+suggested over the org's live fields, editable. **Master data:** no longer a section -- the
+roles follow from the mapping and the guardrails (K21) and are loaded from the target; the
+readiness row is "Reference data in Salesforce" and reports the org's counts for exactly
+those roles. Target system and Target objects sit where Master data was.
+
+**Verification:** `suggest_objects` over the live org: purchase order -> Order + OrderItem
+(shipped mapping), Opportunity + OpportunityLineItem; return request -> Case, ReturnOrder +
+ReturnOrderLineItem; delivery note (receipt) -> Asset, Task. In the browser the form reads
+mailbox, cadence, filter, document type, template (Upload a sample document / shipped
+kinds), guardrails, target system, target objects (with "Suggested objects in Salesforce:
+Order + OrderItem per line · the template creates order · mapping ready"), exceptions,
+acknowledge, created as, change limit, rollback, owner. Suite 1518 passed; ruff, mypy,
+contract check, `vite build` clean.
+
+---

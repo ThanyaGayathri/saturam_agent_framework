@@ -735,6 +735,21 @@ class ModelTier(Enum):
     frontier = "frontier"
 
 
+class ObjectSuggestion(BaseModel):
+    object: str
+    label: str
+    child: str | None = Field(
+        None,
+        description="The per-line object, when the template has lines and the target has one.",
+    )
+    score: int
+    why: str
+    shipped_mapping: str | None = Field(
+        None,
+        description="A shipped mapping's id for exactly this pair, when one exists.",
+    )
+
+
 class Operator(Enum):
     """
     `delta_*` compares the change against the previous period at the same grain.
@@ -2187,6 +2202,17 @@ class MappingSuggestRequest(BaseModel):
         None, description="The per-line object's name, when there is one."
     )
     label: str | None = None
+
+
+class ObjectSuggestRequest(BaseModel):
+    template: ExtractionTemplate
+    description: str | None = Field(
+        None,
+        description="The use case's own words, for the object labels to be read against.",
+    )
+    target: str | None = Field(
+        None, description="The target system; `salesforce` when absent."
+    )
 
 
 class PlanStep(BaseModel):

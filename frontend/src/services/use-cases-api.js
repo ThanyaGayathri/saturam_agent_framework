@@ -190,3 +190,10 @@ export function fetchUseCaseSpec(useCaseId, { signal } = {}) {
 export function suggestAnalyticsUseCase(question, { recipient, signal } = {}) {
   return apiJson("/use-cases/analytics/suggest", "POST", { question, recipient: recipient || undefined }, { signal });
 }
+
+/** Which of the target's objects a document of this template becomes (K24): `POST
+ *  /record-mappings/suggest-objects`, ranked with reasons; a shipped mapping named where one
+ *  fits the pair. */
+export function suggestTargetObjects({ template, description, target }, { signal } = {}) {
+  return apiJson("/record-mappings/suggest-objects", "POST", { template, description: description || undefined, target: target || undefined }, { signal });
+}

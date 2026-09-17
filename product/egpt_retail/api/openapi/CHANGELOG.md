@@ -109,6 +109,14 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.10.0 — 2026-09-17 — the target objects suggested from the template (additive)
+
+Agreed by: Lane K. One new operation, `suggestTargetObjects` (`POST
+/record-mappings/suggest-objects`), with `ObjectSuggestRequest` and `ObjectSuggestion`: the
+target's createable objects ranked for a template and a description, the per-line child
+named, a shipped mapping named where one fits the pair. Deterministic and explained. The
+form's Target objects section offers it before the field mapping.
+
 ## 1.9.0 — 2026-09-17 — Analytics Automation: the suggestion from the ask (additive)
 
 Agreed by: Lane K. One new operation, `suggestAnalyticsUseCase` (`POST

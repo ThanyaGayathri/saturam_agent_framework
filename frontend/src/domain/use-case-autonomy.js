@@ -187,10 +187,14 @@ export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.i
  * and the AI step extracts rather than recommends.
  */
 export const TEMPLATE_FIELDS = {
+ // The form's order is the person's order: what arrives, what to read from it, what to
+ // check, where it goes and as what, then the limits. Master data is not a section any
+ // more (K24): the roles a use case resolves against follow from the mapping and the
+ // guardrails and are read from the target itself; the thresholds keep their defaults.
  document_to_record: [
-  "mailbox", "pollInterval", "messageFilter", "documentType", "extractionTemplate", "exampleDocument",
-  "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge",
-  "writeTarget", "targetObjects", "createdAs", "perRunCap", "rollback",
+  "mailbox", "pollInterval", "messageFilter", "documentType", "extractionTemplate",
+  "recordGuardrails", "writeTarget", "targetObjects", "exceptionsTo", "acknowledge",
+  "createdAs", "perRunCap", "rollback",
  ],
 };
 
@@ -266,6 +270,13 @@ export const FIELD_META = {
  *  as flat keys, and flagged so a demo audience knows which fields are proposed. */
 export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
 
+/** The roles a document is resolved against follow from the mapping and the guardrails and
+ *  are read from the target's own data (K24); the plan names them one by one. */
+function resolvedRolesText(spec) {
+ const target = spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "the target";
+ return `each against ${target}'s own reference data (the roles the mapping reads)`;
+}
+
 export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
  switch (spec.shape) {
@@ -286,7 +297,7 @@ export const describeShape = (spec) => {
   case "act":
    if (spec.template === "document_to_record") {
     const tpl = findTemplate(spec);
-    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves it against ${(spec.masterData && Object.values(spec.masterData).filter(Boolean).length) || 0} master-data objects, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
+    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves ${resolvedRolesText(spec)}, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
    }
    return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
   default:
