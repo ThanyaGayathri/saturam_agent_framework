@@ -332,6 +332,26 @@ export default function KpiDetailPanel({
  </ul>
  </section>
 
+ {/* The same two sentences after adopt: a registry row carries the suggestion's rationale and
+     business_value (contract 1.2.2), so the panel keeps answering "why is this here?" once the
+     proposal is governed. Both are null on a hand-authored KPI -- then there is no section. */}
+ {fromRegistry && (detailRow.kpi.rationale || detailRow.kpi.businessValue) && (
+ <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
+ {detailRow.kpi.rationale && (
+ <>
+ <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.rationale}</p>
+ </>
+ )}
+ {detailRow.kpi.businessValue && (
+ <>
+ <p className={`text-[10px] font-semibold uppercase tracking-wide text-primary ${detailRow.kpi.rationale ? "mt-3" : ""}`}>{SUGGESTION_VALUE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.businessValue}</p>
+ </>
+ )}
+ </section>
+ )}
+
  {suggested && (
  <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
  <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>

@@ -447,6 +447,11 @@ class KpiSuggestionRunRequest(BaseModel):
         None,
         description="The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
     )
+    ask: str | None = Field(
+        None,
+        description="What the customer wants to measure, in their own words (\"Add KPI\" -> AI generated).\nHanded to the agents as the request to answer first, after the focus and before the\nstanding ask -- a steer, never a filter: what comes back is still every metric the data\nsupports, judged and stamped exactly as an unprompted run's would be, so a request the\nharvest cannot back produces no invented metric, only the agent's note saying so.\nWhitespace-only reads as absent.\n",
+        max_length=2000,
+    )
 
 
 class KpiSuggestionRunStatus(Enum):
@@ -1684,6 +1689,10 @@ class KpiSuggestionRun(BaseModel):
         [],
         description="The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
     )
+    ask: str | None = Field(
+        None,
+        description="The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.",
+    )
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None
     finished_at: AwareDatetime | None = None
@@ -2185,6 +2194,14 @@ class Kpi(BaseModel):
     level: KpiLevel | None = None
     unit: str | None = ""
     industry_benchmark: str | None = ""
+    rationale: str | None = Field(
+        None,
+        description="Why the model proposed this KPI -- the sentence naming the tables or concepts it derives from, carried over from `KpiSuggestion.rationale` when the KPI was adopted. Null on a KPI authored by hand or adopted before this field existed.",
+    )
+    business_value: str | None = Field(
+        None,
+        description="What tracking this KPI lets someone decide or catch, carried over from `KpiSuggestion.business_value` on adopt. Null on a KPI authored by hand or adopted before this field existed.",
+    )
     active: bool
     source: KpiOrigin
     dataset_ids: list[str] | None = None
@@ -2271,6 +2288,14 @@ class KpiWrite(BaseModel):
     level: KpiLevel | None = None
     unit: str | None = None
     industry_benchmark: str | None = None
+    rationale: str | None = Field(
+        None,
+        description="The suggestion's `rationale`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
+    business_value: str | None = Field(
+        None,
+        description="The suggestion's `business_value`, resent verbatim on adopt. Optional, carried forward on update when omitted.",
+    )
     active: bool | None = None
     dataset_ids: list[str] | None = None
     process_ids: list[str] | None = None

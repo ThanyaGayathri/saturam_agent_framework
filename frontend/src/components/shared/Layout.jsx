@@ -21,7 +21,11 @@ export default function Layout() {
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10 hidden bg-[radial-gradient(ellipse_90%_55%_at_50%_-8%,rgba(105,65,198,0.14)_0%,transparent_58%)] dark:block"
         />
-        <main className="relative z-0 flex min-h-0 w-full flex-1 flex-col bg-gradient-to-b from-transparent to-white text-text-primary antialiased dark:to-[var(--app-surface-page)]">
+        {/* No `z-0` here: it would make <main> its own stacking context, trapping every fixed
+            overlay a page renders (side panels, backdrops) beneath the footer that follows it
+            in DOM order -- the footer's border and padding then sit over an overlay's bottom
+            edge and swallow clicks there. The wrapper's `isolate` is the stacking boundary. */}
+        <main className="relative flex min-h-0 w-full flex-1 flex-col bg-gradient-to-b from-transparent to-white text-text-primary antialiased dark:to-[var(--app-surface-page)]">
           <Outlet />
         </main>
         {!hideFooter && (

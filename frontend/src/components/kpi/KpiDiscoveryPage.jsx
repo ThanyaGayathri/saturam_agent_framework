@@ -10,6 +10,7 @@ import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
 import SuggestionRunPanel from "./SuggestionRunPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
+import AddKpiModal from "./add-kpi/AddKpiModal";
 import { buildDashboardWritePayload } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
 import { rowFromSuggestion } from "./suggested-candidates";
@@ -41,6 +42,9 @@ const IDLE_SUGGESTION_STATE = {
  notes: "",
  error: null,
  runId: null,
+ // The request a steered run was started with ("Add KPI" -> AI generated, contract 1.2.3);
+ // null for a plain "Suggest KPIs" run. Echoed by the row, so a restore recovers it too.
+ ask: null,
  startedAt: null,
  phase: null,
  typicalDuration: null,
@@ -57,11 +61,11 @@ const IDLE_SUGGESTION_STATE = {
  * measure, which of those matter, build a dashboard from them. Configure sets things up; KPIs
  * uses them. Configure > KPIs stays pure master data (add / edit / enable / map).
  *
- * Three inputs, deliberately kept apart:
+ * Two inputs, deliberately kept apart (the seed "Retail standard" catalogue that used to be a
+ * third is no longer mixed into this grid -- it has no real identifiers, so nothing on it could
+ * be adopted or put on a dashboard; it still backs Configure > KPIs and the tours):
  *
- *  1. ENABLED registry KPIs -- master data the customer governs. Disabled ones are excluded here,
- *     which is what makes the enable switch in Configure meaningful rather than decorative.
- *  2. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
+ *  1. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
  *     `kpi_suggestion` agent (`POST /kpis/suggestions`, polled until done -- F1, #234 and #254)
  *     when the customer asks for them. Nothing is started until "Suggest KPIs" is clicked:
  *     unlike the registry/real-area fetches below, this is a minutes-long frontier-tier model
@@ -70,13 +74,10 @@ const IDLE_SUGGESTION_STATE = {
  *     edited, governed or reproduced is not something anyone should build a dashboard on --
  *     "adopt" calls `POST /kpis` for real, and only once the suggestion's own feasibility says
  *     `ready` (a `partial`/`blocked` one has nothing valid to adopt).
- *  3. REAL registry KPIs (C1, #232) -- `GET /kpis`, merged in the same additive way suggested
- *     candidates already are, not a replacement for the two above. The seed catalogue has no
- *     real `identifier` on any card and the real registry has very few entries today (only
- *     what's actually been registered); replacing one with the other would either invent
- *     identifiers that don't exist or shrink the demo catalogue to almost nothing. A real row
- *     carries a real `kpi_identifier` and real `feasibility` from day one, so selecting one and
- *     building a dashboard from it (D2, #233) actually reaches the real API.
+ *  2. REAL registry KPIs (C1, #232) -- `GET /kpis`, merged in the same additive way suggested
+ *     candidates are. A real row carries a real `kpi_identifier` and real `feasibility` from
+ *     day one, so selecting one and building a dashboard from it (D2, #233) actually reaches
+ *     the real API.
  */
 
 const FOCUS_KEY = "retailgpt:kpi-focus-areas";
@@ -87,16 +88,10 @@ const FOCUS_KEY = "retailgpt:kpi-focus-areas";
 // localStorage, because a run id is also worth sharing/bookmarking ("here's what it found"),
 // and it composes with browser back/forward the way local storage cannot.
 const RUN_PARAM = "run";
-
-/**
- * A KPI counts as enabled unless it has been explicitly switched off. Default-on is the right
- * polarity: default-off leaves a new workspace with an empty discovery list on the one screen
- * that is supposed to show what it can do, so the switch reads as suppression -- "we do not
- * track that here" -- rather than as opt-in.
- */
-function isEnabled(kpi) {
- return kpi?.active !== false;
-}
+// `?add=1` opens the "Add KPI" modal. In the URL rather than state because the button that
+// opens it lives in the hub header (`KpisHubLayout.jsx`), outside this page; and, like `?run=`,
+// it composes with back/forward -- closing the modal is a `replace`, so Back never reopens it.
+const ADD_PARAM = "add";
 
 export default function KpiDiscoveryPage() {
  const navigate = useNavigate();
@@ -268,6 +263,9 @@ export default function KpiDiscoveryPage() {
  const adoptAbortRefs = useRef(new Map());
  const removeAbortRef = useRef(null);
  const updateAbortRef = useRef(null);
+ // The manual "Add KPI" form's `POST /kpis` (`onCreateManual` below) -- one at a time, since
+ // the modal refuses to close while it is in flight.
+ const createAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
@@ -276,6 +274,7 @@ export default function KpiDiscoveryPage() {
    for (const controller of seriesAbortRefs.current.values()) controller.abort();
    removeAbortRef.current?.abort();
    updateAbortRef.current?.abort();
+   createAbortRef.current?.abort();
   },
   []
  );
@@ -362,8 +361,19 @@ export default function KpiDiscoveryPage() {
  // with no id) can reuse it too instead of hand-writing the same `IDLE_SUGGESTION_STATE`
  // literal a second and third time -- a future field added here (already true of `phase`)
  // would otherwise have to be remembered in three places.
+ //
+ // `ask` survives the failure on purpose: the modal that collected it closed the moment the
+ // run started, so the failure panel's "For: ..." line and its "Try again" (which resends it)
+ // are the only way a steered request outlives a timeout or a `failed` row. `runId` still
+ // resets, so the URL-sync effect below drops `?run=` exactly as before.
  const fail = (message, phase = null) =>
-  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
+  setSuggestionState((prev) => ({
+   ...IDLE_SUGGESTION_STATE,
+   status: "error",
+   error: message,
+   phase,
+   ask: prev.ask,
+  }));
  // What every poll (and the 202 from starting a run) tells the panel: the stage the run is in
  // and the deployment's typical duration. Either may be null on a given read; keep what we had.
  // Pure, as a functional setState updater must be (React may invoke it more than once for the
@@ -374,6 +384,7 @@ export default function KpiDiscoveryPage() {
   runId: run.id || prev.runId,
   phase: run.phase ?? prev.phase,
   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+  ask: run.ask ?? prev.ask,
  });
 
  // Poll one run to a terminal state (#254). Shared by a fresh click (`runSuggestions`) and a
@@ -418,8 +429,13 @@ export default function KpiDiscoveryPage() {
      const serverStartedAt = run?.started_at ? Date.parse(run.started_at) : NaN;
      if (!Number.isNaN(serverStartedAt)) ceilingStartedAt = serverStartedAt;
      if (run?.status === "succeeded") {
+      // Composed on top of `absorb`, not a second hand-written merge: every field the row
+      // echoes (`ask` today; whatever comes next) is picked up here the same as on a live
+      // poll. A `?run=` restore of a finished run lands straight in this branch -- the
+      // initializer seeded `ask: null` and no poll ran `absorb` first -- and without this the
+      // receipt's "For: ..." line was missing in the exact case the echo was added for.
       setSuggestionState((prev) => ({
-       ...prev,
+       ...absorb(run)(prev),
        status: "ready",
        suggestions: run.result?.suggestions || [],
        notes: run.result?.notes || "",
@@ -471,12 +487,17 @@ export default function KpiDiscoveryPage() {
 
  // Start a run, then watch it. Same "one AbortController for the whole loop" rule as
  // `watchRun` -- a second click here cancels wherever the previous run's watch happened to be.
- const runSuggestions = () => {
+ // `options.ask` is the request a steered run carries ("Add KPI" -> AI generated, or the
+ // panel's "Suggest again" / "Try again" repeating one); the idle bar passes `{}` and starts
+ // a plain run. Anything that is not a non-blank string (absent, null, a stray event) reads
+ // as no request.
+ const runSuggestions = (options) => {
+  const ask = options && typeof options.ask === "string" && options.ask.trim() ? options.ask.trim() : null;
   const controller = beginWatch();
   const startedAt = Date.now();
-  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
+  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt, ask });
 
-  startKpiSuggestionRun(suggestBusinessAreas, { signal: controller.signal })
+  startKpiSuggestionRun(suggestBusinessAreas, { ask, signal: controller.signal })
    .then((run) => {
     if (controller.signal.aborted) return;
     if (!run?.id) {
@@ -577,30 +598,26 @@ export default function KpiDiscoveryPage() {
     result_shape: suggestion.result_shape,
     sql: suggestion.proposed_sql,
     source_tables: suggestion.derived_from_tables || [],
+    // The two suggestion-era sentences the panel shows ("Why the model proposed it" / "What
+    // value it provides") go into the registry with the KPI, so the panel keeps saying them
+    // after adopt -- on reload and for every viewer -- instead of only for this session.
+    rationale: suggestion.rationale ?? null,
+    business_value: suggestion.business_value ?? null,
    },
    { signal: controller.signal }
   )
    .then((created) => {
-    // Leave `status` as-is (don't hardcode "ready"): the adopt POST succeeding says nothing
-    // about whether the earlier `GET /kpis` registry fetch above did. Forcing "ready" here would
-    // silently clear a genuine "error" banner for a registry that still never actually loaded.
-    setRealKpiState((prev) => ({ ...prev, kpis: [...prev.kpis, created] }));
     setSuggestionState((prev) => ({
      ...prev,
      suggestions: prev.suggestions.filter((s) => s.identifier !== suggestion.identifier),
     }));
     // A panel open on the suggestion now shows the registry row it became -- the suggestion
-    // row is gone from the list, and the registry row is the one with a value to show.
-    setDetailRow((prev) =>
-     prev?.suggested && prev?.kpi?.identifier === suggestion.identifier
-      ? rowFromRegistryKpi(created, Number.MAX_SAFE_INTEGER)
-      : prev
+    // row is gone from the list, and the registry row is the one with a value to show. A
+    // panel open on anything else (or none) is left alone.
+    absorbCreatedKpi(
+     created,
+     (prev) => prev?.suggested && prev?.kpi?.identifier === suggestion.identifier
     );
-    // Today's value, now: the nightly gold pass for this one KPI, so the graph has its first
-    // point at once rather than after the first night. Runs whether or not a panel is open.
-    // Skipped for `rowset` KPIs: `KpiTrend` never shows a compute affordance or a line for
-    // one, so the call could only ever produce a skip the client already knows about.
-    if (created.result_shape !== "rowset") computeSeries(created.identifier);
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
@@ -619,6 +636,63 @@ export default function KpiDiscoveryPage() {
      return next;
     });
    });
+ };
+
+ // What a new registry row does once `POST /kpis` lands, shared by an adopt and the manual
+ // "Add KPI" form: into the registry list, its panel open on the new row when `openPanel`
+ // says so given the panel currently open (the manual form always opens it -- the value is
+ // the reason to look; an adopt only when the panel was on the suggestion it replaced), and
+ // today's value computed now for a scalar.
+ //
+ // `status` is left as-is (never hardcoded to "ready"): the POST succeeding says nothing
+ // about whether the earlier `GET /kpis` registry fetch did, and forcing "ready" would
+ // silently clear a genuine "error" banner for a registry that never actually loaded.
+ //
+ // The compute is the nightly gold pass for this one KPI, so the graph has its first point at
+ // once rather than after the first night; it runs whether or not a panel is open. Skipped for
+ // `rowset` KPIs: `KpiTrend` never shows a compute affordance or a line for one, so the call
+ // could only ever produce a skip the client already knows about.
+ const absorbCreatedKpi = (created, openPanel = () => true) => {
+  setRealKpiState((prev) => ({ ...prev, kpis: [...prev.kpis, created] }));
+  setDetailRow((prev) =>
+   openPanel(prev) ? rowFromRegistryKpi(created, Number.MAX_SAFE_INTEGER) : prev
+  );
+  if (created.result_shape !== "rowset") computeSeries(created.identifier);
+ };
+
+ // The manual form's create, with the same unmount guard every other request on this page
+ // has: aborted on unmount (the cleanup above), and nothing absorbed once it is -- otherwise
+ // navigating away mid-save would still append the row and fire an un-abortable compute from
+ // a gone component. A dismiss mid-save is refused by the modal itself, so the only way here
+ // is the page going away.
+ const createManualKpi = async (body) => {
+  createAbortRef.current?.abort();
+  const controller = new AbortController();
+  createAbortRef.current = controller;
+  try {
+   const created = await createKpi(body, { signal: controller.signal });
+   if (controller.signal.aborted) return;
+   closeAddKpi();
+   absorbCreatedKpi(created);
+  } finally {
+   if (createAbortRef.current === controller) createAbortRef.current = null;
+  }
+ };
+
+ const addKpiOpen = params.get(ADD_PARAM) === "1";
+ // Reads the URL live rather than this render's `params`: `createManualKpi` calls this after
+ // an `await`, by which time the run-sync effect above may already have stripped a failed
+ // run's `?run=` -- writing back a click-time snapshot would put it back, and the effect
+ // (keyed on `runId`, unchanged) would never correct it. `BrowserRouter` updates
+ // `window.location` synchronously on every navigation, so what is there is the truth. With a
+ // live read the `has` guard is also meaningful: a second close (or one after the URL moved
+ // on) is a no-op instead of a redundant replace.
+ const closeAddKpi = () => {
+  const live = new URLSearchParams(window.location.search);
+  if (!live.has(ADD_PARAM)) return;
+  live.delete(ADD_PARAM);
+  const search = live.toString();
+  navigate({ search: search ? `?${search}` : "" }, { replace: true });
  };
 
  const handleRemove = (row) => {
@@ -724,6 +798,13 @@ export default function KpiDiscoveryPage() {
   [areaState.areas]
  );
  const realAreaLabel = (id) => realAreaLabelById[id] || id || "";
+ // What the AI step of "Add KPI" tells the person their focus is -- the same label lookup
+ // every registry row's grouping already uses.
+ const focusAreaLabels = useMemo(
+  () => (suggestBusinessAreas || []).map(realAreaLabel).filter(Boolean),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `realAreaLabel` closes over `realAreaLabelById` only.
+  [suggestBusinessAreas, realAreaLabelById]
+ );
 
  const nameToIdsMap = useMemo(() => datasetIdsByLinkedKpiName(), []);
  const processLabelById = useMemo(
@@ -746,6 +827,10 @@ export default function KpiDiscoveryPage() {
    identifier: k.identifier,
    feasibility: k.feasibility,
    resultShape: k.result_shape,
+   // Null for a hand-authored KPI or one adopted before the registry kept them; the panel
+   // renders the section only when at least one is present.
+   rationale: k.rationale || "",
+   businessValue: k.business_value || "",
    fromRegistry: true,
    // Carried through only so an edit (`handleUpdateKpi` below) can resend the required fields
    // `PATCH /kpis/{id}` demands every time -- not shown anywhere in the panel itself.
@@ -783,16 +868,27 @@ export default function KpiDiscoveryPage() {
   [suggestionState.suggestions]
  );
 
+ // The seed "Retail standard" catalogue is not shown in the unfiltered grid: every card there
+ // is either a live suggestion or a real registry KPI, so each one has a real identifier and
+ // real feasibility and can actually be adopted or put on a dashboard. The seed data still
+ // backs Configure > KPIs and the tours; only the unfiltered grid stopped mixing it in.
+ //
+ // The "See unlocked metrics" deep link (`unlockedNames`, from Configure right after a source
+ // connects) still needs it, though: `metricsUnlockedBy` promises specific named metrics before
+ // any suggestion run exists to propose them, so a fresh deployment has neither a matching
+ // suggestion nor a real registry row yet. Fall back to the (deduped) seed catalogue only in
+ // that filtered view, so the promise on the source card and what this page shows stay the same
+ // set -- exactly what unblocked this link before the seed catalogue left the unfiltered grid.
  const rows = useMemo(() => {
-  const registry = flattenKpiIndexRows(data?.categories || []).filter((r) => isEnabled(r.kpi));
-  const all = [...registry, ...suggestionRows, ...realRows];
-  return unlockedNames ? all.filter((r) => unlockedNames.has(r.kpi?.name)) : all;
- }, [data?.categories, suggestionRows, realRows, unlockedNames]);
-
- const disabledCount = useMemo(
-  () => flattenKpiIndexRows(data?.categories || []).filter((r) => !isEnabled(r.kpi)).length,
-  [data?.categories]
- );
+  const all = [...suggestionRows, ...realRows];
+  if (!unlockedNames) return all;
+  const named = all.filter((r) => unlockedNames.has(r.kpi?.name));
+  const seen = new Set(named.map((r) => r.kpi?.name));
+  const seedPreview = flattenKpiIndexRows(data?.categories || []).filter(
+   (r) => r.kpi?.active !== false && unlockedNames.has(r.kpi?.name) && !seen.has(r.kpi?.name)
+  );
+  return [...named, ...seedPreview];
+ }, [suggestionRows, realRows, unlockedNames, data?.categories]);
 
  const hasSuggestions = rows.some((r) => r.suggested);
 
@@ -803,7 +899,7 @@ export default function KpiDiscoveryPage() {
    {realKpiState.status === "error" && (
     <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
      <AlertTriangle size={15} className="shrink-0 text-status-warning" />
-     Couldn't load your KPI registry — showing demo metrics only.
+     Couldn't load your KPI registry. Reload to try again.
     </div>
    )}
 
@@ -873,19 +969,20 @@ export default function KpiDiscoveryPage() {
     </p>
    )}
 
-   {/* Disabled metrics are absent by design, but silently absent is indistinguishable from
-       missing. One line, with a route to the place that controls it. */}
-   {disabledCount > 0 && (
-    <p className="text-xs text-text-muted">
-     {disabledCount} metric{disabledCount === 1 ? " is" : "s are"} switched off and excluded here.{" "}
-     <button
-      type="button"
-      onClick={() => navigate("/configure/domain-mapping")}
-      className="font-semibold text-primary hover:underline"
-     >
-      Manage in Configure
-     </button>
-    </p>
+
+   {addKpiOpen && (
+    <AddKpiModal
+     areaState={areaState}
+     onRetryAreas={loadAreas}
+     focusAreaLabels={focusAreaLabels}
+     runInFlight={suggestionState.status === "loading"}
+     onClose={closeAddKpi}
+     onStartAi={(ask) => {
+      closeAddKpi();
+      runSuggestions({ ask });
+     }}
+     onCreateManual={createManualKpi}
+    />
    )}
 
    {pendingRows && (
