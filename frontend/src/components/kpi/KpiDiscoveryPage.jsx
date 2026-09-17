@@ -605,6 +605,13 @@ export default function KpiDiscoveryPage() {
     description: suggestion.description,
     business_area: suggestion.business_area,
     concept: suggestion.concept ?? null,
+    // `KpiSuggestion` carries no `subject_area` at all (it's a curated field, assigned only
+    // once a KPI is governed) -- but the discovery hierarchy displays a suggestion under its
+    // `concept` as a stand-in Subject Area (`suggested-candidates.js`'s `rowFromSuggestion`)
+    // so it isn't dumped in "Unsorted" before it even has a chance to be reviewed. Carrying
+    // that same value over here keeps the row in the group the customer already saw it in,
+    // instead of it silently landing in "Unsorted" the moment "Add to my metrics" succeeds.
+    subject_area: suggestion.concept ?? null,
     grain: suggestion.grain,
     result_shape: suggestion.result_shape,
     sql: suggestion.proposed_sql,
