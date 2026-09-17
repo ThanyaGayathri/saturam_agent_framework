@@ -69,6 +69,14 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  const [tables, setTables] = useState({});
 
  const isQuery = detached;
+ // A KPI tile scoped to one grain (`grain_value`, e.g. one supplier) always resolves to a
+ // single row server-side (`_tile_data`'s `_resolve_row`), so it can never come back with the
+ // multiple rows a table needs -- "Table" would silently render as a plain number instead.
+ // Query tiles and un-scoped ("overall"/top-N) KPI tiles are unaffected.
+ const tableUnavailableReason =
+  !isQuery && chart.grain_value != null
+   ? "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown."
+   : null;
  const sourceTables = isQuery ? preview?.guard?.tables || chart.query?.source_tables || [] : chart.query?.source_tables || [];
  // What this chart already declared as its tables when the editor opened, before any edit --
  // narrows the preview's own guard check to that set (round-1 review, finding #5: the client
@@ -229,19 +237,31 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
      <div>
       <label className="mb-1 block text-xs font-semibold text-text-secondary">Chart</label>
       <div className="inline-flex overflow-hidden rounded-md border border-border-light text-xs">
-       {CHART_OPTIONS.map((o) => (
-        <button
-         key={o.value}
-         type="button"
-         onClick={() => setKind(o.value)}
-         className={`border-r border-border-light px-2.5 py-1 font-medium last:border-r-0 ${
-          kind === o.value ? "bg-primary-light font-semibold text-primary" : "text-text-secondary hover:bg-surface-secondary"
-         }`}
-        >
-         {o.label}
-        </button>
-       ))}
+       {CHART_OPTIONS.map((o) => {
+        const disabled = o.value === "table" && Boolean(tableUnavailableReason);
+        return (
+         <button
+          key={o.value}
+          type="button"
+          onClick={() => !disabled && setKind(o.value)}
+          disabled={disabled}
+          title={disabled ? tableUnavailableReason : undefined}
+          className={`border-r border-border-light px-2.5 py-1 font-medium last:border-r-0 ${
+           disabled
+            ? "cursor-not-allowed text-text-muted opacity-50"
+            : kind === o.value
+              ? "bg-primary-light font-semibold text-primary"
+              : "text-text-secondary hover:bg-surface-secondary"
+          }`}
+         >
+          {o.label}
+         </button>
+        );
+       })}
       </div>
+      {tableUnavailableReason && kind === "table" && (
+       <p className="mt-1.5 text-[11px] text-status-warning">{tableUnavailableReason}</p>
+      )}
      </div>
 
      <div>
