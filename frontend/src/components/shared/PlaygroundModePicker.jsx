@@ -66,10 +66,15 @@ export default function PlaygroundModePicker({ profileId, onChange }) {
           key={m}
           type="button"
           title={HINTS[m]}
+          aria-pressed={mode === m}
           onClick={() => apply(m, MODES_NEEDING_SCOPE.includes(m) ? draftScope : null)}
+          // `text-white` on the selected pill, not `text-surface-primary`: tailwind.config.js
+          // defines surface as DEFAULT/default/secondary/tertiary/page and has no `primary`,
+          // so that class resolved to nothing and the label rendered dark-on-dark -- an
+          // invisible selection. `text-white` is what the rest of this app uses on a dark fill.
           className={`rounded-full border px-3 py-1 transition ${
             mode === m
-              ? "border-transparent bg-text-primary text-surface-primary"
+              ? "border-transparent bg-text-primary text-white"
               : "border-border text-text-muted hover:text-text-primary"
           }`}
         >
@@ -86,7 +91,7 @@ export default function PlaygroundModePicker({ profileId, onChange }) {
           }}
           placeholder={SCOPE_PLACEHOLDER[mode]}
           aria-label={SCOPE_PLACEHOLDER[mode]}
-          className="rounded-md border border-border bg-surface-primary px-2 py-1 text-text-primary"
+          className="rounded-md border border-border bg-surface-default px-2 py-1 text-text-primary"
         />
       ) : null}
       {needsScope && !scopeId ? (
