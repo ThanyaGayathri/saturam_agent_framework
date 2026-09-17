@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Any, Callable, Dict, Type, Union
 
-import httpx
 from pydantic import BaseModel
 
 from egpt.integrations.models._utils.claude import format_tools_for_model
@@ -15,6 +14,32 @@ try:
     from anthropic import AnthropicFoundry, AsyncAnthropicFoundry
 except ImportError as e:
     raise ImportError("`anthropic` not installed. Please install it with `pip install anthropic`") from e
+
+
+def _sdk_accepts_httpx_client() -> bool:
+    """Whether this ``anthropic`` SDK takes an ``httpx`` client, or builds its own.
+
+    ``anthropic`` 1.0 moved to **httpx2** and rejects an ``httpx`` client outright:
+
+        Invalid `http_client` argument; `httpx.AsyncClient` is from the `httpx` package,
+        but this SDK uses `httpx2`. Use `httpx2.AsyncClient` instead.
+
+    ``egpt[anthropic]`` is unpinned, so a fresh install resolves 1.x and every call through
+    this model failed on that message -- the framework's shared client was injected on every
+    construction, including when the caller asked for no client at all.
+
+    On 1.x we inject nothing and let the SDK build its own. That gives up the shared connection
+    pool ``get_default_*_client`` exists to provide, which is the honest trade: a pooled client
+    the SDK refuses is worth less than an unpooled one that works. A caller who wants pooling on
+    1.x can still pass an ``httpx2`` client as ``http_client`` -- the isinstance checks below
+    leave it alone, because they only screen the *framework's* default.
+    """
+    try:
+        from anthropic import __version__ as _v
+
+        return int(str(_v).split(".", 1)[0]) < 1
+    except Exception:  # noqa: BLE001 -- an unreadable version is not a reason to refuse to build
+        return True
 
 
 @dataclass
@@ -87,13 +112,9 @@ class Claude(AnthropicClaude):
             return self.client
 
         _client_params = self._get_client_params()
-        if self.http_client:
-            if isinstance(self.http_client, httpx.Client):
-                _client_params["http_client"] = self.http_client
-            else:
-                log_warning("http_client is not an instance of httpx.Client. Using default global httpx.Client.")
-                _client_params["http_client"] = get_default_sync_client()
-        else:
+        if self.http_client is not None:
+            _client_params["http_client"] = self.http_client
+        elif _sdk_accepts_httpx_client():
             _client_params["http_client"] = get_default_sync_client()
         self.client = AnthropicFoundry(**_client_params)
         return self.client
@@ -104,15 +125,9 @@ class Claude(AnthropicClaude):
             return self.async_client
 
         _client_params = self._get_client_params()
-        if self.http_client:
-            if isinstance(self.http_client, httpx.AsyncClient):
-                _client_params["http_client"] = self.http_client
-            else:
-                log_warning(
-                    "http_client is not an instance of httpx.AsyncClient. Using default global httpx.AsyncClient."
-                )
-                _client_params["http_client"] = get_default_async_client()
-        else:
+        if self.http_client is not None:
+            _client_params["http_client"] = self.http_client
+        elif _sdk_accepts_httpx_client():
             _client_params["http_client"] = get_default_async_client()
         self.async_client = AsyncAnthropicFoundry(**_client_params)
         return self.async_client
