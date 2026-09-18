@@ -17,6 +17,19 @@ data:
   EGPT_RETAIL_NEO4J_USER: {{ .Values.neo4j.user | quote }}
   EGPT_RETAIL_NEO4J_DATABASE: {{ .Values.neo4j.databases.ontology | quote }}
   EGPT_RETAIL_PROVIDER_MODE: {{ .Values.model.providerMode | quote }}
+  # K1 memory's vector substrate (AZ-B). Read by the api, pipelines and consolidator pods; the
+  # api key is in the Secret. An azure_ai_search backend with an empty endpoint is refused by
+  # the memory lifespan at boot, naming EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT.
+  EGPT_RETAIL_MEMORY_BACKEND: {{ .Values.memory.backend | quote }}
+  EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT: {{ .Values.search.endpoint | default "" | quote }}
+  EGPT_RETAIL_MEMORY_SEARCH_INDEX: {{ .Values.search.memoryIndex | quote }}
+  # K2 knowledge prose's vector store (AZ-C): the same Azure AI Search service and key as
+  # memory, a separate index. Read by load-knowledge, suggest and the api. An azure_ai_search
+  # backend with an empty endpoint is refused at point of use, naming
+  # EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT.
+  EGPT_RETAIL_KNOWLEDGE_BACKEND: {{ .Values.knowledge.backend | quote }}
+  EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT: {{ .Values.search.endpoint | default "" | quote }}
+  EGPT_RETAIL_KNOWLEDGE_SEARCH_INDEX: {{ .Values.search.knowledgeIndex | quote }}
   # R4's raw drop. Credentials live in the Secret, never here.
   EGPT_RETAIL_STORAGE_PROVIDER: {{ .Values.storage.provider | quote }}
   EGPT_RETAIL_STORAGE_ENDPOINT: {{ .Values.storage.endpoint | quote }}

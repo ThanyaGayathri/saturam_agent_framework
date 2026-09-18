@@ -339,3 +339,247 @@ mutation results, is in PR #216's summary comment.
 | The two async hybrid legs run sequentially | Minor (perf) | **Not fixed.** Nothing in the code or docs claims otherwise, and the benefit cannot be measured without a live service -- the same reason recall and latency are NOT PROVEN above. Revisit with the AZ-B benchmark the migration plan's "Verify" section calls for. |
 | `_lexical_similarity` docstring claimed a "loud `ValueError`" | Nit | Fixed: a negative rank is now actually refused, and the docstring says what the division does and does not catch |
 | Module docstring called base64 "hashing" | Nit | Fixed: it is an encoding, and the docstring now explains why injectivity, not hashing, is the property that matters |
+
+### AZ_C_knowledge_prose.py
+
+**Package:** AZ-C (`docs/plan/azure-migration-plan.md`, K2 knowledge-prose migration)
+
+**Status:** PASS on the pgvector leg (real compose Postgres, real local embedder); the Azure AI
+Search leg was **NOT RUN** -- see the boundary below. Nothing is claimed for it.
+
+#### Environment constraint, stated plainly
+
+Same boundary AZ-B recorded: this session has no Azure CLI, no Azure subscription, and no
+Azure AI Search service reachable over the network. `EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT` was
+unset, so section 2 of the script printed its skip notice and exited without touching the
+`azure_ai_search` backend. The Azure-side claims of the plan's Evidence entry -- that the
+search returns the correct section on Azure AI Search and that its ranking is consistent with
+the RRF semantic AZ-B documented -- are **NOT PROVEN** here. The script is written to prove them
+the moment an endpoint and key are set (it diffs the two result sets and asserts the top section
+agrees), and that run must be recorded as a new entry when it happens.
+
+The `AzureAISearch` `VectorDb` itself is AZ-B's framework deliverable, written in parallel with
+this package; the product side imports it lazily inside `build_knowledge_vector_db` against the
+agreed constructor contract (`index_name`, `endpoint`, `api_key`, `embedder`, `search_type`).
+On this checkout the module does not exist yet, so the Azure branch is covered by unit tests
+with a recorded fake standing in for the class, not by any run.
+
+#### What was actually run and what it showed
+
+Environment: `.venvs/demo` does not exist on this machine, so the script ran under the dev
+`.venv` with `sentence-transformers` installed into it for the occasion (`uv pip install`),
+`PYTHONPATH=product:libs/agno` pointing at this branch's checkout, and compose Postgres
+(`egpt-retail-postgres-1`, host port 5532) already up. `EGPT_RETAIL_PROVIDER_MODE=local`,
+`BAAI/bge-base-en-v1.5` at 768 -- the same embedder K02's own entry ran with.
+
+```
+$ PYTHONPATH=product:libs/agno .venv/bin/python cookbook/95_azure_migration/AZ_C_knowledge_prose.py
+
+0. Chunk boundaries fall on headings (no backend involved)
+  08-inventory-management-and-demand-forecasting.md: 55 chunks under the chosen setting, 55 start at a heading, 13 heading-only shells
+  [ok] every chunk begins at a heading under the chosen setting
+  [ok] expected heading '### 8.1 Definition and Mechanics' exists and the query is not its title
+  [ok] expected heading '### 8.3 Bullwhip Mitigation Strategies' exists and the query is not its title
+  embedder: BAAI/bge-base-en-v1.5 @ 768d (mode local)
+
+1. pgvector (compose Postgres) -- the baseline
+  vector db: PgVector
+  1 shipped document(s) ingested
+  'four primary causes of the bullwhip effect identified by Hau Lee'
+      1. '### 8.1 Definition and Mechanics'  score=0.4817
+      2. '## 16. Further Reading'  score=0.3788
+      3. '### 8.2 Bullwhip in a Retail-Specific Context'  score=0.3533
+  [ok] pgvector: top result is '### 8.1 Definition and Mechanics'
+  'sharing daily store-level POS data with suppliers through Retail Link'
+      1. '### 8.3 Bullwhip Mitigation Strategies'  score=0.3714
+      2. '### Case Study 1: Walmart — Integrated Demand Sensing and In'  score=0.3377
+      3. '### 9.4 Demand Sensing vs. Demand Planning'  score=0.3327
+  [ok] pgvector: top result is '### 8.3 Bullwhip Mitigation Strategies'
+  stored in egpt_retail_prose_az_c: 42 chunks, 42 begin at a heading
+  [ok] pgvector: every stored chunk begins at a heading
+  [ok] pgvector: stored chunk count is the heading split minus the dropped shells
+
+2. azure_ai_search -- the same scenario, diffed against the baseline
+  SKIPPED: EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT is not set. ...
+
+pgvector leg holds: chunk boundaries fall on headings, every stored chunk begins at
+its heading, and a mid-section phrase returns the whole section it came from.
+Azure AI Search leg: NOT RUN (no service configured). Nothing is claimed for it.
+exit 0
+```
+
+**Description:** The plan's Verify scenario, run through the product's own wiring rather than a
+private copy of it: the document with known headings (K02's sample,
+`08-inventory-management-and-demand-forecasting.md`) is ingested through
+`egpt_retail.knowledge.vector.build_knowledge_vector_db` -- the same factory `load-knowledge`
+and `suggest` now call -- with `EGPT_RETAIL_KNOWLEDGE_BACKEND=pgvector`, into its own table.
+Two phrases from the *middle* of a section (neither is a heading or a first line) are searched
+with `SearchType.hybrid`, top 3, and the result set recorded. Section 0 measures the chunking
+with no backend at all, since the boundary property is chunking logic and holds regardless of
+where the vectors go.
+
+**Result:** 55 heading-split chunks, 55 starting at a heading, 13 heading-only shells dropped
+before ingest, 42 stored -- and the stored count equals the split minus the shells, so nothing
+was re-split by size on the way in. Both mid-section phrases return the whole section they came
+from as the top hit (`### 8.1 Definition and Mechanics`, `### 8.3 Bullwhip Mitigation
+Strategies`), every returned chunk begins at its heading, and the pgvector `similarity_score`
+column carries pgvector's weighted vector/text blend (0.48, 0.37 at the top). That column is the
+baseline the Azure leg will be diffed against; per AZ-B decision 2 the Azure score is an
+RRF-derived value of a different magnitude, so the script asserts agreement on the top section
+and prints, rather than asserts, the lower ranks and scores.
+
+**What changed in the product for this package:**
+
+- `product/egpt_retail/app/settings.py` -- `retail_knowledge_backend` (`pgvector` |
+  `azure_ai_search`, default `azure_ai_search`, env `EGPT_RETAIL_KNOWLEDGE_BACKEND`),
+  `retail_knowledge_search_index` (default `egpt-retail-knowledge`),
+  `retail_knowledge_search_endpoint`, `retail_knowledge_search_api_key`. The default is the
+  production truth, same posture as `retail_provider_mode`; with the default backend and no
+  endpoint, construction refuses naming `EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT` and the
+  `pgvector` escape hatch, at the point of use, like `build_warehouse_engine`.
+- `product/egpt_retail/knowledge/vector.py` -- `build_knowledge_vector_db(settings, embedder)`,
+  pure construction (no async twin, per the standing exemption). The pgvector branch passes
+  exactly what the two entrypoints passed before (`table_name`, `db_url`,
+  `SearchType.hybrid`, `embedder`), now importing from `egpt.integrations.vectordb.pgvector`
+  rather than the deprecated `egpt.vectordb.pgvector` shim.
+- `entrypoints/load_knowledge.py` and `entrypoints/suggest.py` -- the two hardcoded `PgVector`
+  constructions replaced by the factory; `suggest`'s shim import removed. The load report line
+  names the table on pgvector and `azure_ai_search:<index>` otherwise.
+- `cookbook/94_retail/K02_domain_prose.py`, `K10_unified_retrieval.py`, `K12_kpi_suggestion.py`,
+  `K13_use_case_suggestion.py` -- vector db built through the factory; each sets
+  `EGPT_RETAIL_KNOWLEDGE_BACKEND=pgvector` at the top unless an Azure AI Search endpoint is
+  configured, since they run by hand against compose Postgres. Shim imports fixed.
+- `product/tests/test_az_c_knowledge_vector.py` -- 11 tests: default backend, env binding,
+  unknown backend refused, pgvector kwargs byte-for-byte, Azure kwargs, key pass-through as
+  `None`, no-endpoint refusal naming the variable with nothing imported or built, cross-backend
+  import isolation, `load-knowledge` calling the factory (behavioural), the report line, and a
+  source-level check that neither entrypoint names `PgVector(` or the shim.
+
+Product suite: `1057 passed, 51 skipped`. Product mypy (`--python-version 3.12`,
+`MYPYPATH=../libs/agno`): clean, with one `type: ignore[import-not-found]` on the lazy
+`AzureAISearch` import that is inert once AZ-B's module is on the checkout.
+
+**Not done here, and why:** the Azure leg (above); `.venvs/demo` provisioning
+(`demo_setup.sh` is not this package's to change; note K02's own entry already flagged
+`unstructured` as missing from it). K10/K12/K13 were re-wired but not re-run: they need Neo4j,
+the loaded corpus and (K12/K13) Azure OpenAI; their edit is the same four-line substitution K02
+carries, and K02 was re-run in full to prove that substitution.
+
+---
+
+### AZ-B memory backend flip
+
+**Package:** AZ-B (the product-side piece PR #216 deliberately left out: `product/egpt_retail/memory/config.py`
+selecting the substrate by config, plus the deployment wiring)
+**Script:** none -- `product/tests/test_az_b_memory_backend.py` (12 unit tests), `helm lint` /
+`helm template`, and the full `product/tests` suite. There is still no Azure AI Search service or
+subscription in this environment (the same boundary the entry above states), so no script was
+written that would claim to run against one.
+**Status:** PASS for everything listed under "proven"; **NOT RUN** against a real index.
+
+**Description:** `RetailSettings` gains `retail_memory_backend` (`EGPT_RETAIL_MEMORY_BACKEND`,
+`pgvector | azure_ai_search`, default `azure_ai_search` -- the production truth, same posture as
+`retail_provider_mode`), `retail_memory_search_endpoint` / `_api_key` / `_index`
+(`EGPT_RETAIL_MEMORY_SEARCH_*`, index default `egpt-retail-memory`). `build_memory_config` builds the
+`vector` dict per backend: the pgvector dict is byte-identical to before; the Azure dict is
+`{backend, endpoint, api_key, index_name, ef_search}`, which `resolve_substrate` forwards as kwargs to
+`AzureAISearchMemorySubstrate.__init__` (plus `mode`, because the constructor names it). The endpoint
+and key are passed through explicitly; the substrate's own `EGPT_MEMORY_AZURE_SEARCH_*` fallbacks are
+not relied on. `azure_ai_search` with no endpoint is refused at config-build time by
+`MemoryProviderConfigError`, naming `EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT` and the `pgvector` way out.
+Compose (`api`, `consolidator`) and the kind overlay (`values.local.yaml`) set `pgvector` explicitly;
+`values.yaml` gains `memory.backend`, `search.endpoint`, `search.memoryIndex`,
+`secrets.values.searchApiKey` (Key Vault object `search-api-key`).
+
+**Result:**
+```
+product/tests/test_az_b_memory_backend.py: 12 passed
+product/tests (whole suite, -p no:randomly): 1057 passed, 51 skipped (12 of them this file)
+ruff format + ruff check on the touched files: clean
+cd product && MYPYPATH=../libs/agno mypy egpt_retail --python-version 3.12: Success: no issues found in 136 source files
+helm lint deploy/helm/egpt: 1 chart(s) linted, 0 chart(s) failed
+helm template ... -f values.local.yaml --set auth.enabled=false:
+  EGPT_RETAIL_MEMORY_BACKEND: "pgvector", EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT: "",
+  EGPT_RETAIL_MEMORY_SEARCH_INDEX: "egpt-retail-memory"; no EGPT_RETAIL_MEMORY_SEARCH_API_KEY line
+helm template ... --set secrets.provider=keyVault:
+  EGPT_RETAIL_MEMORY_BACKEND: "azure_ai_search"; SecretProviderClass maps search-api-key ->
+  EGPT_RETAIL_MEMORY_SEARCH_API_KEY and lists the search-api-key object
+helm template ... --set secrets.values.searchApiKey=abc --set search.endpoint=https://x.search.windows.net:
+  EGPT_RETAIL_MEMORY_SEARCH_API_KEY: "abc" rendered in the Secret; endpoint rendered in the ConfigMap
+```
+
+**Proven (no network, no Postgres):**
+- The default backend is `azure_ai_search`; every new env name binds; an unknown backend is refused
+  at settings time.
+- The `pgvector` dict is unchanged by the flip (asserted as a literal).
+- The Azure dict's keys (minus `backend`) are a subset of `AzureAISearchMemorySubstrate.__init__`'s
+  parameters, read with `inspect.signature` against the merged substrate -- a renamed constructor
+  parameter fails this test rather than as a `TypeError` inside `discovery.construct`.
+- A missing or blank endpoint refuses naming `EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT` (and never the
+  substrate's `EGPT_MEMORY_AZURE_SEARCH_ENDPOINT`), through `build_memory_vector_settings`,
+  `build_memory_resolver`, `build_memory_provider`, and the memory lifespan (`memory_lifespan_for`)
+  -- the last as the one fault a boot raises, from startup, not import. `build_agent_os(RetailSettings())`
+  with the Azure default and no endpoint still constructs (import stays pure). An unset customer
+  slug still short-circuits to `None` before the backend is consulted, so G1's ordering is unchanged.
+- A `MemoryProvider` builds through the real seam -- `build_memory_provider` ->
+  `build_memory_provider_for(build_memory_resolver(settings), tenant_id="acme")` -> registry ->
+  `AzureAISearchMemorySubstrate` -- with a fake endpoint, and the constructed substrate carries the
+  configured endpoint, index name, `ef_search=256`, `mode=FRONTIER` and `dim=1024`.
+- The consolidator needs nothing more: `entrypoints/consolidator.py` calls
+  `build_memory_provider_for(build_memory_resolver(settings), tenant_id=slug)`, the same path.
+
+**Recorded, not forced -- construction is NOT lazy:** `AzureAISearchMemorySubstrate.__init__` calls
+`init_schema()` (`auto_init_schema=True`, the same self-provisioning posture as pgvector's
+`CREATE EXTENSION ... / CREATE TABLE` on construction), which is exactly one
+`SearchIndexClient.create_or_update_index` HTTPS call. The construction test mocks that one method
+and asserts it was called once with an index named `egpt-retail-memory-test`, and that
+`SearchClient.search` was never called. So: constructing the provider needs the service reachable
+and the credential allowed to create indexes; a no-work consolidator tick still needs no embedder
+key. The task's "show construction is lazy" therefore does not hold and is not claimed.
+
+**Not proven -- needs a real Azure AI Search resource (unchanged from the entry above):** index
+creation against a live service, the first real boot of `api`/`consolidator` with
+`EGPT_RETAIL_MEMORY_BACKEND=azure_ai_search`, the cross-process recall scenario the plan's AZ-B
+"Verify" step asks for, any recall or latency number, and the `TokenCredential` path (only
+`api_key` is wired from settings; managed identity would need the product to build a credential
+and pass it, which no setting does today).
+
+**Known consequence outside this change's write scope:** `cookbook/94_retail/K1_memory_wiring.py`
+(and any other cookbook that builds `RetailSettings()` for memory against the local pgvector) now
+needs `EGPT_RETAIL_MEMORY_BACKEND=pgvector` in its environment or it refuses at
+`build_memory_provider`, naming the endpoint variable. That file is owned by another lane and was
+not edited here; the fix is one `os.environ.setdefault("EGPT_RETAIL_MEMORY_BACKEND", "pgvector")`
+next to its existing `EGPT_RETAIL_MEMORY_TABLE` default.
+
+---
+
+### Integration of AZ-C and the AZ-B flip (one branch, `feat/az-c-knowledge-prose`)
+
+**Package:** AZ-C + AZ-B (the two entries above, merged with the framework `AzureAISearch`
+`VectorDb` into one branch and re-verified together)
+**Status:** PASS for everything the entries above claim, on the merged tree; the Azure AI Search
+legs remain **NOT RUN** (no service in this environment).
+
+**What the merge added, and why:**
+- `AZ_C_knowledge_prose.py` was not idempotent: with the store left from the previous run, a
+  second run stored 84 chunks for 42 and failed its own count check. It now drops its own table
+  before ingesting; run twice on the merged tree, 42 stored both times, exit 0.
+- The knowledge backend had settings but no deployment wiring: `values.yaml` gains
+  `knowledge.backend` (default `azure_ai_search`) and `search.knowledgeIndex`; the ConfigMap maps
+  `EGPT_RETAIL_KNOWLEDGE_BACKEND` / `_SEARCH_ENDPOINT` / `_SEARCH_INDEX`; the Secret and the Key
+  Vault object map the same `search-api-key` to `EGPT_RETAIL_KNOWLEDGE_SEARCH_API_KEY` (same
+  service and key as memory, separate index); `values.local.yaml` and both compose services set
+  `pgvector`. `helm lint` clean; rendered with the kind overlay, with `secrets.provider=keyVault`,
+  and with a set api key -- the knowledge keys render, and the api-key line is absent when empty.
+- `K1_memory_wiring.py`, `K05_semantic_graph.py`, `K10_unified_retrieval.py` set
+  `EGPT_RETAIL_MEMORY_BACKEND=pgvector` explicitly (the AZ-B entry's "known consequence");
+  `K1_memory_wiring.py` re-run against compose Postgres with the local embedder: PASS.
+- `test_load_knowledge_builds_its_store_through_the_factory` is gated on the optional
+  `unstructured` package (it walks the real markdown reader), so a partial install skips it
+  rather than failing it -- the `unit-drivers-absent` rule.
+
+**Result on the merged tree:** `product/tests` 1069 passed, 51 skipped (3.12); framework
+`test_azure_ai_search.py` 80 passed; product mypy (`--python-version 3.12`) clean; framework
+mypy on the new package clean. On the Python 3.10 venv the product suite passes except
+`test_r4_storage.py`'s sixteen Azure Blob tests, which fail only because that venv lacks the
+`azure` SDK -- AZ-A's tests, already on `main`, not this branch's.

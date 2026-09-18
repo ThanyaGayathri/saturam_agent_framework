@@ -26,16 +26,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 # A laptop has no Azure embedding deployment; the production default is frontier.
 os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
+# Run by hand against compose Postgres; the deployment default is Azure AI Search (AZ-C), so
+# choose pgvector here unless an Azure AI Search endpoint is actually configured.
+if not os.environ.get("EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT"):
+    os.environ.setdefault("EGPT_RETAIL_KNOWLEDGE_BACKEND", "pgvector")
 
 import psycopg  # noqa: E402
 from egpt.integrations.knowledge.reader.markdown_reader import (
     MarkdownReader,  # noqa: E402
 )
-from egpt.integrations.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.knowledge.knowledge import Knowledge  # noqa: E402
 from egpt.metrics import ProviderMode  # noqa: E402
-from egpt.vectordb.search import SearchType  # noqa: E402
+from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.knowledge.vector import build_knowledge_vector_db  # noqa: E402
 from egpt_retail.knowledge.prose import (  # noqa: E402
     ORIGIN_SHIPPED,
     build_chunker,
@@ -116,14 +120,14 @@ print(
 resolved = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
 print(f"  embedder: {resolved}")
 
-knowledge = Knowledge(
-    vector_db=PgVector(
-        table_name=TABLE,
-        db_url=DB_URL,
-        search_type=SearchType.hybrid,
-        embedder=resolved.embedder,
-    ),
+# Through the product's own factory, so this cookbook and `load-knowledge` build the store
+# the same way; the backend comes from EGPT_RETAIL_KNOWLEDGE_BACKEND (see the top of the file).
+settings = RetailSettings(
+    retail_db_url=DB_URL,
+    retail_knowledge_table=TABLE,
+    retail_provider_mode=ProviderMode.LOCAL,
 )
+knowledge = Knowledge(vector_db=build_knowledge_vector_db(settings, resolved.embedder))
 
 reader = MarkdownReader(chunking_strategy=build_chunker())
 report = ingest_corpus(knowledge, documents, reader=reader)

@@ -70,7 +70,11 @@ def test_scopes_follow_memory_scope_md(monkeypatch):
 
 
 def test_memory_config_is_vector_only_mode_b():
-    config = build_memory_config(RetailSettings())
+    # The backend is named explicitly: since AZ-B the default is azure_ai_search, and this
+    # test is about the pgvector dict's shape, not about which backend the deployment runs
+    # (test_az_b_memory_backend.py pins that).
+    settings = RetailSettings(retail_memory_backend="pgvector")
+    config = build_memory_config(settings)
     assert config.provider == "co_located"
     assert config.mode is ProviderMode.FRONTIER, (
         "an Azure embedder is only legal under Mode B"
@@ -78,7 +82,7 @@ def test_memory_config_is_vector_only_mode_b():
     assert config.vector["backend"] == "pgvector"
     assert "db_url" in config.vector and "dsn" not in config.vector
     assert config.graph == {}, "no Neo4j in phase zero"
-    assert build_memory_resolver(RetailSettings()).default == config
+    assert build_memory_resolver(settings).default == config
 
 
 def test_dsn_conversion_for_the_advisory_lock():

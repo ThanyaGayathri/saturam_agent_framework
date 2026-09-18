@@ -2,10 +2,13 @@
 
 The deploy-time counterpart to ``migrate``. That one brings the control-plane *schema* to the
 current version; this one brings the shipped *content* to it: the retail ontology into Neo4j
-and the curated retail prose into pgvector.
+and the curated retail prose into the configured vector store (Azure AI Search by default,
+compose pgvector when ``EGPT_RETAIL_KNOWLEDGE_BACKEND=pgvector``; see
+``egpt_retail.knowledge.vector``).
 
-Locally, set ``EGPT_RETAIL_PROVIDER_MODE=local``: the default is the deployment's Mode B, and
-a laptop has no Azure embedding deployment to serve it.
+Locally, set ``EGPT_RETAIL_PROVIDER_MODE=local`` and ``EGPT_RETAIL_KNOWLEDGE_BACKEND=pgvector``:
+the defaults are the deployment's Mode B and its Azure AI Search index, and a laptop has neither
+an Azure embedding deployment nor a search service to serve them.
 
 Deployed as a Helm ``post-install,post-upgrade`` hook Job, not a ``pre-`` one: it writes
 through the application's own code paths and needs the schema migration to have finished
@@ -209,17 +212,12 @@ def _load_prose(
         raise SystemExit(f"{corpus} holds no markdown documents.")
 
     if knowledge is None:
-        from egpt.integrations.vectordb.pgvector import PgVector
         from egpt.knowledge.knowledge import Knowledge
-        from egpt.vectordb.search import SearchType
+
+        from egpt_retail.knowledge.vector import build_knowledge_vector_db
 
         knowledge = Knowledge(
-            vector_db=PgVector(
-                table_name=settings.retail_knowledge_table,
-                db_url=settings.retail_db_url,
-                search_type=SearchType.hybrid,
-                embedder=embedder.embedder,
-            ),
+            vector_db=build_knowledge_vector_db(settings, embedder.embedder),
         )
 
     from egpt.integrations.knowledge.reader.markdown_reader import MarkdownReader
@@ -227,7 +225,16 @@ def _load_prose(
     report = ingest_corpus(
         knowledge, documents, reader=MarkdownReader(chunking_strategy=build_chunker())
     )
-    return [f"prose: {report} into {settings.retail_knowledge_table}"]
+    return [f"prose: {report} into {_prose_destination(settings)}"]
+
+
+def _prose_destination(settings: RetailSettings) -> str:
+    """The store the report line names: the table on pgvector, the index on Azure AI Search."""
+    if settings.retail_knowledge_backend == "pgvector":
+        return settings.retail_knowledge_table
+    return (
+        f"{settings.retail_knowledge_backend}:{settings.retail_knowledge_search_index}"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
