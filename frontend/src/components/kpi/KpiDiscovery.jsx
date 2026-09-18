@@ -71,14 +71,19 @@ const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
  * source tables that already uses these three words. A real registry KPI (C1, #232) carries the
  * server's own join-aware `feasibility.verdict` on the KPI itself, the same three ids, so it maps
  * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
- * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
+ * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked; a
+ * registry KPI whose verdict isn't one of the three canonical ids (backend enum drift) is too,
+ * rather than falling through to a bucket id nothing downstream recognizes.
  */
 export function bucketFor(row) {
  if (row.suggested) {
   const verdict = row.suggestion?.feasibility?.verdict;
   return BUCKET_IDS.has(verdict) ? verdict : "blocked";
  }
- if (row.kpi.fromRegistry) return row.kpi.feasibility?.verdict || "blocked";
+ if (row.kpi.fromRegistry) {
+  const verdict = row.kpi.feasibility?.verdict;
+  return BUCKET_IDS.has(verdict) ? verdict : "blocked";
+ }
  const status = mappingStatusForKpi(row.kpi);
  if (status === "linked") return "ready";
  if (status === "review") return "partial";
@@ -709,13 +714,16 @@ export default function KpiDiscovery({
   };
  };
 
- // Single flat tree -- used when a specific verdict is picked from the filter, and it's the
- // only thing rendered then, so section-level chrome would be redundant.
- const flatResult = useMemo(
-  () => buildGroups(filteredRows),
+ // Single flat tree -- used when a specific verdict is picked from the filter, and it's the only
+ // thing rendered then, so section-level chrome would be redundant. Left null when the Verdict
+ // filter is "all" (`verdictResults` renders instead), the same guard `verdictResults` itself uses
+ // below, so a search keystroke/filter change in the default view doesn't pay for a buildGroups
+ // pass (sort included) whose result would just be thrown away unread.
+ const flatResult = useMemo(() => {
+  if (verdictFilter !== "all") return buildGroups(filteredRows);
+  return null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [filteredRows, areas, focusAreaIds]
- );
+ }, [filteredRows, verdictFilter, areas, focusAreaIds]);
 
  // Repeat mode -- one tree per verdict, each built from only that verdict's rows. A Business
  // Area/Subject Area with KPIs in more than one bucket appears once per bucket it has a match
@@ -750,7 +758,7 @@ export default function KpiDiscovery({
  const crossRefFor = (bucket, baId, rawSubjectKey) => {
   const others = subjectVerdictsMap?.get(`${baId}\0${rawSubjectKey}`);
   if (!others) return null;
-  const labels = [...others].filter((b) => b !== bucket).map((b) => VERDICT_META[b].label);
+  const labels = VERDICT_ORDER.filter((b) => b !== bucket && others.has(b)).map((b) => VERDICT_META[b].label);
   return labels.length ? `+ also in ${labels.join(", ")}` : null;
  };
 
@@ -758,10 +766,16 @@ export default function KpiDiscovery({
  // filter can hide a selected row without deselecting it, and the count shown here must match
  // what `onCreateDashboard` below actually receives. A KPI belongs to exactly one verdict
  // bucket, so it is never double-counted across repeat-mode sections.
- const selectedRows = useMemo(
-  () => filteredRows.map((e) => e.row).filter((r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`)),
-  [filteredRows, selected]
- );
+ //
+ // Ordered to match whichever tree is actually on screen (the sorted Business-Area/Subject-Area
+ // `groups`, not raw `filteredRows`/API order) -- `CreateDashboardModal` lays out dashboard tiles
+ // in this same order, so it should match what the user saw while selecting.
+ const selectedRows = useMemo(() => {
+  const isSelected = (r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`);
+  const flattenGroups = (groupsList) => groupsList.flatMap((g) => g.subjects.flatMap((s) => s.rows));
+  const ordered = verdictFilter === "all" ? VERDICT_ORDER.flatMap((bucket) => flattenGroups(verdictResults[bucket].groups)) : flattenGroups(flatResult.groups);
+  return ordered.filter(isSelected);
+ }, [verdictFilter, verdictResults, flatResult, selected]);
 
  const setAllOpen = (scope, groupsList, open) => {
   const ba = {};
