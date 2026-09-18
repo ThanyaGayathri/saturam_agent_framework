@@ -5,7 +5,10 @@ import {
  CalendarClock,
  Check,
  ChevronDown,
+ CircleCheck,
  CircleHelp,
+ CircleX,
+ Clock,
  Database,
  Info,
  LayoutGrid,
@@ -22,11 +25,20 @@ import KpiFocusPrompt from "./KpiFocusPrompt";
 /**
  * Discovery view of the KPI mapping screen: "given the data you connected, what can you measure?"
  *
- * Grouped as a Business Area -> Subject Area -> KPI hierarchy (mirroring the enterprise KPI
- * registry's own shape) rather than by feasibility bucket -- the registry is what a customer
- * browses and governs, and a metric belongs to exactly one place in it regardless of whether
- * it happens to be measurable yet. Feasibility still gates what can be picked for a dashboard
- * (`bucketFor`, `notSelectableReasonFor`) -- it stopped being how the page is organized.
+ * Grouped as a Verdict -> Business Area -> Subject Area -> KPI hierarchy: Verdict is the outermost
+ * level (`VERDICT_ORDER`) because "what can I measure right now" is the question this page answers
+ * first; Business Area -> Subject Area underneath still mirrors the enterprise KPI registry's own
+ * shape. Feasibility gates what can be picked for a dashboard too (`bucketFor`,
+ * `notSelectableReasonFor`).
+ *
+ * A Business Area or Subject Area whose KPIs span more than one verdict repeats under every
+ * verdict section it has a matching KPI in (never deduplicated to a single "best" verdict) --
+ * a KPI otherwise blocked or partial would silently disappear from a page whose whole point is
+ * showing what isn't measurable yet. Each repeat is filtered to just that section's KPIs, and
+ * carries a small cross-reference note pointing at the section's other appearances
+ * (`subjectVerdictsMap` / `crossRefFor`). Picking a specific verdict from the "Verdict" filter
+ * collapses back to a single flat Business Area -> Subject Area -> KPI tree -- with only one
+ * verdict in view, the section-level chrome has nothing left to disambiguate.
  *
  * Two inputs, merged into the same tree (the seed "Retail standard" catalogue that used to be a
  * third is not mixed in here -- it has no real identifiers, so nothing on it could be adopted or
@@ -59,14 +71,19 @@ const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
  * source tables that already uses these three words. A real registry KPI (C1, #232) carries the
  * server's own join-aware `feasibility.verdict` on the KPI itself, the same three ids, so it maps
  * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
- * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
+ * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked; a
+ * registry KPI whose verdict isn't one of the three canonical ids (backend enum drift) is too,
+ * rather than falling through to a bucket id nothing downstream recognizes.
  */
 export function bucketFor(row) {
  if (row.suggested) {
   const verdict = row.suggestion?.feasibility?.verdict;
   return BUCKET_IDS.has(verdict) ? verdict : "blocked";
  }
- if (row.kpi.fromRegistry) return row.kpi.feasibility?.verdict || "blocked";
+ if (row.kpi.fromRegistry) {
+  const verdict = row.kpi.feasibility?.verdict;
+  return BUCKET_IDS.has(verdict) ? verdict : "blocked";
+ }
  const status = mappingStatusForKpi(row.kpi);
  if (status === "linked") return "ready";
  if (status === "review") return "partial";
@@ -121,6 +138,48 @@ const STATUS_FILTERS = [
  { value: "accepted", label: "Show accepted KPIs" },
  { value: "suggested", label: "Show only suggested KPIs" },
 ];
+
+/** The outer grouping level. Order here is display order top-to-bottom. */
+export const VERDICT_ORDER = ["ready", "partial", "blocked"];
+
+export const VERDICT_FILTERS = [
+ { value: "all", label: "All Verdicts" },
+ { value: "ready", label: "Ready to measure" },
+ { value: "partial", label: "Partially available" },
+ { value: "blocked", label: "Not yet possible" },
+];
+
+/** Copy, icon and color for each verdict section header. Colors reuse the existing status tokens
+ * (`KpiDetailPanel.jsx`'s `FEASIBILITY_STYLE` uses the same three) rather than inventing new ones. */
+const VERDICT_META = {
+ ready: {
+  label: "Ready to measure",
+  rule: "Every table the KPI's formula reads is present in your connected data — and, for a multi-table KPI, no join between them has been ruled out by review.",
+  Icon: CircleCheck,
+  border: "border-status-success/35",
+  iconWrap: "border-status-success/35 bg-status-success-light dark:bg-status-success/20",
+  iconColor: "text-status-success",
+  badge: "bg-status-success-light text-status-success dark:bg-status-success/20",
+ },
+ partial: {
+  label: "Partially available",
+  rule: "Some of the source tables are present, not all. The KPI can't be computed yet, but the gap is one table rather than the whole subject area — the card names which.",
+  Icon: Clock,
+  border: "border-status-warning/35",
+  iconWrap: "border-status-warning/35 bg-status-warning-light dark:bg-status-warning/20",
+  iconColor: "text-status-warning",
+  badge: "bg-status-warning-light text-status-warning dark:bg-status-warning/20",
+ },
+ blocked: {
+  label: "Not yet possible",
+  rule: "None of the source tables are present, or the tables are there but review has recorded that they must not be joined. The card names the missing piece.",
+  Icon: CircleX,
+  border: "border-status-critical/35",
+  iconWrap: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/20",
+  iconColor: "text-status-critical",
+  badge: "bg-status-critical-light text-status-critical dark:bg-status-critical/20",
+ },
+};
 
 function PoweredByCell({ kpiName, profileId, onOpen }) {
  const entries = useMemo(() => getCatalogEntriesForKpiName(kpiName, profileId), [kpiName, profileId]);
@@ -198,10 +257,13 @@ function MapsToCell({ dashboardNames }) {
  );
 }
 
-/** One Subject Area's KPI table: checkbox, name, description, maps to, powered by, status, actions. */
+/** One Subject Area's KPI table: checkbox, name, description, maps to, powered by, status, actions.
+ * `xref` (repeat mode only): a short "+ also in <other verdicts>" note when this same Subject Area
+ * also has KPIs under a different verdict section. */
 function KpiTable({
  title,
  countLabel,
+ xref,
  rows,
  isOpen,
  onToggleOpen,
@@ -240,6 +302,14 @@ function KpiTable({
     <span className="shrink-0 rounded-md bg-surface-default/95 px-2 py-0.5 text-xs font-semibold text-text-tertiary ring-1 ring-border dark:bg-surface/10 dark:text-text-primary">
      {countLabel}
     </span>
+    {xref ? (
+     <span
+      className="shrink-0 rounded-md border border-border bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-bold text-text-tertiary dark:bg-surface/20"
+      title={xref}
+     >
+      {xref}
+     </span>
+    ) : null}
     {!isOpen && previewDesc ? (
      <span className="min-w-0 flex-1 truncate text-[11px] leading-snug text-text-muted" title={previewDesc}>
       · {previewDesc}
@@ -424,6 +494,55 @@ function KpiTable({
  );
 }
 
+/** Expand-all / Collapse-all button pair -- identical markup and behavior in both places a tree
+ * of Business Areas gets rendered (`VerdictSection`'s header and the flat-tree header below),
+ * each just wiring it to its own `setAllOpen(scope, groups, open)` call. */
+function ExpandCollapseControls({ onExpandAll, onCollapseAll, className = "" }) {
+ return (
+  <div className={`flex shrink-0 items-center gap-1.5 text-xs font-semibold ${className}`}>
+   <button type="button" onClick={onExpandAll} className="text-primary hover:underline">
+    Expand all
+   </button>
+   <span className="text-border-light">·</span>
+   <button type="button" onClick={onCollapseAll} className="text-primary hover:underline">
+    Collapse all
+   </button>
+  </div>
+ );
+}
+
+/** Verdict section wrapper: icon + label + rule + KPI/Subject-Area count + a per-section
+ * expand/collapse-all, then whatever Business-Area tree is passed as children. Used only when the
+ * Verdict filter is "all" -- a single chosen verdict renders as a plain flat tree instead, since
+ * there's nothing left to disambiguate with one verdict in view. */
+function VerdictSection({ bucket, result, onExpandAll, onCollapseAll, children }) {
+ const meta = VERDICT_META[bucket];
+ const Icon = meta.Icon;
+ return (
+  <div className={`mb-[18px] overflow-hidden rounded-xl border bg-surface-default ${meta.border}`}>
+   <div className="flex flex-wrap items-center gap-3 px-3.5 py-4">
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${meta.iconWrap}`}>
+     <Icon className={`h-5 w-5 ${meta.iconColor}`} strokeWidth={1.75} aria-hidden />
+    </div>
+    <h2 className={`text-[17px] font-bold tracking-tight ${meta.iconColor}`}>{meta.label}</h2>
+    <span className={`rounded-md px-2.5 py-0.5 text-[12.5px] font-bold ${meta.badge}`}>
+     {result.kpiCount} KPI{result.kpiCount === 1 ? "" : "s"}
+     <span className="mx-1.5">·</span>
+     {result.subjectAreaCount} Subject {result.subjectAreaCount === 1 ? "Area" : "Areas"}
+    </span>
+    <span className="shrink-0 text-text-muted" title={meta.rule}>
+     <CircleHelp className="h-[13px] w-[13px]" strokeWidth={2} aria-hidden />
+    </span>
+    {result.groups.length > 0 && <ExpandCollapseControls onExpandAll={onExpandAll} onCollapseAll={onCollapseAll} className="ml-auto" />}
+   </div>
+   <p className="m-0 px-3.5 pb-4 pl-[70px] text-xs leading-relaxed text-text-secondary">{meta.rule}</p>
+   <div className="flex flex-col gap-3 px-3.5 pb-5">
+    {result.groups.length ? children : <p className="text-sm text-text-muted">No KPIs in this bucket match the current filters.</p>}
+   </div>
+  </div>
+ );
+}
+
 export default function KpiDiscovery({
  rows,
  areas,
@@ -447,10 +566,14 @@ export default function KpiDiscovery({
  const [businessAreaFilter, setBusinessAreaFilter] = useState("");
  const [subjectAreaFilter, setSubjectAreaFilter] = useState("");
  const [statusFilter, setStatusFilter] = useState("all");
+ const [verdictFilter, setVerdictFilter] = useState("all");
  // Source is a facet, not a gate: null/empty means "every source" -- the default. Muting one
  // means "show me what I could measure WITHOUT it", so a metric survives only if EVERY source
  // it needs is still active; a metric with no source at all is never filtered out.
  const [mutedSources, setMutedSources] = useState(() => new Set());
+ // Keyed by a scope prefix ("flat" for the single-tree view, or a verdict id for a repeat-mode
+ // section) so the same Business Area/Subject Area can be open in one verdict section and
+ // collapsed in another -- they're independent trees, not the same node rendered twice.
  const [openBa, setOpenBa] = useState({});
  const [openSubject, setOpenSubject] = useState({});
 
@@ -487,7 +610,8 @@ export default function KpiDiscovery({
   ];
  }, [areas, businessAreaFilter]);
 
- const subjectToggleKey = (baId, subject) => `${baId}\0${subject}`;
+ const baToggleKey = (scope, baId) => `${scope}\0${baId}`;
+ const subjectToggleKey = (scope, baId, subject) => `${scope}\0${baId}\0${subject}`;
 
  const toggleSelect = (key) =>
   setSelected((prev) => {
@@ -496,11 +620,13 @@ export default function KpiDiscovery({
    return next;
   });
 
- const { groups, businessAreaCount, subjectAreaCount, kpiCount } = useMemo(() => {
+ // Every row that survives search / Business Area / Subject Area / status / source / verdict
+ // filtering, each carrying the resolved (possibly synthetic) `baId`/`subjectKey` it was grouped
+ // by, so both the single-tree and the per-verdict groupings below can be built from one pass.
+ const filteredRows = useMemo(() => {
   const needle = search.trim().toLowerCase();
   const known = new Set((areas || []).map((a) => a.id));
-  /** baId -> Map subjectKey -> rows */
-  const baMap = new Map();
+  const out = [];
 
   for (const row of rows) {
    const { kpi } = row;
@@ -510,6 +636,7 @@ export default function KpiDiscovery({
    }
    if (statusFilter === "accepted" && row.suggested) continue;
    if (statusFilter === "suggested" && !row.suggested) continue;
+   if (verdictFilter !== "all" && bucketFor(row) !== verdictFilter) continue;
 
    const baId = kpi.businessAreaId && known.has(kpi.businessAreaId) ? kpi.businessAreaId : UNCATEGORIZED_BA_ID;
    if (businessAreaFilter && baId !== businessAreaFilter) continue;
@@ -528,6 +655,19 @@ export default function KpiDiscovery({
     if (!match) continue;
    }
 
+   out.push({ row, baId, subjectKey });
+  }
+  return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [rows, search, businessAreaFilter, subjectAreaFilter, statusFilter, verdictFilter, mutedSources, areas, areaLabelById]);
+
+ // Builds one Business Area -> Subject Area tree from a set of (already filtered) entries --
+ // shared by the single flat tree and by each of the three per-verdict trees in repeat mode, so
+ // sorting/labelling/"Uncategorized" handling stays in exactly one place.
+ const buildGroups = (entries) => {
+  /** baId -> Map subjectKey -> rows */
+  const baMap = new Map();
+  for (const { row, baId, subjectKey } of entries) {
    if (!baMap.has(baId)) baMap.set(baId, new Map());
    const subjectMap = baMap.get(baId);
    if (!subjectMap.has(subjectKey)) subjectMap.set(subjectKey, []);
@@ -549,6 +689,7 @@ export default function KpiDiscovery({
      .map(([subject, subjectRows]) => ({
       subject: subject === UNSORTED_SUBJECT ? "Unsorted" : subject,
       sortKey: subject === UNSORTED_SUBJECT ? "￿" : subject,
+      rawKey: subject,
       rows: subjectRows,
      }))
      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
@@ -571,42 +712,169 @@ export default function KpiDiscovery({
    subjectAreaCount: totals.subjects,
    kpiCount: totals.kpis,
   };
- }, [rows, search, businessAreaFilter, subjectAreaFilter, statusFilter, mutedSources, areas, areaLabelById, focusAreaIds]);
+ };
 
+ // Single flat tree -- used when a specific verdict is picked from the filter, and it's the only
+ // thing rendered then, so section-level chrome would be redundant. Left null when the Verdict
+ // filter is "all" (`verdictResults` renders instead), the same guard `verdictResults` itself uses
+ // below, so a search keystroke/filter change in the default view doesn't pay for a buildGroups
+ // pass (sort included) whose result would just be thrown away unread.
+ const flatResult = useMemo(() => {
+  if (verdictFilter !== "all") return buildGroups(filteredRows);
+  return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [filteredRows, verdictFilter, areas, focusAreaIds]);
+
+ // Repeat mode -- one tree per verdict, each built from only that verdict's rows. A Business
+ // Area/Subject Area with KPIs in more than one bucket appears once per bucket it has a match
+ // in, each time showing only that bucket's KPIs. Built in the same pass as `subjectVerdictsMap`
+ // below (one `bucketFor` call per row, not two) since both are keyed off the same per-row bucket.
+ const { verdictResults, subjectVerdictsMap } = useMemo(() => {
+  if (verdictFilter !== "all") return { verdictResults: null, subjectVerdictsMap: null };
+  const byBucket = { ready: [], partial: [], blocked: [] };
+  // (baId, rawSubjectKey) -> which verdicts that Subject Area has a KPI in, across ALL of
+  // `filteredRows` (not just one bucket) -- lets each repeated section point at where its other
+  // appearances are, instead of just silently repeating.
+  const subjectVerdicts = new Map();
+  for (const entry of filteredRows) {
+   const { row, baId, subjectKey } = entry;
+   const bucket = bucketFor(row);
+   byBucket[bucket]?.push(entry);
+   const key = `${baId}\0${subjectKey}`;
+   if (!subjectVerdicts.has(key)) subjectVerdicts.set(key, new Set());
+   subjectVerdicts.get(key).add(bucket);
+  }
+  return {
+   verdictResults: {
+    ready: buildGroups(byBucket.ready),
+    partial: buildGroups(byBucket.partial),
+    blocked: buildGroups(byBucket.blocked),
+   },
+   subjectVerdictsMap: subjectVerdicts,
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [filteredRows, verdictFilter, areas, focusAreaIds]);
+
+ const crossRefFor = (bucket, baId, rawSubjectKey) => {
+  const others = subjectVerdictsMap?.get(`${baId}\0${rawSubjectKey}`);
+  if (!others) return null;
+  const labels = VERDICT_ORDER.filter((b) => b !== bucket && others.has(b)).map((b) => VERDICT_META[b].label);
+  return labels.length ? `+ also in ${labels.join(", ")}` : null;
+ };
+
+ // Counts `selectedRows`, not the raw `selected` key set: a search/Business Area/status/verdict
+ // filter can hide a selected row without deselecting it, and the count shown here must match
+ // what `onCreateDashboard` below actually receives. A KPI belongs to exactly one verdict
+ // bucket, so it is never double-counted across repeat-mode sections.
+ //
+ // Ordered to match whichever tree is actually on screen (the sorted Business-Area/Subject-Area
+ // `groups`, not raw `filteredRows`/API order) -- `CreateDashboardModal` lays out dashboard tiles
+ // in this same order, so it should match what the user saw while selecting.
  const selectedRows = useMemo(() => {
-  const flat = groups.flatMap((g) => g.subjects.flatMap((s) => s.rows));
-  return flat.filter((r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`));
- }, [groups, selected]);
+  const isSelected = (r) => selected.has(`${r.categoryIndex}-${r.sectionIndex}-${r.kpiIndex}`);
+  const flattenGroups = (groupsList) => groupsList.flatMap((g) => g.subjects.flatMap((s) => s.rows));
+  const ordered = verdictFilter === "all" ? VERDICT_ORDER.flatMap((bucket) => flattenGroups(verdictResults[bucket].groups)) : flattenGroups(flatResult.groups);
+  return ordered.filter(isSelected);
+ }, [verdictFilter, verdictResults, flatResult, selected]);
 
- // Global expand/collapse -- every Business Area group and every Subject Area table under it,
- // computed from the currently filtered `groups` so a search/filter narrows what "all" means.
- const expandAll = () => {
+ const setAllOpen = (scope, groupsList, open) => {
   const ba = {};
   const subj = {};
-  for (const g of groups) {
-   ba[g.id] = true;
-   for (const s of g.subjects) subj[subjectToggleKey(g.id, s.subject)] = true;
+  for (const g of groupsList) {
+   ba[baToggleKey(scope, g.id)] = open;
+   for (const s of g.subjects) subj[subjectToggleKey(scope, g.id, s.subject)] = open;
   }
-  setOpenBa(ba);
-  setOpenSubject(subj);
+  setOpenBa((prev) => ({ ...prev, ...ba }));
+  setOpenSubject((prev) => ({ ...prev, ...subj }));
  };
- const collapseAll = () => {
-  const ba = {};
-  const subj = {};
-  for (const g of groups) {
-   ba[g.id] = false;
-   for (const s of g.subjects) subj[subjectToggleKey(g.id, s.subject)] = false;
-  }
-  setOpenBa(ba);
-  setOpenSubject(subj);
- };
+
  // Per-Business-Area: just that group's Subject Area tables, leaving the Business Area row
- // itself (and every other group) untouched.
- const setBaChildren = (ba, open) =>
+ // itself (and every other group, in every scope) untouched.
+ const setBaChildren = (scope, ba, open) =>
   setOpenSubject((prev) => {
    const next = { ...prev };
-   for (const s of ba.subjects) next[subjectToggleKey(ba.id, s.subject)] = open;
+   for (const s of ba.subjects) next[subjectToggleKey(scope, ba.id, s.subject)] = open;
    return next;
+  });
+
+ // Shared Business-Area-row + Subject-Area-table renderer -- used for the single flat tree
+ // (`scope: "flat"`) and for each of the three repeat-mode sections (`scope: <verdict id>`, which
+ // doubles as the bucket id `crossRefFor` needs to exclude from its own "also in" label).
+ const renderGroups = (groupsList, scope) =>
+  groupsList.map((ba) => {
+   const baKpiTotal = ba.subjects.reduce((n, s) => n + s.rows.length, 0);
+   const baKey = baToggleKey(scope, ba.id);
+   const baOpen = openBa[baKey] ?? true;
+   return (
+    <div key={baKey} className="w-full min-w-0 space-y-2.5">
+     <div className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface-default px-3 py-2.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-colors hover:border-border-light hover:bg-surface-secondary dark:shadow-none sm:px-3.5">
+      <button
+       type="button"
+       onClick={() => setOpenBa((prev) => ({ ...prev, [baKey]: !baOpen }))}
+       aria-expanded={baOpen}
+       className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left"
+      >
+       <ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${baOpen ? "rotate-180" : "rotate-0"}`} strokeWidth={2} aria-hidden />
+       <Briefcase className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+       <span className="shrink-0 rounded-full bg-primary-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
+        Business area
+       </span>
+       <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
+       <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
+        {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
+        {scope !== "flat" ? " here" : ""}
+        <span className="mx-1.5 text-border-light">·</span>
+        {baKpiTotal} KPI{baKpiTotal === 1 ? "" : "s"}
+        {scope !== "flat" ? " here" : ""}
+       </span>
+      </button>
+      {/* Per-group children control: just this Business Area's Subject Area tables,
+          not the row itself and not any other group. Only worth showing once there is
+          more than one child to fold at once. */}
+      {baOpen && ba.subjects.length > 1 ? (
+       <div className="flex shrink-0 items-center gap-1.5 text-xs font-semibold">
+        <button type="button" onClick={() => setBaChildren(scope, ba, true)} className="text-primary hover:underline">
+         Expand all
+        </button>
+        <span className="text-border-light">·</span>
+        <button type="button" onClick={() => setBaChildren(scope, ba, false)} className="text-primary hover:underline">
+         Collapse all
+        </button>
+       </div>
+      ) : null}
+     </div>
+
+     {baOpen ? (
+      <div className="ml-6 w-full min-w-0 space-y-3 border-l-2 border-primary/25 pl-3.5 dark:border-primary/35 sm:pl-4">
+       {ba.subjects.map((sec) => {
+        const stKey = subjectToggleKey(scope, ba.id, sec.subject);
+        const open = openSubject[stKey] ?? true;
+        return (
+         <KpiTable
+          key={stKey}
+          title={sec.subject}
+          countLabel={`${sec.rows.length} KPIs`}
+          xref={scope !== "flat" ? crossRefFor(scope, ba.id, sec.rawKey) : null}
+          rows={sec.rows}
+          isOpen={open}
+          onToggleOpen={() => setOpenSubject((prev) => ({ ...prev, [stKey]: !open }))}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onOpenDetail={onOpenDetail}
+          onAdopt={onAdopt}
+          adoptingIds={adoptingIds}
+          adoptErrors={adoptErrors}
+          onToggleActive={onToggleActive}
+          togglingActiveIds={togglingActiveIds}
+          profileId={profileId}
+          onOpenUseCase={onOpenUseCase}
+         />
+        );
+       })}
+      </div>
+     ) : null}
+    </div>
+   );
   });
 
  return (
@@ -650,6 +918,7 @@ export default function KpiDiscovery({
       />
       <Select label={null} options={subjectAreaOptions} value={subjectAreaFilter} onChange={(e) => setSubjectAreaFilter(e.target.value)} />
       <Select label={null} options={STATUS_FILTERS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+      <Select label={null} options={VERDICT_FILTERS} value={verdictFilter} onChange={(e) => setVerdictFilter(e.target.value)} />
      </div>
     </div>
    </div>
@@ -688,117 +957,43 @@ export default function KpiDiscovery({
     </div>
    )}
 
-   <div className="flex w-full min-w-0 items-stretch gap-0">
-    <div className="relative flex w-9 shrink-0 flex-col items-center self-stretch sm:w-10">
-     <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary-light shadow-[0_1px_2px_rgba(105,65,198,0.12)] dark:border-primary/35 dark:bg-surface-tertiary dark:shadow-none dark:ring-1 dark:ring-primary/25">
-      <Briefcase className="h-[18px] w-[18px] text-primary" strokeWidth={1.75} aria-hidden />
-     </div>
-     <div className="absolute left-1/2 top-10 z-0 h-[calc(100%-2.5rem)] w-px -translate-x-1/2 bg-gradient-to-b from-border via-border/70 to-transparent" aria-hidden />
-    </div>
-
-    <div className="min-w-0 w-full flex-1 self-start pl-3 sm:pl-4">
-     <div className="flex h-fit w-full flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pt-2 text-left">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-       <h2 className="text-[17px] font-bold tracking-tight text-text-primary">Enterprise KPIs</h2>
+   <div className="min-w-0 w-full">
+    {verdictFilter === "all" ? (
+     VERDICT_ORDER.map((bucket) => (
+      <VerdictSection
+       key={bucket}
+       bucket={bucket}
+       result={verdictResults[bucket]}
+       onExpandAll={() => setAllOpen(bucket, verdictResults[bucket].groups, true)}
+       onCollapseAll={() => setAllOpen(bucket, verdictResults[bucket].groups, false)}
+      >
+       {renderGroups(verdictResults[bucket].groups, bucket)}
+      </VerdictSection>
+     ))
+    ) : (
+     <>
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5">
        <span className="text-sm text-text-muted">
-        {businessAreaCount} Business Areas
+        {flatResult.businessAreaCount} Business Areas
         <span className="mx-1.5 text-border-light">·</span>
-        {subjectAreaCount} Subject Areas
+        {flatResult.subjectAreaCount} Subject Areas
         <span className="mx-1.5 text-border-light">·</span>
-        {kpiCount} KPIs
+        {flatResult.kpiCount} KPIs
        </span>
+       {flatResult.groups.length > 0 && (
+        <ExpandCollapseControls
+         onExpandAll={() => setAllOpen("flat", flatResult.groups, true)}
+         onCollapseAll={() => setAllOpen("flat", flatResult.groups, false)}
+        />
+       )}
       </div>
-      {groups.length > 0 && (
-       <div className="flex shrink-0 items-center gap-2 text-xs font-semibold">
-        <button type="button" onClick={expandAll} className="text-primary hover:underline">
-         Expand all
-        </button>
-        <span className="text-border-light">·</span>
-        <button type="button" onClick={collapseAll} className="text-primary hover:underline">
-         Collapse all
-        </button>
-       </div>
+      {flatResult.groups.length ? (
+       <div className="w-full min-w-0 space-y-3.5">{renderGroups(flatResult.groups, "flat")}</div>
+      ) : (
+       <p className="text-sm text-text-muted">No KPIs match the current filters.</p>
       )}
-     </div>
-
-     {groups.length ? (
-      <div className="relative mt-4 w-full min-w-0 space-y-3.5">
-       {groups.map((ba) => {
-        const baKpiTotal = ba.subjects.reduce((n, s) => n + s.rows.length, 0);
-        const baOpen = openBa[ba.id] ?? true;
-        return (
-         <div key={ba.id} className="w-full min-w-0 space-y-2.5">
-          <div className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface-default px-3 py-2.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-colors hover:border-border-light hover:bg-surface-secondary dark:shadow-none sm:px-3.5">
-           <button
-            type="button"
-            onClick={() => setOpenBa((prev) => ({ ...prev, [ba.id]: !baOpen }))}
-            aria-expanded={baOpen}
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left"
-           >
-            <ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform duration-200 ${baOpen ? "rotate-180" : "rotate-0"}`} strokeWidth={2} aria-hidden />
-            <Briefcase className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
-            <span className="shrink-0 rounded-full bg-primary-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
-             Business area
-            </span>
-            <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
-            <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
-             {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
-             <span className="mx-1.5 text-border-light">·</span>
-             {baKpiTotal} Total KPI{baKpiTotal === 1 ? "" : "s"}
-            </span>
-           </button>
-           {/* Per-group children control: just this Business Area's Subject Area tables,
-               not the row itself and not any other group. Only worth showing once there is
-               more than one child to fold at once. */}
-           {baOpen && ba.subjects.length > 1 ? (
-            <div className="flex shrink-0 items-center gap-1.5 text-xs font-semibold">
-             <button type="button" onClick={() => setBaChildren(ba, true)} className="text-primary hover:underline">
-              Expand all
-             </button>
-             <span className="text-border-light">·</span>
-             <button type="button" onClick={() => setBaChildren(ba, false)} className="text-primary hover:underline">
-              Collapse all
-             </button>
-            </div>
-           ) : null}
-          </div>
-
-          {baOpen ? (
-           <div className="ml-6 w-full min-w-0 space-y-3 border-l-2 border-primary/25 pl-3.5 dark:border-primary/35 sm:pl-4">
-            {ba.subjects.map((sec) => {
-             const stKey = subjectToggleKey(ba.id, sec.subject);
-             const open = openSubject[stKey] ?? true;
-             return (
-              <KpiTable
-               key={stKey}
-               title={sec.subject}
-               countLabel={`${sec.rows.length} KPIs`}
-               rows={sec.rows}
-               isOpen={open}
-               onToggleOpen={() => setOpenSubject((prev) => ({ ...prev, [stKey]: !open }))}
-               selected={selected}
-               onToggleSelect={toggleSelect}
-               onOpenDetail={onOpenDetail}
-               onAdopt={onAdopt}
-               adoptingIds={adoptingIds}
-               adoptErrors={adoptErrors}
-               onToggleActive={onToggleActive}
-               togglingActiveIds={togglingActiveIds}
-               profileId={profileId}
-               onOpenUseCase={onOpenUseCase}
-              />
-             );
-            })}
-           </div>
-          ) : null}
-         </div>
-        );
-       })}
-      </div>
-     ) : (
-      <p className="mt-8 text-sm text-text-muted">No KPIs match the current filters.</p>
-     )}
-    </div>
+     </>
+    )}
    </div>
 
    {/* Selection bar. Sticks to the bottom so the action stays reachable while scrolling a long
@@ -806,9 +1001,6 @@ export default function KpiDiscovery({
    {selectedRows.length > 0 && (
     <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-light bg-surface px-4 py-3 shadow-lg">
      <p className="text-sm">
-      {/* Counts `selectedRows`, not the raw `selected` key set: a search/Business Area/status
-          filter can hide a selected row without deselecting it, and the count shown here must
-          match what `onCreateDashboard` below actually receives. */}
       <span className="font-bold text-text-primary">{selectedRows.length} selected</span>
       <span className="text-text-secondary"> · all buildable from connected data</span>
      </p>
