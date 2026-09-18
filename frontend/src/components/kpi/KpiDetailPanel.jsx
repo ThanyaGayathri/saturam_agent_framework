@@ -449,6 +449,14 @@ export default function KpiDetailPanel({
  const [editingDraft, setEditingDraft] = useState(false);
  const [draftDescription, setDraftDescription] = useState("");
  const [draftSql, setDraftSql] = useState("");
+ // "Edit definition"'s own field-level editing, independent of the suggestion-draft state
+ // above: a registry row shows Description and SQL as plain text with a small edit control
+ // next to each, rather than one combined form behind a single "Edit description or SQL"
+ // toggle -- editing one field never hides or discards the other. `null` means neither field
+ // is being edited; otherwise which one is, so its Save can resend the *other* field's current
+ // (unedited) value alongside the change (`updateKpi` requires both every time).
+ const [editingField, setEditingField] = useState(null);
+ const [fieldDraft, setFieldDraft] = useState("");
  // Which of the three tabs a registry row shows; meaningless (and never rendered) for a
  // suggestion or seed row, which keep the single scrolling layout below.
  const [activeTab, setActiveTab] = useState("overview");
@@ -459,6 +467,7 @@ export default function KpiDetailPanel({
  // `detailRow`, so the form -- and whatever the customer typed -- stays exactly as they left it.
  useEffect(() => {
   setEditingDraft(false);
+  setEditingField(null);
   setActiveTab("overview");
   setConfirmingRemove(false);
  }, [detailRow]);
@@ -470,6 +479,7 @@ export default function KpiDetailPanel({
  // "Remove from my metrics" link, never pre-armed.
  useEffect(() => {
   setConfirmingRemove(false);
+  setEditingField(null);
  }, [activeTab]);
  // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
  // own join-aware `feasibility` -- a set difference over the tables the semantic graph
@@ -515,33 +525,135 @@ export default function KpiDetailPanel({
   if (suggested) setEditingDraft(false);
  };
 
+ const startFieldEdit = (field) => {
+  setFieldDraft((field === "description" ? detailRow.kpi.desc : detailRow.kpi.sql) || "");
+  setEditingField(field);
+ };
+ const saveFieldEdit = () => {
+  onSaveEdit?.({
+   description: editingField === "description" ? fieldDraft : detailRow.kpi.desc || "",
+   sql: editingField === "sql" ? fieldDraft : detailRow.kpi.sql || "",
+  });
+  // Left open on failure, same reasoning as `saveEdit` above: `editingField` only clears via
+  // the `useEffect([detailRow])` reset, which fires once the PATCH actually lands.
+ };
+
  // The remove/edit block a registry row shows on "Edit definition" -- unchanged content, just
  // relocated off the always-visible scroll it used to share with Overview. Read as a value, not
  // a component, so it closes over this render's locals the same way the inline JSX below always did.
  const editDefinitionTab = (
   <div className="space-y-6">
-   {editingDraft ? (
-    <EditKpiForm
-     description={draftDescription}
-     sql={draftSql}
-     onDescriptionChange={setDraftDescription}
-     onSqlChange={setDraftSql}
-     onSave={saveEdit}
-     onCancel={() => setEditingDraft(false)}
-     saving={savingEdit}
-     error={editError}
-     note="Editing the formula moves this KPI back to review until it's revalidated against the semantic layer."
-    />
-   ) : (
-    <button
-     type="button"
-     onClick={startEdit}
-     className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
-    >
-     <Pencil size={14} />
-     Edit description or SQL
-    </button>
-   )}
+   <section className="rounded-xl border border-border bg-surface-secondary p-4">
+    <div className="flex items-center justify-between gap-3">
+     <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Description</label>
+     {editingField !== "description" && (
+      <button
+       type="button"
+       onClick={() => startFieldEdit("description")}
+       aria-label="Edit description"
+       className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-default hover:text-primary"
+      >
+       <Pencil size={13} />
+      </button>
+     )}
+    </div>
+    {editingField === "description" ? (
+     <div className="mt-2 space-y-2">
+      <textarea
+       value={fieldDraft}
+       onChange={(e) => setFieldDraft(e.target.value)}
+       rows={3}
+       disabled={savingEdit}
+       className="w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+      />
+      {editError && (
+       <p role="alert" className="flex items-start gap-2 text-xs text-status-critical">
+        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+        <span>Couldn't save: {editError}</span>
+       </p>
+      )}
+      <div className="flex items-center gap-3">
+       <button
+        type="button"
+        onClick={saveFieldEdit}
+        disabled={savingEdit}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+       >
+        {savingEdit ? "Saving…" : "Save"}
+       </button>
+       <button
+        type="button"
+        onClick={() => setEditingField(null)}
+        disabled={savingEdit}
+        className="text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-60"
+       >
+        Cancel
+       </button>
+      </div>
+     </div>
+    ) : (
+     <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
+    )}
+   </section>
+
+   <section className="rounded-xl border border-border bg-surface-secondary p-4">
+    <div className="flex items-center justify-between gap-3">
+     <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">SQL</label>
+     {editingField !== "sql" && (
+      <button
+       type="button"
+       onClick={() => startFieldEdit("sql")}
+       aria-label="Edit SQL"
+       className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-default hover:text-primary"
+      >
+       <Pencil size={13} />
+      </button>
+     )}
+    </div>
+    {editingField === "sql" ? (
+     <div className="mt-2 space-y-2">
+      <textarea
+       value={fieldDraft}
+       onChange={(e) => setFieldDraft(e.target.value)}
+       rows={6}
+       spellCheck={false}
+       disabled={savingEdit}
+       className="w-full rounded-lg border border-border bg-surface-default px-3 py-2 font-mono text-xs text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+      />
+      <p className="text-xs text-text-muted">
+       Editing the formula moves this KPI back to review until it&apos;s revalidated against the semantic layer.
+      </p>
+      {editError && (
+       <p role="alert" className="flex items-start gap-2 text-xs text-status-critical">
+        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+        <span>Couldn't save: {editError}</span>
+       </p>
+      )}
+      <div className="flex items-center gap-3">
+       <button
+        type="button"
+        onClick={saveFieldEdit}
+        disabled={savingEdit}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+       >
+        {savingEdit ? "Saving…" : "Save"}
+       </button>
+       <button
+        type="button"
+        onClick={() => setEditingField(null)}
+        disabled={savingEdit}
+        className="text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-60"
+       >
+        Cancel
+       </button>
+      </div>
+     </div>
+    ) : (
+     <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-surface-default p-3 font-mono text-xs text-text-primary">
+      {detailRow.kpi.sql || "-"}
+     </pre>
+    )}
+   </section>
 
    {onRemove && (
     <section className="rounded-xl border border-border bg-surface-secondary p-4">
@@ -681,6 +793,27 @@ export default function KpiDetailPanel({
  </section>
  )}
 
+ {/* The same two sentences after adopt: a registry row carries the suggestion's rationale and
+     business_value (contract 1.2.2), so the panel keeps answering "why is this here?" once the
+     proposal is governed. Both are null on a hand-authored KPI -- then there is no section.
+     Placed above Feasibility so the "why" reads before the "can it compute", not after. */}
+ {fromRegistry && (detailRow.kpi.rationale || detailRow.kpi.businessValue) && (
+ <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
+ {detailRow.kpi.rationale && (
+ <>
+ <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.rationale}</p>
+ </>
+ )}
+ {detailRow.kpi.businessValue && (
+ <>
+ <p className={`text-[10px] font-semibold uppercase tracking-wide text-primary ${detailRow.kpi.rationale ? "mt-3" : ""}`}>{SUGGESTION_VALUE_LABEL}</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.businessValue}</p>
+ </>
+ )}
+ </section>
+ )}
+
  {feasibility && (
  <section className={`rounded-xl border p-4 ${feasibilityStyle.cls}`}>
  <p className={`text-[10px] font-semibold uppercase tracking-wide ${feasibilityStyle.label}`}>Feasibility</p>
@@ -793,26 +926,6 @@ export default function KpiDetailPanel({
  )}
  </ul>
  </section>
-
- {/* The same two sentences after adopt: a registry row carries the suggestion's rationale and
-     business_value (contract 1.2.2), so the panel keeps answering "why is this here?" once the
-     proposal is governed. Both are null on a hand-authored KPI -- then there is no section. */}
- {fromRegistry && (detailRow.kpi.rationale || detailRow.kpi.businessValue) && (
- <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
- {detailRow.kpi.rationale && (
- <>
- <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>
- <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.rationale}</p>
- </>
- )}
- {detailRow.kpi.businessValue && (
- <>
- <p className={`text-[10px] font-semibold uppercase tracking-wide text-primary ${detailRow.kpi.rationale ? "mt-3" : ""}`}>{SUGGESTION_VALUE_LABEL}</p>
- <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.businessValue}</p>
- </>
- )}
- </section>
- )}
 
  {suggested && (
  <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
