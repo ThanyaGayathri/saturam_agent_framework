@@ -489,6 +489,23 @@ function KpiTable({
  );
 }
 
+/** Expand-all / Collapse-all button pair -- identical markup and behavior in both places a tree
+ * of Business Areas gets rendered (`VerdictSection`'s header and the flat-tree header below),
+ * each just wiring it to its own `setAllOpen(scope, groups, open)` call. */
+function ExpandCollapseControls({ onExpandAll, onCollapseAll, className = "" }) {
+ return (
+  <div className={`flex shrink-0 items-center gap-1.5 text-xs font-semibold ${className}`}>
+   <button type="button" onClick={onExpandAll} className="text-primary hover:underline">
+    Expand all
+   </button>
+   <span className="text-border-light">·</span>
+   <button type="button" onClick={onCollapseAll} className="text-primary hover:underline">
+    Collapse all
+   </button>
+  </div>
+ );
+}
+
 /** Verdict section wrapper: icon + label + rule + KPI/Subject-Area count + a per-section
  * expand/collapse-all, then whatever Business-Area tree is passed as children. Used only when the
  * Verdict filter is "all" -- a single chosen verdict renders as a plain flat tree instead, since
@@ -511,17 +528,7 @@ function VerdictSection({ bucket, result, onExpandAll, onCollapseAll, children }
     <span className="shrink-0 text-text-muted" title={meta.rule}>
      <CircleHelp className="h-[13px] w-[13px]" strokeWidth={2} aria-hidden />
     </span>
-    {result.groups.length > 0 && (
-     <div className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-semibold">
-      <button type="button" onClick={onExpandAll} className="text-primary hover:underline">
-       Expand all
-      </button>
-      <span className="text-border-light">·</span>
-      <button type="button" onClick={onCollapseAll} className="text-primary hover:underline">
-       Collapse all
-      </button>
-     </div>
-    )}
+    {result.groups.length > 0 && <ExpandCollapseControls onExpandAll={onExpandAll} onCollapseAll={onCollapseAll} className="ml-auto" />}
    </div>
    <p className="m-0 px-3.5 pb-4 pl-[70px] text-xs leading-relaxed text-text-secondary">{meta.rule}</p>
    <div className="flex flex-col gap-3 px-3.5 pb-5">
@@ -712,34 +719,35 @@ export default function KpiDiscovery({
 
  // Repeat mode -- one tree per verdict, each built from only that verdict's rows. A Business
  // Area/Subject Area with KPIs in more than one bucket appears once per bucket it has a match
- // in, each time showing only that bucket's KPIs.
- const verdictResults = useMemo(() => {
-  if (verdictFilter !== "all") return null;
+ // in, each time showing only that bucket's KPIs. Built in the same pass as `subjectVerdictsMap`
+ // below (one `bucketFor` call per row, not two) since both are keyed off the same per-row bucket.
+ const { verdictResults, subjectVerdictsMap } = useMemo(() => {
+  if (verdictFilter !== "all") return { verdictResults: null, subjectVerdictsMap: null };
   const byBucket = { ready: [], partial: [], blocked: [] };
-  for (const entry of filteredRows) byBucket[bucketFor(entry.row)]?.push(entry);
+  // (baId, rawSubjectKey) -> which verdicts that Subject Area has a KPI in, across ALL of
+  // `filteredRows` (not just one bucket) -- lets each repeated section point at where its other
+  // appearances are, instead of just silently repeating.
+  const subjectVerdicts = new Map();
+  for (const entry of filteredRows) {
+   const { row, baId, subjectKey } = entry;
+   const bucket = bucketFor(row);
+   byBucket[bucket]?.push(entry);
+   const key = `${baId}\0${subjectKey}`;
+   if (!subjectVerdicts.has(key)) subjectVerdicts.set(key, new Set());
+   subjectVerdicts.get(key).add(bucket);
+  }
   return {
-   ready: buildGroups(byBucket.ready),
-   partial: buildGroups(byBucket.partial),
-   blocked: buildGroups(byBucket.blocked),
+   verdictResults: {
+    ready: buildGroups(byBucket.ready),
+    partial: buildGroups(byBucket.partial),
+    blocked: buildGroups(byBucket.blocked),
+   },
+   subjectVerdictsMap: subjectVerdicts,
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [filteredRows, verdictFilter, areas, focusAreaIds]);
 
- // (baId, rawSubjectKey) -> which verdicts that Subject Area has a KPI in, across ALL of
- // `filteredRows` (not just one bucket) -- lets each repeated section point at where its other
- // appearances are, instead of just silently repeating.
- const subjectVerdictsMap = useMemo(() => {
-  if (verdictFilter !== "all") return null;
-  const map = new Map();
-  for (const { row, baId, subjectKey } of filteredRows) {
-   const key = `${baId}\0${subjectKey}`;
-   if (!map.has(key)) map.set(key, new Set());
-   map.get(key).add(bucketFor(row));
-  }
-  return map;
- }, [filteredRows, verdictFilter]);
-
- const crossRefFor = (bucket) => (baId, rawSubjectKey) => {
+ const crossRefFor = (bucket, baId, rawSubjectKey) => {
   const others = subjectVerdictsMap?.get(`${baId}\0${rawSubjectKey}`);
   if (!others) return null;
   const labels = [...others].filter((b) => b !== bucket).map((b) => VERDICT_META[b].label);
@@ -776,8 +784,9 @@ export default function KpiDiscovery({
   });
 
  // Shared Business-Area-row + Subject-Area-table renderer -- used for the single flat tree
- // (`scope: "flat"`) and for each of the three repeat-mode sections (`scope: <verdict id>`).
- const renderGroups = (groupsList, scope, crossRef) =>
+ // (`scope: "flat"`) and for each of the three repeat-mode sections (`scope: <verdict id>`, which
+ // doubles as the bucket id `crossRefFor` needs to exclude from its own "also in" label).
+ const renderGroups = (groupsList, scope) =>
   groupsList.map((ba) => {
    const baKpiTotal = ba.subjects.reduce((n, s) => n + s.rows.length, 0);
    const baKey = baToggleKey(scope, ba.id);
@@ -799,6 +808,7 @@ export default function KpiDiscovery({
        <h3 className="text-[17px] font-bold leading-tight text-primary">{ba.label}</h3>
        <span className="rounded-md bg-surface-secondary px-2.5 py-0.5 text-sm font-medium text-text-secondary">
         {ba.subjects.length} Subject {ba.subjects.length === 1 ? "Area" : "Areas"}
+        {scope !== "flat" ? " here" : ""}
         <span className="mx-1.5 text-border-light">·</span>
         {baKpiTotal} KPI{baKpiTotal === 1 ? "" : "s"}
         {scope !== "flat" ? " here" : ""}
@@ -830,7 +840,7 @@ export default function KpiDiscovery({
           key={stKey}
           title={sec.subject}
           countLabel={`${sec.rows.length} KPIs`}
-          xref={crossRef ? crossRef(ba.id, sec.rawKey) : null}
+          xref={scope !== "flat" ? crossRefFor(scope, ba.id, sec.rawKey) : null}
           rows={sec.rows}
           isOpen={open}
           onToggleOpen={() => setOpenSubject((prev) => ({ ...prev, [stKey]: !open }))}
@@ -943,7 +953,7 @@ export default function KpiDiscovery({
        onExpandAll={() => setAllOpen(bucket, verdictResults[bucket].groups, true)}
        onCollapseAll={() => setAllOpen(bucket, verdictResults[bucket].groups, false)}
       >
-       {renderGroups(verdictResults[bucket].groups, bucket, crossRefFor(bucket))}
+       {renderGroups(verdictResults[bucket].groups, bucket)}
       </VerdictSection>
      ))
     ) : (
@@ -957,19 +967,14 @@ export default function KpiDiscovery({
         {flatResult.kpiCount} KPIs
        </span>
        {flatResult.groups.length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 text-xs font-semibold">
-         <button type="button" onClick={() => setAllOpen("flat", flatResult.groups, true)} className="text-primary hover:underline">
-          Expand all
-         </button>
-         <span className="text-border-light">·</span>
-         <button type="button" onClick={() => setAllOpen("flat", flatResult.groups, false)} className="text-primary hover:underline">
-          Collapse all
-         </button>
-        </div>
+        <ExpandCollapseControls
+         onExpandAll={() => setAllOpen("flat", flatResult.groups, true)}
+         onCollapseAll={() => setAllOpen("flat", flatResult.groups, false)}
+        />
        )}
       </div>
       {flatResult.groups.length ? (
-       <div className="w-full min-w-0 space-y-3.5">{renderGroups(flatResult.groups, "flat", null)}</div>
+       <div className="w-full min-w-0 space-y-3.5">{renderGroups(flatResult.groups, "flat")}</div>
       ) : (
        <p className="text-sm text-text-muted">No KPIs match the current filters.</p>
       )}
