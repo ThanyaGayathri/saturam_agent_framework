@@ -356,6 +356,13 @@ def assemble(
     summary rides on the result). ``check`` runs a composed statement through the guard and
     returns a verdict; ``preview`` runs a passed statement for a few rows. Both are optional
     so this stays unit-testable without a warehouse; a real run always supplies both.
+
+    ``vocabularies`` is used for exactly one thing: noting when the model's own
+    ``business_area`` guess (still part of its output schema/prompt, see the module's own
+    note by ``filters`` below) doesn't match the deployment's vocabulary -- a diagnostic
+    surfaced in ``notes``, not a filter (R13.1 retired the business-area filter this schema
+    field used to feed). Defaults to the real vocabulary set so a caller that doesn't pass one
+    still gets the check; a unit test can pass a small fixture instead.
     """
     vocabularies = vocabularies or load_vocabulary_set()
     context = context or SuggestionContext(kpis=tuple(ready_kpis))
@@ -479,27 +486,31 @@ def assemble(
             "or previewed"
         )
 
-    filters: List[wire.DashboardFilter] = []
-    notes = response.notes.strip()
+    # `filters` is now a chosen `(table, column)` (R13.1), which this agent has no basis to
+    # pick on its own -- a person adds filter columns afterward in the dashboard builder, from
+    # the candidates `GET /dashboards/{id}/filter-columns` derives off the charts above.
+    # `response.business_area` (still part of the model's own output schema/prompt) no longer
+    # becomes a stored filter; retiring the field itself means touching the prompt template
+    # too and is out of scope here. Still validated against the vocabulary purely for the
+    # diagnostic (round-2 review): a person reading `notes` should see when the model's own
+    # guess doesn't match the deployment's terms, the same visibility this schema field gave
+    # before R13.1, even though nothing consumes the guess itself any more.
     if response.business_area:
         try:
             vocabularies.validate("business_area", response.business_area)
         except ValueError as error:
-            extra_notes.append(f"dropped business_area filter: {error}")
-        else:
-            filters.append(
-                wire.DashboardFilter(
-                    field=wire.DashboardFilterField.business_area,
-                    value=response.business_area,
-                )
+            extra_notes.append(
+                f"model suggested an unrecognized business area: {error}"
             )
+
+    notes = response.notes.strip()
     if extra_notes:
         notes = "\n".join(part for part in [notes, *extra_notes] if part)
 
     suggestion = wire.DashboardSuggestion(
         name=response.name.strip() or "Untitled dashboard",
         charts=charts,
-        filters=filters,
+        filters=[],
         notes=notes,
         context=context.summary(),
     )

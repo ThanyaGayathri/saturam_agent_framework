@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CalendarClock, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, CalendarClock, Check, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import MetricPicker from "./MetricPicker";
 import ChartEditorPanel from "./ChartEditorPanel";
 import AiGeneratingStep from "./AiGeneratingStep";
 import ChartTile from "../ChartTile";
 import { useDashboardSuggestionRun } from "../../../hooks/useDashboardSuggestionRun";
 import { spanForChart, tableUnavailableForChart, tileDataFromPreview } from "../../../storage/dashboards";
+import { fetchSemanticTable } from "../../../services/semantic-tables-api";
 
 const AI_BADGE = (
  <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
@@ -18,6 +19,30 @@ let _chartSeq = 0;
 function newChartId() {
  _chartSeq += 1;
  return `draft_${Date.now()}_${_chartSeq}`;
+}
+
+// Mirrors `dashboards/queries.py`'s `_FILTERABLE_TEXT_TYPES`/`_is_filterable_type` -- a
+// dropdown-of-values filter suits text/categorical columns, not numeric or date ones. Checked
+// here too (not just server-side on submit) so a column the write would reject with a 422 is
+// never offered as pickable in the first place.
+const FILTERABLE_TEXT_TYPES = [
+ "text",
+ "varchar",
+ "character varying",
+ "char",
+ "character",
+ "citext",
+ "string",
+ "enum",
+];
+
+function isFilterableType(dataType) {
+ const normalized = String(dataType || "")
+  .trim()
+  .toLowerCase();
+ return FILTERABLE_TEXT_TYPES.some(
+  (kind) => normalized === kind || normalized.startsWith(`${kind}(`),
+ );
 }
 
 /**
@@ -43,9 +68,8 @@ export default function DashboardBuilderStep({
  refreshOptions,
  charts,
  setCharts,
- businessAreaFilter,
- setBusinessAreaFilter,
- businessAreaOptions,
+ filterColumns,
+ setFilterColumns,
  readyKpis,
  aiSuggested,
  contextSummary,
@@ -202,6 +226,85 @@ export default function DashboardBuilderStep({
  const selectedIdentifiers = new Set(
   charts.filter((c) => c.source !== "query").map((c) => c.kpi_identifier),
  );
+
+ // Every table a `query` chart's own guarded SQL reads (`ChartEditorPanel`'s save populates
+ // `query.source_tables` from the preview's guard verdict) - the only tables a filter column
+ // can come from in this phase (R13.1: a `kpi` tile reads a per-KPI gold view, not a raw
+ // table, so it has no columns to offer here).
+ const queryTables = useMemo(
+  () =>
+   Array.from(
+    new Set(
+     charts.filter((c) => c.source === "query").flatMap((c) => c.query?.source_tables || []),
+    ),
+   ).sort(),
+  [charts],
+ );
+
+ // Candidate `{table, column}` pairs, fetched once per table from the semantic layer's own
+ // read surface (the same one the chart editor's schema pane uses) and never re-fetched --
+ // `fetchedTablesRef` tracks what has been asked for, independent of render, so a table
+ // dropped and re-added mid-session does not re-fetch. Personal-data and non-text columns are
+ // excluded client-side (mirroring the server's `available_filter_columns`) so a numeric/date
+ // column is never offered here in the first place; the write is still re-checked
+ // server-side (`_validate_filters`), which stays the source of truth.
+ const fetchedTablesRef = useRef(new Set());
+ const [candidateColumns, setCandidateColumns] = useState([]);
+ useEffect(() => {
+  const toFetch = queryTables.filter((t) => !fetchedTablesRef.current.has(t));
+  if (toFetch.length === 0) return;
+  toFetch.forEach((t) => fetchedTablesRef.current.add(t));
+  let cancelled = false;
+  Promise.all(
+   toFetch.map((table) =>
+    fetchSemanticTable(table)
+     .then((info) => ({
+      table,
+      columns: (info?.columns || [])
+       .filter((c) => !c.is_personal_data && isFilterableType(c.data_type))
+       .map((c) => c.name),
+     }))
+     .catch(() => ({ table, columns: [] })),
+   ),
+  ).then((results) => {
+   if (cancelled) {
+    // This effect was superseded before the fetch resolved - undo the "already fetched"
+    // mark for these tables so a later run (e.g. the same table reappearing after the user
+    // swaps which query chart is present) retries them instead of being permanently blocked
+    // from ever fetching their columns again this session.
+    toFetch.forEach((t) => fetchedTablesRef.current.delete(t));
+    return;
+   }
+   setCandidateColumns((prev) => [
+    ...prev,
+    ...results.flatMap(({ table, columns }) => columns.map((column) => ({ table, column }))),
+   ]);
+  });
+  return () => {
+   cancelled = true;
+  };
+ }, [queryTables]);
+
+ // A chart removed after its columns were offered takes its candidates (and any selection
+ // made against them) with it.
+ const visibleCandidates = useMemo(
+  () => candidateColumns.filter((c) => queryTables.includes(c.table)),
+  [candidateColumns, queryTables],
+ );
+ useEffect(() => {
+  const valid = new Set(queryTables);
+  setFilterColumns((prev) => prev.filter((f) => valid.has(f.table)));
+ }, [queryTables, setFilterColumns]);
+
+ const isFilterSelected = (table, column) =>
+  filterColumns.some((f) => f.table === table && f.column === column);
+ const toggleFilterColumn = (table, column) => {
+  if (isFilterSelected(table, column)) {
+   setFilterColumns(filterColumns.filter((f) => !(f.table === table && f.column === column)));
+  } else {
+   setFilterColumns([...filterColumns, { table, column }]);
+  }
+ };
 
  return (
   <form
@@ -456,22 +559,56 @@ export default function DashboardBuilderStep({
    </div>
 
    <div className="mb-5">
-    <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-text-primary">
-     Filter
-     {aiSuggested && businessAreaFilter && AI_BADGE}
+    <div className="mb-1 flex items-center justify-between">
+     <p className="text-sm font-semibold text-text-primary">Dashboard filters</p>
+     {filterColumns.length > 0 && (
+      <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
+       {filterColumns.length} selected
+      </span>
+     )}
+    </div>
+    <p className="mb-2 text-xs text-text-muted">
+     Pick columns viewers can filter this dashboard by. Each checked column becomes a dropdown
+     on the published dashboard, populated with that column&rsquo;s values.
     </p>
-    <select
-     value={businessAreaFilter || ""}
-     onChange={(e) => setBusinessAreaFilter(e.target.value || null)}
-     className="w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-    >
-     <option value="">No filter</option>
-     {businessAreaOptions.map((area) => (
-      <option key={area} value={area}>
-       Business area = {area}
-      </option>
-     ))}
-    </select>
+
+    {visibleCandidates.length === 0 ? (
+     <p className="rounded-lg border border-dashed border-border-light px-3 py-2.5 text-xs text-text-muted">
+      Add a chart with a custom SQL query to make some of its columns available as filters.
+     </p>
+    ) : (
+     <div className="overflow-hidden rounded-lg border border-border">
+      {visibleCandidates.map(({ table, column }, index) => {
+       const selected = isFilterSelected(table, column);
+       return (
+        <button
+         key={`${table}.${column}`}
+         type="button"
+         onClick={() => toggleFilterColumn(table, column)}
+         className={`flex w-full items-center gap-2.5 px-3 py-2 text-left ${
+          index > 0 ? "border-t border-border" : ""
+         } ${selected ? "bg-primary-light" : "hover:bg-surface-secondary"}`}
+        >
+         <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+           selected ? "bg-primary" : "border border-border-light"
+          }`}
+         >
+          {selected && <Check size={11} className="text-white" strokeWidth={3} />}
+         </span>
+         <span
+          className={`flex-1 text-sm ${selected ? "font-semibold text-primary" : "font-medium text-text-tertiary"}`}
+         >
+          {column}
+         </span>
+         <span className="font-mono text-[11px] text-text-muted">
+          {table}.{column}
+         </span>
+        </button>
+       );
+      })}
+     </div>
+    )}
    </div>
 
    {charts.length === 0 && (

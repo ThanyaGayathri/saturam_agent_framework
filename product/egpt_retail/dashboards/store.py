@@ -26,7 +26,7 @@ from egpt_retail.contracts.dashboards import (
     ChartAxis,
     ChartKind,
     Dashboard,
-    DashboardFilter,
+    DashboardFilterColumn,
     RefreshSchedule,
     Tile,
     TilePosition,
@@ -167,12 +167,19 @@ def _tile_from_json(payload: Dict[str, Any]) -> Tile:
     )
 
 
-def _filter_to_json(item: DashboardFilter) -> Dict[str, Any]:
-    return {"field": item.field, "value": item.value}
+def _filter_to_json(item: DashboardFilterColumn) -> Dict[str, Any]:
+    return {"table": item.table, "column": item.column}
 
 
-def _filter_from_json(payload: Dict[str, Any]) -> DashboardFilter:
-    return DashboardFilter(field=payload["field"], value=payload["value"])
+def _filter_from_json(payload: Dict[str, Any]) -> Optional[DashboardFilterColumn]:
+    """``None`` for a row written before this shape existed (``field``/``value`` keys, no
+    ``table``/``column``) -- that filter never did anything functionally (R13.1's own
+    change note), so it is dropped on read rather than migrated."""
+    table = payload.get("table")
+    column = payload.get("column")
+    if not table or not column:
+        return None
+    return DashboardFilterColumn(table=table, column=column)
 
 
 def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
@@ -187,7 +194,7 @@ def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
         name=row[1],
         description=row[2] or "",
         tiles=tuple(_tile_from_json(t) for t in tiles),
-        filters=tuple(_filter_from_json(f) for f in filters),
+        filters=tuple(f for f in (_filter_from_json(item) for item in filters) if f),
         refresh_schedule=RefreshSchedule(row[5]),
         visibility=Visibility(row[6]),
         owner=row[7],
@@ -264,7 +271,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
@@ -319,7 +326,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:

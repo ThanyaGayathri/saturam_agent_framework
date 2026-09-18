@@ -15,7 +15,7 @@ import pytest
 from egpt_retail.contracts.dashboards import (
     ChartKind,
     Dashboard,
-    DashboardFilter,
+    DashboardFilterColumn,
     Tile,
     TilePosition,
     Visibility,
@@ -131,8 +131,17 @@ def test_tile_json_round_trips():
 
 
 def test_filter_json_round_trips():
-    item = DashboardFilter(field="business_area", value="supply_chain")
+    item = DashboardFilterColumn(table="orders", column="region")
     assert _filter_from_json(_filter_to_json(item)) == item
+
+
+def test_filter_from_json_drops_a_pre_r13_1_row():
+    """A row written before this shape existed (`field`/`value`, no `table`/`column`) reads
+    back as `None` rather than raising -- that filter never did anything functionally, so
+    there is nothing to migrate."""
+    assert (
+        _filter_from_json({"field": "business_area", "value": "supply_chain"}) is None
+    )
 
 
 def test_unset_sentinel_is_not_equal_to_any_real_value():
