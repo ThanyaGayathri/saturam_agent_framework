@@ -126,7 +126,7 @@ from egpt_retail.suggestions.runs import (
     SuggestionRunStore,
 )
 from egpt_retail.warehouse.health import akpi_health
-from egpt_retail.warehouse.lineage import source_table_status
+from egpt_retail.warehouse.lineage import asource_table_status
 
 __all__ = ["router"]
 
@@ -1262,28 +1262,38 @@ async def list_kpi_health(
     ]
 
 
-def _source_table_status_for(definition: KpiDefinition) -> Sequence[Mapping[str, Any]]:
+async def _source_table_status_for(
+    definition: KpiDefinition,
+) -> Sequence[Mapping[str, Any]]:
     """``definition.source_tables``' load status, or ``()`` on any warehouse trouble.
 
     Deliberately not the ``_warehouse_engine`` dependency other routes use: that one raises a
     503 for the whole request when the warehouse isn't configured, which is right for a route
     whose entire job is warehouse freshness (``list_kpi_health``) and wrong here -- a KPI's own
     definition has always been readable with no warehouse at all, and this field is enrichment
-    on top of it, not a reason to start refusing the read.
+    on top of it, not a reason to start refusing the read. So every exception building or using
+    the engine is swallowed here (``source_table_status`` itself already guards its own query
+    the same way) -- an unset ``EGPT_RETAIL_WAREHOUSE_DB_URL`` (``RuntimeError``) and a set but
+    malformed one (e.g. ``sqlalchemy.exc.ArgumentError``) are both just "no enrichment today,"
+    never a 500 on a KPI's own definition.
+
+    ``async`` -- and awaits :func:`asource_table_status` rather than calling the sync
+    ``source_table_status`` directly -- so ``get_kpi`` below, an async route like every other
+    read here, never blocks the event loop on the warehouse round trip.
     """
     settings = RetailSettings()
     try:
         engine = build_warehouse_engine(settings)
-    except RuntimeError:
+    except Exception:
         return ()
     try:
-        return source_table_status(sorted(definition.source_tables), engine)
+        return await asource_table_status(sorted(definition.source_tables), engine)
     finally:
         engine.dispose()
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
-def get_kpi(
+async def get_kpi(
     kpi_id: str,
     request: Request,
     store: KpiRegistryStore = Depends(_kpi_store),
@@ -1296,7 +1306,7 @@ def get_kpi(
         definition,
         request,
         store,
-        source_table_status=_source_table_status_for(definition),
+        source_table_status=await _source_table_status_for(definition),
     )
 
 
@@ -1474,7 +1484,13 @@ async def compute_kpi(
     additional_data: Dict[str, Any] = {"kpi_identifiers": [kpi_id], "run_id": run_id}
     if as_of is not None:
         additional_data["as_of"] = as_of.isoformat()
-    output = await materialise_gold(StepInput(additional_data=additional_data))
+    try:
+        output = await materialise_gold(StepInput(additional_data=additional_data))
+    except ValueError as exc:
+        # `_as_of` (`executors/gold.py`) rejects a future or implausibly old date before gold
+        # ever touches the warehouse -- a bad `as_of` would otherwise become the KPI's own
+        # `latest_as_of()` and silently break every other viewer's default series/trend read.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     content: Mapping[str, Any] = (
         output.content if isinstance(output.content, Mapping) else {}
     )

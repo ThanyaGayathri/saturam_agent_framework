@@ -114,11 +114,36 @@ def _options(step_input: StepInput) -> Mapping[str, Any]:
     return step_input.additional_data or {}
 
 
+#: How far back a caller-supplied `as_of` may reach -- generous enough for a real backfill,
+#: tight enough to catch a fat-fingered date (a four-digit year typo, an accidental epoch
+#: value) before it reaches `gold.kpi_value` and corrupts `latest_as_of()` for every reader.
+_AS_OF_MAX_LOOKBACK_DAYS = 1095
+
+
 def _as_of(options: Mapping[str, Any]) -> date:
+    """Today (UTC) when ``options["as_of"]`` is absent, else that date -- validated against
+    ``[today - _AS_OF_MAX_LOOKBACK_DAYS, today]``, the single choke point every caller of
+    `materialise_gold`/`read_gold` passes through (`POST /kpis/{kpi_id}/compute`'s own `as_of`
+    included). A future date would otherwise become the KPI's `latest_as_of()` (`MAX(as_of)
+    WHERE status='materialised'`), silently corrupting every viewer's default series/trend
+    window until a later date is materialised -- caught here, not left to each call site.
+    """
     raw = options.get("as_of")
     if raw is None:
         return datetime.now(timezone.utc).date()
-    return date.fromisoformat(str(raw))
+    parsed = date.fromisoformat(str(raw))
+    today = datetime.now(timezone.utc).date()
+    if parsed > today:
+        raise ValueError(
+            f"as_of {parsed.isoformat()} is in the future; today (UTC) is {today.isoformat()}."
+        )
+    floor = today - timedelta(days=_AS_OF_MAX_LOOKBACK_DAYS)
+    if parsed < floor:
+        raise ValueError(
+            f"as_of {parsed.isoformat()} is more than {_AS_OF_MAX_LOOKBACK_DAYS} days in the "
+            f"past (earliest allowed: {floor.isoformat()})."
+        )
+    return parsed
 
 
 def _run_id(step_input: StepInput, options: Mapping[str, Any]) -> str:

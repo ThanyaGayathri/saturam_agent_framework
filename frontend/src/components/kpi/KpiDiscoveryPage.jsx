@@ -229,7 +229,9 @@ export default function KpiDiscoveryPage() {
    seriesAbortRefs.current.get(identifier)?.abort();
    const controller = new AbortController();
    seriesAbortRefs.current.set(identifier, controller);
-   patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
+   // `retryAsOf` survives every patch below (`patchSeries` merges) so "Try again" after a
+   // failure re-runs the same date the customer actually asked for, not silently today's.
+   patchSeries(identifier, { status: "computing", error: null, retry: "compute", retryAsOf: asOf });
    computeKpi(identifier, { asOf, signal: controller.signal })
     .then((result) => {
      if (controller.signal.aborted) return;
@@ -243,6 +245,12 @@ export default function KpiDiscoveryPage() {
       });
       return;
      }
+     // `loadSeries` reloads the default trailing window, which only shows this result when
+     // `asOf` happens to fall inside it (or is today, the common "Add to my metrics" case).
+     // A backfill for an older date needs its own, explicit confirmation -- `lastCompute` --
+     // that the panel's Trust section shows regardless of what the trailing window contains,
+     // so "Re-run for another date" never *looks* like it silently did nothing.
+     patchSeries(identifier, { lastCompute: result });
      loadSeries(identifier);
     })
     .catch((err) => {
@@ -335,6 +343,22 @@ export default function KpiDiscoveryPage() {
   if (!detailIdentifier) return;
   if (!lineageRef.current[detailIdentifier]) loadLineage(detailIdentifier);
  }, [detailIdentifier, loadLineage]);
+
+ // The row actually handed to `KpiDetailPanel`: `detailRow` with `sourceTableStatus` merged in
+ // once lineage is ready. Memoized on the lineage *entry object* (stable across renders once
+ // set -- `loadLineage` only calls `setLineageById` on its loading->ready transition, never
+ // again for the same identifier), not on `lineageById` as a whole -- so this stays the same
+ // reference across every unrelated re-render (another row's series ticking, the suggestion-run
+ // clock, etc.) instead of handing `KpiDetailPanel` a fresh object every time. `KpiDetailPanel`
+ // resets its active tab and any open edit form whenever this reference changes (`useEffect`
+ // on `detailRow`), so a stray new reference here was silently bouncing the customer off
+ // whatever tab -- or edit -- they had open, including from this PR's own "Re-run for another
+ // date" flow (`computeSeries` -> `patchSeries` -> a `KpiDiscoveryPage` re-render).
+ const lineageEntry = detailIdentifier ? lineageById[detailIdentifier] : null;
+ const panelDetailRow = useMemo(() => {
+  if (!detailRow || lineageEntry?.status !== "ready") return detailRow;
+  return { ...detailRow, kpi: { ...detailRow.kpi, sourceTableStatus: lineageEntry.sourceTableStatus } };
+ }, [detailRow, lineageEntry]);
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -1125,11 +1149,7 @@ export default function KpiDiscoveryPage() {
 
    {detailRow && (
     <KpiDetailPanel
-     detailRow={
-      detailIdentifier && lineageById[detailIdentifier]?.status === "ready"
-       ? { ...detailRow, kpi: { ...detailRow.kpi, sourceTableStatus: lineageById[detailIdentifier].sourceTableStatus } }
-       : detailRow
-     }
+     detailRow={panelDetailRow}
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}
@@ -1160,7 +1180,7 @@ export default function KpiDiscoveryPage() {
      onTrendRetry={() => {
       if (!detailIdentifier) return;
       const entry = seriesById[detailIdentifier];
-      if (entry?.retry === "compute") computeSeries(detailIdentifier);
+      if (entry?.retry === "compute") computeSeries(detailIdentifier, entry?.retryAsOf);
       else loadSeries(detailIdentifier, entry?.data?.dimension || undefined);
      }}
      onTrendCompute={() => detailIdentifier && computeSeries(detailIdentifier)}

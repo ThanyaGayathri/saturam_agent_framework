@@ -1531,8 +1531,10 @@ def test_delete_kpi_refuses_when_the_store_reports_a_reference():
 def test_get_kpi_404s_on_a_missing_identifier():
     store = _FakeKpiStore(existing=None)
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(
-            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        asyncio.run(
+            get_kpi(
+                "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+            )
         )
     assert excinfo.value.status_code == 404
 
@@ -1608,7 +1610,9 @@ def _patch_semantic_reader(monkeypatch):
 
 def test_get_kpi_returns_the_kpi_with_its_own_feasibility_only():
     store = _FakeStore([_kpi(identifier="a"), _kpi(identifier="b")])
-    result = get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert result.identifier == "a"
     assert result.feasibility.kpi_id == "a"
     # The whole point of the fix: one KPI's route computes feasibility over one KPI, not
@@ -1619,7 +1623,9 @@ def test_get_kpi_returns_the_kpi_with_its_own_feasibility_only():
 def test_get_kpi_missing_id_is_404():
     store = _FakeStore([_kpi(identifier="a")])
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi("nope", _FakeRequest(authorization_enabled=False), store=store)
+        asyncio.run(
+            get_kpi("nope", _FakeRequest(authorization_enabled=False), store=store)
+        )
     assert excinfo.value.status_code == 404
     assert store.feasibility_calls == [], "a 404 must not compute feasibility at all"
 
@@ -1666,14 +1672,18 @@ def test_list_kpis_computes_feasibility_only_over_the_business_area_filtered_kpi
 
 def test_get_kpi_includes_dashboard_names_from_the_bulk_lookup():
     store = _FakeStore([_kpi(identifier="a")], dashboard_names={"a": ("Q3 Sales",)})
-    result = get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert result.dashboard_names == ["Q3 Sales"]
     assert store.dashboard_names_calls == [["a"]]
 
 
 def test_get_kpi_dashboard_names_is_empty_when_nothing_references_it():
     store = _FakeStore([_kpi(identifier="a")])
-    result = get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert result.dashboard_names == []
 
 

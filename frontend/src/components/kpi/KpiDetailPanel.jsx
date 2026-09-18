@@ -5,6 +5,7 @@ import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
 import KpiTrend from "./KpiTrend";
+import { Tabs } from "../ui";
 import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "./KpiDiscovery";
 
 /**
@@ -108,33 +109,10 @@ function EditKpiForm({ description, sql, onDescriptionChange, onSqlChange, onSav
 }
 
 const TABS = [
- { id: "overview", label: "Overview" },
- { id: "definition", label: "Where this number comes from" },
- { id: "edit", label: "Edit definition" },
+ { value: "overview", label: "Overview" },
+ { value: "definition", label: "Where this number comes from" },
+ { value: "edit", label: "Edit definition" },
 ];
-
-function TabBar({ active, onChange }) {
- return (
-  <div className="flex shrink-0 items-center gap-1 border-b border-border px-5" role="tablist">
-   {TABS.map((t) => (
-    <button
-     key={t.id}
-     type="button"
-     role="tab"
-     aria-selected={active === t.id}
-     onClick={() => onChange(t.id)}
-     className={`border-b-2 px-1 py-2.5 text-sm font-semibold transition-colors ${
-      active === t.id
-       ? "border-primary text-primary"
-       : "border-transparent text-text-secondary hover:text-text-primary"
-     } ${t.id !== "overview" ? "ml-4" : ""}`}
-    >
-     {t.label}
-    </button>
-   ))}
-  </div>
- );
-}
 
 /** A short uppercase-label card, the same shape every section in this panel already uses --
  * `Pill` is the small chips row a couple of the new sections below want on top of it. */
@@ -306,6 +284,16 @@ function WhereItComesFrom({ kpi, feasibility, feasibilityStyle, trend, onCompute
       </button>
       {trend?.status === "error" && trend.error && (
        <p className="w-full text-xs text-status-critical">{trend.error}</p>
+      )}
+      {/* The trailing series above only shows a re-run's result when its date falls inside
+          the default window (or is today) -- an older backfill needs its own confirmation,
+          tied to the exact date just requested, so this never reads as having done nothing. */}
+      {!computing && trend?.lastCompute && (
+       <p className="w-full text-xs text-text-muted">
+        {trend.lastCompute.status === "materialised"
+         ? `Recomputed for ${trend.lastCompute.as_of}: ${trend.lastCompute.rows_written ?? 0} row${trend.lastCompute.rows_written === 1 ? "" : "s"} written.`
+         : `${trend.lastCompute.as_of}: ${trend.lastCompute.status}${trend.lastCompute.reason ? ` — ${trend.lastCompute.reason}` : ""}`}
+       </p>
       )}
      </div>
     )}
@@ -498,7 +486,9 @@ export default function KpiDetailPanel({
  <X size={20} />
  </button>
  </div>
- {fromRegistry && <TabBar active={activeTab} onChange={setActiveTab} />}
+ {fromRegistry && (
+ <Tabs tabs={TABS} activeTab={activeTab} onChange={setActiveTab} size="sm" className="shrink-0 px-5" />
+ )}
  <div className="flex-1 space-y-6 overflow-y-auto px-5 py-4">
  {showOverview && (
  <>

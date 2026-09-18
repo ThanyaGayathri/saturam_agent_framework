@@ -15,12 +15,12 @@ what's missing.
 from __future__ import annotations
 
 import asyncio
-from datetime import timezone
 from typing import Any, Dict, List, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from egpt_retail.warehouse.health import _iso
 from egpt_retail.warehouse.schema import SILVER_TABLES
 
 __all__ = ["source_table_status", "asource_table_status"]
@@ -30,14 +30,6 @@ __all__ = ["source_table_status", "asource_table_status"]
 _STREAM_ID_BY_STEM: Mapping[str, str] = {
     stem: stream_id for stream_id, stem in SILVER_TABLES.items()
 }
-
-
-def _iso(value: Any) -> Any:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.isoformat().replace("+00:00", "Z")
 
 
 def source_table_status(tables: Sequence[str], engine: Engine) -> List[Dict[str, Any]]:

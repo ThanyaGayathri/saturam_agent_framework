@@ -712,6 +712,15 @@
             examples:
               blocked:
                 value: {detail: "campaign__spend_per_order is blocked: missing from the semantic snapshot: campaign_spend, campaigns.", code: not_ready}
+      "422":
+        description: "`as_of` is in the future, or further in the past than gold allows a backfill."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              future_date:
+                value: {detail: "as_of 2099-01-01 is in the future; today (UTC) is 2026-09-15."}
       "503":
         description: Gold refused to run -- the last load did not pass, or a load holds the warehouse lock. The message says which.
         content:
