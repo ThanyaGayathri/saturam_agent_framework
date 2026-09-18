@@ -220,12 +220,92 @@ function Pill({ children }) {
  );
 }
 
+//                window          filter          measure/dimension  join_key/fallback
+const USED_AS_STYLE = {
+ window: "bg-[#e0ecff] text-[#1d4ed8] dark:bg-[#1d4ed8]/25 dark:text-[#93b4ff]",
+ filter: "bg-[#fdf1d6] text-[#8a6d1a] dark:bg-[#8a6d1a]/30 dark:text-[#e8c766]",
+ measure: "bg-[#dcf5ea] text-[#15794f] dark:bg-[#15794f]/25 dark:text-[#6fd9a8]",
+ dimension: "bg-[#dcf5ea] text-[#15794f] dark:bg-[#15794f]/25 dark:text-[#6fd9a8]",
+ join_key: "bg-surface-tertiary text-text-secondary",
+};
+
+const TABLE_ROLE_LABEL = { fact: "fact · read", lookup: "lookup · joined" };
+const TABLE_ROLE_STYLE = {
+ fact: "bg-[#dcf5ea] text-[#15794f] dark:bg-[#15794f]/25 dark:text-[#6fd9a8]",
+ lookup: "bg-surface-tertiary text-text-secondary",
+};
+
+/** "The columns it uses": every column the KPI's own `column_usage` (contract 1.2.6, agent-
+ * authored) names, its role and why, plus -- from `statusByTable`'s own `unused_columns`
+ * (backend-computed at read time) -- the table's remaining columns as a trailing "Not used"
+ * line. `columnUsage` arrives as its own prop, not off `kpi` (see `WhereItComesFrom`'s own
+ * comment): only `GET /kpis/{id}` fills in each entry's `definition`.
+ * Grouped by table only when the formula reads more than one: a single-table KPI (by far the
+ * common case) would just repeat the table name "the data it reads" already gives. Renders
+ * nothing when `columnUsage` is empty -- a suggestion adopted before this field existed, or a
+ * hand-authored KPI, has no section rather than an empty table. */
+function ColumnsItUses({ columnUsage, statusByTable }) {
+ if (!columnUsage.length) return null;
+ const tables = [...new Set(columnUsage.map((cu) => cu.table))];
+ const grouped = tables.length > 1;
+ return (
+  <DetailSection label="The columns it uses">
+   <div className="mt-2 space-y-4">
+    {tables.map((table) => {
+     const rows = columnUsage.filter((cu) => cu.table === table);
+     const unused = statusByTable[table]?.unused_columns || [];
+     return (
+      <div key={table}>
+       {grouped && (
+        <p className="mb-1.5 font-mono text-xs font-semibold text-text-primary">{table}</p>
+       )}
+       <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[480px] text-left text-sm">
+         <thead>
+          <tr className="bg-surface-secondary text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+           <th className="px-3 py-2">Column</th>
+           <th className="px-3 py-2">Used as</th>
+           <th className="px-3 py-2">Definition</th>
+           <th className="px-3 py-2">Why this column</th>
+          </tr>
+         </thead>
+         <tbody className="divide-y divide-border">
+          {rows.map((cu) => (
+           <tr key={cu.column}>
+            <td className="px-3 py-2 align-top font-mono text-xs text-text-primary">{cu.column}</td>
+            <td className="px-3 py-2 align-top">
+             <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+               USED_AS_STYLE[cu.used_as] || USED_AS_STYLE.join_key
+              }`}
+             >
+              {cu.used_as}
+             </span>
+            </td>
+            <td className="px-3 py-2 align-top text-text-secondary">{cu.definition || "—"}</td>
+            <td className="px-3 py-2 align-top text-text-secondary">{cu.why || "—"}</td>
+           </tr>
+          ))}
+         </tbody>
+        </table>
+       </div>
+       {unused.length > 0 && (
+        <p className="mt-1.5 text-xs text-text-muted">Not used: {unused.join(", ")}</p>
+       )}
+      </div>
+     );
+    })}
+   </div>
+  </DetailSection>
+ );
+}
+
 /** "Where this number comes from": the business-definition shape, the tables the formula reads
  * (and their load freshness, when the warehouse could answer), the formula itself, and a
  * trust/audit summary -- everything here is a real field off `GET /kpis/{id}` or its `series`,
  * never computed or guessed client-side. Registry-only (`kpi.fromRegistry`); the caller never
  * mounts this tab for a suggestion or seed row. */
-function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyle, trend, onComputeForDate }) {
+function WhereItComesFrom({ kpi, sourceTableStatus, columnUsage: columnUsageProp, feasibility, feasibilityStyle, trend, onComputeForDate }) {
  const [copied, setCopied] = useState(false);
  const [showSql, setShowSql] = useState(false);
  const [redate, setRedate] = useState(() => todayIso());
@@ -240,6 +320,25 @@ function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyl
  const statusByTable = Object.fromEntries(
   (Array.isArray(sourceTableStatus) ? sourceTableStatus : []).map((s) => [s.table, s])
  );
+ // A prop of its own, not read off `kpi` -- same reasoning as `sourceTableStatus`'s own
+ // comment above: `detailRow.kpi.columnUsage` is the list read's stale copy (no `definition`,
+ // which only `GET /kpis/{id}` pays for), and merging the fresher one back into `kpi` would
+ // reproduce the exact bug that comment describes.
+ const columnUsage = Array.isArray(columnUsageProp) ? columnUsageProp : [];
+ // Tables grouped by their coarse source category (`crm`/`analytics`/`session_replay`,
+ // ungated enrichment on `statusByTable`'s own entries) in first-seen order, so tables from
+ // the same source render together under one header -- `""` is the "no category" bucket,
+ // rendered with no header at all rather than a literal "" label.
+ const sourceTableGroups = [];
+ const sourceTablesByCategory = {};
+ sourceTables.forEach((table) => {
+  const category = statusByTable[table]?.source_category || "";
+  if (!(category in sourceTablesByCategory)) {
+   sourceTablesByCategory[category] = [];
+   sourceTableGroups.push(category);
+  }
+  sourceTablesByCategory[category].push(table);
+ });
 
  const copySql = () => {
   if (!kpi.sql || !navigator.clipboard) return;
@@ -271,27 +370,62 @@ function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyl
     )}
    </DetailSection>
 
+   <ColumnsItUses columnUsage={columnUsage} statusByTable={statusByTable} />
+
    <DetailSection label="The data it reads">
     {sourceTables.length > 0 ? (
-     <ul className="mt-2 space-y-2">
-      {sourceTables.map((table) => {
-       const status = statusByTable[table];
-       return (
-        <li key={table} className="rounded-lg border border-border bg-surface-secondary px-3 py-2">
-         <p className="font-mono text-xs text-text-primary">{table}</p>
-         {status ? (
-          <p className="mt-1 text-xs text-text-muted">
-           {status.row_count != null ? `${status.row_count.toLocaleString()} rows` : "Row count unknown"}
-           {formatTimestamp(status.loaded_at) ? ` · loaded ${formatTimestamp(status.loaded_at)}` : ""}
-           {status.load_verdict ? ` · ${status.load_verdict}` : ""}
-          </p>
-         ) : (
-          <p className="mt-1 text-xs text-text-muted">No load recorded yet.</p>
-         )}
-        </li>
-       );
-      })}
-     </ul>
+     <div className="mt-2 space-y-4">
+      {sourceTableGroups.map((category) => (
+       <div key={category || "uncategorised"}>
+        {category && (
+         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+          {category.replace(/_/g, " ")}
+         </p>
+        )}
+        <ul className="space-y-2">
+         {sourceTablesByCategory[category].map((table) => {
+          const status = statusByTable[table];
+          return (
+           <li key={table} className="rounded-lg border border-border bg-surface-secondary px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+             <p className="font-mono text-xs text-text-primary">{table}</p>
+             {status?.role && (
+              <span
+               className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                TABLE_ROLE_STYLE[status.role] || TABLE_ROLE_STYLE.lookup
+               }`}
+              >
+               {TABLE_ROLE_LABEL[status.role] || status.role}
+              </span>
+             )}
+            </div>
+            {status?.description && (
+             <p className="mt-1 text-xs text-text-secondary">{status.description}</p>
+            )}
+            {status?.concepts?.length > 0 && (
+             <div className="mt-1.5 flex flex-wrap gap-1">
+              {status.concepts.map((c) => (
+               <Pill key={c}>{c}</Pill>
+              ))}
+             </div>
+            )}
+            {status ? (
+             <p className="mt-1.5 text-xs text-text-muted">
+              {status.row_count != null ? `${status.row_count.toLocaleString()} rows` : "Row count unknown"}
+              {formatTimestamp(status.loaded_at) ? ` · loaded ${formatTimestamp(status.loaded_at)}` : ""}
+              {status.load_verdict ? ` · ${status.load_verdict}` : ""}
+             </p>
+            ) : (
+             <p className="mt-1.5 text-xs text-text-muted">No load recorded yet.</p>
+            )}
+            {status?.join_note && <p className="mt-1.5 text-xs text-text-muted">{status.join_note}</p>}
+           </li>
+          );
+         })}
+        </ul>
+       </div>
+      ))}
+     </div>
     ) : (
      <p className="mt-2 text-sm text-text-muted">No source tables recorded.</p>
     )}
@@ -418,6 +552,7 @@ function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyl
 export default function KpiDetailPanel({
  detailRow,
  sourceTableStatus = [],
+ columnUsage = [],
  nameToIdsMap,
  profileId,
  processLabelById,
@@ -1015,6 +1150,7 @@ export default function KpiDetailPanel({
   <WhereItComesFrom
    kpi={detailRow.kpi}
    sourceTableStatus={sourceTableStatus}
+   columnUsage={columnUsage}
    feasibility={feasibility}
    feasibilityStyle={feasibilityStyle}
    trend={trend}

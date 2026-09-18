@@ -41,6 +41,11 @@ const SUGGEST_CEILING_MS = 4 * 60 * 1000;
 // `sourceTableStatus` before its lineage fetch resolves, so a row with nothing to show yet
 // doesn't get a new array reference on every unrelated re-render either.
 const EMPTY_SOURCE_TABLE_STATUS = [];
+// Same reasoning as `EMPTY_SOURCE_TABLE_STATUS`, for `columnUsage` -- the list read's own
+// `column_usage` has no `definition` (only `GET /kpis/{id}` pays for the semantic-layer read
+// that fills it in), so the panel's "columns it uses" table reads this decoupled, freshly
+// fetched copy instead of `detailRow.kpi.columnUsage`, exactly like `sourceTableStatus`.
+const EMPTY_COLUMN_USAGE = [];
 
 const IDLE_SUGGESTION_STATE = {
  status: "idle",
@@ -288,14 +293,21 @@ export default function KpiDiscoveryPage() {
     if (controller.signal.aborted) return;
     setLineageById((prev) => ({
      ...prev,
-     [identifier]: { status: "ready", sourceTableStatus: k.source_table_status || [] },
+     [identifier]: {
+      status: "ready",
+      sourceTableStatus: k.source_table_status || [],
+      columnUsage: k.column_usage || [],
+     },
     }));
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
     // Enrichment, not core data (the row's own fields already came from the list read) --
     // an empty result reads the same as "nothing loaded yet", not an error banner.
-    setLineageById((prev) => ({ ...prev, [identifier]: { status: "ready", sourceTableStatus: [] } }));
+    setLineageById((prev) => ({
+     ...prev,
+     [identifier]: { status: "ready", sourceTableStatus: [], columnUsage: [] },
+    }));
    });
  }, []);
 
@@ -358,6 +370,9 @@ export default function KpiDiscoveryPage() {
  // exactly what it was before this PR -- lineage arriving can never trigger that effect.
  const sourceTableStatusForPanel =
   (detailIdentifier && lineageById[detailIdentifier]?.sourceTableStatus) || EMPTY_SOURCE_TABLE_STATUS;
+ // Same reasoning, for `column_usage`'s `definition` field -- see `EMPTY_COLUMN_USAGE`'s comment.
+ const columnUsageForPanel =
+  (detailIdentifier && lineageById[detailIdentifier]?.columnUsage) || EMPTY_COLUMN_USAGE;
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -683,6 +698,8 @@ export default function KpiDiscoveryPage() {
     rationale: suggestion.rationale ?? null,
     business_value: suggestion.business_value ?? null,
     formula_explanation: suggestion.formula_explanation ?? null,
+    column_usage: suggestion.column_usage ?? null,
+    table_usage: suggestion.table_usage ?? null,
    },
    { signal: controller.signal }
   )
@@ -975,6 +992,12 @@ export default function KpiDiscoveryPage() {
    // name the same columns/tables the formula reads. Kept as the wire shape (snake_case
    // fields) rather than remapped -- there's only ever one reader, `FormulaDisplay` below.
    formulaExplanation: k.formula_explanation || null,
+   // Same scope gate as `formulaExplanation`, but missing its `definition` field -- like
+   // `sourceTableStatus` below, only `GET /kpis/{id}` pays for the semantic-layer read that
+   // fills that in, never the list `GET /kpis` this row usually comes from. Kept here anyway
+   // for parity with the wire shape; the panel itself reads the fresher `columnUsageForPanel`
+   // (see `EMPTY_COLUMN_USAGE`'s comment), not this field.
+   columnUsage: k.column_usage || [],
    grain: k.grain,
    sourceTables: k.source_tables || [],
    // The rest of the definition shape the detail panel's technical/trust sections read.
@@ -1164,6 +1187,7 @@ export default function KpiDiscoveryPage() {
     <KpiDetailPanel
      detailRow={detailRow}
      sourceTableStatus={sourceTableStatusForPanel}
+     columnUsage={columnUsageForPanel}
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}

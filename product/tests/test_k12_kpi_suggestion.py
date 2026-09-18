@@ -398,6 +398,94 @@ class TestFormulaExplanation:
             FormulaExplanation(expression_before="value = X", numerator_label="a")
 
 
+class TestColumnAndTableUsage:
+    """ "The columns it uses" and "the data it reads"'s fact/lookup role -- the same
+    draft -> `assemble()` -> contract pipeline `TestFormulaExplanation` covers."""
+
+    def test_a_draft_with_no_usage_assembles_to_empty_lists(self) -> None:
+        report = k12.assemble(_set(_draft()), available_tables=frozenset({"crm_deal"}))
+        suggestion = report.suggestions[0]
+        assert suggestion.column_usage == []
+        assert suggestion.table_usage == []
+
+    def test_a_draft_s_usage_is_carried_through_assemble(self) -> None:
+        draft = _draft(
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+                k12.ColumnUsageDraft(
+                    table="crm_deal",
+                    column="quote_request_source_url",
+                    used_as=k12.ColumnUsageRoleDraft.FILTER,
+                    why="Only column that marks a deal as a quote request.",
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(table="crm_deal", role=k12.TableRoleDraft.FACT),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        suggestion = report.suggestions[0]
+        assert [cu.column for cu in suggestion.column_usage] == [
+            "deal_id",
+            "quote_request_source_url",
+        ]
+        assert suggestion.column_usage[0].used_as.value == "measure"
+        assert suggestion.column_usage[1].used_as.value == "filter"
+        assert (
+            suggestion.column_usage[1].why
+            == "Only column that marks a deal as a quote request."
+        )
+        assert suggestion.table_usage[0].table == "crm_deal"
+        assert suggestion.table_usage[0].role.value == "fact"
+        assert suggestion.table_usage[0].join_note == ""
+
+    def test_qualified_table_names_are_bared_the_same_as_derived_from_tables(
+        self,
+    ) -> None:
+        """The agent sees tables qualified (`silver.crm_deal`) in the harvest text, and
+        `derived_from_tables` is already normalised to bare names before it reaches the
+        contract -- `column_usage`/`table_usage` must match, or the drift guard below would
+        refuse a draft whose own tables agree with each other in every way except spelling."""
+        draft = _draft(
+            derived_from_tables=["silver.crm_deal"],
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="silver.crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="silver.crm_deal", role=k12.TableRoleDraft.FACT
+                ),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        assert report.dropped == []
+        suggestion = report.suggestions[0]
+        assert suggestion.column_usage[0].table == "crm_deal"
+        assert suggestion.table_usage[0].table == "crm_deal"
+
+    def test_a_table_not_in_derived_from_tables_is_dropped_as_drift(self) -> None:
+        """The same class of drift `KpiDefinition` already refuses between `sql` and
+        `source_tables` -- caught here, at assembly, rather than surfacing only at adoption."""
+        draft = _draft(
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="crm_contact", role=k12.TableRoleDraft.LOOKUP
+                ),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        assert report.suggestions == []
+        assert report.dropped and "quote_request_count" in report.dropped[0]
+
+
 def test_a_suggestion_with_a_formula_becomes_a_kpi_proposal_the_registry_can_adopt():
     """Build plan section 06: candidates "are proposals, so they carry an adopt action and
     enter the registry only when a person accepts them". This is the producer that was

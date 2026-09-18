@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -834,6 +834,47 @@
             "default": false
           }
         }
+      },
+      "ColumnUsage": {
+        "type": "object",
+        "description": "One column the formula reads, and why -- \"the columns it uses\". Column-names the agent declares, not a parse of `sql` -- it already reads every table's columns to write the formula, so this is it stating what it used, the same trust `derived_from_tables` already carries for tables.",
+        "required": [
+          "table",
+          "column",
+          "used_as"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "column": {
+            "type": "string"
+          },
+          "used_as": {
+            "$ref": "#/components/schemas/ColumnUsageRole"
+          },
+          "why": {
+            "type": "string",
+            "default": "",
+            "description": "One line: why this column and not a sibling that could plausibly mean the same thing, e.g. \"Two time columns; the month cannot cut a 28-day window.\""
+          },
+          "definition": {
+            "type": "string",
+            "default": "",
+            "description": "The column's own definition from the semantic layer (`Column.meaning`, the reviewed definition -- falling back to `Column.description`, the schema's raw comment, when enrichment hasn't reached the column yet) -- what it holds, not why this KPI reads it (that's `why`). Read-only enrichment, like `SourceTableStatus.description`; not part of what a create/update or the agent's own output carries -- always `\"\"` on write, on a suggestion preview, or when the semantic layer has none."
+          }
+        }
+      },
+      "ColumnUsageRole": {
+        "type": "string",
+        "enum": [
+          "window",
+          "filter",
+          "measure",
+          "dimension",
+          "join_key"
+        ],
+        "description": "What one column contributes to the formula -- the \"USED AS\" badge on \"the columns it uses\"."
       },
       "Concept": {
         "type": "object",
@@ -2307,6 +2348,14 @@
             ],
             "description": "A human-readable rendering of `sql`, for the FORMULA card. Gated behind `kpis:write` the same way `sql` is (`_may_read_sql`) -- its labels can name the same columns/tables the formula reads, so it is exactly the schema detail that gate exists to withhold from a `kpis:read`-only caller. Null for a hand-authored KPI, one adopted before this field existed, or a viewer without the scope."
           },
+          "column_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColumnUsage"
+            },
+            "default": [],
+            "description": "The formula's own account of which columns it reads and why -- \"the columns it uses\". Gated behind `kpis:write` the same way `sql` is; always `[]` for a `kpis:read`-only caller, a hand-authored KPI, or one adopted before this field existed. This KPI's own `table_usage` (fact/lookup role, join notes) is not a separate list here -- it rides along on each of `source_table_status`'s entries instead, since both describe the same tables."
+          },
           "source_tables": {
             "type": "array",
             "items": {
@@ -2903,6 +2952,22 @@
             ],
             "description": "A human-readable rendering of `proposed_sql`, for the discovery card's preview before the KPI is adopted. Gated behind `kpis:write` the same way `proposed_sql` is -- its labels can name the same columns/tables the formula reads."
           },
+          "column_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColumnUsage"
+            },
+            "default": [],
+            "description": "Which columns `proposed_sql` reads and why -- \"the columns it uses\" on the discovery card's preview. Gated behind `kpis:write` the same way `proposed_sql` is."
+          },
+          "table_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableUsage"
+            },
+            "default": [],
+            "description": "How `proposed_sql` uses each of `derived_from_tables` -- fact table or lookup, and what a lookup's join confirms. Gated behind `kpis:write` the same way `proposed_sql` is."
+          },
           "feasibility": {
             "$ref": "#/components/schemas/Feasibility"
           },
@@ -3128,6 +3193,20 @@
               }
             ],
             "description": "The suggestion's `formula_explanation`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here."
+          },
+          "column_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColumnUsage"
+            },
+            "description": "The suggestion's `column_usage`, resent verbatim when adopting a proposal. Optional; an update that omits it carries the stored value forward like every other optional field here."
+          },
+          "table_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableUsage"
+            },
+            "description": "The suggestion's `table_usage`, resent verbatim when adopting a proposal. Optional; an update that omits it carries the stored value forward like every other optional field here."
           },
           "source_tables": {
             "type": "array",
@@ -4384,7 +4463,7 @@
       },
       "SourceTableStatus": {
         "type": "object",
-        "description": "One `source_tables` entry's most recent load, read from `quality.load_run`/`quality.load_stream_count` (the same rows the load pipeline itself writes).",
+        "description": "One `source_tables` entry's own presentation detail -- its most recent load (from `quality.load_run`/`quality.load_stream_count`, the same rows the load pipeline itself writes) plus, when available, what the semantic layer and this KPI's own `table_usage` say about it.",
         "required": [
           "table"
         ],
@@ -4412,6 +4491,52 @@
               "null"
             ],
             "description": "That load's own quality-gate verdict: `passed`, `blocked`, or `failed`."
+          },
+          "description": {
+            "type": "string",
+            "default": "",
+            "description": "The table's own description from the semantic layer (`Table.description`) -- what one row represents. Empty when the semantic layer has none, or is unreachable."
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Ontology concepts this table is an instance of (`Table.concepts`, K8 mapping). Same visibility as `source_tables` itself -- concept names, not schema internals."
+          },
+          "source_category": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The table's coarse landing source (`crm`, `analytics`, `session_replay`) from the ingestion contract. Null for a table this deployment's landing contract does not name."
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TableRole"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This KPI's own `table_usage` entry for the table, when it has one. Gated behind `kpis:write` the same way `sql` is -- null for a `kpis:read`-only caller regardless of whether the KPI has `table_usage` recorded."
+          },
+          "join_note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "This KPI's own `table_usage` join note for the table, when it has one. Same gate as `role`."
+          },
+          "unused_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "The table's columns, from the semantic layer, that this KPI's `column_usage` does not name. Gated behind `kpis:write` the same way `column_usage` is -- always `[]` for a `kpis:read`-only caller, and also `[]` when the KPI has no `column_usage` recorded (there is nothing to compute a remainder against) or the semantic layer is unreachable."
           }
         }
       },
@@ -4652,6 +4777,35 @@
               "integer",
               "null"
             ]
+          }
+        }
+      },
+      "TableRole": {
+        "type": "string",
+        "enum": [
+          "fact",
+          "lookup"
+        ],
+        "description": "How the formula uses one of its `source_tables` -- the same physical table can be the fact table for one KPI and a lookup for another, so this is per-KPI usage, not a property of the table itself."
+      },
+      "TableUsage": {
+        "type": "object",
+        "description": "How the formula uses one source table, paired with `ColumnUsage` to fill out \"the data it reads\".",
+        "required": [
+          "table",
+          "role"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TableRole"
+          },
+          "join_note": {
+            "type": "string",
+            "default": "",
+            "description": "One line naming what the join confirms or looks up, e.g. \"Joined on linked_quote_id -> quote_id to confirm the quote exists\". Empty for the fact table, which is read but not joined to anything."
           }
         }
       },

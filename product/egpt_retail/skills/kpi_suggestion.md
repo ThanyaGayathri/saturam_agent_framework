@@ -90,6 +90,23 @@ Specific to this agent:
   `expression_after` is empty. `condition_label`, if there's a filter or window worth naming,
   is one short "where ..." sentence — not a restatement of the SQL, a plain-English gloss of
   it (see the worked examples).
+- **`column_usage`/`table_usage` render "the columns it uses" and "the data it reads" for a
+  reader who will never see `proposed_sql`.** Both empty when `proposed_sql` is null — there
+  is nothing to describe usage of yet. `column_usage` names every column the formula actually
+  reads (not every column the table has) and, for each, `used_as` — `window` (the date/time
+  column a lookback is measured against), `filter` (narrows which rows count), `measure` (the
+  thing counted or summed), `dimension` (a group-by column, for a `rowset` result), or
+  `join_key` (used only to join two tables) — plus one line in `why` when a sibling column
+  could plausibly mean the same thing and you picked this one over it (see the worked
+  examples; when the choice is unambiguous, leave `why` empty rather than restating the
+  obvious). `table_usage` names how the formula uses each of `derived_from_tables`: `fact` for
+  the table the formula counts or sums over, `lookup` for one it only joins to (confirm a row
+  exists, pull in a label) — and for a `lookup`, `join_note` is one line naming what the join
+  confirms, e.g. `"Joined on linked_quote_id -> quote_id to confirm the quote exists"`. A
+  formula reading one table has one `table_usage` entry, always `fact`, `join_note` empty. A
+  `table` you name in either that is not in `derived_from_tables` is the exact drift the
+  "whole contract with the executor" rule above exists to prevent, and the executor refuses
+  it as it would any other.
 - **`business_value` answers a different question than `rationale`.** `rationale` traces the
   metric to its data; `business_value` says why anyone should look at it -- what decision it
   informs, what problem it lets someone catch early, or what it lets them stop guessing at.
@@ -127,6 +144,8 @@ invent is a field with nowhere to go.
 | `derived_from_tables` | string list | Every table the formula reads. Never empty |
 | `proposed_sql` | string or null | The formula, or null rather than a guess |
 | `formula_explanation` | object or null | `proposed_sql` in plain English, for a reader who won't see the SQL — null iff `proposed_sql` is null. See the rule above and the worked examples |
+| `column_usage` | object list | Every column the formula reads, its role, and why. Empty iff `proposed_sql` is null. See the rule above and the worked examples |
+| `table_usage` | object list | How the formula uses each of `derived_from_tables` — fact table or lookup. Empty iff `proposed_sql` is null. See the rule above and the worked examples |
 | `catalogue_source` | string or null | The catalogue metric name this corresponds to |
 | `notes` | string | Empty on a clean run; otherwise what was missing |
 
@@ -175,6 +194,18 @@ For a harvest holding `crm_deal` (`deal_id`, `object_id`, `amount`, `stage`,
         "expression_after": "",
         "condition_label": "where quote_request_source_url is present"
       },
+      "column_usage": [
+        {"table": "crm_deal", "column": "deal_id", "used_as": "measure", "why": ""},
+        {
+          "table": "crm_deal",
+          "column": "quote_request_source_url",
+          "used_as": "filter",
+          "why": "Only column that marks a deal as a quote request."
+        }
+      ],
+      "table_usage": [
+        {"table": "crm_deal", "role": "fact", "join_note": ""}
+      ],
       "catalogue_source": null
     }
   ],
@@ -197,6 +228,32 @@ dc_chat_inquiries WHERE chat_type ILIKE '%buy%' AND chat_date > {as_of} - 28 AND
   "condition_label": "where buy inquiry = chat_type contains \"buy\" and as_of - 28 < chat_date <= as_of"
 }
 ```
+
+**A two-table formula's `column_usage`/`table_usage`** — for a formula that counts rows in one
+table, filtered by a window and a category, and joins a second table only to confirm a
+reference exists (`SELECT count(*) FROM dc_chat_inquiries c JOIN dc_rfq_quotes q ON
+c.linked_quote_id = q.quote_id WHERE c.chat_type ILIKE '%buy%' AND c.chat_date > {as_of} - 28
+AND c.chat_date <= {as_of}`):
+
+```json
+{
+  "column_usage": [
+    {"table": "dc_chat_inquiries", "column": "chat_date", "used_as": "window", "why": "Two time columns; the month cannot cut a 28-day window."},
+    {"table": "dc_chat_inquiries", "column": "chat_type", "used_as": "filter", "why": "Only column that says what the customer wanted. Matches 10 spellings of \"buy\"."},
+    {"table": "dc_chat_inquiries", "column": "linked_quote_id", "used_as": "join_key", "why": ""},
+    {"table": "dc_rfq_quotes", "column": "quote_id", "used_as": "join_key", "why": ""}
+  ],
+  "table_usage": [
+    {"table": "dc_chat_inquiries", "role": "fact", "join_note": ""},
+    {"table": "dc_rfq_quotes", "role": "lookup", "join_note": "Joined on linked_quote_id -> quote_id to confirm the quote exists."}
+  ]
+}
+```
+
+`dc_chat_inquiries` is the fact table -- the formula counts its rows. `dc_rfq_quotes` is a
+lookup: the join exists only to confirm `linked_quote_id` names a real quote, and nothing from
+it is counted, summed or filtered on, so it gets no `measure`/`filter`/`window` entries of its
+own -- only the `join_key` that connects it.
 
 **Near-miss** — this looks right and is not:
 

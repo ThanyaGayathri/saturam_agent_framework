@@ -109,6 +109,41 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on
+`Kpi`/`KpiSuggestion` and two on `KpiWrite`, six new optional fields on `SourceTableStatus`,
+nothing removed or renamed -- so no negotiation and no major bump.
+
+- **`ColumnUsage`** (new schema) and **`Kpi.column_usage` / `KpiWrite.column_usage` /
+  `KpiSuggestion.column_usage`** (all optional, default `[]`). The mapping detail panel's
+  "the columns it uses" section needed which columns a formula reads, in what role
+  (`ColumnUsageRole`: window/filter/measure/dimension/join_key) and why -- the suggestion
+  agent already reads every table's full column list to write the formula
+  (`suggestions/context.py`'s harvest text), so this is it declaring what it used, not a
+  second system parsing `sql` back apart. Carried through adoption like `formula_explanation`.
+  Gated behind `kpis:write` the same way `sql` is -- `why` can name a column by what it means.
+  `KpiDefinition.__post_init__` refuses a `column_usage` entry naming a table
+  `source_tables` does not list, the same drift guard `sql` itself already has.
+  `ColumnUsage.definition` is a seventh, read-only field on the same schema, not part of what
+  a write or the agent's own output carries: the column's own reviewed definition
+  (`Column.meaning`, falling back to `Column.description`, the schema's raw comment, when
+  enrichment hasn't reached the column), filled in only by `GET /kpis/{kpi_id}` (same
+  enrichment posture as `SourceTableStatus.description` below) -- `""` everywhere else.
+- **`TableUsage`** (new schema) and **`KpiWrite.table_usage` / `KpiSuggestion.table_usage`**
+  (optional, default `[]`) -- how the formula uses each of its `source_tables` (`TableRole`:
+  fact or lookup) and, for a lookup, one line naming what the join confirms. Not a separate
+  field on `Kpi`: a KPI's own `table_usage` rides along on `SourceTableStatus` instead (below),
+  since both describe the same tables and the panel renders them together.
+- **`SourceTableStatus`** gains six fields, read at `GET /kpis/{kpi_id}` time: `description`
+  and `concepts` from the semantic layer's own `Table` record (visibility matches
+  `source_tables` itself -- concept names, not schema internals, so these are never gated);
+  `source_category` (`crm`/`analytics`/`session_replay`) from the landing contract's
+  stream-to-source mapping, no I/O; and `role`/`join_note` (this KPI's own `table_usage` for
+  the table) plus `unused_columns` (the table's columns, from the semantic layer, that
+  `column_usage` does not name) -- all three gated behind `kpis:write` like `sql`, always
+  empty/null for a `kpis:read`-only caller regardless of what the KPI has recorded.
+
 ## 1.2.5 — 2026-09-18 — kpis: `FormulaExplanation` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new schema, one new optional field each on

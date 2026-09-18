@@ -15,21 +15,37 @@ what's missing.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from egpt_retail.contracts.landing import LANDING_SCHEMAS
 from egpt_retail.warehouse.health import _iso
 from egpt_retail.warehouse.schema import SILVER_TABLES
 
-__all__ = ["source_table_status", "asource_table_status"]
+__all__ = ["source_category_for", "source_table_status", "asource_table_status"]
 
 #: `SILVER_TABLES` maps stream id -> silver table stem; a KPI's `source_tables` are stems
 #: (`contracts/kpi.py`'s `referenced_tables()`), so this is the reverse lookup, built once.
 _STREAM_ID_BY_STEM: Mapping[str, str] = {
     stem: stream_id for stream_id, stem in SILVER_TABLES.items()
 }
+
+
+def source_category_for(table: str) -> Optional[str]:
+    """The table's coarse landing source (``crm``, ``analytics``, ``session_replay``) -- the
+    "the data it reads" section's source-system header. Pure: the landing contract's
+    stream-to-source mapping is a fixed part of the codebase (``contracts/landing.py``), not
+    something a deployment configures, so this needs no connection and cannot fail. ``None``
+    for a table this deployment's landing contract does not name (same "silent, not raised"
+    posture as :func:`source_table_status` for a table with no matching stream).
+    """
+    stream_id = _STREAM_ID_BY_STEM.get(table)
+    if stream_id is None:
+        return None
+    schema = LANDING_SCHEMAS.get(stream_id)
+    return schema.source.value if schema is not None else None
 
 
 def source_table_status(tables: Sequence[str], engine: Engine) -> List[Dict[str, Any]]:
