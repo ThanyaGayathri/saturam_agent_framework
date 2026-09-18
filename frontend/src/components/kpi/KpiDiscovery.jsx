@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
  AlertTriangle,
  Briefcase,
@@ -11,6 +11,7 @@ import {
  LayoutGrid,
  Plus,
  Sparkles,
+ Trash2,
  Zap,
 } from "lucide-react";
 import { mappingStatusForKpi } from "../../domain/kpi-mapping";
@@ -209,6 +210,8 @@ function KpiTable({
  onToggleSelect,
  onOpenDetail,
  onAdopt,
+ onRemove,
+ removeState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -216,6 +219,21 @@ function KpiTable({
  profileId,
  onOpenUseCase,
 }) {
+ // Which row's "remove from my metrics" is armed, by row key -- local to this Subject Area's
+ // own table, the same scope `KpiDetailPanel.jsx`'s own `confirmingRemove` uses for the panel.
+ // At most one row's confirm shows at a time within this table.
+ const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
+ // A click on the trash button itself is handled by its own onClick (toggling the armed row,
+ // including switching straight to a different row's confirm without this effect's help); this
+ // is only for dismissing an open confirmation by clicking anywhere else on the page.
+ useEffect(() => {
+  if (!confirmDeleteKey) return;
+  const close = (e) => {
+   if (!e.target.closest?.("[data-remove-popover-root]")) setConfirmDeleteKey(null);
+  };
+  document.addEventListener("mousedown", close);
+  return () => document.removeEventListener("mousedown", close);
+ }, [confirmDeleteKey]);
  const previewDesc = rows
   .map((r) => r.kpi.desc)
   .filter(Boolean)
@@ -402,6 +420,54 @@ function KpiTable({
               <Plus size={15} />
              </button>
             ) : null}
+            {!r.suggested && r.kpi.fromRegistry && onRemove ? (
+             <span className="relative" data-remove-popover-root>
+              <button
+               type="button"
+               className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-status-critical-light hover:text-status-critical hover:opacity-100"
+               aria-label={`Remove ${r.kpi.name} from my metrics`}
+               title="Remove from my metrics"
+               onClick={() => setConfirmDeleteKey((prev) => (prev === key ? null : key))}
+              >
+               <Trash2 size={15} />
+              </button>
+              {confirmDeleteKey === key && (
+               <div
+                role="dialog"
+                aria-label={`Remove ${r.kpi.name}?`}
+                className="absolute right-0 top-9 z-30 w-56 rounded-lg border border-border bg-surface p-3 text-left shadow-lg"
+               >
+                <p className="text-xs leading-snug text-text-secondary">
+                 Remove <strong className="font-semibold text-text-primary">{r.kpi.name}</strong> from
+                 your registry? Dashboards using it must be changed first.
+                </p>
+                {removeState?.identifier === r.kpi.identifier && removeState.error && (
+                 <p className="mt-1.5 text-xs text-status-critical">{removeState.error}</p>
+                )}
+                <div className="mt-2.5 flex items-center gap-3">
+                 <button
+                  type="button"
+                  disabled={removeState?.identifier === r.kpi.identifier && !removeState.error}
+                  onClick={() => onRemove(r)}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-status-critical px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                 >
+                  <Trash2 size={12} />
+                  {removeState?.identifier === r.kpi.identifier && !removeState.error
+                   ? "Removing…"
+                   : "Yes, remove"}
+                 </button>
+                 <button
+                  type="button"
+                  onClick={() => setConfirmDeleteKey(null)}
+                  className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+                 >
+                  Cancel
+                 </button>
+                </div>
+               </div>
+              )}
+             </span>
+            ) : null}
             <button
              type="button"
              className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-surface-secondary hover:opacity-100 hover:text-primary"
@@ -435,6 +501,8 @@ export default function KpiDiscovery({
  onCreateDashboard,
  onOpenDetail,
  onAdopt,
+ onRemove,
+ removeState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -780,6 +848,8 @@ export default function KpiDiscovery({
                onToggleSelect={toggleSelect}
                onOpenDetail={onOpenDetail}
                onAdopt={onAdopt}
+               onRemove={onRemove}
+               removeState={removeState}
                adoptingIds={adoptingIds}
                adoptErrors={adoptErrors}
                onToggleActive={onToggleActive}

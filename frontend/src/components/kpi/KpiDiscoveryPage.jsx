@@ -793,8 +793,11 @@ export default function KpiDiscoveryPage() {
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
+    // `identifier` stays set on failure (not reset to `null`) so a caller can tell WHICH row's
+    // removal failed -- both the panel's `removeError` and the table row's own inline
+    // confirmation (`KpiDiscovery.jsx`'s `KpiTable`) key off it matching their own row.
     setRemoveState({
-     identifier: null,
+     identifier,
      error: err?.detail || err?.message || "Couldn't remove this KPI.",
     });
    })
@@ -990,7 +993,11 @@ export default function KpiDiscoveryPage() {
   sectionName: k.subject_area || "Your KPI registry",
  });
  // The removal error belongs to the row it happened on; another row's panel must not show it.
- const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+ // Scoped by identifier, not just "is this a registry row" -- `removeState.identifier` now
+ // stays set on failure (see `handleRemove`'s catch), so this only shows the error on the row
+ // it actually belongs to, not on every registry row's panel.
+ const removeError = (row) =>
+  row?.kpi?.fromRegistry && removeState.identifier === row.kpi.identifier ? removeState.error : null;
  // Same reasoning as `removeError`, for `handleUpdateKpi`'s save.
  const updateError = (row) =>
   row?.kpi?.fromRegistry && updateState.identifier === row.kpi.identifier ? updateState.error : null;
@@ -1096,6 +1103,8 @@ export default function KpiDiscoveryPage() {
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
     onAdopt={handleAdopt}
+    onRemove={handleRemove}
+    removeState={removeState}
     adoptingIds={adoptingIds}
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
@@ -1187,7 +1196,7 @@ export default function KpiDiscoveryPage() {
      onTrendComputeForDate={(asOf) => detailIdentifier && computeSeries(detailIdentifier, asOf)}
      onTrendPickDimension={(dimension) => detailIdentifier && loadSeries(detailIdentifier, dimension)}
      onRemove={handleRemove}
-     removing={removeState.identifier === detailRow.kpi?.identifier}
+     removing={removeState.identifier === detailRow.kpi?.identifier && !removeState.error}
      removeError={removeError(detailRow)}
     />
    )}
