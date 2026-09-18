@@ -494,7 +494,7 @@ export default function KpiDetailPanel({
  aria-label="Close panel"
  onClick={onClose}
  />
- <aside className="fixed bottom-0 right-0 top-[72px] z-30 flex w-full max-w-md flex-col border-l border-border bg-surface-default shadow-2xl">
+ <aside className="fixed bottom-0 right-0 top-[72px] z-30 flex w-full max-w-2xl flex-col border-l border-border bg-surface-default shadow-2xl">
  <div className="flex items-center justify-between border-b border-border px-5 py-4">
  <h3 className="text-lg font-semibold text-text-primary">Mapping detail</h3>
  <button type="button" className="rounded-lg p-2 text-text-muted hover:bg-surface-secondary" onClick={onClose}>
