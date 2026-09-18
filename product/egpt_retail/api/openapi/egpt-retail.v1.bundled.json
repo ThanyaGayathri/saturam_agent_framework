@@ -2326,6 +2326,14 @@
             "default": [],
             "description": "Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet."
           },
+          "source_table_status": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceTableStatus"
+            },
+            "default": [],
+            "description": "Each of `source_tables`' most recent load, from the warehouse's own load history -- only populated by `GET /kpis/{kpi_id}` (a list read never pays for N per-row warehouse queries), and only for a table that resolves to a known landed stream and has actually loaded at least once. Always `[]`, never a partial failure, when the warehouse is unreachable -- this is enrichment for the detail panel, not core KPI data."
+          },
           "feasibility": {
             "$ref": "#/components/schemas/Feasibility"
           },
@@ -4282,6 +4290,39 @@
         "properties": {
           "until": {
             "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "SourceTableStatus": {
+        "type": "object",
+        "description": "One `source_tables` entry's most recent load, read from `quality.load_run`/`quality.load_stream_count` (the same rows the load pipeline itself writes).",
+        "required": [
+          "table"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "loaded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the load that produced this table's current row count finished. Null when the table has never loaded."
+          },
+          "row_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "load_verdict": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "That load's own quality-gate verdict: `passed`, `blocked`, or `failed`."
           }
         }
       },
@@ -8165,6 +8206,14 @@
                       "process_ids": [
                         "sc_1"
                       ],
+                      "source_table_status": [
+                        {
+                          "table": "supplier_deliveries",
+                          "loaded_at": "2026-09-07T01:08:00Z",
+                          "row_count": 20000,
+                          "load_verdict": "passed"
+                        }
+                      ],
                       "feasibility": {
                         "kpi_id": "kpi_0002",
                         "verdict": "ready",
@@ -8718,8 +8767,8 @@
           "kpis"
         ],
         "operationId": "computeKpi",
-        "summary": "Materialise this KPI for today, now.",
-        "description": "The nightly gold pass (`materialise_gold`) narrowed to one KPI and today's business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains today's point. What \"Add to my metrics\" calls so a newly adopted KPI has a value before its first night. A re-run on the same date overwrites that date's rows, never yesterday's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.",
+        "summary": "Materialise this KPI for today, now -- or for a past business date.",
+        "description": "The nightly gold pass (`materialise_gold`) narrowed to one KPI and one business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains that date's point. What \"Add to my metrics\" calls (with no `as_of`, i.e. today) so a newly adopted KPI has a value before its first night; the detail panel's \"Re-run for another date\" calls it with one, to recompute or backfill a specific past night. A re-run on a given date overwrites only that date's rows, never another one's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.",
         "x-egpt-scopes": [
           "kpis:write"
         ],
@@ -8731,6 +8780,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "The business date to materialise for, `YYYY-MM-DD`. Defaults to today (UTC) when omitted."
           }
         ],
         "responses": {

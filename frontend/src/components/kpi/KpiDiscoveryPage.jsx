@@ -18,6 +18,7 @@ import { metricsUnlockedBy } from "../configure/source-model-state";
 import { useCaseActivationPath } from "../../domain/automation-registry";
 import {
  fetchKpiList,
+ fetchKpi,
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
  createKpi,
@@ -224,12 +225,12 @@ export default function KpiDiscoveryPage() {
   [patchSeries]
  );
  const computeSeries = useCallback(
-  (identifier) => {
+  (identifier, asOf) => {
    seriesAbortRefs.current.get(identifier)?.abort();
    const controller = new AbortController();
    seriesAbortRefs.current.set(identifier, controller);
    patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
-   computeKpi(identifier, { signal: controller.signal })
+   computeKpi(identifier, { asOf, signal: controller.signal })
     .then((result) => {
      if (controller.signal.aborted) return;
      // A formula that fails is a 200 saying so -- the request did what it said; the formula
@@ -255,6 +256,36 @@ export default function KpiDiscoveryPage() {
   },
   [patchSeries, loadSeries]
  );
+
+ // One registry KPI's `source_table_status` (`GET /kpis/{id}`, the single-KPI read -- the list
+ // read `realKpiState.kpis` comes from never fills it in, see `rowFromRegistryKpi`'s own
+ // comment), keyed by identifier for the detail panel's "Where this number comes from" tab.
+ // Same shape as `seriesById` above, and for the same reason: opening a panel loads it once,
+ // an entry already there is shown as-is.
+ const [lineageById, setLineageById] = useState({});
+ const lineageRef = useRef(lineageById);
+ lineageRef.current = lineageById;
+ const lineageAbortRefs = useRef(new Map());
+ const loadLineage = useCallback((identifier) => {
+  lineageAbortRefs.current.get(identifier)?.abort();
+  const controller = new AbortController();
+  lineageAbortRefs.current.set(identifier, controller);
+  setLineageById((prev) => ({ ...prev, [identifier]: { status: "loading" } }));
+  fetchKpi(identifier, { signal: controller.signal })
+   .then((k) => {
+    if (controller.signal.aborted) return;
+    setLineageById((prev) => ({
+     ...prev,
+     [identifier]: { status: "ready", sourceTableStatus: k.source_table_status || [] },
+    }));
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    // Enrichment, not core data (the row's own fields already came from the list read) --
+    // an empty result reads the same as "nothing loaded yet", not an error banner.
+    setLineageById((prev) => ({ ...prev, [identifier]: { status: "ready", sourceTableStatus: [] } }));
+   });
+ }, []);
 
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
@@ -282,6 +313,7 @@ export default function KpiDiscoveryPage() {
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
    for (const controller of seriesAbortRefs.current.values()) controller.abort();
+   for (const controller of lineageAbortRefs.current.values()) controller.abort();
    removeAbortRef.current?.abort();
    updateAbortRef.current?.abort();
    createAbortRef.current?.abort();
@@ -297,6 +329,12 @@ export default function KpiDiscoveryPage() {
   if (!detailIdentifier) return;
   if (!seriesRef.current[detailIdentifier]) loadSeries(detailIdentifier);
  }, [detailIdentifier, loadSeries]);
+ // Same, for the single-KPI read that fills in `source_table_status` -- the list read that
+ // built this row's other fields never does (see `rowFromRegistryKpi`'s own comment).
+ useEffect(() => {
+  if (!detailIdentifier) return;
+  if (!lineageRef.current[detailIdentifier]) loadLineage(detailIdentifier);
+ }, [detailIdentifier, loadLineage]);
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -901,11 +939,24 @@ export default function KpiDiscoveryPage() {
    rationale: k.rationale || "",
    businessValue: k.business_value || "",
    fromRegistry: true,
-   // Carried through only so an edit (`handleUpdateKpi` below) can resend the required fields
-   // `PATCH /kpis/{id}` demands every time -- not shown anywhere in the panel itself.
+   // `sql` was previously carried through only so an edit (`handleUpdateKpi` below) could
+   // resend the required fields `PATCH /kpis/{id}` demands every time; the detail panel's
+   // "Where this number comes from" tab now also renders it read-only (when present -- a
+   // `kpis:read`-only caller never receives it, per the api's own scope gate).
    sql: k.sql,
    grain: k.grain,
    sourceTables: k.source_tables || [],
+   // The rest of the definition shape the detail panel's technical/trust sections read.
+   // All real fields off the same `GET /kpis` row -- nothing here is computed client-side.
+   dialect: k.dialect,
+   concept: k.concept,
+   timeWindow: k.time_window || null,
+   validatedAgainstSnapshot: k.validated_against_snapshot || null,
+   parameters: k.parameters || [],
+   // Each `source_tables` entry's most recent load, when the warehouse could answer -- only
+   // `GET /kpis/{id}` (a single-KPI read) fills this in, never the list `GET /kpis` this row
+   // usually comes from; re-fetched per KPI when its panel opens (see `loadKpiDetail` below).
+   sourceTableStatus: k.source_table_status || [],
   },
   categoryIndex: -2,
   sectionIndex: -2,
@@ -1074,7 +1125,11 @@ export default function KpiDiscoveryPage() {
 
    {detailRow && (
     <KpiDetailPanel
-     detailRow={detailRow}
+     detailRow={
+      detailIdentifier && lineageById[detailIdentifier]?.status === "ready"
+       ? { ...detailRow, kpi: { ...detailRow.kpi, sourceTableStatus: lineageById[detailIdentifier].sourceTableStatus } }
+       : detailRow
+     }
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}
@@ -1109,6 +1164,7 @@ export default function KpiDiscoveryPage() {
       else loadSeries(detailIdentifier, entry?.data?.dimension || undefined);
      }}
      onTrendCompute={() => detailIdentifier && computeSeries(detailIdentifier)}
+     onTrendComputeForDate={(asOf) => detailIdentifier && computeSeries(detailIdentifier, asOf)}
      onTrendPickDimension={(dimension) => detailIdentifier && loadSeries(detailIdentifier, dimension)}
      onRemove={handleRemove}
      removing={removeState.identifier === detailRow.kpi?.identifier}

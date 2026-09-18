@@ -42,6 +42,21 @@ KpiLevel:
   type: string
   enum: [strategic, operational, tactical]
 
+SourceTableStatus:
+  type: object
+  description: One `source_tables` entry's most recent load, read from `quality.load_run`/`quality.load_stream_count` (the same rows the load pipeline itself writes).
+  required: [table]
+  properties:
+    table: {type: string}
+    loaded_at:
+      type: [string, "null"]
+      format: date-time
+      description: When the load that produced this table's current row count finished. Null when the table has never loaded.
+    row_count: {type: [integer, "null"]}
+    load_verdict:
+      type: [string, "null"]
+      description: "That load's own quality-gate verdict: `passed`, `blocked`, or `failed`."
+
 Kpi:
   type: object
   description: |
@@ -108,6 +123,12 @@ Kpi:
       items: {type: string}
       default: []
       description: Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.
+    source_table_status:
+      type: array
+      items:
+        $ref: './kpis.yaml#/SourceTableStatus'
+      default: []
+      description: Each of `source_tables`' most recent load, from the warehouse's own load history -- only populated by `GET /kpis/{kpi_id}` (a list read never pays for N per-row warehouse queries), and only for a table that resolves to a known landed stream and has actually loaded at least once. Always `[]`, never a partial failure, when the warehouse is unreachable -- this is enrichment for the detail panel, not core KPI data.
     feasibility:
       $ref: './common.yaml#/Feasibility'
     updated_at:

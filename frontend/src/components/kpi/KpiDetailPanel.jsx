@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Pencil, Plus, Trash2, X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, Copy, Pencil, Plus, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
@@ -17,12 +17,39 @@ import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTI
  * backs this metric?") both need it, and a second, view-local panel is exactly how the two would
  * start disagreeing about what a KPI means. The trend is optional (`trend` prop): a caller that
  * has no series state simply gets the definition surface it always had.
+ *
+ * A real registry KPI (`fromRegistry`) gets a second tab, "Where this number comes from" -- its
+ * business definition shape, the tables its formula reads and their load freshness, the formula
+ * itself, and a trust/audit summary -- and its edit/remove actions move to a third, "Edit
+ * definition". A suggestion or seed/template row has none of that server-side data to show, so
+ * it keeps the single scrolling layout this panel always had; nothing about that path changed.
  */
 const FEASIBILITY_STYLE = {
  ready: { cls: "border-status-success/35 bg-status-success-light dark:bg-status-success/15", label: "text-status-success" },
  partial: { cls: "border-status-warning/35 bg-status-warning-light dark:bg-status-warning/15", label: "text-status-warning" },
  blocked: { cls: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/15", label: "text-status-critical" },
 };
+
+/** `{length: 30, unit: "day"}` -> "Trailing 30 days". Plural-safe; `unit` is one of the
+ * contract's `TimeWindowUnit` values (day/week/month/quarter/year), already singular. */
+function formatTimeWindow(tw) {
+ if (!tw?.length || !tw?.unit) return null;
+ return `Trailing ${tw.length} ${tw.unit}${tw.length === 1 ? "" : "s"}`;
+}
+
+/** "2026-09-17T01:08:00Z" -> "17 Sept 2026, 01:08" in the viewer's own locale reading order,
+ * short enough for an inline label. `null`/invalid input renders as `null`, never "Invalid Date". */
+function formatTimestamp(value) {
+ if (!value) return null;
+ const d = new Date(value);
+ if (Number.isNaN(d.getTime())) return null;
+ return d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Today, `YYYY-MM-DD`, for the "Re-run for another date" picker's default/max. */
+function todayIso() {
+ return new Date().toISOString().slice(0, 10);
+}
 
 /** The shared description+SQL editor for both an unpersisted suggestion draft and a real
  * registry row -- one caller passes `saving`/`error` for its async PATCH, the other leaves
@@ -80,6 +107,213 @@ function EditKpiForm({ description, sql, onDescriptionChange, onSqlChange, onSav
  );
 }
 
+const TABS = [
+ { id: "overview", label: "Overview" },
+ { id: "definition", label: "Where this number comes from" },
+ { id: "edit", label: "Edit definition" },
+];
+
+function TabBar({ active, onChange }) {
+ return (
+  <div className="flex shrink-0 items-center gap-1 border-b border-border px-5" role="tablist">
+   {TABS.map((t) => (
+    <button
+     key={t.id}
+     type="button"
+     role="tab"
+     aria-selected={active === t.id}
+     onClick={() => onChange(t.id)}
+     className={`border-b-2 px-1 py-2.5 text-sm font-semibold transition-colors ${
+      active === t.id
+       ? "border-primary text-primary"
+       : "border-transparent text-text-secondary hover:text-text-primary"
+     } ${t.id !== "overview" ? "ml-4" : ""}`}
+    >
+     {t.label}
+    </button>
+   ))}
+  </div>
+ );
+}
+
+/** A short uppercase-label card, the same shape every section in this panel already uses --
+ * `Pill` is the small chips row a couple of the new sections below want on top of it. */
+function DetailSection({ label, children, className = "" }) {
+ return (
+  <section className={className}>
+   <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+   {children}
+  </section>
+ );
+}
+
+function Pill({ children }) {
+ return (
+  <span className="inline-flex items-center rounded-full border border-border-light bg-surface-secondary px-2.5 py-1 text-xs font-medium text-text-secondary">
+   {children}
+  </span>
+ );
+}
+
+/** "Where this number comes from": the business-definition shape, the tables the formula reads
+ * (and their load freshness, when the warehouse could answer), the formula itself, and a
+ * trust/audit summary -- everything here is a real field off `GET /kpis/{id}` or its `series`,
+ * never computed or guessed client-side. Registry-only (`kpi.fromRegistry`); the caller never
+ * mounts this tab for a suggestion or seed row. */
+function WhereItComesFrom({ kpi, feasibility, feasibilityStyle, trend, onComputeForDate }) {
+ const [copied, setCopied] = useState(false);
+ const [redate, setRedate] = useState(() => todayIso());
+ const windowLabel = formatTimeWindow(kpi.timeWindow);
+ const trendData = trend?.status === "ready" ? trend.data : null;
+ const computing = trend?.status === "computing";
+ const parameters = Array.isArray(kpi.parameters) ? kpi.parameters : [];
+ const sourceTables = Array.isArray(kpi.sourceTables) ? kpi.sourceTables : [];
+ const statusByTable = Object.fromEntries(
+  (Array.isArray(kpi.sourceTableStatus) ? kpi.sourceTableStatus : []).map((s) => [s.table, s])
+ );
+
+ const copySql = () => {
+  if (!kpi.sql || !navigator.clipboard) return;
+  navigator.clipboard.writeText(kpi.sql).then(() => {
+   setCopied(true);
+   window.setTimeout(() => setCopied(false), 1500);
+  });
+ };
+
+ return (
+  <div className="space-y-6">
+   <DetailSection label="Business definition">
+    <div className="mt-2 flex flex-wrap gap-1.5">
+     <Pill>{kpi.resultShape === "rowset" ? "Table of values" : "One number, no breakdown"}</Pill>
+     {windowLabel && <Pill>{windowLabel}</Pill>}
+     {kpi.dialect && <Pill>{kpi.dialect}</Pill>}
+     {kpi.concept && <Pill>{kpi.concept}</Pill>}
+    </div>
+    {parameters.length > 0 && (
+     <ul className="mt-3 space-y-1.5">
+      {parameters.map((p) => (
+       <li key={p.name} className="text-sm text-text-secondary">
+        <span className="font-mono text-xs text-text-primary">{p.name}</span>
+        <span className="text-text-muted"> · {p.kind}</span>
+        {p.description ? <span> — {p.description}</span> : null}
+       </li>
+      ))}
+     </ul>
+    )}
+   </DetailSection>
+
+   <DetailSection label="The data it reads">
+    {sourceTables.length > 0 ? (
+     <ul className="mt-2 space-y-2">
+      {sourceTables.map((table) => {
+       const status = statusByTable[table];
+       return (
+        <li key={table} className="rounded-lg border border-border bg-surface-secondary px-3 py-2">
+         <p className="font-mono text-xs text-text-primary">{table}</p>
+         {status ? (
+          <p className="mt-1 text-xs text-text-muted">
+           {status.row_count != null ? `${status.row_count.toLocaleString()} rows` : "Row count unknown"}
+           {formatTimestamp(status.loaded_at) ? ` · loaded ${formatTimestamp(status.loaded_at)}` : ""}
+           {status.load_verdict ? ` · ${status.load_verdict}` : ""}
+          </p>
+         ) : (
+          <p className="mt-1 text-xs text-text-muted">No load recorded yet.</p>
+         )}
+        </li>
+       );
+      })}
+     </ul>
+    ) : (
+     <p className="mt-2 text-sm text-text-muted">No source tables recorded.</p>
+    )}
+   </DetailSection>
+
+   <DetailSection label="Technical">
+    {kpi.sql ? (
+     <div className="mt-2 space-y-2">
+      <pre className="overflow-x-auto rounded-lg bg-surface-secondary p-3 text-xs text-text-primary whitespace-pre-wrap break-words">
+       {kpi.sql}
+      </pre>
+      <button
+       type="button"
+       onClick={copySql}
+       className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+      >
+       {copied ? <Check size={13} /> : <Copy size={13} />}
+       {copied ? "Copied" : "Copy SQL"}
+      </button>
+     </div>
+    ) : (
+     <p className="mt-2 text-sm text-text-muted">
+      The formula is only shown to someone who can edit KPIs.
+     </p>
+    )}
+   </DetailSection>
+
+   <DetailSection label="Trust">
+    <dl className="mt-2 space-y-2 text-sm">
+     <div className="flex justify-between gap-3">
+      <dt className="text-text-muted">Validated against</dt>
+      <dd className="text-right text-text-primary">{kpi.validatedAgainstSnapshot || "Not yet validated"}</dd>
+     </div>
+     {feasibility && (
+      <div className="flex justify-between gap-3">
+       <dt className="text-text-muted">Sources present</dt>
+       <dd className={`text-right font-semibold capitalize ${feasibilityStyle?.label || ""}`}>{feasibility.verdict}</dd>
+      </div>
+     )}
+     {trendData && (
+      <>
+       <div className="flex justify-between gap-3">
+        <dt className="text-text-muted">Last computed</dt>
+        <dd className="text-right text-text-primary">{formatTimestamp(trendData.computed_at) || "—"}</dd>
+       </div>
+       <div className="flex justify-between gap-3">
+        <dt className="text-text-muted">As of</dt>
+        <dd className="text-right text-text-primary">{formatTimestamp(trendData.as_of) || "—"}</dd>
+       </div>
+       {trendData.provenance_ref && (
+        <div className="flex justify-between gap-3">
+         <dt className="text-text-muted">Run</dt>
+         <dd className="text-right font-mono text-xs text-text-primary">{trendData.provenance_ref}</dd>
+        </div>
+       )}
+      </>
+     )}
+    </dl>
+
+    {onComputeForDate && (
+     <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+      <label className="text-xs font-semibold text-text-secondary" htmlFor="kpi-redate">
+       Re-run for another date
+      </label>
+      <input
+       id="kpi-redate"
+       type="date"
+       value={redate}
+       max={todayIso()}
+       onChange={(e) => setRedate(e.target.value)}
+       disabled={computing}
+       className="rounded-lg border border-border bg-surface-default px-2 py-1 text-xs text-text-primary disabled:opacity-60"
+      />
+      <button
+       type="button"
+       disabled={computing || !redate}
+       onClick={() => onComputeForDate(redate)}
+       className="inline-flex items-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       {computing ? "Running…" : "Re-run"}
+      </button>
+      {trend?.status === "error" && trend.error && (
+       <p className="w-full text-xs text-status-critical">{trend.error}</p>
+      )}
+     </div>
+    )}
+   </DetailSection>
+  </div>
+ );
+}
+
 export default function KpiDetailPanel({
  detailRow,
  nameToIdsMap,
@@ -90,6 +324,7 @@ export default function KpiDetailPanel({
  trend = null,
  onTrendRetry,
  onTrendCompute,
+ onTrendComputeForDate,
  onTrendPickDimension,
  onRemove,
  removing = false,
@@ -112,13 +347,17 @@ export default function KpiDetailPanel({
  const [editingDraft, setEditingDraft] = useState(false);
  const [draftDescription, setDraftDescription] = useState("");
  const [draftSql, setDraftSql] = useState("");
- // Closes the form whenever the caller hands this panel a genuinely different row state --
- // which includes the row the caller itself produces right after a successful save (both
- // `KpiDiscoveryPage.jsx`'s suggestion-draft patch and its post-PATCH registry refresh rebuild
- // `detailRow`). A save that *fails* never touches `detailRow`, so the form -- and whatever the
- // customer typed -- stays exactly as they left it.
+ // Which of the three tabs a registry row shows; meaningless (and never rendered) for a
+ // suggestion or seed row, which keep the single scrolling layout below.
+ const [activeTab, setActiveTab] = useState("overview");
+ // Closes the form -- and returns to Overview -- whenever the caller hands this panel a
+ // genuinely different row state, which includes the row the caller itself produces right
+ // after a successful save (both `KpiDiscoveryPage.jsx`'s suggestion-draft patch and its
+ // post-PATCH registry refresh rebuild `detailRow`). A save that *fails* never touches
+ // `detailRow`, so the form -- and whatever the customer typed -- stays exactly as they left it.
  useEffect(() => {
   setEditingDraft(false);
+  setActiveTab("overview");
  }, [detailRow]);
  // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
  // own join-aware `feasibility` -- a set difference over the tables the semantic graph
@@ -163,6 +402,87 @@ export default function KpiDetailPanel({
   // the save actually lands, so closing early here would hide a failure's error text.
   if (suggested) setEditingDraft(false);
  };
+
+ // The remove/edit block a registry row shows on "Edit definition" -- unchanged content, just
+ // relocated off the always-visible scroll it used to share with Overview. Read as a value, not
+ // a component, so it closes over this render's locals the same way the inline JSX below always did.
+ const editDefinitionTab = (
+  <div className="space-y-6">
+   {editingDraft ? (
+    <EditKpiForm
+     description={draftDescription}
+     sql={draftSql}
+     onDescriptionChange={setDraftDescription}
+     onSqlChange={setDraftSql}
+     onSave={saveEdit}
+     onCancel={() => setEditingDraft(false)}
+     saving={savingEdit}
+     error={editError}
+     note="Editing the formula moves this KPI back to review until it's revalidated against the semantic layer."
+    />
+   ) : (
+    <button
+     type="button"
+     onClick={startEdit}
+     className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+    >
+     <Pencil size={14} />
+     Edit description or SQL
+    </button>
+   )}
+
+   {onRemove && (
+    <section className="rounded-xl border border-border bg-surface-secondary p-4">
+     {!confirmingRemove ? (
+      <button
+       type="button"
+       onClick={() => setConfirmingRemove(true)}
+       disabled={removing}
+       className="inline-flex items-center gap-1.5 text-sm font-semibold text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       <Trash2 size={14} />
+       Remove from my metrics
+      </button>
+     ) : (
+      <div className="space-y-3">
+       <p className="text-sm text-text-secondary">
+        Remove <strong className="font-semibold text-text-primary">{detailRow.kpi.name}</strong> from your
+        registry? Dashboards using it must be changed first; you can adopt it again later.
+       </p>
+       <div className="flex items-center gap-3">
+        <button
+         type="button"
+         onClick={() => onRemove(detailRow)}
+         disabled={removing}
+         className="inline-flex items-center gap-1.5 rounded-lg bg-status-critical px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+         <Trash2 size={13} />
+         {removing ? "Removing…" : "Yes, remove"}
+        </button>
+        <button
+         type="button"
+         onClick={() => setConfirmingRemove(false)}
+         disabled={removing}
+         className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+        >
+         Cancel
+        </button>
+       </div>
+      </div>
+     )}
+     {removeError && (
+      <p role="alert" className="mt-3 flex items-start gap-2 text-xs text-status-critical">
+       <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+       <span>Couldn't remove it: {removeError}</span>
+      </p>
+     )}
+    </section>
+   )}
+  </div>
+ );
+
+ const showOverview = !fromRegistry || activeTab === "overview";
+
  return (
  <>
  <button
@@ -178,7 +498,10 @@ export default function KpiDetailPanel({
  <X size={20} />
  </button>
  </div>
+ {fromRegistry && <TabBar active={activeTab} onChange={setActiveTab} />}
  <div className="flex-1 space-y-6 overflow-y-auto px-5 py-4">
+ {showOverview && (
+ <>
  <section>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">KPI</p>
  <p className="mt-1 text-base font-semibold text-text-primary">{detailRow.kpi.name}</p>
@@ -427,8 +750,8 @@ export default function KpiDetailPanel({
  </button>
  )}
  {/* Gated the same way the card's own adopt button is: only a `ready` suggestion with a
- formula can become a real KPI -- which an edit above can supply where the agent left
- none, or fix where feasibility (still the original suggestion's) says otherwise. */}
+     formula can become a real KPI -- which an edit above can supply where the agent left
+     none, or fix where feasibility (still the original suggestion's) says otherwise. */}
  {!editingDraft && bucketFor(detailRow) === "ready" && detailRow.suggestion.proposed_sql && (
  <div className="space-y-1.5">
  <button
@@ -445,34 +768,11 @@ export default function KpiDetailPanel({
  )}
  </div>
  )}
- {!suggested && (
- fromRegistry ? (
- editingDraft ? (
- <EditKpiForm
- description={draftDescription}
- sql={draftSql}
- onDescriptionChange={setDraftDescription}
- onSqlChange={setDraftSql}
- onSave={saveEdit}
- onCancel={() => setEditingDraft(false)}
- saving={savingEdit}
- error={editError}
- note="Editing the formula moves this KPI back to review until it's revalidated against the semantic layer."
- />
- ) : (
- <button
- type="button"
- onClick={startEdit}
- className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
- >
- <Pencil size={14} />
- Edit description or SQL
- </button>
- )
- ) : (
+ {!suggested && !fromRegistry && (
  /* A tree/template candidate has a real position in Configure's mapping tree (unlike a
- registry row or a live suggestion, neither of which this local edit form can save to
- directly), so its edit still goes to the master-data screen that owns it. */
+     registry row or a live suggestion, neither of which this local edit form can save to
+     directly), so its edit still goes to the master-data screen that owns it. Unchanged from
+     before tabs existed -- a registry row's equivalent now lives on "Edit definition". */
  <button
  type="button"
  onClick={onEdit}
@@ -480,58 +780,21 @@ export default function KpiDetailPanel({
  >
  Edit KPI →
  </button>
- )
+ )}
+ </>
  )}
 
- {/* The reverse of "Add to my metrics": a registry KPI can be removed here, where it was
- adopted. The api refuses while a dashboard still uses it (409), and says which. */}
- {fromRegistry && onRemove && (
- <section className="rounded-xl border border-border bg-surface-secondary p-4">
- {!confirmingRemove ? (
- <button
- type="button"
- onClick={() => setConfirmingRemove(true)}
- disabled={removing}
- className="inline-flex items-center gap-1.5 text-sm font-semibold text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
- >
- <Trash2 size={14} />
- Remove from my metrics
- </button>
- ) : (
- <div className="space-y-3">
- <p className="text-sm text-text-secondary">
- Remove <strong className="font-semibold text-text-primary">{detailRow.kpi.name}</strong> from your
- registry? Dashboards using it must be changed first; you can adopt it again later.
- </p>
- <div className="flex items-center gap-3">
- <button
- type="button"
- onClick={() => onRemove(detailRow)}
- disabled={removing}
- className="inline-flex items-center gap-1.5 rounded-lg bg-status-critical px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
- >
- <Trash2 size={13} />
- {removing ? "Removing…" : "Yes, remove"}
- </button>
- <button
- type="button"
- onClick={() => setConfirmingRemove(false)}
- disabled={removing}
- className="text-xs font-semibold text-text-secondary hover:text-text-primary"
- >
- Cancel
- </button>
- </div>
- </div>
+ {fromRegistry && activeTab === "definition" && (
+  <WhereItComesFrom
+   kpi={detailRow.kpi}
+   feasibility={feasibility}
+   feasibilityStyle={feasibilityStyle}
+   trend={trend}
+   onComputeForDate={onTrendComputeForDate}
+  />
  )}
- {removeError && (
- <p role="alert" className="mt-3 flex items-start gap-2 text-xs text-status-critical">
- <AlertTriangle size={13} className="mt-0.5 shrink-0" />
- <span>Couldn't remove it: {removeError}</span>
- </p>
- )}
- </section>
- )}
+
+ {fromRegistry && activeTab === "edit" && editDefinitionTab}
  </div>
  </aside>
  </>

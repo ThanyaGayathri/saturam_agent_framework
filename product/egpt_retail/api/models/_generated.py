@@ -804,6 +804,23 @@ class Snapshot(BaseModel):
     source: str
 
 
+class SourceTableStatus(BaseModel):
+    """
+    One `source_tables` entry's most recent load, read from `quality.load_run`/`quality.load_stream_count` (the same rows the load pipeline itself writes).
+    """
+
+    table: str
+    loaded_at: AwareDatetime | None = Field(
+        None,
+        description="When the load that produced this table's current row count finished. Null when the table has never loaded.",
+    )
+    row_count: int | None = None
+    load_verdict: str | None = Field(
+        None,
+        description="That load's own quality-gate verdict: `passed`, `blocked`, or `failed`.",
+    )
+
+
 class SourceType(Enum):
     postgres = "postgres"
     snowflake = "snowflake"
@@ -2209,6 +2226,11 @@ class Kpi(BaseModel):
     dashboard_names: list[str] | None = Field(
         [],
         description="Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.",
+    )
+    source_table_status: list[SourceTableStatus] | None = Field(
+        [],
+        description="Each of `source_tables`' most recent load, from the warehouse's own load history -- only populated by `GET /kpis/{kpi_id}` (a list read never pays for N per-row warehouse queries), and only for a table that resolves to a known landed stream and has actually loaded at least once. Always `[]`, never a partial failure, when the warehouse is unreachable -- this is enrichment for the detail panel, not core KPI data.",
+        validate_default=True,
     )
     feasibility: Feasibility
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")

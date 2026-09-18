@@ -126,6 +126,7 @@ from egpt_retail.suggestions.runs import (
     SuggestionRunStore,
 )
 from egpt_retail.warehouse.health import akpi_health
+from egpt_retail.warehouse.lineage import source_table_status
 
 __all__ = ["router"]
 
@@ -254,6 +255,7 @@ def _kpi_out(
     *,
     include_sql: bool,
     dashboard_names: Sequence[str] = (),
+    source_table_status: Sequence[Mapping[str, Any]] = (),
 ) -> wire.Kpi:
     return wire.Kpi(
         id=kpi.identifier,
@@ -284,6 +286,9 @@ def _kpi_out(
         dataset_ids=list(kpi.dataset_ids) or None,
         process_ids=list(kpi.process_ids) or None,
         dashboard_names=list(dashboard_names),
+        source_table_status=[
+            wire.SourceTableStatus.model_validate(row) for row in source_table_status
+        ],
         feasibility=feasibility,
         updated_at=kpi.updated_at,
     )
@@ -456,6 +461,8 @@ def _respond_with_kpi(
     definition: KpiDefinition,
     request: Request,
     store: KpiRegistryStore,
+    *,
+    source_table_status: Sequence[Mapping[str, Any]] = (),
 ) -> wire.Kpi:
     """Feasibility lookup + wire assembly, shared by ``get_kpi``, ``create_kpi`` and
     ``update_kpi`` -- factored out because the block was duplicated near-verbatim across all
@@ -469,6 +476,10 @@ def _respond_with_kpi(
     rather than ``[...]``: a concurrent delete landing in that window would otherwise raise an
     unguarded ``KeyError`` FastAPI turns into a raw 500, rather than the 404 a vanished KPI
     should produce.
+
+    ``source_table_status`` defaults empty: only ``get_kpi`` below pays for the warehouse read
+    it takes to fill it in -- ``create_kpi``/``update_kpi`` return it empty rather than run a
+    second, redundant lookup no caller of either needs from their own response.
     """
     settings = RetailSettings()
     feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
@@ -485,6 +496,7 @@ def _respond_with_kpi(
         _feasibility_out(feasibility, snapshot_version),
         include_sql=_may_read_sql(request),
         dashboard_names=dashboard_names,
+        source_table_status=source_table_status,
     )
 
 
@@ -1250,6 +1262,26 @@ async def list_kpi_health(
     ]
 
 
+def _source_table_status_for(definition: KpiDefinition) -> Sequence[Mapping[str, Any]]:
+    """``definition.source_tables``' load status, or ``()`` on any warehouse trouble.
+
+    Deliberately not the ``_warehouse_engine`` dependency other routes use: that one raises a
+    503 for the whole request when the warehouse isn't configured, which is right for a route
+    whose entire job is warehouse freshness (``list_kpi_health``) and wrong here -- a KPI's own
+    definition has always been readable with no warehouse at all, and this field is enrichment
+    on top of it, not a reason to start refusing the read.
+    """
+    settings = RetailSettings()
+    try:
+        engine = build_warehouse_engine(settings)
+    except RuntimeError:
+        return ()
+    try:
+        return source_table_status(sorted(definition.source_tables), engine)
+    finally:
+        engine.dispose()
+
+
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
 def get_kpi(
     kpi_id: str,
@@ -1260,7 +1292,12 @@ def get_kpi(
     definition = store.get(kpi_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
-    return _respond_with_kpi(definition, request, store)
+    return _respond_with_kpi(
+        definition,
+        request,
+        store,
+        source_table_status=_source_table_status_for(definition),
+    )
 
 
 @router.patch("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -1402,12 +1439,17 @@ async def get_kpi_series(
 @router.post("/kpis/{kpi_id}/compute", response_model=wire.KpiComputeResult)
 async def compute_kpi(
     kpi_id: str,
+    as_of: Optional[date] = Query(
+        None,
+        description="The business date to materialise for. Defaults to today (UTC) when omitted.",
+    ),
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:write")),
 ):
-    """The nightly ``materialise_gold`` pass, narrowed to this KPI and today's business date:
+    """The nightly ``materialise_gold`` pass, narrowed to this KPI and one business date:
     bound, guarded, executed and stamped exactly as the scheduled run would. What "Add to my
-    metrics" calls so a newly adopted KPI has a value before its first night.
+    metrics" calls (no ``as_of``, i.e. today) so a newly adopted KPI has a value before its
+    first night; the detail panel's "Re-run for another date" calls it with one.
 
     ``409`` when the KPI is not ``ready`` -- gold skips a blocked KPI, so running the pass
     would only report ``skipped``; saying so up front, with the feasibility rationale, is the
@@ -1429,9 +1471,10 @@ async def compute_kpi(
             detail=f"{kpi_id} is {verdict.verdict.value}: {verdict.rationale}",
         )
     run_id = f"api_{uuid.uuid4().hex[:12]}"
-    output = await materialise_gold(
-        StepInput(additional_data={"kpi_identifiers": [kpi_id], "run_id": run_id})
-    )
+    additional_data: Dict[str, Any] = {"kpi_identifiers": [kpi_id], "run_id": run_id}
+    if as_of is not None:
+        additional_data["as_of"] = as_of.isoformat()
+    output = await materialise_gold(StepInput(additional_data=additional_data))
     content: Mapping[str, Any] = (
         output.content if isinstance(output.content, Mapping) else {}
     )

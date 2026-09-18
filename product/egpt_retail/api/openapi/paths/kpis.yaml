@@ -509,6 +509,7 @@
                   source: shipped
                   dataset_ids: []
                   process_ids: [sc_1]
+                  source_table_status: [{table: supplier_deliveries, loaded_at: "2026-09-07T01:08:00Z", row_count: 20000, load_verdict: passed}]
                   feasibility: {kpi_id: kpi_0002, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
                   updated_at: "2026-09-07T02:05:00Z"
       "404":
@@ -676,11 +677,16 @@
   post:
     tags: [kpis]
     operationId: computeKpi
-    summary: Materialise this KPI for today, now.
-    description: The nightly gold pass (`materialise_gold`) narrowed to one KPI and today's business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains today's point. What "Add to my metrics" calls so a newly adopted KPI has a value before its first night. A re-run on the same date overwrites that date's rows, never yesterday's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.
+    summary: Materialise this KPI for today, now -- or for a past business date.
+    description: The nightly gold pass (`materialise_gold`) narrowed to one KPI and one business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains that date's point. What "Add to my metrics" calls (with no `as_of`, i.e. today) so a newly adopted KPI has a value before its first night; the detail panel's "Re-run for another date" calls it with one, to recompute or backfill a specific past night. A re-run on a given date overwrites only that date's rows, never another one's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.
     x-egpt-scopes: [kpis:write]
     parameters:
       - $ref: '#/x-egpt-parameters/kpiId'
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date}
+        description: The business date to materialise for, `YYYY-MM-DD`. Defaults to today (UTC) when omitted.
     responses:
       "200":
         description: "The run's outcome for this KPI. A formula that fails is a `200` with `status: failed`; the request itself did what it said."
