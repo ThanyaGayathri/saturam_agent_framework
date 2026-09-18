@@ -6599,6 +6599,16 @@ pim_category, customer_name, product_name, closed_date, deal_value_usd, lost_rea
 quote_status` for the quote fact). The rows themselves now appear on the run's "Where the
 change sits" tab (first twelve, with the count); the email says they are on the run.
 
+**"Sensitivity" said nothing to a reader; reworded (18 Sep).** The field is now **How sure
+before naming a cause**, three cards in outcome words -- *Very sure* (only a slice far
+outside its own history, plenty of rows; fewer findings, rarely noise), *Balanced* (the
+default; outside its usual range), *Show more* (smaller departures and fewer rows count;
+some may be noise) -- with the concrete consequence under them ("a slice needs at least
+25 rows in the period before it can be named as the cause") and the way to tune it ("your
+first run will tell you: if it names noise, choose Very sure; if it names nothing, choose
+Show more"). The same words in the plan, the readiness text, the report footnote and the
+run view; the slot values (clear / usual / more) and the maths are unchanged.
+
 **Other questions the data can answer, tried before handing them over (18 Sep).**
 `quotes_generated` month on month: 395 -> 351 (-44); Refrigeration 72 -> 36 against a usual
 56, z -5, 82 % of the drop; India West next. `open_pipeline_value` month on month: $9.57m

@@ -640,12 +640,17 @@ export default function UseCaseComposeScreen() {
     }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;
    case "sensitivity": {
-    const levels = [["clear", "Only clear outliers", "a slice is named when it is far outside its own history (|z| ≥ 3) and has 1.5× the usual rows"], ["usual", "Usual", "outside its own history at |z| ≥ 2"], ["more", "Flag more", "|z| ≥ 1.5, and half the usual rows suffice"]];
+    const levels = [["clear", "Very sure", "Names a slice only when it is far outside its own history and has plenty of rows. Fewer findings, rarely noise."], ["usual", "Balanced", "Names a slice when it is outside its usual range. The default; fits most data."], ["more", "Show more", "Names smaller departures too, with fewer rows. More findings; some may be noise."]];
     const floor = diagnosis?.support_floors?.[spec.sensitivity || "usual"];
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      <div className="flex flex-wrap gap-1.5">{levels.map(([v, label, why]) => <button key={v} type="button" aria-pressed={(spec.sensitivity || "usual") === v} title={why} onClick={() => setField(f, v)} className={chip((spec.sensitivity || "usual") === v)}>{label}</button>)}</div>
-      <p className="mt-1.5 text-[11px] text-text-muted">Usual works for most data; change it after a run — "only clear outliers" if the report names noise, "flag more" if it names nothing.{floor != null ? ` At this setting a slice needs ${floor} rows in the period to be named; the norm is each slice's last ${diagnosis?.history_periods || 12} periods.` : ""}</p>
+      <div className="grid gap-2 sm:grid-cols-3">{levels.map(([v, label, why]) => { const on = (spec.sensitivity || "usual") === v; return (
+       <button key={v} type="button" aria-pressed={on} onClick={() => setField(f, v)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+        <span className="block text-sm font-semibold text-text-primary">{label}{v === "usual" ? <span className="ml-1.5 text-[10px] font-normal text-text-muted">default</span> : null}</span>
+        <span className="block text-xs text-text-muted">{why}</span>
+       </button>
+      ); })}</div>
+      <p className="mt-1.5 text-[11px] text-text-muted">{floor != null ? `With this choice a slice needs at least ${floor} rows in the period before it can be named as the cause; "its own history" is the slice's last ${diagnosis?.history_periods || 12} periods. ` : ""}Your first run will tell you: if it names noise, choose Very sure; if it names nothing, choose Show more.</p>
      </Field>
     );
    }

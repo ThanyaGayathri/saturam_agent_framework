@@ -952,7 +952,7 @@ def _diagnosis_html(diagnosis: Mapping[str, Any]) -> str:
     )
     foot = (
         f'<div style="font:11px {_FONT};color:#9ca3af;margin-top:16px;padding-top:10px;border-top:1px solid #e5e7eb">'
-        f"Searched across {e(', '.join(str(d).replace('_', ' ') for d in diagnosis.get('dimensions_searched') or []))} · sensitivity {e(str(diagnosis.get('sensitivity')))} · "
+        f"Searched across {e(', '.join(str(d).replace('_', ' ') for d in diagnosis.get('dimensions_searched') or []))} · how sure: {e({'clear': 'very sure', 'usual': 'balanced', 'more': 'show more'}.get(str(diagnosis.get('sensitivity')), str(diagnosis.get('sensitivity'))))} · "
         f"a slice needs {e(str(diagnosis.get('support_floor')))} rows to be named · the norm is each slice's last {e(str(diagnosis.get('history_periods')))} periods."
         + (
             f'<ul style="margin:6px 0 0;padding-left:16px">{caveats}</ul>'

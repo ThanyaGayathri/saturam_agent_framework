@@ -191,7 +191,7 @@ export default function DiagnosisInsight({ diagnosis, compact = false, hideHero 
     </div>
    )}
 
-   {!compact && <p className="border-t border-border pt-2 text-[11px] text-text-muted">Searched across {(d.dimensions_searched || []).map((x) => x.replace(/_/g, " ")).join(", ")} · sensitivity {d.sensitivity} · a slice needs {d.support_floor} rows to be named · the norm is each slice's last {d.history_periods} periods.{(d.caveats || []).length ? ` ${d.caveats.join(" ")}` : ""}</p>}
+   {!compact && <p className="border-t border-border pt-2 text-[11px] text-text-muted">Searched across {(d.dimensions_searched || []).map((x) => x.replace(/_/g, " ")).join(", ")} · how sure: {({ clear: "very sure", usual: "balanced", more: "show more" })[d.sensitivity] || d.sensitivity} · a slice needs {d.support_floor} rows to be named · the norm is each slice's last {d.history_periods} periods.{(d.caveats || []).length ? ` ${d.caveats.join(" ")}` : ""}</p>}
   </div>
  );
 }

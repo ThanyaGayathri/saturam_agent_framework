@@ -181,7 +181,7 @@ export function slotValue(spec, slot) {
   case "metric": return spec.metricIds[0] || null;
   case "dimensions": return spec.dimensions.join(", ") || (spec.template === "metric_diagnosis" ? "every dimension the fact carries" : null);
   case "comparison": return spec.template === "metric_diagnosis" && !spec.comparison ? "the period before (a diagnosis compares by nature)" : comparisonLabel(spec.comparison);
-  case "sensitivity": return { clear: "only clear outliers", usual: "usual", more: "flag more" }[spec.sensitivity || "usual"];
+  case "sensitivity": return { clear: "very sure (only a slice far outside its own history)", usual: "balanced", more: "show more (smaller departures count)" }[spec.sensitivity || "usual"];
   case "evidenceColumns": return (spec.evidenceColumns || []).length ? spec.evidenceColumns.join(", ") : "the fact's own columns";
   case "outputs": return (spec.outputs || []).length ? spec.outputs.join(" + ") : "report";
   case "operator": return spec.condition?.operator ? opLabel(spec.condition.operator) : null;
@@ -358,7 +358,7 @@ function describe(st, spec, reads) {
   case "decompose_change":
    return {
     title: `Finds where the change in ${spec.metricIds[0] || "the KPI"} sits`,
-    detail: `Searches ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}: each slice's contribution to the change (its own rate, or its share of the mix), how unusual it is against its own recent history at sensitivity "${slotValue(spec, "sensitivity")}", and whether it has enough rows to be named. The winning slice is searched one level down and the rows behind it are fetched, with any reason column tallied. All arithmetic — nothing here is judged.`,
+    detail: `Searches ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}: each slice's contribution to the change (its own rate, or its share of the mix), how unusual it is against its own recent history -- ${slotValue(spec, "sensitivity")} -- and whether it has enough rows to be named. The winning slice is searched one level down and the rows behind it are fetched, with any reason column tallied. All arithmetic — nothing here is judged.`,
    };
   case "check_report_grounding":
    return {

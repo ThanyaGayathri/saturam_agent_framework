@@ -257,7 +257,7 @@ export const FIELD_META = {
  dimensions: { slot: "dimensions", key: "dimensions", label: "Analyse by", hint: "The dimensions the analysis cuts across." },
  comparison: { slot: "comparison", key: "comparison", label: "Compare with", hint: "Optional. A baseline turns a value into a change; without one the report carries the numbers as they are." },
  outputs: { slot: "outputs", key: "outputs", label: "Outputs", hint: "What each run produces: the report (email + in-app), a dashboard composed at activation, or both." },
- sensitivity: { slot: "sensitivity", key: "sensitivity", label: "Sensitivity · optional", hint: "Usual works for most data. Change it after a run: 'only clear outliers' if the report names noise, 'flag more' if it names nothing. Sets the statistical bar and how many rows a slice needs before it can be named." },
+ sensitivity: { slot: "sensitivity", key: "sensitivity", label: "How sure before naming a cause", hint: "Balanced is the default and fits most data. Very sure names a slice only when it is far outside its own history (fewer findings, rarely noise); Show more names smaller departures too (more findings, some may be noise). Change it after your first run." },
  evidenceColumns: { slot: "evidence columns", key: "evidenceColumns", label: "Evidence columns", hint: "Which columns to show on the rows behind the finding. A reason column is always tallied." },
  operator: { slot: "operator", key: "condition", label: "Trigger condition", hint: "The direction of the breach." },
  threshold: { slot: "threshold", key: "condition", label: "Threshold", hint: "The number worth notifying someone for." },
@@ -309,8 +309,8 @@ export const describeShape = (spec) => {
   case "inform": {
    if (spec.template === "metric_diagnosis") {
     const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
-    const sens = { clear: "only clear outliers", usual: "the usual bar", more: "a lower bar" }[spec.sensitivity || "usual"];
-    return `Explains why ${m || "the KPI"} changed, ${cadence}: the run's value against ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, the change decomposed across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the data carries"} by arithmetic (each slice's contribution, how unusual it is for itself at ${sens}, enough rows to be named), the winning slice searched one level down with the rows behind it. The AI step writes one sentence from that ranking -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Changes nothing.`;
+    const sens = { clear: "very sure -- only a slice far outside its own history", usual: "balanced", more: "show more -- smaller departures count" }[spec.sensitivity || "usual"];
+    return `Explains why ${m || "the KPI"} changed, ${cadence}: the run's value against ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, the change decomposed across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the data carries"} by arithmetic (each slice's contribution, how unusual it is for itself -- ${sens} -- and enough rows to be named), the winning slice searched one level down with the rows behind it. The AI step writes one sentence from that ranking -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Changes nothing.`;
    }
    if (spec.category === "analytics_automation" && spec.analytics) {
     const names = (spec.analytics.kpis || []).filter((k) => spec.metricIds?.includes(k.identifier)).map((k) => k.name);

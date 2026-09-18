@@ -121,6 +121,10 @@ def normalise_schedule(value: Any) -> Optional[str]:
     return _INTERVAL_ALIASES.get(text, text)
 
 
+#: The sensitivity slot in the words the form uses: how sure before naming a cause.
+_SURE_WORDS = {"clear": "very sure", "usual": "balanced", "more": "show more"}
+
+
 class UseCaseService:
     def __init__(
         self,
@@ -630,13 +634,13 @@ class UseCaseService:
                 rows >= floor * 2 or mode == "rehearse",
                 f"{rows} rows in the period, {options.get('rows_in_baseline')} in the one "
                 f"before ({options.get('step_days')} days apart); a slice needs {floor} "
-                f"rows to be named at sensitivity '{sensitivity}'; the norm is each "
+                f"rows to be named ({_SURE_WORDS.get(sensitivity, sensitivity)}); the norm is each "
                 f"slice's last {options.get('history_periods')} periods."
                 + (
                     ""
                     if rows >= floor * 2
                     else " Too few rows for any slice to clear the floor: widen the "
-                    "window or lower the sensitivity."
+                    "window or choose 'show more'."
                 ),
             )
         )
