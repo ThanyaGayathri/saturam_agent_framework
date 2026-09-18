@@ -1062,9 +1062,9 @@ export default function KpiDiscoveryPage() {
     <CreateDashboardModal
      rows={pendingRows}
      onCancel={() => setPendingRows(null)}
-     onCreate={async ({ name, refresh, charts, businessAreaFilter }) => {
+     onCreate={async ({ name, refresh, charts, filterColumns }) => {
       const created = await createDashboardApi(
-       buildDashboardWritePayload({ name, refresh, charts, businessAreaFilter }),
+       buildDashboardWritePayload({ name, refresh, charts, filterColumns }),
       );
       setPendingRows(null);
       navigate(`/kpis/dashboards/${created.id}`);

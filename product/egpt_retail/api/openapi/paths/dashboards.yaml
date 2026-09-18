@@ -26,7 +26,7 @@
                       - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
                       - {id: tl_2, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null, description: "", rationale: ""}
                       - {id: tl_3, source: query, kpi_identifier: null, query: {sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", dialect: postgres, source_tables: [inventory], x: {column: wk, kind: time, label: Week, unit: ""}, y: [{column: stockouts, kind: category, label: Stock-outs, unit: count}], series_by: null}, title: Stock-outs by week, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, grain_value: null, description: Inventory rows with zero on hand, per week, last 12 weeks., rationale: The purpose asks where stock-outs are trending.}
-                    filters: [{field: business_area, value: supply_chain}]
+                    filters: [{table: inventory, column: category}]
                     refresh_schedule: nightly
                     visibility: team
                     owner: analyst@example.test
@@ -53,7 +53,8 @@
                 description: Supplier reliability at a glance.
                 tiles:
                   - {source: kpi, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, description: Deliveries that arrived by their promised date, last 30 days.}
-                filters: [{field: business_area, value: supply_chain}]
+                  - {source: query, query: {sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", source_tables: [inventory], x: {column: wk, kind: time}, y: [{column: stockouts}]}, title: Stock-outs by week, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, description: Inventory rows with zero on hand, per week, last 12 weeks.}
+                filters: [{table: inventory, column: category}]
                 refresh_schedule: nightly
                 visibility: team
     responses:
@@ -71,7 +72,8 @@
                   description: Supplier reliability at a glance.
                   tiles:
                     - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
-                  filters: [{field: business_area, value: supply_chain}]
+                    - {id: tl_3, source: query, kpi_identifier: null, query: {sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", dialect: postgres, source_tables: [inventory], x: {column: wk, kind: time, label: "", unit: ""}, y: [{column: stockouts, kind: category, label: "", unit: ""}], series_by: null}, title: Stock-outs by week, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, grain_value: null, description: Inventory rows with zero on hand, per week, last 12 weeks., rationale: ""}
+                  filters: [{table: inventory, column: category}]
                   refresh_schedule: nightly
                   visibility: team
                   owner: analyst@example.test
@@ -95,8 +97,9 @@
     operationId: startDashboardSuggestionRun
     summary: Compose a dashboard from a purpose and selected metrics; poll it for the result.
     description: |
-      An agent composing a dashboard -- charts, a name, and where it applies a `business_area`
-      filter -- for what the caller says they want to track. It reads the selected metrics'
+      An agent composing a dashboard -- charts and a name -- for what the caller says they
+      want to track (filter columns are added afterward, by a person, in the dashboard
+      builder). It reads the selected metrics'
       definitions, the semantic layer's tables and columns behind them (descriptions and
       reviewed meanings included, personal-data columns withheld) and the join edges between
       them, then writes the charts the purpose needs: a metric's own SQL where it already
@@ -217,7 +220,7 @@
                         rationale: Shows whether stock-outs are trending in the window the purpose names.
                         guard: {status: ok, detail: "", tables: [inventory]}
                         preview: {guard: {status: ok, detail: "", tables: [inventory]}, sql: "SELECT date_trunc('week', snapshot_at) AS wk, count(*) FILTER (WHERE on_hand_qty = 0) AS stockouts FROM silver.inventory WHERE snapshot_at >= now() - interval '12 weeks' GROUP BY 1 ORDER BY 1 LIMIT 100", columns: [wk, stockouts], rows: [{wk: "2026-06-22T00:00:00", stockouts: 31}, {wk: "2026-06-29T00:00:00", stockouts: 34}], duration_ms: 412, error: null}
-                    filters: [{field: business_area, value: supply_chain}]
+                    filters: [{table: inventory, column: category}]
                     notes: ""
                     context: {kpi_identifiers: [stocklevel__stockout_risk_count, supplier__on_time_rate_30d], table_names: [inventory, supplier_deliveries, products], described_columns: 21, total_columns: 24, withheld_columns: [customers.email]}
                   error: null
@@ -331,7 +334,7 @@
                   tiles:
                     - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
                     - {id: tl_4, source: query, kpi_identifier: null, query: {sql: "SELECT supplier_id, count(*) AS late FROM silver.supplier_deliveries WHERE delivered_at > promised_at GROUP BY 1 ORDER BY 2 DESC LIMIT 10", dialect: postgres, source_tables: [supplier_deliveries], x: {column: supplier_id, kind: category, label: "", unit: ""}, y: [{column: late, kind: category, label: Late deliveries, unit: count}], series_by: null}, title: Late deliveries by supplier, chart: bar, position: {x: 0, y: 4, w: 6, h: 2}, grain_value: null, description: Suppliers with the most deliveries after their promised date., rationale: ""}
-                  filters: [{field: business_area, value: supply_chain}]
+                  filters: [{table: inventory, column: category}]
                   refresh_schedule: nightly
                   visibility: team
                   owner: analyst@example.test
@@ -385,7 +388,7 @@
                   description: Supplier reliability at a glance.
                   tiles:
                     - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: "Share of trading hours where a store had zero on-hand units of a listed SKU.", rationale: ""}
-                  filters: [{field: business_area, value: supply_chain}]
+                  filters: [{table: inventory, column: category}]
                   refresh_schedule: nightly
                   visibility: team
                   owner: analyst@example.test
@@ -470,7 +473,7 @@
                   tiles:
                     - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
                     - {id: tl_2, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null, description: "", rationale: ""}
-                  filters: [{field: business_area, value: supply_chain}]
+                  filters: [{table: inventory, column: category}]
                   refresh_schedule: nightly
                   visibility: team
                   owner: analyst@example.test
@@ -509,7 +512,7 @@
                   description: Supplier reliability at a glance.
                   tiles:
                     - {id: tl_1, source: kpi, kpi_identifier: supplier__on_time_rate_30d, query: null, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null, description: Deliveries that arrived by their promised date, last 30 days., rationale: ""}
-                  filters: [{field: business_area, value: supply_chain}]
+                  filters: [{table: inventory, column: category}]
                   refresh_schedule: nightly
                   visibility: everyone
                   owner: analyst@example.test
@@ -539,10 +542,33 @@
     tags: [dashboards]
     operationId: getDashboardData
     summary: Every tile's values -- kpi tiles from gold, query tiles from their cached result.
-    description: One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its rows hold.
+    description: |
+      One gold read per dashboard, not one per tile, and no live SQL for a query tile, which is
+      what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each
+      tile carries the computation stamp its rows hold.
+
+      `f` is zero or more `table.column:value` selections -- repeat the parameter once per
+      selected value, never a comma-joined list (a distinct value can itself contain a comma,
+      e.g. a city named "Dallas, TX") -- read from the URL rather than the saved dashboard,
+      since a filter's *values* are per-viewer, transient view-time state (R13.1), never
+      persisted, and restricted to columns in the dashboard's own `filters`. With none given,
+      this is exactly the cached read above; with at least one, every `query` tile it reaches
+      (its `source_tables` intersects an active predicate's table) is recomputed live through
+      the warehouse read guard, AND-combining every selection that applies to it; a tile no
+      active filter reaches keeps reading from the cache.
     x-egpt-scopes: [dashboards:read]
     parameters:
       - $ref: '#/x-egpt-parameters/dashboardId'
+      - name: f
+        in: query
+        required: false
+        schema:
+          type: array
+          items: {type: string}
+        style: form
+        explode: true
+        description: "A `table.column:value` filter selection; repeat once per value, and again for more than one column."
+        example: ["inventory.category:Produce", "inventory.category:Dairy"]
     responses:
       "200":
         description: The data.
@@ -561,6 +587,75 @@
                   read_at: "2026-09-07T11:10:00Z"
       "404":
         $ref: '#/x-egpt-responses/NotFound'
+
+/dashboards/{dashboard_id}/filter-columns:
+  get:
+    tags: [dashboards]
+    operationId: getDashboardFilterColumns
+    summary: Candidate filter columns across this dashboard's own query tiles.
+    description: |
+      Text-typed, non-personal-data columns of the tables this dashboard's `query` tiles read --
+      what the creation-step filter picker offers, and what a write's `filters` is checked
+      against. Empty when the dashboard has no `query` tile (a `kpi` tile is not filterable
+      this way, R13.1).
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    responses:
+      "200":
+        description: Candidate columns.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/dashboards.yaml#/DashboardFilterColumn'
+            examples:
+              default:
+                value: [{table: inventory, column: category}, {table: inventory, column: warehouse}]
+              empty:
+                value: []
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/dashboards/{dashboard_id}/filter-values:
+  get:
+    tags: [dashboards]
+    operationId: getDashboardFilterValues
+    summary: Distinct values of one of this dashboard's chosen filter columns.
+    description: For a column's dropdown on the published dashboard. 422 for a `table`/`column` pair that is not one of this dashboard's own `filters` -- this never runs against an arbitrary column, only ones the picker already offered and a write already accepted.
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+      - name: table
+        in: query
+        required: true
+        schema: {type: string}
+      - name: column
+        in: query
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: Distinct values.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardFilterValues'
+            examples:
+              default:
+                value: {table: inventory, column: category, values: [Produce, Dairy, Bakery, Frozen]}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: Not one of this dashboard's filter columns.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              invalid:
+                value: {detail: "orders.email is not one of this dashboard's filter columns.", code: not_a_filter_column}
 
 x-egpt-parameters:
   dashboardId:

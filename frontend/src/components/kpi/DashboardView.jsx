@@ -1,23 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Filter, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, Check, Filter, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
 import AiGeneratingStep from "./create-dashboard/AiGeneratingStep";
+import DashboardFilterBar from "./DashboardFilterBar";
 import { useDashboardSuggestionRun } from "../../hooks/useDashboardSuggestionRun";
 import { REFRESH_OPTIONS, labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
-import { fetchKpiList } from "../../services/kpis-api";
 import {
  addDashboardTile,
  deleteDashboardApi,
  deleteDashboardTile,
  fetchDashboard,
  fetchDashboardData,
+ fetchDashboardFilterColumns,
  refreshDashboardApi,
  updateDashboardApi,
  updateDashboardTile,
 } from "../../services/dashboards-api";
+
+/** Every filter selection lives in the URL as one repeated `f.<table>.<column>=value` param
+ * per selected value - per-viewer, shareable, bookmarkable view-time state (R13.1), same
+ * justification `KpiDiscoveryPage.jsx` already documents for its own search params. Never a
+ * comma-joined list: a distinct value can itself contain a comma (a real city, "Dallas, TX"),
+ * the same reason `fetchDashboardData` sends the wire request this way. A column left out, or
+ * with no values, is "All" and is dropped from the query. */
+const FILTER_PARAM_PREFIX = "f.";
+
+function selectedFiltersFromParams(searchParams) {
+ const result = {};
+ for (const key of new Set(searchParams.keys())) {
+  if (!key.startsWith(FILTER_PARAM_PREFIX)) continue;
+  const values = searchParams.getAll(key).filter(Boolean);
+  if (values.length > 0) result[key.slice(FILTER_PARAM_PREFIX.length)] = values;
+ }
+ return result;
+}
 
 /**
  * A saved dashboard, wired to the real `dashboards.py` (D2 #233; composed charts, 1.2.0):
@@ -43,16 +62,23 @@ import {
  * available is crm_contact" to a prompt about quote requests, which is a worse outcome than
  * a wider read.
  *
- * The refresh schedule and the business-area filter are each editable the same way: a select
- * in the header picks a new value, a confirm modal names what it will become (shared state,
- * seen by every viewer, not a per-viewer setting), and only Save actually PATCHes it. The two
- * are mutually locked while either has an unconfirmed pick, so only one confirm modal is ever
- * open at a time.
+ * The refresh schedule and the dashboard's filter columns are each editable from the header
+ * with the same shape: a pick is staged, a modal names what it will become (shared state, seen
+ * by every viewer, not a per-viewer setting), and only Save actually PATCHes it. The schedule
+ * is a select plus a confirm modal; the filter columns are a checklist modal (the same
+ * candidate list the create flow's `DashboardBuilderStep.jsx` offers, here from
+ * `GET /dashboards/{id}/filter-columns`) whose Save is the confirmation. The two are mutually
+ * locked while either is mid-edit, so only one modal is ever open at a time. Which *values*
+ * a viewer picks in those filters is a different thing -- per-viewer URL state, see
+ * `FILTER_PARAM_PREFIX`.
  */
 
 export default function DashboardView() {
  const { dashboardId } = useParams();
  const navigate = useNavigate();
+ const [searchParams, setSearchParams] = useSearchParams();
+ const selectedFilters = selectedFiltersFromParams(searchParams);
+ const filtersKey = searchParams.toString();
  const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
  const [dataState, setDataState] = useState({ status: "loading", byTileId: {}, error: null });
  const [actionError, setActionError] = useState(null);
@@ -95,38 +121,14 @@ export default function DashboardView() {
  // not a second write to undo the first (reapplies #272's editable-schedule control, silently
  // reverted to read-only text by this PR per round-1 review's issue-level comment).
  const [pendingSchedule, setPendingSchedule] = useState(null);
- // The business-area filter picked but not yet confirmed -- same "not yet saved" role as
- // `pendingSchedule`, but `undefined` (not `null`) means "no pending change": `null` is itself
- // a real, selectable value here ("No filter"), same as `businessAreaFilter` in the create
- // flow's own `DashboardBuilderStep.jsx`, so it can't double as the sentinel too.
- const [pendingFilter, setPendingFilter] = useState(undefined);
- // The deployment's business areas, for the filter select's options -- the same set
- // `CreateDashboardModal.jsx` derives from `GET /kpis` for the create flow's own filter
- // picker. Fetched once, not per dashboard switch (the registry isn't dashboard-scoped); a
- // failure just leaves it empty, the same non-fatal posture that fetch already takes -- the
- // select still shows "No filter" and whatever the dashboard's own current filter already is.
- const [readyBusinessAreas, setReadyBusinessAreas] = useState([]);
- useEffect(() => {
-  let cancelled = false;
-  fetchKpiList()
-   .then((kpis) => {
-    if (cancelled) return;
-    setReadyBusinessAreas(
-     Array.from(
-      new Set(
-       (kpis || [])
-        .filter((k) => k?.feasibility?.verdict === "ready")
-        .map((k) => k.business_area)
-        .filter(Boolean),
-      ),
-     ).sort(),
-    );
-   })
-   .catch(() => {});
-  return () => {
-   cancelled = true;
-  };
- }, []);
+ // The filter-column editor: open or not, the `{table, column}` list staged in it (nothing is
+ // written until "Save filters"), and the candidate columns fetched for it. Same "not yet
+ // saved" role as `pendingSchedule`. Candidates are fetched on every open rather than once:
+ // unlike the business-area list this replaced (a deployment-wide registry), they depend on
+ // this dashboard's own query tiles, which can change between opens as charts are added.
+ const [filtersEditorOpen, setFiltersEditorOpen] = useState(false);
+ const [stagedFilterColumns, setStagedFilterColumns] = useState([]);
+ const [filterCandidates, setFilterCandidates] = useState({ status: "idle", columns: [], error: null });
 
  // `dashboardId` this component is currently showing, readable inside async callbacks that
  // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
@@ -134,9 +136,9 @@ export default function DashboardView() {
  const currentDashboardIdRef = useRef(dashboardId);
  currentDashboardIdRef.current = dashboardId;
 
- const loadData = useCallback((id) => {
+ const loadData = useCallback((id, filters) => {
   setDataState({ status: "loading", byTileId: {}, error: null });
-  fetchDashboardData(id)
+  fetchDashboardData(id, { filters })
    .then((data) => {
     if (currentDashboardIdRef.current !== id) return;
     const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
@@ -156,14 +158,17 @@ export default function DashboardView() {
   // (no `key` on this route, so the component isn't guaranteed to remount) and the confirm
   // modal reopens on the new dashboard showing the old one's leftover value.
   setPendingSchedule(null);
-  setPendingFilter(undefined);
+  setFiltersEditorOpen(false);
   setBusy(false);
   // Same for a composition run and its draft: they were started for the dashboard being
   // left, and its composed chart must not land on the one being opened.
   resetCompose();
   setAddingChart(null);
-  // Both requests only need `dashboardId`, so they fire together rather than sequentially
-  // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
+  // The dashboard's own definition and its tile data are two separate effects (this one, and
+  // the one just below) so a filter change - which only ever needs to redo the data half - does
+  // not also reset `pendingSchedule`/`addingChart`/the compose run below. They still both fire
+  // on the very same render when `dashboardId` changes (mount or switch), so opening a
+  // dashboard costs one round trip's worth of latency, not two sequential ones.
   fetchDashboard(dashboardId)
    .then((dashboard) => {
     if (cancelled) return;
@@ -172,15 +177,22 @@ export default function DashboardView() {
    .catch((error) => {
     if (!cancelled) setDashboardState({ status: "error", dashboard: null, error });
    });
-  loadData(dashboardId);
   return () => {
    cancelled = true;
   };
-  // `resetCompose`/`loadData` close over stable callbacks (`composeRun.reset` never changes
-  // identity); listing the whole `composeRun` object as a dep would re-run this effect (and
-  // refetch the dashboard) on every poll tick.
+  // `resetCompose` closes over a stable callback (`composeRun.reset` never changes identity);
+  // listing the whole `composeRun` object as a dep would re-run this effect (and refetch the
+  // dashboard) on every poll tick.
   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [dashboardId, loadData]);
+ }, [dashboardId]);
+
+ // Reloads the tile data whenever the dashboard changes OR the URL's filter selection does.
+ // Re-parses `filtersKey` rather than depending on `selectedFilters` directly, which is a
+ // fresh object every render and would re-run this on every render rather than only when the
+ // filters actually change.
+ useEffect(() => {
+  loadData(dashboardId, selectedFiltersFromParams(new URLSearchParams(filtersKey)));
+ }, [dashboardId, filtersKey, loadData]);
 
  // Once the run succeeds, hand its first chart to the editor -- nothing is saved until the
  // person clicks Save there. The budget asked for one chart; the agent may still return
@@ -230,17 +242,32 @@ export default function DashboardView() {
 
  const { dashboard } = dashboardState;
  const editingTile = editingTileId ? dashboard.tiles.find((t) => t.id === editingTileId) : null;
- // The one filter kind anything currently writes or reads (`business_area`) -- `time_window`
- // is a declared-but-unused contract enum member (#222), so there is nothing to show for it
- // yet. `dashboard.filters` is a flat `{field, value}[]`, not keyed, so this is a find, not a
- // lookup.
- const currentBusinessAreaFilter = dashboard.filters?.find((f) => f.field === "business_area")?.value || null;
- // The current value stays selectable even if it has since dropped out of
- // `readyBusinessAreas` (the ready set moves; a saved filter doesn't reactively follow it) --
- // same reasoning `CreateDashboardModal.jsx`'s own `businessAreaOptions` documents.
- const businessAreaOptions = Array.from(
-  new Set([...readyBusinessAreas, currentBusinessAreaFilter].filter(Boolean)),
- ).sort();
+ const currentFilterColumns = dashboard.filters || [];
+ // What the filter editor lists: the fetched candidates plus whatever the dashboard already
+ // declares, so a saved filter column stays visible (and un-checkable) even if it has since
+ // dropped out of the candidate set -- the semantic layer moves; a saved filter doesn't
+ // reactively follow it. The server (`_validate_filters`) stays the source of truth on Save.
+ const filterEditorOptions = Array.from(
+  new Map(
+   [...filterCandidates.columns, ...currentFilterColumns].map((c) => [`${c.table}.${c.column}`, c]),
+  ).values(),
+ ).sort((a, b) => a.table.localeCompare(b.table) || a.column.localeCompare(b.column));
+
+ // `next` is the complete filter map (`DashboardFilterBar` always hands back the whole thing,
+ // not a per-column patch) - every existing `f.*` param is replaced, not merged, so clearing a
+ // column (an empty list) actually removes its param instead of leaving a stale `f.x=` behind.
+ const handleFiltersChange = (next) => {
+  const params = new URLSearchParams(searchParams);
+  for (const key of Array.from(params.keys())) {
+   if (key.startsWith(FILTER_PARAM_PREFIX)) params.delete(key);
+  }
+  for (const [key, values] of Object.entries(next)) {
+   for (const value of values || []) {
+    if (value) params.append(`${FILTER_PARAM_PREFIX}${key}`, value);
+   }
+  }
+  setSearchParams(params, { replace: true });
+ };
 
  const handleDelete = async () => {
   if (!window.confirm(`Delete "${dashboard.name}"?`)) return;
@@ -257,9 +284,13 @@ export default function DashboardView() {
   setActionError(null);
   setBusy(true);
   try {
-   const data = await refreshDashboardApi(dashboard.id);
-   const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
-   setDataState({ status: "ready", byTileId, error: null });
+   await refreshDashboardApi(dashboard.id);
+   // `refreshDashboardApi` recomputes the *cached* result every viewer reads by default; a
+   // filter in view here is live, per-viewer state (see `loadData`'s own `filters` argument)
+   // that this call knows nothing about, so re-fetch through the same filtered path rather
+   // than trusting its (always-unfiltered) response directly -- otherwise "Refresh now" while
+   // a filter is active would silently drop it from what's shown.
+   loadData(dashboard.id, selectedFilters);
   } catch (err) {
    setActionError(err?.message || "Could not refresh this dashboard.");
   } finally {
@@ -303,39 +334,66 @@ export default function DashboardView() {
   }
  };
 
- // Same confirm-before-save shape as the schedule select above, for the same reason: this is
- // shared state, not a per-viewer setting.
- const handleFilterChange = (e) => {
-  const next = e.target.value || null;
-  // Always set, never conditionally skipped -- same reason `handleScheduleChange` always does:
-  // re-picking the dashboard's current value must clear a stale, since-abandoned pending pick.
-  setPendingFilter(next === currentBusinessAreaFilter ? undefined : next);
+ // Same stage-then-save shape as the schedule select above, for the same reason: the filter
+ // columns are shared state, not a per-viewer setting. Opening stages the current list and
+ // fetches the candidates; nothing is written until `confirmFiltersEdit`.
+ const openFiltersEditor = () => {
+  const dashboardIdAtCall = dashboard.id;
+  setStagedFilterColumns(currentFilterColumns.map(({ table, column }) => ({ table, column })));
+  setFilterCandidates({ status: "loading", columns: [], error: null });
+  setFiltersEditorOpen(true);
+  fetchDashboardFilterColumns(dashboard.id)
+   .then((columns) => {
+    if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+    setFilterCandidates({ status: "ready", columns: columns || [], error: null });
+   })
+   .catch((err) => {
+    if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+    setFilterCandidates({
+     status: "error",
+     columns: [],
+     error: err?.message || "Couldn't load the columns this dashboard can filter by.",
+    });
+   });
  };
 
- const cancelFilterChange = () => setPendingFilter(undefined);
+ const cancelFiltersEdit = () => setFiltersEditorOpen(false);
 
- const confirmFilterChange = async () => {
-  const nextValue = pendingFilter;
+ const isStagedFilterColumn = (table, column) =>
+  stagedFilterColumns.some((f) => f.table === table && f.column === column);
+
+ const toggleStagedFilterColumn = (table, column) => {
+  setStagedFilterColumns((prev) =>
+   prev.some((f) => f.table === table && f.column === column)
+    ? prev.filter((f) => !(f.table === table && f.column === column))
+    : [...prev, { table, column }],
+  );
+ };
+
+ const confirmFiltersEdit = async () => {
+  const nextFilters = stagedFilterColumns.map(({ table, column }) => ({ table, column }));
   // Staleness guard, same as `confirmScheduleChange`.
   const dashboardIdAtCall = dashboard.id;
-  setPendingFilter(undefined);
+  setFiltersEditorOpen(false);
   setActionError(null);
   setBusy(true);
   try {
-   // Keeps any filter kind this editor doesn't touch (there is none in practice yet -- see
-   // `currentBusinessAreaFilter`'s comment -- but a whole-array PATCH must not silently drop
-   // one a future filter kind added).
-   const otherFilters = (dashboard.filters || []).filter((f) => f.field !== "business_area");
-   const nextFilters = nextValue ? [...otherFilters, { field: "business_area", value: nextValue }] : otherFilters;
    const updated = await updateDashboardApi(dashboard.id, {
     name: dashboard.name,
     filters: nextFilters,
    });
    if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setDashboardState({ status: "ready", dashboard: updated, error: null });
+   // A value selection for a column that is no longer declared is ignored server-side
+   // (`get_dashboard_data` only honours declared filters), but left in the URL it would
+   // linger in the address bar and any bookmark of it -- drop it, which also re-fetches the
+   // data through the (now narrower) filter set.
+   const kept = new Set((updated.filters || []).map((f) => `${f.table}.${f.column}`));
+   const pruned = Object.fromEntries(Object.entries(selectedFilters).filter(([key]) => kept.has(key)));
+   if (Object.keys(pruned).length !== Object.keys(selectedFilters).length) handleFiltersChange(pruned);
   } catch (err) {
    if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
-   setActionError(err?.message || "Could not change the filter.");
+   setActionError(err?.message || "Could not change the filters.");
   } finally {
    setBusy(false);
   }
@@ -354,7 +412,7 @@ export default function DashboardView() {
    });
    setDashboardState({ status: "ready", dashboard: saved, error: null });
    setEditingTileId(null);
-   loadData(dashboard.id);
+   loadData(dashboard.id, selectedFilters);
   } catch (err) {
    setActionError(err?.message || "Could not save that chart.");
   } finally {
@@ -458,10 +516,9 @@ export default function DashboardView() {
         value={pendingSchedule ?? dashboard.refresh_schedule}
         onChange={handleScheduleChange}
         // Locked against the *other* pending edit below rather than just `busy`: without
-        // this, picking a filter (opening its confirm modal) then also picking a schedule
-        // before confirming would leave two pending edits racing to open/replace the same
-        // modal slot.
-        disabled={busy || pendingFilter !== undefined}
+        // this, opening the filter editor then also picking a schedule before confirming
+        // would leave two pending edits racing to open/replace the same modal slot.
+        disabled={busy || filtersEditorOpen}
         className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
        >
         {REFRESH_OPTIONS.map((o) => (
@@ -469,21 +526,19 @@ export default function DashboardView() {
         ))}
        </select>
       </span>
-      <span className="inline-flex items-center gap-1">
+      <button
+       type="button"
+       onClick={openFiltersEditor}
+       disabled={busy || pendingSchedule !== null}
+       aria-label="Edit dashboard filters"
+       className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary hover:border-primary/40 hover:text-primary focus:border-primary focus:outline-none disabled:opacity-50"
+      >
        <Filter size={11} />
-       <select
-        aria-label="Business area filter"
-        value={pendingFilter ?? currentBusinessAreaFilter ?? ""}
-        onChange={handleFilterChange}
-        disabled={busy || pendingSchedule !== null}
-        className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
-       >
-        <option value="">No filter</option>
-        {businessAreaOptions.map((area) => (
-         <option key={area} value={area}>Business area = {area}</option>
-        ))}
-       </select>
-      </span>
+       {currentFilterColumns.length === 0
+        ? "No filters"
+        : `${currentFilterColumns.length} filter${currentFilterColumns.length === 1 ? "" : "s"}`}
+       <Pencil size={10} />
+      </button>
       <span>{dashboard.tiles.length} chart{dashboard.tiles.length === 1 ? "" : "s"}</span>
      </p>
     </div>
@@ -507,6 +562,13 @@ export default function DashboardView() {
      </button>
     </div>
    </div>
+
+   <DashboardFilterBar
+    dashboardId={dashboard.id}
+    filters={dashboard.filters}
+    selected={selectedFilters}
+    onChange={handleFiltersChange}
+   />
 
    {actionError && (
     <p className="rounded-lg border border-status-critical/30 bg-status-critical/10 px-3 py-2 text-xs font-medium text-status-critical">
@@ -674,33 +736,78 @@ export default function DashboardView() {
     </Modal>
    )}
 
-   {pendingFilter !== undefined && (
-    <Modal title="Change the filter?" onClose={cancelFilterChange}>
+   {filtersEditorOpen && (
+    <Modal title="Dashboard filters" onClose={cancelFiltersEdit}>
      <p className="text-sm text-text-secondary">
-      {pendingFilter ? (
-       <>
-        This dashboard's filter will be set to{" "}
-        <span className="font-semibold text-text-primary">business area = {pendingFilter}</span>{" "}
-        from now on.
-       </>
-      ) : (
-       "This dashboard's filter will be cleared (no filter) from now on."
-      )}
+      Pick the columns viewers can filter this dashboard by. Each checked column is a dropdown
+      above the charts, for every viewer, from now on.
      </p>
+     <div className="mt-3">
+      {filterCandidates.status === "loading" ? (
+       <p className="rounded-lg border border-dashed border-border-light px-3 py-2.5 text-xs text-text-muted">
+        Loading columns…
+       </p>
+      ) : filterCandidates.status === "error" ? (
+       <p className="rounded-lg border border-status-critical/30 bg-status-critical/10 px-3 py-2 text-xs font-medium text-status-critical">
+        {filterCandidates.error}
+       </p>
+      ) : filterEditorOptions.length === 0 ? (
+       <p className="rounded-lg border border-dashed border-border-light px-3 py-2.5 text-xs text-text-muted">
+        Add a chart with a custom SQL query to make some of its columns available as filters.
+       </p>
+      ) : (
+       <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+        {filterEditorOptions.map(({ table, column }, index) => {
+         const selected = isStagedFilterColumn(table, column);
+         return (
+          <button
+           key={`${table}.${column}`}
+           type="button"
+           onClick={() => toggleStagedFilterColumn(table, column)}
+           className={`flex w-full items-center gap-2.5 px-3 py-2 text-left ${
+            index > 0 ? "border-t border-border" : ""
+           } ${selected ? "bg-primary-light" : "hover:bg-surface-secondary"}`}
+          >
+           <span
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+             selected ? "bg-primary" : "border border-border-light"
+            }`}
+           >
+            {selected && <Check size={11} className="text-white" strokeWidth={3} />}
+           </span>
+           <span
+            className={`flex-1 text-sm ${selected ? "font-semibold text-primary" : "font-medium text-text-tertiary"}`}
+           >
+            {column}
+           </span>
+           <span className="font-mono text-[11px] text-text-muted">
+            {table}.{column}
+           </span>
+          </button>
+         );
+        })}
+       </div>
+      )}
+     </div>
      <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
       <button
        type="button"
-       onClick={cancelFilterChange}
+       onClick={cancelFiltersEdit}
        className="rounded-lg px-3.5 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
       >
        Cancel
       </button>
       <button
        type="button"
-       onClick={confirmFilterChange}
-       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+       onClick={confirmFiltersEdit}
+       // Saving while the candidates are still loading would write a list the person has
+       // not yet been able to see or change; a failed load still allows Save, since the
+       // staged list is the dashboard's own current one and un-checking those needs no
+       // candidates.
+       disabled={filterCandidates.status === "loading"}
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
-       Save filter
+       Save filters
       </button>
      </div>
     </Modal>
@@ -726,7 +833,7 @@ export default function DashboardView() {
        const saved = await addDashboardTile(dashboard.id, write);
        setDashboardState({ status: "ready", dashboard: saved, error: null });
        setAddingChart(null);
-       loadData(dashboard.id);
+       loadData(dashboard.id, selectedFilters);
       } catch (err) {
        setActionError(err?.message || "Could not add that chart.");
       } finally {
