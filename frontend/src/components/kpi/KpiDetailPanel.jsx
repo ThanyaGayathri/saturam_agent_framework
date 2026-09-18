@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, Copy, Pencil, Plus, Trash2, X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Copy, Pencil, Plus, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
 import KpiTrend from "./KpiTrend";
 import { Tabs } from "../ui";
 import { formatShortDateTime } from "../../lib/format-date";
+import { sqlLines } from "../../lib/sql-highlight";
 import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "./KpiDiscovery";
 
 /**
@@ -116,13 +117,98 @@ const TABS = [
 ];
 
 /** A short uppercase-label card, the same shape every section in this panel already uses --
- * `Pill` is the small chips row a couple of the new sections below want on top of it. */
-function DetailSection({ label, children, className = "" }) {
+ * `Pill` is the small chips row a couple of the new sections below want on top of it. `action`
+ * is an optional control (Technical's "Show SQL" toggle) right-aligned on the same header row. */
+function DetailSection({ label, action = null, children, className = "" }) {
  return (
   <section className={className}>
-   <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+   <div className="flex items-center justify-between gap-3">
+    <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+    {action}
+   </div>
    {children}
   </section>
+ );
+}
+
+//                keyword     function      string        number/       comment
+//                            call          literal       placeholder
+const SQL_TOKEN_CLASS = {
+ keyword: "text-[#79c0ff]",
+ function: "text-[#d2a8ff]",
+ string: "text-[#7ee787]",
+ number: "text-[#ffa657]",
+ placeholder: "text-[#ffa657]",
+ comment: "text-[#8b949e] italic",
+ identifier: "text-[#c9d1d9]",
+ punctuation: "text-[#c9d1d9]",
+ whitespace: "text-[#c9d1d9]",
+};
+
+/** Read-only, line-numbered, syntax-highlighted SQL -- `sqlLines` (`lib/sql-highlight.js`) does
+ * the tokenizing; this just paints each token by type. Every token renders as a plain React
+ * text node (`{token.text}`), never `dangerouslySetInnerHTML`, so there is nothing to escape. */
+function SqlHighlight({ sql }) {
+ const lines = sqlLines(sql);
+ return (
+  <pre className="overflow-x-auto rounded-lg bg-[#0d1117] p-3 text-xs leading-relaxed">
+   <code>
+    {lines.map((line, i) => (
+     // eslint-disable-next-line react/no-array-index-key -- lines have no identity of their own
+     <div key={i} className="flex">
+      <span className="mr-3 w-4 shrink-0 select-none text-right text-[#6e7681]">{i + 1}</span>
+      <span className="min-w-0 whitespace-pre-wrap break-all">
+       {line.length === 0 ? (
+        " "
+       ) : (
+        line.map((tok, j) => (
+         // eslint-disable-next-line react/no-array-index-key -- tokens have no identity either
+         <span key={j} className={SQL_TOKEN_CLASS[tok.type] || SQL_TOKEN_CLASS.identifier}>
+          {tok.text}
+         </span>
+        ))
+       )}
+      </span>
+     </div>
+    ))}
+   </code>
+  </pre>
+ );
+}
+
+/** One half of a ratio, stacked over a full-width divider rather than written as "a / b" --
+ * `items-center` on the flex column centers each half over the divider, and the divider's own
+ * `w-full` stretches to match whichever half is wider, so it always spans both. */
+function FormulaFraction({ numerator, denominator }) {
+ return (
+  <span className="mx-1 inline-flex flex-col items-center align-middle">
+   <span className="px-1 pb-1 text-center leading-snug">{numerator}</span>
+   <span className="h-px w-full bg-current" />
+   <span className="px-1 pt-1 text-center leading-snug">{denominator}</span>
+  </span>
+ );
+}
+
+/** The agent's own plain-English rendering of the formula (`kpi.formulaExplanation`, produced
+ * at suggestion time -- see `skills/kpi_suggestion.md` section 5) -- a real stacked fraction when
+ * the formula is a ratio (`numerator_label`/`denominator_label` both set), otherwise just the
+ * sequential text. Absent for a KPI suggested before this field existed or hand-authored without
+ * one; the caller falls back to showing nothing extra above the SQL toggle. */
+function FormulaDisplay({ explanation }) {
+ const hasRatio = explanation.numerator_label != null && explanation.denominator_label != null;
+ return (
+  <div className="rounded-lg border border-border bg-surface-secondary p-3">
+   <div className="flex flex-wrap items-center gap-1 font-mono text-[13px] text-text-primary">
+    <span>{explanation.expression_before}</span>
+    {hasRatio && (
+     <FormulaFraction numerator={explanation.numerator_label} denominator={explanation.denominator_label} />
+    )}
+    {explanation.expression_after ? <span>{explanation.expression_after}</span> : null}
+   </div>
+   {explanation.condition_label && (
+    <p className="mt-2 font-mono text-[11px] text-text-muted">{explanation.condition_label}</p>
+   )}
+  </div>
  );
 }
 
@@ -141,6 +227,7 @@ function Pill({ children }) {
  * mounts this tab for a suggestion or seed row. */
 function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyle, trend, onComputeForDate }) {
  const [copied, setCopied] = useState(false);
+ const [showSql, setShowSql] = useState(false);
  const [redate, setRedate] = useState(() => todayIso());
  const windowLabel = formatTimeWindow(kpi.timeWindow);
  const trendData = trend?.status === "ready" ? trend.data : null;
@@ -210,25 +297,47 @@ function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyl
     )}
    </DetailSection>
 
-   <DetailSection label="Technical">
-    {kpi.sql ? (
-     <div className="mt-2 space-y-2">
-      <pre className="overflow-x-auto rounded-lg bg-surface-secondary p-3 text-xs text-text-primary whitespace-pre-wrap break-words">
-       {kpi.sql}
-      </pre>
+   <DetailSection
+    label="Technical"
+    action={
+     kpi.sql ? (
       <button
        type="button"
-       onClick={copySql}
-       className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+       onClick={() => setShowSql((v) => !v)}
+       aria-expanded={showSql}
+       className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border-light px-2.5 py-1 text-xs font-semibold text-text-secondary transition-colors hover:border-primary/40 hover:text-primary"
       >
-       {copied ? <Check size={13} /> : <Copy size={13} />}
-       {copied ? "Copied" : "Copy SQL"}
+       <ChevronRight size={12} className={`transition-transform ${showSql ? "rotate-90" : ""}`} />
+       {showSql ? "Hide SQL" : "Show SQL"}
       </button>
+     ) : null
+    }
+   >
+    {kpi.formulaExplanation && (
+     <div className="mt-2">
+      <FormulaDisplay explanation={kpi.formulaExplanation} />
      </div>
+    )}
+    {kpi.sql ? (
+     showSql && (
+      <div className="mt-2 space-y-2">
+       <SqlHighlight sql={kpi.sql} />
+       <button
+        type="button"
+        onClick={copySql}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+       >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+        {copied ? "Copied" : "Copy SQL"}
+       </button>
+      </div>
+     )
     ) : (
-     <p className="mt-2 text-sm text-text-muted">
-      The formula is only shown to someone who can edit KPIs.
-     </p>
+     !kpi.formulaExplanation && (
+      <p className="mt-2 text-sm text-text-muted">
+       The formula is only shown to someone who can edit KPIs.
+      </p>
+     )
     )}
    </DetailSection>
 

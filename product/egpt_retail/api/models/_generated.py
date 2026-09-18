@@ -262,6 +262,33 @@ class FeasibilityVerdict(Enum):
     blocked = "blocked"
 
 
+class FormulaExplanation(BaseModel):
+    """
+    A human-readable rendering of `sql`, for the discovery panel's FORMULA card -- not a numerator/denominator KPI-to-KPI link (there is no such linkage), just two plain-English labels a renderer can lay out as a fraction. Optional; a KPI without one falls back to showing only the raw SQL.
+    """
+
+    expression_before: str = Field(
+        ...,
+        description='Everything in the expression before the ratio, or the whole expression verbatim when there is no ratio -- e.g. "value = ROUND( 100 x" or "value = COUNT(*)".',
+    )
+    numerator_label: str | None = Field(
+        None,
+        description='Plain-English description of the ratio\'s numerator, e.g. "count of buy inquiries with converted_to_quote = true". Null when the formula has no ratio.',
+    )
+    denominator_label: str | None = Field(
+        None,
+        description="Plain-English description of the ratio's denominator. Null in exactly the same cases as `numerator_label`.",
+    )
+    expression_after: str | None = Field(
+        "",
+        description='Everything after the ratio, or empty when there is no ratio -- e.g. ", 1 )".',
+    )
+    condition_label: str | None = Field(
+        None,
+        description="A plain-English \"where ...\" sentence describing the formula's filter/window. Null when there's nothing beyond the ratio itself worth naming.",
+    )
+
+
 class GapKind(Enum):
     """
     `missing_parameter` (1.1.0, R9): a slot the chosen autonomy shape requires (build plan, section 07)
@@ -1668,6 +1695,10 @@ class KpiSuggestion(BaseModel):
     derived_from_tables: list[str] = Field(..., min_length=1)
     confidence: Confidence
     proposed_sql: str | None = None
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="A human-readable rendering of `proposed_sql`, for the discovery card's preview before the KPI is adopted. Gated behind `kpis:write` the same way `proposed_sql` is -- its labels can name the same columns/tables the formula reads.",
+    )
     feasibility: Feasibility | None = None
     proposed_by: SkillRef | None = None
 
@@ -2204,6 +2235,10 @@ class Kpi(BaseModel):
         None,
         description="The formula with `{named}` placeholders. Returned only to callers holding `kpis:write`; a viewer sees the field absent.",
     )
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="A human-readable rendering of `sql`, for the FORMULA card. Gated behind `kpis:write` the same way `sql` is (`_may_read_sql`) -- its labels can name the same columns/tables the formula reads, so it is exactly the schema detail that gate exists to withhold from a `kpis:read`-only caller. Null for a hand-authored KPI, one adopted before this field existed, or a viewer without the scope.",
+    )
     source_tables: list[str]
     parameters: list[KpiParameter] | None = None
     time_window: TimeWindow | None = None
@@ -2308,6 +2343,10 @@ class KpiWrite(BaseModel):
     result_shape: ResultShape | None = None
     dialect: Dialect | None = None
     sql: str
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="The suggestion's `formula_explanation`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
     source_tables: list[str]
     parameters: list[KpiParameter] | None = None
     time_window: TimeWindow | None = None

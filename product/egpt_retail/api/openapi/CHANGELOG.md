@@ -109,6 +109,28 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.5 — 2026-09-18 — kpis: `FormulaExplanation` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new schema, one new optional field each on
+`Kpi`, `KpiWrite` and `KpiSuggestion`, nothing removed or renamed -- so no negotiation and no
+major bump.
+
+- **`FormulaExplanation`** (new schema) and **`Kpi.formula_explanation` /
+  `KpiWrite.formula_explanation` / `KpiSuggestion.formula_explanation`** (all optional,
+  nullable). The mapping detail panel's "Technical" section needed the formula rendered in
+  plain, readable notation for a reader who will never see `sql` -- a literal `SELECT` is not
+  something a business user parses, and there is no general SQL-to-English translator reliable
+  enough to run over arbitrary generated queries. Rather than build KPI-to-KPI linkage for a
+  numerator/denominator relationship (a Phase-2-sized modeling change), the suggestion agent
+  now emits the plain-English rendering itself at proposal time (`skills/kpi_suggestion.py`,
+  `skills/kpi_suggestion.md` section 5): `expression_before`/`expression_after` are the
+  surrounding text, and `numerator_label`/`denominator_label` name the two halves of a ratio
+  when the formula is one (both set, or both null). Carried through adoption exactly like
+  `rationale`/`business_value` (`_kpi_from_write`'s carry-forward semantics). Gated behind
+  `kpis:write` on `Kpi` and `KpiSuggestion` the same way `sql`/`proposed_sql` are -- its labels
+  can name the same columns and tables the formula reads, which is exactly the class of detail
+  that gate exists to protect.
+
 ## 1.2.4 — 2026-09-18 — kpis: `Kpi.source_table_status`, `POST /kpis/{kpi_id}/compute`'s `as_of` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new schema (`SourceTableStatus`), one new

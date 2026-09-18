@@ -38,6 +38,28 @@ TimeWindow:
     unit:
       $ref: './kpis.yaml#/TimeWindowUnit'
 
+FormulaExplanation:
+  type: object
+  description: A human-readable rendering of `sql`, for the discovery panel's FORMULA card -- not a numerator/denominator KPI-to-KPI link (there is no such linkage), just two plain-English labels a renderer can lay out as a fraction. Optional; a KPI without one falls back to showing only the raw SQL.
+  required: [expression_before]
+  properties:
+    expression_before:
+      type: string
+      description: 'Everything in the expression before the ratio, or the whole expression verbatim when there is no ratio -- e.g. "value = ROUND( 100 x" or "value = COUNT(*)".'
+    numerator_label:
+      type: [string, "null"]
+      description: Plain-English description of the ratio's numerator, e.g. "count of buy inquiries with converted_to_quote = true". Null when the formula has no ratio.
+    denominator_label:
+      type: [string, "null"]
+      description: Plain-English description of the ratio's denominator. Null in exactly the same cases as `numerator_label`.
+    expression_after:
+      type: string
+      default: ""
+      description: 'Everything after the ratio, or empty when there is no ratio -- e.g. ", 1 )".'
+    condition_label:
+      type: [string, "null"]
+      description: 'A plain-English "where ..." sentence describing the formula''s filter/window. Null when there''s nothing beyond the ratio itself worth naming.'
+
 KpiLevel:
   type: string
   enum: [strategic, operational, tactical]
@@ -85,6 +107,11 @@ Kpi:
     sql:
       type: string
       description: The formula with `{named}` placeholders. Returned only to callers holding `kpis:write`; a viewer sees the field absent.
+    formula_explanation:
+      oneOf:
+        - $ref: './kpis.yaml#/FormulaExplanation'
+        - type: "null"
+      description: A human-readable rendering of `sql`, for the FORMULA card. Gated behind `kpis:write` the same way `sql` is (`_may_read_sql`) -- its labels can name the same columns/tables the formula reads, so it is exactly the schema detail that gate exists to withhold from a `kpis:read`-only caller. Null for a hand-authored KPI, one adopted before this field existed, or a viewer without the scope.
     source_tables:
       type: array
       items: {type: string}
@@ -153,6 +180,11 @@ KpiWrite:
     dialect:
       $ref: './kpis.yaml#/Dialect'
     sql: {type: string}
+    formula_explanation:
+      oneOf:
+        - $ref: './kpis.yaml#/FormulaExplanation'
+        - type: "null"
+      description: The suggestion's `formula_explanation`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.
     source_tables:
       type: array
       items: {type: string}
@@ -212,6 +244,11 @@ KpiSuggestion:
     confidence:
       $ref: './common.yaml#/Confidence'
     proposed_sql: {type: [string, "null"]}
+    formula_explanation:
+      oneOf:
+        - $ref: './kpis.yaml#/FormulaExplanation'
+        - type: "null"
+      description: A human-readable rendering of `proposed_sql`, for the discovery card's preview before the KPI is adopted. Gated behind `kpis:write` the same way `proposed_sql` is -- its labels can name the same columns/tables the formula reads.
     feasibility:
       $ref: './common.yaml#/Feasibility'
     proposed_by:

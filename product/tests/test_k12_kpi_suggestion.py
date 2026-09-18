@@ -357,6 +357,47 @@ def _proposal_draft(
     )
 
 
+class TestFormulaExplanation:
+    """The discovery panel's FORMULA card -- a human-readable rendering of `proposed_sql`,
+    threaded through the same draft -> `assemble()` -> contract pipeline as every other field."""
+
+    def test_a_draft_with_no_formula_explanation_assembles_to_a_null_one(self) -> None:
+        report = k12.assemble(_set(_draft()), available_tables=frozenset({"crm_deal"}))
+        assert report.suggestions[0].formula_explanation is None
+
+    def test_a_draft_s_formula_explanation_is_carried_through_assemble(self) -> None:
+        draft = _draft(
+            formula_explanation=k12.FormulaExplanationDraft(
+                expression_before="value = ROUND( 100 x",
+                numerator_label="count of buy inquiries with converted_to_quote = true",
+                denominator_label="count of buy inquiries",
+                expression_after=", 1 )",
+                condition_label='where chat_type contains "buy"',
+            )
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        explanation = report.suggestions[0].formula_explanation
+        assert explanation is not None
+        assert explanation.expression_before == "value = ROUND( 100 x"
+        assert (
+            explanation.numerator_label
+            == "count of buy inquiries with converted_to_quote = true"
+        )
+        assert explanation.denominator_label == "count of buy inquiries"
+        assert explanation.expression_after == ", 1 )"
+        assert explanation.condition_label == 'where chat_type contains "buy"'
+
+    def test_the_draft_schema_refuses_a_numerator_with_no_denominator(self) -> None:
+        """The draft's own field is untyped-permissive (both are just `Optional[str]`), so
+        this asymmetry is only caught once it reaches the contract's `FormulaExplanation` --
+        pinned here so a future change that skips that construction doesn't silently let it
+        through `assemble()`."""
+        from egpt_retail.contracts.kpi import FormulaExplanation
+
+        with pytest.raises(ValueError, match="must both be set or both be null"):
+            FormulaExplanation(expression_before="value = X", numerator_label="a")
+
+
 def test_a_suggestion_with_a_formula_becomes_a_kpi_proposal_the_registry_can_adopt():
     """Build plan section 06: candidates "are proposals, so they carry an adopt action and
     enter the registry only when a person accepts them". This is the producer that was

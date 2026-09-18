@@ -81,6 +81,15 @@ Specific to this agent:
   has, propose it and put its name in `catalogue_source`. A curated definition with an
   industry benchmark behind it is worth more than a plausible invention, and a reviewer can
   check it against the source document.
+- **`formula_explanation` renders the formula for a person who will never read `proposed_sql`.**
+  Null when `proposed_sql` is null. When `proposed_sql` divides one count/sum by another,
+  `numerator_label` and `denominator_label` name the two halves in plain English (both set, or
+  both null — never one alone) and `expression_before`/`expression_after` are whatever
+  wraps around that ratio, e.g. `"value = ROUND( 100 x"` / `", 1 )"`. When there is no
+  division, `expression_before` is the whole expression (e.g. `"value = COUNT(*)"`) and
+  `expression_after` is empty. `condition_label`, if there's a filter or window worth naming,
+  is one short "where ..." sentence — not a restatement of the SQL, a plain-English gloss of
+  it (see the worked examples).
 - **`business_value` answers a different question than `rationale`.** `rationale` traces the
   metric to its data; `business_value` says why anyone should look at it -- what decision it
   informs, what problem it lets someone catch early, or what it lets them stop guessing at.
@@ -117,6 +126,7 @@ invent is a field with nowhere to go.
 | `business_value` | string | One or two sentences on why this metric is worth tracking -- not where the data comes from |
 | `derived_from_tables` | string list | Every table the formula reads. Never empty |
 | `proposed_sql` | string or null | The formula, or null rather than a guess |
+| `formula_explanation` | object or null | `proposed_sql` in plain English, for a reader who won't see the SQL — null iff `proposed_sql` is null. See the rule above and the worked examples |
 | `catalogue_source` | string or null | The catalogue metric name this corresponds to |
 | `notes` | string | Empty on a clean run; otherwise what was missing |
 
@@ -158,10 +168,33 @@ For a harvest holding `crm_deal` (`deal_id`, `object_id`, `amount`, `stage`,
       "business_value": "A sudden drop in quote requests is an early signal of falling demand, well before it shows up in closed revenue.",
       "derived_from_tables": ["crm_deal"],
       "proposed_sql": "SELECT count(DISTINCT deal_id) FROM crm_deal WHERE quote_request_source_url IS NOT NULL",
+      "formula_explanation": {
+        "expression_before": "value = COUNT(DISTINCT deal_id)",
+        "numerator_label": null,
+        "denominator_label": null,
+        "expression_after": "",
+        "condition_label": "where quote_request_source_url is present"
+      },
       "catalogue_source": null
     }
   ],
   "notes": ""
+}
+```
+
+**A ratio KPI's `formula_explanation`** — for a formula like
+`SELECT round(100.0 * count(*) FILTER (WHERE converted_to_quote) / nullif(count(*), 0), 1) FROM
+dc_chat_inquiries WHERE chat_type ILIKE '%buy%' AND chat_date > {as_of} - 28 AND chat_date <=
+{as_of}`, the numerator and denominator are named separately rather than folded into one long
+`expression_before`:
+
+```json
+{
+  "expression_before": "value = ROUND( 100 x",
+  "numerator_label": "count of buy inquiries with converted_to_quote = true",
+  "denominator_label": "count of buy inquiries",
+  "expression_after": ", 1 )",
+  "condition_label": "where buy inquiry = chat_type contains \"buy\" and as_of - 28 < chat_date <= as_of"
 }
 ```
 

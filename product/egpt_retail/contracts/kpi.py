@@ -48,6 +48,7 @@ __all__ = [
     "Feasibility",
     "FeasibilityReason",
     "FeasibilityVerdict",
+    "FormulaExplanation",
     "assess_feasibility_with_joins",
     "KpiDefinition",
     "KpiLevel",
@@ -211,6 +212,46 @@ class KpiParameter:
 
 
 @dataclass(frozen=True)
+class FormulaExplanation:
+    """A human-readable rendering of the formula, for the discovery panel's FORMULA card --
+    separate from ``sql``, which is the executable text a person should never have to parse to
+    understand what the number means. Optional on every KPI: ``None`` for a hand-authored KPI,
+    or one adopted before this field existed, in which case the panel falls back to showing
+    just the raw SQL.
+
+    Deliberately not a single free-form string. A ratio KPI's numerator and denominator are
+    still one opaque SQL expression each (there is no numerator/denominator *KPI* linkage --
+    see the delivery plan's note on this), but *labelling* the two halves in plain English is
+    enough to render a real fraction instead of a wall of SQL, and an LLM asked for two short
+    labels is far more reliable than one asked to emit a specific inline math-notation string
+    a renderer would then have to parse back apart.
+    """
+
+    #: Everything before the ratio, or the whole expression verbatim when there is no ratio --
+    #: e.g. "value = ROUND( 100 x" or "value = COUNT(*)".
+    expression_before: str
+    #: Plain-English description of the ratio's numerator, e.g. "count of buy inquiries with
+    #: converted_to_quote = true". `None` when the formula has no ratio (a plain count/sum,
+    #: nothing divided) -- `denominator_label` is `None` in exactly the same cases.
+    numerator_label: Optional[str] = None
+    denominator_label: Optional[str] = None
+    #: Everything after the ratio, or empty when there is no ratio -- e.g. ", 1 )".
+    expression_after: str = ""
+    #: A plain-English "where ..." sentence describing the formula's filter/window, e.g. "where
+    #: buy inquiry = chat_type contains "buy" and as_of - 28 < chat_date <= as_of". `None` when
+    #: there's nothing beyond the ratio itself worth naming.
+    condition_label: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.expression_before.strip():
+            raise ValueError("expression_before must not be empty")
+        if (self.numerator_label is None) != (self.denominator_label is None):
+            raise ValueError(
+                "numerator_label and denominator_label must both be set or both be null"
+            )
+
+
+@dataclass(frozen=True)
 class KpiDefinition:
     """One KPI, authoritative in Postgres and mirrored as a graph node (K11).
 
@@ -254,6 +295,9 @@ class KpiDefinition:
     #: feasibility or execution. ``None`` for a hand-authored KPI.
     rationale: Optional[str] = None
     business_value: Optional[str] = None
+    #: A human-readable rendering of `sql`, for the discovery panel's FORMULA card. Same
+    #: carry-on-adopt/None-until-then story as `rationale`/`business_value` above.
+    formula_explanation: Optional[FormulaExplanation] = None
     active: bool = True
     source: KpiOrigin = KpiOrigin.CUSTOMER
     dataset_ids: Tuple[str, ...] = ()

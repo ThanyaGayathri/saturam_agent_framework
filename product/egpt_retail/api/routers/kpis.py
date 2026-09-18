@@ -103,6 +103,7 @@ from egpt_retail.contracts.kpi import (
     Dialect,
     Feasibility,
     FeasibilityVerdict,
+    FormulaExplanation,
     KpiDefinition,
     KpiLevel,
     KpiOrigin,
@@ -237,6 +238,30 @@ def _time_window_from_write(window: wire.TimeWindow) -> TimeWindow:
     return TimeWindow(length=window.length, unit=TimeWindowUnit(window.unit.value))
 
 
+def _formula_explanation_out(
+    explanation: FormulaExplanation,
+) -> wire.FormulaExplanation:
+    return wire.FormulaExplanation(
+        expression_before=explanation.expression_before,
+        numerator_label=explanation.numerator_label,
+        denominator_label=explanation.denominator_label,
+        expression_after=explanation.expression_after,
+        condition_label=explanation.condition_label,
+    )
+
+
+def _formula_explanation_from_write(
+    explanation: wire.FormulaExplanation,
+) -> FormulaExplanation:
+    return FormulaExplanation(
+        expression_before=explanation.expression_before,
+        numerator_label=explanation.numerator_label,
+        denominator_label=explanation.denominator_label,
+        expression_after=explanation.expression_after or "",
+        condition_label=explanation.condition_label,
+    )
+
+
 def _feasibility_out(
     feasibility: Feasibility, snapshot_version: str
 ) -> wire.Feasibility:
@@ -269,6 +294,11 @@ def _kpi_out(
         result_shape=wire.ResultShape(kpi.result_shape.value),
         dialect=wire.Dialect(kpi.dialect.value),
         sql=kpi.sql if include_sql else None,
+        formula_explanation=(
+            _formula_explanation_out(kpi.formula_explanation)
+            if include_sql and kpi.formula_explanation
+            else None
+        ),
         source_tables=sorted(kpi.source_tables),
         parameters=[_parameter_out(p) for p in kpi.parameters],
         time_window=_time_window_out(kpi.time_window) if kpi.time_window else None,
@@ -404,6 +434,13 @@ def _kpi_from_write(
         "process_ids",
         (),
     )
+    formula_explanation = _carried(
+        _formula_explanation_from_write(write.formula_explanation)
+        if write.formula_explanation
+        else None,
+        "formula_explanation",
+        None,
+    )
 
     return KpiDefinition(
         identifier=identifier,
@@ -434,6 +471,7 @@ def _kpi_from_write(
         # to these two fields.
         rationale=_carried(write.rationale, "rationale", None),
         business_value=_carried(write.business_value, "business_value", None),
+        formula_explanation=formula_explanation,
         active=active,
         source=existing.source if existing is not None else KpiOrigin.CUSTOMER,
         dataset_ids=dataset_ids,
@@ -639,7 +677,10 @@ def _finalize_suggestions(
     """
     suggestions = _filter_suggestions(suggestions, business_area)
     if not include_sql:
-        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+        suggestions = [
+            s.model_copy(update={"proposed_sql": None, "formula_explanation": None})
+            for s in suggestions
+        ]
     return suggestions
 
 
@@ -944,7 +985,9 @@ def _run_out(
             result = result.model_copy(
                 update={
                     "suggestions": [
-                        s.model_copy(update={"proposed_sql": None})
+                        s.model_copy(
+                            update={"proposed_sql": None, "formula_explanation": None}
+                        )
                         for s in result.suggestions
                     ]
                 }

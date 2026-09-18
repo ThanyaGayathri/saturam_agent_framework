@@ -682,6 +682,7 @@ export default function KpiDiscoveryPage() {
     // after adopt -- on reload and for every viewer -- instead of only for this session.
     rationale: suggestion.rationale ?? null,
     business_value: suggestion.business_value ?? null,
+    formula_explanation: suggestion.formula_explanation ?? null,
    },
    { signal: controller.signal }
   )
@@ -970,6 +971,10 @@ export default function KpiDiscoveryPage() {
    // "Where this number comes from" tab now also renders it read-only (when present -- a
    // `kpis:read`-only caller never receives it, per the api's own scope gate).
    sql: k.sql,
+   // Same scope gate as `sql` (a `kpis:read`-only caller never receives it): its labels can
+   // name the same columns/tables the formula reads. Kept as the wire shape (snake_case
+   // fields) rather than remapped -- there's only ever one reader, `FormulaDisplay` below.
+   formulaExplanation: k.formula_explanation || null,
    grain: k.grain,
    sourceTables: k.source_tables || [],
    // The rest of the definition shape the detail panel's technical/trust sections read.

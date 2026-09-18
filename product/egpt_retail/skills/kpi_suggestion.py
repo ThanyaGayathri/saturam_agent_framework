@@ -42,6 +42,7 @@ from egpt_retail.api.models import (
     Confidence,
     Feasibility,
     FeasibilityVerdict,
+    FormulaExplanation,
     KpiSuggestion,
     ResultShape,
     SkillRef,
@@ -63,6 +64,7 @@ __all__ = [
     "PROMPT_PATH",
     "SKILL",
     "AssemblyReport",
+    "FormulaExplanationDraft",
     "KpiSuggestionDraft",
     "KpiSuggestionDraftSet",
     "aassemble",
@@ -100,6 +102,60 @@ class DraftResultShape(str, Enum):
 
     SCALAR = "scalar"
     ROWSET = "rowset"
+
+
+class FormulaExplanationDraft(BaseModel):
+    """A human-readable rendering of ``proposed_sql``, for the discovery panel's FORMULA card.
+
+    Mirrors the contract's ``FormulaExplanation`` field for field -- kept as the agent's own
+    type rather than importing the contract one so a provider's strict-structured-output mode
+    only ever sees fields this schema actually declares (the same reasoning ``DraftConfidence``/
+    ``DraftResultShape`` give for mirroring rather than importing their contract enums).
+
+    ``extra="forbid"`` for the same reason as ``KpiSuggestionDraft``'s own: a model asked for
+    two short labels should not be able to smuggle a third field past validation unnoticed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expression_before: str = Field(
+        description=(
+            "Everything in the formula's expression before the ratio, in plain notation -- "
+            'e.g. "value = ROUND( 100 x" -- or the whole expression when there is no ratio, '
+            'e.g. "value = COUNT(*)".'
+        )
+    )
+    numerator_label: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-English description of the ratio's numerator, e.g. \"count of buy "
+            'inquiries with converted_to_quote = true". Null when the formula has no ratio '
+            "-- a plain count or sum, nothing divided."
+        ),
+    )
+    denominator_label: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-English description of the ratio's denominator. Null in exactly the same "
+            "cases as numerator_label -- both set, or both null, never one alone."
+        ),
+    )
+    expression_after: str = Field(
+        default="",
+        description=(
+            'Everything in the expression after the ratio, e.g. ", 1 )". Empty when there is '
+            "no ratio."
+        ),
+    )
+    condition_label: Optional[str] = Field(
+        default=None,
+        description=(
+            'A short, plain-English "where ..." sentence describing the formula\'s filter or '
+            'window, e.g. \'where buy inquiry = chat_type contains "buy" and as_of - 28 < '
+            "chat_date <= as_of'. Null when there's nothing beyond the ratio itself worth "
+            "naming."
+        ),
+    )
 
 
 class KpiSuggestionDraft(BaseModel):
@@ -158,6 +214,14 @@ class KpiSuggestionDraft(BaseModel):
         description=(
             "The formula, if you can write one that reads only the tables above. Null "
             "rather than a guess."
+        ),
+    )
+    formula_explanation: Optional[FormulaExplanationDraft] = Field(
+        default=None,
+        description=(
+            "A human-readable rendering of proposed_sql, so a person can understand the "
+            "formula without parsing SQL. Null when proposed_sql is null -- there is nothing "
+            "to explain yet."
         ),
     )
     catalogue_source: Optional[str] = Field(
@@ -267,6 +331,11 @@ class AssemblyReport(BaseModel):
                     else []
                 ),
                 "rationale": suggestion.rationale,
+                "formula_explanation": (
+                    suggestion.formula_explanation.model_dump()
+                    if suggestion.formula_explanation
+                    else None
+                ),
             }
             proposals.append(
                 Proposal(
@@ -289,6 +358,23 @@ def _bare(table: str) -> str:
     two spellings of the same table. The first live run dropped all ten suggestions this way.
     """
     return table.strip().split(".")[-1].lower()
+
+
+def _formula_explanation_out(
+    draft: Optional[FormulaExplanationDraft],
+) -> Optional[FormulaExplanation]:
+    """The draft's own explanation, as the contract's type -- field-for-field identical, kept
+    as two classes for the same reason ``FormulaExplanationDraft``'s own docstring gives for
+    mirroring rather than importing the contract type."""
+    if draft is None:
+        return None
+    return FormulaExplanation(
+        expression_before=draft.expression_before,
+        numerator_label=draft.numerator_label,
+        denominator_label=draft.denominator_label,
+        expression_after=draft.expression_after,
+        condition_label=draft.condition_label,
+    )
 
 
 def _looks_like_a_definition(draft: KpiSuggestionDraft) -> KpiDefinition:
@@ -420,6 +506,7 @@ def assemble(
                 ),
                 confidence=Confidence(draft.confidence.value),
                 proposed_sql=draft.proposed_sql,
+                formula_explanation=_formula_explanation_out(draft.formula_explanation),
                 feasibility=Feasibility(
                     kpi_id=identifier,
                     verdict=FeasibilityVerdict(verdict.verdict.value),
