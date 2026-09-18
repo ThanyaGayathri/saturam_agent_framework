@@ -213,3 +213,123 @@ probes, simulation, activation composing the dashboard, run history and Monitor.
 2. **Diagnostic entry point** -- "why is revenue low" on the builder form like the rest, or
    also from the Playground with "make this a weekly report"?
 3. **The data** -- where it is loaded and what it holds (see the questions sent 16 Sep).
+
+## 11. The diagnostic kind -- plan (18 Sep 2026, agreed in brainstorm, revised the same day; built the same day as K25 -- see `cookbook/94_retail/TEST_LOG.md`)
+
+One category, two kinds. Both are Analytics Automation; both start from an ask in words,
+resolve KPIs the data supports, run **every run** on a schedule, produce **a report and a
+dashboard**, and carry readiness, rehearsal, run history and Monitor. The diagnostic kind
+is the monitoring kind plus one deterministic step -- the decomposition -- and the two
+questions that step cannot answer from the data alone.
+
+### 11.1 Monitoring vs diagnostic
+
+| | Monitoring ("visibility into X") | Diagnostic ("why did X change") |
+|---|---|---|
+| The ask | A state to watch, for an audience | A change to explain, for a decision |
+| Headline | Several KPIs, each with breakdowns | **One** KPI (the one that moved) |
+| Comparison | Optional, the person's choice (never a default, 18 Sep) | Inherent: two periods, inferred from the words, editable |
+| Dimensions | What to break the numbers down by | What to **search the cause across** -- every grain the fact carries, all ticked by default |
+| Norm | none | Each slice's own recent history, so "unusual" is measured, not typed |
+| Chain | read gold → (compare) → explain → ground → render → deliver | read gold → compare → **decompose → pull evidence** → explain → ground → render → deliver |
+| The model's job | Narrate the comparison rows | Narrate the **winner of a ranking code produced**; it never picks the cause |
+| Report | KPI tiles and breakdown tables | One sentence whose subject changes per run; under it the ranked drivers; under that the evidence rows |
+| Dashboard | Tiles per KPI × dimension | A **"Why"** tile at the top (last run's sentence and drivers, winner linking to the filtered view) above the same tiles |
+| Trigger | Every run | Every run (thresholds stay the Alert shape's business) |
+
+### 11.2 What the form asks, for a diagnostic ask
+
+Derived from the words first; every one editable; nothing the data can decide is asked.
+
+1. **The KPI** -- one. Several matches → the form asks which.
+2. **The two periods** -- inferred ("last week" → last complete week vs the one before;
+   "vs last year" → prior year), shown as dates. Readiness checks the grain the data can
+   bear from the row counts (the quote fact closes ~100/week: weekly holds, daily does
+   not for a rate) and says so with the number.
+3. **Search the cause across** -- the grains the fact carries, all ticked; untick to
+   exclude one.
+4. **Sensitivity** -- how readily a slice is called unusual: *only clear outliers · usual ·
+   flag more*. Three words, not a number. It sets the statistical bar (§11.3) and the
+   support floor together. Default *usual*.
+5. **Evidence columns** -- which columns of the evidence rows to show (defaults from the
+   fact's descriptive columns; for a rate, the losing side's reason column is always in).
+
+Not asked, shown instead: the **history used for the norm** (trailing 12 periods, stated
+on readiness), the **minimum support** (derived from the data and stated: "a slice needs
+20 closed quotes in the week to be named"), and the **row counts per period** the dry
+answer already gives.
+
+Decided 18 Sep: no "only when it moved by more than X" -- a diagnostic runs every run; a
+line to cross is what the Alert shape is for.
+
+### 11.3 The decomposition executor -- generalised spec
+
+Deterministic, unit-tested on synthetic data, one executor for every KPI the registry can
+break down. It follows the published root-cause pattern for multi-dimensional metrics
+(Microsoft Adtributor; ThoughtSpot SpotIQ change analysis; Power BI key influencers and
+decomposition tree; Tableau Explain Data): **explanatory power × surprise, one dimension
+at a time, then the winning dimension's intersections, with a support floor.**
+
+**Inputs.** The KPI's definition from the registry -- its **type** (*additive*: count, sum;
+*ratio*: numerator over denominator, which is also what "average" is) and its **parts**
+(the numerator and denominator formulas -- the same "Made of" metadata the KPI audit
+panel shows); the two periods; the grains to search; sensitivity; the fact's rows for the
+two periods and for the trailing N periods, read from silver through the KPI's own
+formula grouped by each grain (the semantic layer's breakdown, as the dashboard's bar
+tiles read it today).
+
+**Step 1 -- headline.** Metric at both periods, delta, delta %.
+
+**Step 2 -- contribution per slice, per dimension.**
+- Additive: contribution of slice *s* = Δ*s*; share of gap = Δ*s* / Δ.
+- Ratio: two-way variance split per slice -- **rate effect** (the slice's own rate moved,
+  weighted by its share) and **mix effect** (the slice's share of the denominator moved,
+  weighted by its rate gap to the whole); the two sum to the headline delta across
+  slices. "Ovens' own win rate fell" and "more of the closes were Ovens, which win less"
+  are different findings and are reported as such.
+
+**Step 3 -- surprise per slice.** The slice's current value against its own trailing N
+periods: robust z (median and MAD, so one wild week does not set the bar). Sensitivity
+maps to the bar: clear outliers |z| ≥ 3 · usual ≥ 2 · flag more ≥ 1.5. This is what makes
+"7 of 9 lost vs a normal 35%" a statement rather than a coincidence.
+
+**Step 4 -- support floor.** A slice needs at least max(*k*, *p* % of the period's rows)
+rows in the period (defaults *k* = 20, *p* = 5, scaled by sensitivity) to be named; below
+it, its rows fold into "other" and, if it would have won, the report says "too few to
+say" with the count.
+
+**Step 5 -- rank dimensions, then slices.** A dimension's explanatory power = the share of
+the gap its top slices account for (Adtributor's measure); the best dimension is the one
+that explains the most with the fewest slices. Within it, slices rank by
+share of gap × surprise. Ties within 10 % are reported as ties, not broken.
+
+**Step 6 -- one level down.** For the winning slice only, repeat step 2–5 across the
+remaining dimensions (Ovens → South Territory), depth 2, same support floor. Deeper is
+noise on this data volume.
+
+**Step 7 -- evidence.** The rows behind the winner for the current period: for a ratio,
+the losing side (lost quotes) with the reason column tallied; for a count, the rows of
+the slice. Capped, with the count.
+
+**Output** (the only thing the model sees):
+`headline {kpi, period, baseline_period, current, baseline, delta, delta_pct}`,
+`drivers [{dimension, value, effect: volume | rate | mix, contribution, share_of_gap,
+current, baseline, norm, z, support}]` (top 3 + ties), `intersections [...]` (depth 2),
+`evidence {rows, count, tallies}`, `confidence {share_explained_by_top, ties,
+below_support: [...]}`, `caveats [...]`. The explanation model writes the sentence from
+this and nothing else; `check_report_grounding` verifies every figure against it, as
+today.
+
+**Generalisation.** Any registry KPI qualifies when the registry knows (a) its type and
+parts and (b) the grains its fact carries. (a) is the "Made of" metadata from the KPI
+audit design (§9 of that document) -- derived once from the formula by the same
+explainability pass and stored on the KPI; (b) the semantic layer holds. A KPI without
+parts is treated as additive; a KPI whose fact carries no grains cannot be diagnosed, and
+readiness says so.
+
+### 11.4 Not in this plan
+
+Targets (no plan data); the collinear web-session funnel flags; daily grain on the quote
+fact; seasonality in the norm (same-weekday history -- a later refinement); cross-KPI
+causes ("win rate fell because volume rose") -- the first release names *where* the change
+sits, not the mechanism behind it.

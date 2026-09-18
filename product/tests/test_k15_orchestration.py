@@ -44,6 +44,7 @@ FULL = frozenset(
     {
         "read_gold",
         "compare_to_baseline",
+        "decompose_change",
         "check_report_grounding",
         "render_report",
         "send_report",
@@ -437,7 +438,10 @@ def test_model_steps_are_declared_for_the_prompt_skill_to_author():
 def test_capability_report_names_what_each_shape_still_needs():
     bare = frozenset({"read_gold", "record_provenance", "deliver_in_app"})
     report = capability_report(bare)
-    assert set(report) == {s.value for s in UseCaseShape} | {"act/document_to_record"}
+    assert set(report) == {s.value for s in UseCaseShape} | {
+        "act/document_to_record",
+        "inform/metric_diagnosis",
+    }
     assert "Compare to baseline" in report["inform"]["missing"]
     assert "Receive" in report["act/document_to_record"]["missing"]
     assert "Write to target" in report["act"]["missing"]
@@ -930,6 +934,22 @@ def test_optional_slots_do_not_block_publication():
     assert "example document" not in report.parameters
     assert "example document" not in report.unfilled_slots
     assert report.publishable
+
+
+def test_master_data_and_thresholds_default_when_the_form_leaves_them_out():
+    # K24: the form no longer asks for master data (the roles come from the mapping and
+    # are read from the write target) nor thresholds (defaults); an empty slot compiles.
+    draft = {
+        k: v
+        for k, v in DOC_DRAFT.items()
+        if k not in ("master_data", "match_thresholds")
+    }
+    draft["master_data"] = {}
+    report = compiled_doc(draft=draft)
+    assert report.publishable, report.refusal_reasons
+    assert report.parameters["master data"] == {"source": "write target"}
+    assert report.parameter_origins["master data"] is ParameterOrigin.DEFAULT
+    assert report.parameters["match thresholds"] == {}
 
 
 def test_a_required_template_slot_left_empty_blocks_publication():

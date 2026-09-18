@@ -25,7 +25,6 @@ function ParamInputs({ rule, onChange }) {
 
 export default function GuardrailRulesField({ spec, template, setRules }) {
  const rows = useMemo(() => normalizeRules(spec.recordGuardrails), [spec.recordGuardrails]);
- const md = spec.masterData || {};
  const suggested = useMemo(() => suggestRules(template), [template]);
  const [adding, setAdding] = useState(null); // { kind, field, line_field }
  const on = (id) => rows.find((r) => r.id === id);
@@ -36,20 +35,49 @@ export default function GuardrailRulesField({ spec, template, setRules }) {
  const header = headerFields(template).map((f) => f.name);
  const lines = lineFields(template).map((f) => f.name);
 
+ // A rule reading a field this template does not extract (kept from an earlier template)
+ // is skipped at run time, never passed. Named, with the same check over this template's
+ // field offered where the suggestions carry one.
+ const stale = (rule) => !!rule.field && !names.includes(rule.field);
+ const replacementFor = (rule) => suggested.find((sug) => sug.kind === rule.kind && !on(sug.id));
+ const replace = (rule, sug) => setRules([...rows.filter((r) => r.id !== rule.id), sug]);
+ // The column a check reads is the person's to choose, from this template's own fields --
+ // header fields for a header check, line fields for a line check. Changing it re-derives
+ // the rule (its id, label and exception follow the field); the parameters stay.
+ const fieldOptionsFor = (rule) => { const k = kindOf(rule.kind); return k?.scope === "header" ? header : k?.scope === "line" ? lines : names; };
+ const rebind = (rule, field, lineField) => {
+  const next = normalizeRule({ kind: rule.kind, field: field || rule.field, line_field: lineField !== undefined ? lineField : rule.line_field, params: rule.params });
+  if (!next) return;
+  setRules(rows.map((r) => (r.id === rule.id ? next : r)));
+ };
+ const FieldPick = ({ rule }) => {
+  const options = fieldOptionsFor(rule);
+  const current = rule.field || "";
+  return (
+   <select value={current} onChange={(e) => rebind(rule, e.target.value)} className={`${input} ml-1.5 font-mono`} aria-label={`${rule.label} field`}>
+    {current && !options.includes(current) && <option value={current}>{current} (not in this template)</option>}
+    {options.map((n) => <option key={n} value={n}>{n}</option>)}
+   </select>
+  );
+ };
  const row = (rule, { suggestedRow }) => {
   const active = on(rule.id);
   const needs = needsOf(rule);
-  const needsMissing = needs && !md[needs];
   const shown = active || rule;
+  const missing = active && stale(shown);
+  const swap = missing ? replacementFor(shown) : null;
   return (
-   <li key={rule.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-1.5 ${active ? "border-primary/40 bg-primary-light/30" : "border-border-light"}`}>
+   <li key={rule.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-1.5 ${missing ? "border-status-warning-border bg-status-warning-light" : active ? "border-primary/40 bg-primary-light/30" : "border-border-light"}`}>
     <input type="checkbox" checked={!!active} onChange={() => (suggestedRow ? toggle(rule) : setRules(rows.filter((r) => r.id !== rule.id)))} aria-label={rule.label} />
     <div className="min-w-0">
      <span className="text-xs font-semibold text-text-primary">{shown.label}</span>
      <span className="ml-1.5 text-[11px] text-text-secondary">{ruleCheck(shown)}</span>
-     {rule.field && <span className="ml-1.5 font-mono text-[10px] text-text-muted">{rule.field}{rule.line_field && rule.kind === "total_matches_lines" ? ` ↔ ${rule.line_field}` : ""}</span>}
+     {rule.field && !active && <span className="ml-1.5 font-mono text-[10px] text-text-muted">{rule.field}{rule.line_field && rule.kind === "total_matches_lines" ? ` ↔ ${rule.line_field}` : ""}</span>}
+     {active && kindOf(shown.kind)?.scope !== "none" && <FieldPick rule={shown} />}
+     {active && shown.kind === "total_matches_lines" && <span className="text-[10px] text-text-muted"> ↔ <select value={shown.line_field || ""} onChange={(e) => rebind(shown, undefined, e.target.value)} className={`${input} font-mono`} aria-label={`${shown.label} line field`}>{lines.map((n) => <option key={n} value={n}>{n}</option>)}</select></span>}
      <span className="ml-1.5 text-[10px] text-text-muted">→ {shown.exception}</span>
-     {needsMissing && active && <span className="ml-1.5 text-[11px] text-status-warning">needs {MASTER_DATA_ROLES.find((r) => r.id === needs)?.label.toLowerCase()} under master data, else skipped</span>}
+     {needs && active && !missing && <span className="ml-1.5 text-[10px] text-text-muted">reads {MASTER_DATA_ROLES.find((r) => r.id === needs)?.label.toLowerCase()} from the target</span>}
+     {missing && <span className="ml-1.5 text-[11px] text-status-warning">this template has no <span className="font-mono">{shown.field}</span>, so the check never holds a record. {swap ? <button type="button" onClick={() => replace(shown, swap)} className="font-semibold underline">Use {swap.field} instead</button> : <button type="button" onClick={() => setRules(rows.filter((r) => r.id !== shown.id))} className="font-semibold underline">Remove it</button>}</span>}
     </div>
     {active ? <ParamInputs rule={active} onChange={update} /> : <span />}
    </li>

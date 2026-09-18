@@ -344,14 +344,61 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
     ),
 }
 
+
 #: The sequences a shape has more than one of. Keyed by template; ``KPI_CHANGE`` is the Act
 #: row of :data:`SHAPE_STAGES` itself, so a spec that names no template compiles exactly as
 #: before. ``DOCUMENT_TO_RECORD`` is the first document-driven sequence: receive, screen,
 #: extract, resolve, then the same write-side machinery Act already has. Every stage is a
 #: generic verb -- nothing here says "order" or "Salesforce" -- and the use case is the slot
 #: values, which is what lets a second document-driven use case reuse it with no new executor.
+def _diagnosis_stages() -> Tuple[Stage, ...]:
+    """The Inform sequence with the decomposition between Compare and Explain (K25)."""
+    inform = SHAPE_STAGES[UseCaseShape.INFORM]
+    out: List[Stage] = []
+    for stage in inform:
+        if stage.name == "Explain":
+            out.append(
+                Stage(
+                    "Decompose the change",
+                    StageKind.EXECUTOR,
+                    "decompose_change",
+                    consumes=(
+                        "metrics",
+                        "comparison",
+                        "window",
+                        "dimensions",
+                        "sensitivity",
+                        "evidence columns",
+                    ),
+                    description=(
+                        "Where the change sits, by arithmetic: each slice of each "
+                        "dimension gets its contribution (rate and mix effects for a "
+                        "rate), its surprise against its own history, and a support "
+                        "floor; dimensions are ranked, the winning slice searched one "
+                        "level down, and the rows behind it fetched. The model that "
+                        "follows narrates this ranking; it never picks the cause."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Explain",
+                    StageKind.MODEL,
+                    role="explanation",
+                    description=(
+                        "One model step. Writes the sentence from the ranked drivers "
+                        "and the evidence; every figure is one the arithmetic produced."
+                    ),
+                )
+            )
+        else:
+            out.append(stage)
+    return tuple(out)
+
+
 TEMPLATE_STAGES: Mapping[UseCaseTemplate, Tuple[Stage, ...]] = {
     UseCaseTemplate.KPI_CHANGE: SHAPE_STAGES[UseCaseShape.ACT],
+    UseCaseTemplate.METRIC_DIAGNOSIS: _diagnosis_stages(),
     UseCaseTemplate.DOCUMENT_TO_RECORD: (
         Stage(
             "Receive",
@@ -480,6 +527,8 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
     "acknowledge": ("draft", "acknowledge"),
     "target objects": ("draft", "target_objects"),
     "created as": ("draft", "created_as"),
+    "sensitivity": ("draft", "sensitivity"),
+    "evidence columns": ("draft", "evidence_columns"),
 }
 
 #: Slots that may be empty without blocking publication: the value is optional by design.
@@ -488,13 +537,37 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
 #: message, which is a filter too.
 #: Optional slots that bind a default when the spec leaves them blank (K23). A callable
 #: derives the default from the spec.
+#: A default callable's answer when the slot has no default for this spec after all.
+NO_DEFAULT: Any = object()
+
+
+def _is_diagnosis(spec: Mapping[str, Any]) -> bool:
+    return str(spec.get("template") or "").strip().lower() == "metric_diagnosis"
+
+
 SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
     {
         "window": None,
         "title": lambda spec: str(spec.get("question") or "Report"),
-        "outputs": ["report"],
+        # Every Analytics Automation produces the report and a dashboard (18 Sep); the
+        # form no longer asks.
+        "outputs": ["report", "dashboard"],
+        # The document-to-record form no longer asks for these (K24): the roles a use case
+        # resolves against follow from its mapping and guardrails and are read from the
+        # write target itself, and the matching thresholds keep their defaults unless the
+        # spec sets one.
+        "master data": lambda spec: {"source": "write target"},
+        "match thresholds": lambda spec: {},
+        # The diagnostic (K25): a change is inherent, so the period before is the baseline
+        # unless the words said otherwise; every candidate dimension is searched; the
+        # usual sensitivity; the evidence columns the fact suggests.
+        "sensitivity": "usual",
+        "evidence columns": [],
+        "dimensions": lambda spec: [] if _is_diagnosis(spec) else NO_DEFAULT,
+        "comparison": lambda spec: "prior_period" if _is_diagnosis(spec) else None,
     }
 )
+
 
 OPTIONAL_SLOTS: FrozenSet[str] = frozenset(
     {
@@ -506,6 +579,10 @@ OPTIONAL_SLOTS: FrozenSet[str] = frozenset(
         "window",
         "title",
         "outputs",
+        # A comparison is the person's choice, never a default: a monitoring report
+        # without one carries the numbers and their breakdowns; a diagnostic asks for
+        # one in its own words and the reader infers it from those.
+        "comparison",
     }
 )
 
@@ -585,6 +662,18 @@ class CompiledWorkflow:
             for slot in self.unfilled_slots
         ]
         return reasons
+
+
+def _comparison_wanted(spec: Mapping[str, Any], draft: Mapping[str, Any]) -> bool:
+    """Whether this spec compares: a diagnosis always (two periods are inherent); otherwise
+    only when the form or the spec named a baseline."""
+    if _is_diagnosis(spec):
+        return True
+    return (
+        _filled(_spec_parameter(spec, "comparison"))
+        or _filled(draft.get("comparison"))
+        or _filled(_lookup(spec, "time_window"))
+    )
 
 
 def _step_dict(
@@ -791,7 +880,22 @@ def compile_workflow(
 
     steps: List[Dict[str, Any]] = []
     missing_gate = False
+    # A comparison is a choice (18 Sep): when the spec makes none, the Compare stage is
+    # emitted under the name of what it then does -- carry the numbers forward -- so the
+    # plan and the run history never say "compared" about a run that compared nothing.
+    compares = _comparison_wanted(spec, draft)
     for index, stage in enumerate(stages, start=1):
+        if stage.name == "Compare to baseline" and not compares:
+            stage = Stage(
+                "Take the numbers as they are",
+                stage.kind,
+                stage.executor_ref,
+                consumes=("window",),
+                description=(
+                    "No comparison chosen: each KPI's value at the run's date and its "
+                    "breakdown rows, carried forward as they are. Nothing is compared."
+                ),
+            )
         step_id = f"{identifier}.{index:02d}.{_slug(stage.name)}"
         if stage.kind is StageKind.MODEL:
             agent_id = f"{identifier}__{stage.role or _slug(stage.name)}"
@@ -865,12 +969,20 @@ def compile_workflow(
         elif _filled(spec_value):
             compiled.parameters[slot] = spec_value
             compiled.parameter_origins[slot] = ParameterOrigin.SPEC
-        elif slot in SLOT_DEFAULTS:
+        elif slot in SLOT_DEFAULTS and (
+            (
+                default := (
+                    SLOT_DEFAULTS[slot](spec)
+                    if callable(SLOT_DEFAULTS[slot])
+                    else SLOT_DEFAULTS[slot]
+                )
+            )
+            is not NO_DEFAULT
+        ):
             # An optional slot with a sensible default binds it, so the plan shows what will
             # actually run rather than a blank: the report's title is the question, its
             # outputs the report alone, its window the KPI's own declared one.
-            value = SLOT_DEFAULTS[slot]
-            compiled.parameters[slot] = value(spec) if callable(value) else value
+            compiled.parameters[slot] = default
             compiled.parameter_origins[slot] = ParameterOrigin.DEFAULT
         elif slot not in OPTIONAL_SLOTS:
             compiled.unfilled_slots.append(slot)

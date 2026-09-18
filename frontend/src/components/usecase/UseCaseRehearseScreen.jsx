@@ -165,7 +165,9 @@ export default function UseCaseRehearseScreen() {
 
    {!doc && isAnalyticsInform(spec) && (
     <Section title="The report it would have sent">
-     <p className="mb-2 text-sm text-text-secondary">The platform reads the KPIs from gold as they are now, compares them with {spec.comparison === "prior_year" ? "the same period last year" : "the period before"} (computing that date's values from the KPI formulas when gold has none yet), has the AI step write the narrative, checks every figure in it against the numbers, and renders the report. Nothing is emailed; the in-app copy is previewed.</p>
+     <p className="mb-2 text-sm text-text-secondary">{spec.template === "metric_diagnosis"
+      ? `The platform reads ${spec.metricIds[0] || "the KPI"} for the run's date and ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, finds where the change sits by arithmetic across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}, has the AI step write the sentence from that ranking, checks every figure in it, and renders the report. Nothing is emailed; the in-app copy is previewed.`
+      : `The platform reads the KPIs from gold as they are now${spec.comparison ? `, compares them with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"} (computing that date's values from the KPI formulas when gold has none yet)` : ""}, has the AI step write the narrative, checks every figure in it against the numbers, and renders the report. Nothing is emailed; the in-app copy is previewed.`}</p>
      <PlatformRunPanel
       compact
       mode="rehearse"

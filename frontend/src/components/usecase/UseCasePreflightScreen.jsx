@@ -53,7 +53,7 @@ export default function UseCasePreflightScreen() {
  // computed from the form -- the platform logs into the mailbox, takes a token from the
  // target, reads the master data, calls the model once and reads the golden cases, one
  // after another, and each row lands when its probe answers.
- const PROBES = spec.template === "document_to_record" ? ["mailbox", "target", "master_data", "model", "golden"] : isAnalyticsInform(spec) ? ["gold", "delivery", "model", "dry_answer"] : [];
+ const PROBES = spec.template === "document_to_record" ? ["mailbox", "target", "master_data", "model", "golden"] : spec.template === "metric_diagnosis" ? ["gold", "diagnosis", "delivery", "model", "dry_answer"] : isAnalyticsInform(spec) ? ["gold", "delivery", "model", "dry_answer"] : [];
  const [probes, setProbes] = useState({});
  const [probeError, setProbeError] = useState(null);
  const [runKey, setRunKey] = useState(0);
@@ -111,12 +111,13 @@ export default function UseCasePreflightScreen() {
    const recipients = (spec.notify || "").split(/[,;]/).map((x) => x.trim()).filter((x) => /@/.test(x));
    return [
     { id: "gold", title: "KPIs in gold", level: "warn", detail: "Probing…", fix: null },
+    ...(spec.template === "metric_diagnosis" ? [{ id: "diagnosis", title: "What the change can be searched across", level: "warn", detail: "Probing the KPI's formula, its fact's columns and the rows per period…", fix: null }] : []),
     { id: "dry_answer", title: "The numbers now", level: "warn", detail: "Probing…", fix: null },
     { id: "delivery", title: "Report delivery", level: "warn", detail: "Probing…", fix: null },
     { id: "model", title: "Explanation model", level: "warn", detail: "Probing…", fix: null },
-    { id: "coverage", title: "Coverage", level: spec.metricIds.length === 0 ? "fail" : spec.metricIds.length === 1 ? "warn" : "pass", detail: spec.metricIds.length === 0 ? "No KPI chosen." : spec.metricIds.length === 1 ? "One KPI: the report will say what moved, not where." : `${spec.metricIds.length} KPIs${spec.dimensions.length ? ` broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, compared with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}.`, fix: spec.metricIds.length === 0 ? { label: "Choose KPIs", to: spec_ } : null },
-    { id: "outputs", title: "Outputs", level: (spec.outputs || []).length ? "pass" : "warn", detail: (spec.outputs || []).length ? `${spec.outputs.includes("report") ? "The report, every run" : ""}${spec.outputs.includes("report") && spec.outputs.includes("dashboard") ? "; " : ""}${spec.outputs.includes("dashboard") ? "a dashboard composed at activation under KPIs → Dashboards" : ""}.${recipients.length ? ` Emailed to ${recipients.join(", ")}.` : " In-app only: no email address given."}` : "No output chosen; the report alone will be produced.", fix: null },
-    { id: "grounding", title: "Narrative checked against the numbers", level: "pass", detail: "The AI step writes the narrative from the comparison; a deterministic check rejects it if any figure is not one the numbers carry, and the report then goes out with the numbers alone.", fix: null },
+    { id: "coverage", title: "Coverage", level: spec.metricIds.length === 0 ? "fail" : spec.template === "metric_diagnosis" ? (spec.metricIds.length === 1 ? "pass" : "fail") : spec.metricIds.length === 1 ? "warn" : "pass", detail: spec.template === "metric_diagnosis" ? (spec.metricIds.length === 1 ? `One KPI, ${spec.metricIds[0]}, its change decomposed across ${spec.dimensions.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}.` : "A diagnosis explains one KPI.") : spec.metricIds.length === 0 ? "No KPI chosen." : spec.metricIds.length === 1 ? "One KPI: the report will say what moved, not where." : `${spec.metricIds.length} KPIs${spec.dimensions.length ? ` broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}${spec.comparison ? `, compared with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}` : ", not compared"}.`, fix: spec.metricIds.length === 0 ? { label: "Choose KPIs", to: spec_ } : null },
+    { id: "outputs", title: "Outputs", level: "pass", detail: `The report every run, and a dashboard composed at activation under KPIs → Dashboards${spec.template === "metric_diagnosis" ? " (the KPI, its trend, where the change sits, and one breakdown per dimension searched)" : ""}.${recipients.length ? ` Emailed to ${recipients.join(", ")}.` : " In-app only: no email address given."}`, fix: null },
+    { id: "grounding", title: "Narrative checked against the numbers", level: "pass", detail: `The AI step writes the narrative from ${spec.template === "metric_diagnosis" ? "the decomposition" : spec.comparison ? "the comparison" : "the numbers"}; a deterministic check rejects it if any figure is not one the numbers carry, and the report then goes out with the numbers alone.`, fix: null },
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "Nobody owns this yet.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
    ];
   }
@@ -236,15 +237,18 @@ export default function UseCasePreflightScreen() {
   }
   return out;
  }, [spec, level]);
- const PROBE_FOR_ID = { mailbox: "mailbox", target: "target", masterdata: "master_data", model: "model", golden: "golden", gold: "gold", delivery: "delivery", dry_answer: "dry_answer" };
+ const PROBE_FOR_ID = { mailbox: "mailbox", target: "target", masterdata: "master_data", model: "model", golden: "golden", gold: "gold", delivery: "delivery", dry_answer: "dry_answer", diagnosis: "diagnosis" };
  const checks = useMemo(() => {
   const merged = rawChecks.map((c) => {
    const probe = PROBES.length ? PROBE_FOR_ID[c.id] : null;
    if (!probe) return c;
    const r = probes[probe];
    if (!r) return { ...c, probe, pending: true };
-   const goldenWarn = probe === "golden" && r.passed && !(r.with_expected > 0);
-   return { ...c, probe, pending: false, level: r.passed ? (goldenWarn ? "warn" : "pass") : "fail", detail: `${r.reason} (${r.elapsed_ms >= 1000 ? `${(r.elapsed_ms / 1000).toFixed(1)} s` : `${r.elapsed_ms} ms`})`, fix: r.passed ? null : c.fix || (probe === "golden" ? { label: "See the failing cases", to: "/use-cases/builder/rehearse" } : null) };
+   // The golden cases are advisory (contract 1.11.2): their verdict is shown to weigh,
+   // never a gate -- a failing case is "to note", with the link to see it.
+   const golden = probe === "golden";
+   const level = golden ? (r.passed && r.with_expected > 0 ? "pass" : "warn") : (r.passed ? "pass" : "fail");
+   return { ...c, probe, pending: false, level, detail: `${r.reason} (${r.elapsed_ms >= 1000 ? `${(r.elapsed_ms / 1000).toFixed(1)} s` : `${r.elapsed_ms} ms`})`, fix: r.passed ? null : c.fix || (probe === "golden" ? { label: "See the failing cases", to: "/use-cases/builder/rehearse" } : null) };
   });
   return merged.sort((a, b) => GROUP_ORDER.indexOf(groupOf(a)) - GROUP_ORDER.indexOf(groupOf(b)));
   // eslint-disable-next-line react-hooks/exhaustive-deps

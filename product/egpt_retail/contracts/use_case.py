@@ -142,6 +142,9 @@ class UseCaseTemplate(str, Enum):
 
     KPI_CHANGE = "kpi_change"
     DOCUMENT_TO_RECORD = "document_to_record"
+    #: The Inform sequence that explains a change (K25): one KPI, two periods, the change
+    #: decomposed across the fact's dimensions by arithmetic before the model narrates it.
+    METRIC_DIAGNOSIS = "metric_diagnosis"
 
 
 #: Which shape each template is a sequence of. Both are Act today; a template of another shape
@@ -150,6 +153,7 @@ TEMPLATE_SHAPE: Mapping[UseCaseTemplate, UseCaseShape] = MappingProxyType(
     {
         UseCaseTemplate.KPI_CHANGE: UseCaseShape.ACT,
         UseCaseTemplate.DOCUMENT_TO_RECORD: UseCaseShape.ACT,
+        UseCaseTemplate.METRIC_DIAGNOSIS: UseCaseShape.INFORM,
     }
 )
 
@@ -178,6 +182,20 @@ TEMPLATE_PARAMETERS: Mapping[UseCaseTemplate, Tuple[str, ...]] = MappingProxyTyp
             "per-run cap",
             "rollback",
             "schedule",
+        ),
+        # The diagnostic (K25): the Inform list, ``dimensions`` meaning the columns the
+        # change is searched across, plus the two things the arithmetic cannot decide.
+        UseCaseTemplate.METRIC_DIAGNOSIS: (
+            "metrics",
+            "comparison",
+            "window",
+            "dimensions",
+            "sensitivity",
+            "evidence columns",
+            "schedule",
+            "recipient",
+            "title",
+            "outputs",
         ),
     }
 )

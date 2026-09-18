@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Clock, ExternalLink, FlaskConical, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { RunResultView } from "./PlatformRunPanel";
 import { money, runStats } from "../../domain/use-case-platform";
@@ -14,8 +14,13 @@ const TRIGGER = { schedule: { Icon: Clock, label: "Scheduled" }, manual: { Icon:
  * order value of what was created, the exception classes, and the created records linked
  * into the target. A poll that found nothing is one quiet line, not a table.
  */
-export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
+export default function RunHistory({ runs, onRefresh, refreshing = false, refreshedAt = null, createdAs = "draft" }) {
  const [open, setOpen] = useState(null);
+ // "Updated 14:32:07" ticks so a fresh read is visibly fresh; a read in flight spins.
+ const [, tick] = useState(0);
+ useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 5000); return () => clearInterval(t); }, []);
+ const age = refreshedAt ? Math.round((Date.now() - refreshedAt.getTime()) / 1000) : null;
+ const updated = age == null ? "" : age < 8 ? "updated just now" : age < 60 ? `updated ${age} s ago` : `updated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
  const [showIdle, setShowIdle] = useState(false);
  const stats = useMemo(() => runs.map((r) => ({ run: r, s: runStats(r) })), [runs]);
  const live = stats.filter((x) => x.run.mode === "live");
@@ -32,12 +37,15 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
      <h2 className="text-sm font-bold text-text-primary">Run history</h2>
      <p className="text-xs text-text-secondary">{runs.length} run{runs.length === 1 ? "" : "s"} · {live.length} live, {runs.length - live.length} rehearsal{runs.length - live.length === 1 ? "" : "s"}</p>
     </div>
-    <button type="button" onClick={onRefresh} className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary"><RefreshCw size={11} /> Refresh</button>
+    <div className="flex items-center gap-2 text-xs text-text-muted">
+     {updated && <span className="text-[11px]">{updated}</span>}
+     <button type="button" onClick={() => onRefresh?.()} disabled={refreshing} aria-busy={refreshing} className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary disabled:opacity-70"><RefreshCw size={11} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "Refreshing…" : "Refresh"}</button>
+    </div>
    </div>
 
    {live.length > 0 && (
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-     <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{totals.received}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "KPI comparisons, live" : "documents received, live"}</p></div>
+     <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{totals.received}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? (stats.some((x) => x.s.compared) ? "KPIs compared, live" : "KPIs read, live") : "documents received, live"}</p></div>
      <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{totals.created}</p><p className="text-[11px] text-text-muted">{stats.some((x) => x.s.report) ? "reports sent" : "records created"}</p></div>
      {totals.hasValue
       ? <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{money(totals.value)}</p><p className="text-[11px] text-text-muted">value of the {objectLabel.toLowerCase()}s created</p></div>
@@ -69,7 +77,7 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
            <span className="bg-status-critical-dot" style={{ width: `${(s.exceptions / maxReceived) * 100}%` }} />
            <span className="bg-status-warning-dot" style={{ width: `${(s.held / maxReceived) * 100}%` }} />
           </span>
-          {s.report ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> KPIs compared → report {s.notify === "sent" ? <strong className="text-status-success">emailed</strong> : s.notify === "held" ? "composed, not sent" : "in-app"}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
+          {s.report ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> {s.diagnosed ? `KPI${s.received === 1 ? "" : "s"} diagnosed` : s.compared ? "KPIs compared" : "KPIs read"} → report {s.notify === "sent" ? <strong className="text-status-success">emailed</strong> : s.notify === "held" ? "composed, not sent" : "in-app"}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
           : <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.hasValue && s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>}
           {Object.keys(s.byClass).length > 0 && (
            <span className="flex flex-wrap gap-1">{Object.entries(s.byClass).slice(0, 4).map(([k, n]) => <span key={k} className="rounded bg-status-critical-light px-1.5 py-0.5 font-mono text-[10px] text-status-critical">{k}{n > 1 ? ` ×${n}` : ""}</span>)}{Object.keys(s.byClass).length > 4 && <span className="text-[10px] text-text-muted">+{Object.keys(s.byClass).length - 4}</span>}</span>

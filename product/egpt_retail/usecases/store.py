@@ -198,11 +198,21 @@ class UseCaseStore:
         return await asyncio.to_thread(lambda: self.update(use_case_id, **fields))
 
     def delete(self, use_case_id: str) -> bool:
+        """Remove the use case with its run history and golden cases, in one transaction.
+        The tables carry no foreign key, so the rows are removed here rather than by the
+        database; a dashboard the use case composed stays -- it lives under KPIs ->
+        Dashboards, and the person may want to keep it."""
         with self._engine.begin() as connection:
             deleted = connection.execute(
                 text(f"DELETE FROM {USE_CASES_TABLE} WHERE id = :id"),
                 {"id": use_case_id},
             ).rowcount
+            if deleted:
+                for table in (RUNS_TABLE, CASES_TABLE):
+                    connection.execute(
+                        text(f"DELETE FROM {table} WHERE use_case_id = :id"),
+                        {"id": use_case_id},
+                    )
         return bool(deleted)
 
     async def adelete(self, use_case_id: str) -> bool:

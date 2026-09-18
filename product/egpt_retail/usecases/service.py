@@ -212,12 +212,24 @@ class UseCaseService:
     def _preflight_result(
         self, use_case_id: str, checks: List[tuple]
     ) -> Dict[str, Any]:
-        rows = [{"name": n, "passed": bool(p), "reason": r} for n, p, r in checks]
+        # A check is (name, passed, reason) or, advisory, (name, passed, reason, True):
+        # an advisory check is reported and never blocks -- the golden cases, whose
+        # verdict is the person's to weigh, not a gate the platform closes.
+        rows = [
+            {
+                "name": c[0],
+                "passed": bool(c[1]),
+                "reason": c[2],
+                "advisory": bool(c[3]) if len(c) > 3 else False,
+            }
+            for c in checks
+        ]
+        blocking = [c for c in rows if not c["passed"] and not c["advisory"]]
         return {
             "use_case_id": use_case_id,
-            "allowed": all(c["passed"] for c in rows),
+            "allowed": not blocking,
             "checks": rows,
-            "blocked_by": [c["name"] for c in rows if not c["passed"]],
+            "blocked_by": [c["name"] for c in blocking],
             "checked_at": _now(),
         }
 
@@ -341,6 +353,28 @@ class UseCaseService:
                         ),
                     )
                 )
+            # Guardrails read a field of the template (K21); one whose field the template
+            # does not extract is skipped at run time, never passed -- so a check the
+            # person believes is active is not. Named here, failing live.
+            if template is not None:
+                known = {n for n, _ in template.header} | {n for n, _ in template.lines}
+                blind = [
+                    f"{r.kind} ({r.field})"
+                    for r in rules_from(params.get("guardrails") or [])
+                    if r.field and r.field not in known
+                ]
+                checks.append(
+                    (
+                        "guardrail_fields",
+                        not blind or mode == "rehearse",
+                        "Every guardrail reads a field the template extracts."
+                        if not blind
+                        else "Guardrails reading fields template "
+                        f"{template.label} does not extract, so they never hold a "
+                        f"record: {', '.join(blind)}. Re-suggest the guardrails from "
+                        "this template.",
+                    )
+                )
             golden = self.golden_summary(use_case_id)
             if golden["with_expected"]:
                 checks.append(
@@ -360,10 +394,13 @@ class UseCaseService:
                             else ""
                         )
                         + ".",
+                        True,  # advisory: reported, never a gate
                     )
                 )
         if compiled.shape is UseCaseShape.INFORM:
             checks += self._inform_checks(compiled.parameters, mode=mode)
+            if compiled.template is UseCaseTemplate.METRIC_DIAGNOSIS:
+                checks += self._diagnosis_checks(compiled.parameters, mode=mode)
         return self._preflight_result(use_case_id, checks)
 
     def _probe_gold(self, parameters: Mapping[str, Any], result: Any) -> Dict[str, Any]:
@@ -511,6 +548,100 @@ class UseCaseService:
         )
         return checks
 
+    def _diagnosis_checks(
+        self, parameters: Mapping[str, Any], *, mode: str
+    ) -> List[tuple]:
+        """The diagnostic kind's preflight (K25): one KPI whose formula the decomposition
+        can read, a fact with something to search across, and enough rows in the period
+        for a slice to clear the support floor at the chosen sensitivity."""
+        from egpt_retail.diagnostics.decompose import support_floor
+        from egpt_retail.executors.diagnostics import diagnosis_options
+
+        metrics = [str(m) for m in (parameters.get("metrics") or [])]
+        checks: List[tuple] = []
+        if len(metrics) != 1:
+            checks.append(
+                (
+                    "diagnosis_kpi",
+                    False,
+                    "A diagnosis explains one KPI; "
+                    + (f"{len(metrics)} are named." if metrics else "none is named."),
+                )
+            )
+            return checks
+        window = parameters.get("window")
+        try:
+            options = diagnosis_options(
+                metrics[0], window_days=int(window) if window else None
+            )
+        except Exception as exc:  # the warehouse not answering is the finding
+            checks.append(("diagnosis_kpi", False, f"{type(exc).__name__}: {exc}"))
+            return checks
+        if not options.get("diagnosable"):
+            checks.append(
+                (
+                    "diagnosis_kpi",
+                    False,
+                    f"{metrics[0]} cannot be decomposed: {options.get('reason')}.",
+                )
+            )
+            return checks
+        checks.append(
+            (
+                "diagnosis_kpi",
+                True,
+                f"{metrics[0]} is a {options['kind']} over {options['table']}: "
+                + (
+                    f"{options['numerator']} / {options['denominator']}."
+                    if options.get("denominator")
+                    else f"{options['numerator']}."
+                ),
+            )
+        )
+        # The slot falls back to the spec's grain ("overall") when the form set nothing;
+        # only a list names columns.
+        raw_dims = parameters.get("dimensions")
+        wanted = [str(d) for d in raw_dims] if isinstance(raw_dims, list) else []
+        offered = [d["column"] for d in options.get("dimensions") or []]
+        searched = [d for d in wanted if d in offered] or offered
+        unknown = [d for d in wanted if d not in offered]
+        checks.append(
+            (
+                "diagnosis_dimensions",
+                bool(searched),
+                (
+                    f"Searches across {', '.join(searched)}."
+                    if searched
+                    else "The fact carries no column a change can be searched across."
+                )
+                + (
+                    f" Not on the fact, ignored: {', '.join(unknown)}."
+                    if unknown
+                    else ""
+                ),
+            )
+        )
+        sensitivity = str(parameters.get("sensitivity") or "usual")
+        rows = int(options.get("rows_in_period") or 0)
+        floor = support_floor(rows, sensitivity=sensitivity)
+        checks.append(
+            (
+                "diagnosis_support",
+                rows >= floor * 2 or mode == "rehearse",
+                f"{rows} rows in the period, {options.get('rows_in_baseline')} in the one "
+                f"before ({options.get('step_days')} days apart); a slice needs {floor} "
+                f"rows to be named at sensitivity '{sensitivity}'; the norm is each "
+                f"slice's last {options.get('history_periods')} periods."
+                + (
+                    ""
+                    if rows >= floor * 2
+                    else " Too few rows for any slice to clear the floor: widen the "
+                    "window or lower the sensitivity."
+                ),
+            )
+        )
+        return checks
+
     @staticmethod
     def _dashboard_url(compiled: Mapping[str, Any]) -> str:
         dashboard_id = compiled.get("dashboard_id")
@@ -556,6 +687,37 @@ class UseCaseService:
                     return existing.id
             registry = KpiRegistryStore(connection)
             tiles: List[Tile] = []
+            # A diagnosis (K25) shows its KPI itself in the "Why it changed" panel, so
+            # its tiles are the drill-down: the KPI's breakdown siblings in the registry
+            # (same concept, a grain, an identifier that extends the KPI's -- the
+            # `..._by_brand` next to `..._closed_won_rate`). The KPI alone when there are
+            # none, so the dashboard is never empty.
+            raw_template = getattr(compiled, "template", None) or (
+                compiled.get("template") if hasattr(compiled, "get") else None
+            )
+            template = str(getattr(raw_template, "value", raw_template) or "")
+            query_tiles: List[Tile] = []
+            if template == "metric_diagnosis" and metrics:
+                base = registry.get(metrics[0])
+                # One breakdown tile per dimension the diagnosis searches across: the
+                # KPI's own formula grouped by that column, as a query tile the dashboard
+                # refreshes like any other. Three dimensions chosen, three widgets.
+                if base is not None:
+                    query_tiles = self._diagnosis_breakdown_tiles(
+                        base, parameters, ChartKind, Tile, TilePosition
+                    )
+                if base is not None and not query_tiles:
+                    siblings = [
+                        k.identifier
+                        for k in registry.list(concept=base.concept or None)
+                        if k.identifier != base.identifier
+                        and k.grain not in {"overall", "time_period"}
+                        and k.identifier.startswith(base.identifier)
+                        and k.active
+                    ]
+                    metrics = siblings or metrics
+                if query_tiles:
+                    metrics = []
             definitions = {m: d for m in metrics if (d := registry.get(m)) is not None}
             number_row = [
                 m
@@ -605,13 +767,111 @@ class UseCaseService:
                     or row.get("description")
                     or ""
                 ),
-                tiles=tiles,
+                tiles=query_tiles + tiles,
                 refresh_schedule=RefreshSchedule.NIGHTLY,
                 visibility=Visibility.TEAM,
             )
+            if query_tiles:
+                self._compute_query_tiles(dashboard, settings)
             return dashboard.id
         finally:
             connection.close()
+
+    @staticmethod
+    def _diagnosis_breakdown_tiles(
+        base: Any,
+        parameters: Mapping[str, Any],
+        chart_kind: Any,
+        tile_cls: Any,
+        position_cls: Any,
+    ) -> List[Any]:
+        """The diagnosis's drill-down (K25): the KPI's formula grouped by each column the
+        change is searched across -- the ones the form chose, else every candidate -- as
+        bar tiles. Built from the formula's parts, so a KPI the decomposition can read is a
+        KPI the dashboard can break down; ``{as_of}`` becomes the refresh's own date."""
+        from egpt_retail.contracts.dashboards import ChartAxis, TileQuery, TileSource
+        from egpt_retail.diagnostics.parts import FormulaShapeError, parts_of
+        from egpt_retail.executors.diagnostics import diagnosis_options
+
+        try:
+            parts = parts_of(str(base.sql))
+        except FormulaShapeError:
+            return []
+        raw_dims = parameters.get("dimensions")
+        chosen = [str(d) for d in raw_dims] if isinstance(raw_dims, list) else []
+        try:
+            offered = [
+                d["column"]
+                for d in (diagnosis_options(base.identifier).get("dimensions") or [])
+            ]
+        except Exception:  # the warehouse not answering: no breakdowns, not a failure
+            offered = []
+        columns = [d for d in chosen if d in offered] or offered
+        if not columns:
+            return []
+        # CAST, not ``::numeric``: the runner binds ``:name`` placeholders, and a double
+        # colon would read as one.
+        value = (
+            f"ROUND(CAST({parts.numerator} AS numeric) * {parts.scale} / NULLIF({parts.denominator}, 0), {parts.precision})"
+            if parts.kind == "ratio"
+            else f"ROUND(CAST({parts.numerator} AS numeric), {parts.precision})"
+        )
+        where = parts.where.replace("{as_of}", "CURRENT_DATE")
+        table = parts.table.split(".")[-1]
+        tiles: List[Any] = []
+        for index, column in enumerate(columns[:9]):
+            sql = (
+                f"SELECT {column}, {value} AS value FROM {parts.table} WHERE {where} "
+                f"GROUP BY {column} ORDER BY value DESC LIMIT 12"
+            )
+            tiles.append(
+                tile_cls(
+                    id=f"t{index + 1}",
+                    kpi_identifier=None,
+                    chart=chart_kind.BAR,
+                    position=position_cls(
+                        x=(index % 3) * 4, y=(index // 3) * 4, w=4, h=4
+                    ),
+                    title=f"{base.name} by {column.replace('_', ' ')}",
+                    source=TileSource.QUERY,
+                    query=TileQuery(
+                        sql=sql,
+                        source_tables=frozenset({table}),
+                        x=ChartAxis(column=column, label=column.replace("_", " ")),
+                        y=(
+                            ChartAxis(
+                                column="value",
+                                label=base.name,
+                                unit=str(getattr(base, "unit", "") or ""),
+                            ),
+                        ),
+                    ),
+                    description=f"{base.name} in the current window, one bar per {column.replace('_', ' ')}; the slices the diagnosis ranks.",
+                )
+            )
+        return tiles
+
+    @staticmethod
+    def _compute_query_tiles(dashboard: Any, settings: RetailSettings) -> None:
+        """Run the new query tiles once so the dashboard opens with numbers rather than
+        waiting for its first refresh. Best effort: a failure here leaves the tiles to the
+        refresh, never the activation."""
+        import asyncio
+
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.dashboards.queries import arefresh_query_tiles
+        from egpt_retail.dashboards.query_results import DashboardQueryResultStore
+
+        try:
+            connection = pooled_control_plane_connection(settings)
+            try:
+                results = DashboardQueryResultStore(connection)
+                results.ensure_schema()
+                asyncio.run(arefresh_query_tiles(dashboard, settings, results))
+            finally:
+                connection.close()
+        except Exception as exc:  # pragma: no cover - the refresh will do it
+            log.warning("query tiles not computed at composition: %s", exc)
 
     def _registered_kpis(self, metrics: Sequence[str]) -> Tuple[List[str], List[str]]:
         from egpt_retail.app.db import pooled_control_plane_connection
@@ -807,6 +1067,11 @@ class UseCaseService:
                 )
             if check == "dry_answer":
                 return self._probe_dry_answer(parameters, result)
+            if check == "diagnosis":
+                rows = self._diagnosis_checks(parameters, mode="live")
+                return result(
+                    all(r[1] for r in rows), " ".join(str(r[2]) for r in rows)
+                )
             raise NotFound(check)
         except NotFound:
             raise
@@ -897,7 +1162,9 @@ class UseCaseService:
                 id=settings.retail_azure_small_deployment
                 or settings.retail_azure_deployment
             )
-            return build_explanation_agent(model, agent_id=agent_id)
+            return build_explanation_agent(
+                model, agent_id=agent_id, diagnosis=template_id == "metric_diagnosis"
+            )
         model = AzureOpenAI(id=settings.retail_azure_deployment)
         return build_extraction_agent(model, agent_id=agent_id, template_id=template_id)
 
@@ -1030,6 +1297,17 @@ class UseCaseService:
         cases = self.store.list_cases(use_case_id)
         if source == "generated":
             generated = [c for c in cases if c.get("source") == GENERATED_CASE_SOURCE]
+            # A generated set is written in the template's field names and expects the
+            # outcomes its guardrails produce; one made for an earlier template would
+            # score the new one against fields it never extracts. Remade when the
+            # template it was made for is not the current one.
+            current = self._template_fingerprint(row)
+            if generated and any(
+                (c.get("expected") or {}).get("template") != current for c in generated
+            ):
+                for stale in generated:
+                    self.store.delete_case(str(stale["id"]))
+                generated = []
             if not generated:
                 for raw in self.generate_cases(row):
                     generated.append(
@@ -1057,7 +1335,8 @@ class UseCaseService:
         template = template_from(
             parameters.get("extraction template") or "purchase_order"
         )
-        if template.id == "purchase_order":
+        fingerprint = self._template_fingerprint(row)
+        if _is_shipped_purchase_order(template):
             out = []
             for message in sample_messages():
                 sample_id = message.id[1:5].upper()
@@ -1074,6 +1353,7 @@ class UseCaseService:
                         ),
                         "expected": {
                             "sample_id": sample_id,
+                            "template": fingerprint,
                             "outcome": expected_outcome(sample_id),
                             "extracted": {
                                 k: expected[k]
@@ -1090,12 +1370,32 @@ class UseCaseService:
                 )
             return out
         master = self._master_rows_for(parameters)
-        return generate_cases(
+        out = generate_cases(
             template,
             master,
             rules_from(parameters.get("guardrails") or "all"),
             roles=self._roles_needed(parameters),
         )
+        stamped: List[Dict[str, Any]] = []
+        for case in out:
+            raw_expected: Any = case.get("expected")
+            merged: Dict[str, Any] = (
+                dict(raw_expected) if isinstance(raw_expected, Mapping) else {}
+            )
+            merged["template"] = fingerprint
+            stamped.append({**case, "expected": merged})
+        return stamped
+
+    def _template_fingerprint(self, row: Mapping[str, Any]) -> str:
+        """The template a generated set was made for: its id and field names."""
+        parameters = self.current_parameters(row)
+        try:
+            template = template_from(
+                parameters.get("extraction template") or "purchase_order"
+            )
+        except (KeyError, ValueError):
+            return ""
+        return template_fingerprint(template)
 
     @staticmethod
     def _mapping_for(parameters: Mapping[str, Any]) -> Optional[Any]:
@@ -1244,8 +1544,12 @@ class UseCaseService:
             workflow = workflow_from_compiled(
                 compiled,
                 executors=self.executors,
+                # The extraction role reads its template; the explanation role reads
+                # the use case's (the diagnostic kind has its own prompt).
                 agent_factory=lambda role, agent_id: self._agent_for(
-                    role, agent_id, template_id
+                    role,
+                    agent_id,
+                    compiled.get("template") if role == "explanation" else template_id,
                 ),
             )
             options = self.build_run_options(
@@ -1435,6 +1739,25 @@ def _is_curated(row: Mapping[str, Any]) -> bool:
         return False
 
 
+def template_fingerprint(template: Any) -> str:
+    """``id|header names|line names`` -- what a generated case set is authored against."""
+    header = ",".join(name for name, _ in getattr(template, "header", ()) or ())
+    lines = ",".join(name for name, _ in getattr(template, "lines", ()) or ())
+    return f"{template.id}|{header}|{lines}"
+
+
+def _is_shipped_purchase_order(template: Any) -> bool:
+    """The curated sixteen are authored against the shipped purchase-order template's own
+    field names; a drafted template that happens to carry the same id is not it."""
+    if template.id != "purchase_order":
+        return False
+    try:
+        shipped = template_from("purchase_order")
+    except (KeyError, ValueError):
+        return False
+    return template_fingerprint(template) == template_fingerprint(shipped)
+
+
 def _result_of(output: Any) -> Optional[Dict[str, Any]]:
     """The batch the last document-carrying executor returned, wherever it sits: the Notify
     step nests it under ``batch`` and ``record_provenance`` forwards that under
@@ -1500,7 +1823,13 @@ def _summary_of(result: Optional[Mapping[str, Any]]) -> str:
         delivery = result.get("delivery") or {}
         status = str(delivery.get("status") or "in-app")
         grounded = (result.get("grounding") or {}).get("passed")
-        return f"{len(kpis)} KPI(s) compared, report {status}" + (
+        if isinstance(result.get("diagnosis"), Mapping):
+            what = "1 KPI diagnosed"
+        elif comparison.get("comparison") and comparison.get("comparison") != "none":
+            what = f"{len(kpis)} KPI(s) compared"
+        else:
+            what = f"{len(kpis)} KPI(s) read"
+        return f"{what}, report {status}" + (
             ", narrative withheld (grounding)" if grounded is False else ""
         )
     documents = result.get("documents") or []

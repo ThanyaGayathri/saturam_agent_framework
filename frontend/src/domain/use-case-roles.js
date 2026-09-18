@@ -81,6 +81,8 @@ const ACCOUNT_NAME_LOOSE = /(customer|supplier|vendor|account|client)_name/;
 const SHIP_TO = /(ship|deliver|delivery|shipping).*(address|to|site)|^(site|location)$/;
 const ITEM = /^(description|product|item|material|article|sku_description|product_description|item_description|product_name|item_name)$/;
 const THEIR_PART = /^(customer|buyer|their|client)_?(part|item|sku|code|ref|product)/;
+// A part number the document attributes to neither side ("Part No." on a customer's PO): tried as the customer's own part number first, then as our code.
+const BARE_PART = /^(part|part_no|part_number|item_no|item_number|item_code|item|sku|product_code|code|catalogue_number)$/;
 const OUR_CODE = /^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|part_no|part|item_code|item_number|item_no|code|product_id|material_number|catalogue_number)$/;
 const REFERENCE = /(number|reference|ref|id|no)$/;
 const first = (names, re) => names.find((n) => re.test(n)) || null;
@@ -100,7 +102,7 @@ export function resolutionSources(template) {
  const derived = {
   customer: { name: first(header, ACCOUNT_NAME) || first(header, ACCOUNT_NAME_LOOSE) },
   ship_to: { address: first(header, SHIP_TO) },
-  product: { description: first(lines, ITEM), customer_part_number: first(lines, THEIR_PART), supplier_product_code: first(lines, OUR_CODE) },
+  product: { description: first(lines, ITEM), customer_part_number: first(lines, THEIR_PART) || first(lines, BARE_PART), supplier_product_code: first(lines, OUR_CODE) },
   reference: referenceField(template),
  };
  for (const [role, value] of Object.entries(template?.resolution || {})) {

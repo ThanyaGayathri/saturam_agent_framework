@@ -17,6 +17,10 @@ from egpt_retail.documents.mapping import (
 )
 from egpt_retail.documents.roles import resolution_sources
 from egpt_retail.documents.templates import template_from
+from egpt_retail.usecases.service import (
+    _is_shipped_purchase_order,
+    template_fingerprint,
+)
 
 DRAFTED = {
     "id": "e02_purchase_order",
@@ -196,3 +200,39 @@ class TestPartNumbers:
             assert (
                 resolution_sources(template)["product"]["supplier_product_code"] == name
             )
+
+
+class TestBarePartNumberFeedsBothAttempts:
+    def test_part_number_is_tried_as_the_customers_part_first(self):
+        # E-01's "Part No." 306727 is the customer's own number, cross-referenced on the
+        # product; a bare name feeds that attempt and the product-code one.
+        sources = resolution_sources(template_from(DRAFTED))
+        assert sources["product"]["customer_part_number"] == "part_no"
+        assert sources["product"]["supplier_product_code"] == "part_no"
+
+    def test_an_attributed_name_feeds_one_side_only(self):
+        template = template_from(
+            {
+                "label": "t",
+                "header": ["po_number*"],
+                "lines": ["customer_part", "description*"],
+            }
+        )
+        sources = resolution_sources(template)
+        assert sources["product"]["customer_part_number"] == "customer_part"
+        assert sources["product"]["supplier_product_code"] is None
+
+
+class TestCuratedCasesOnlyForTheShippedTemplate:
+    def test_a_drafted_template_under_the_shipped_id_is_not_the_shipped_one(self):
+        drafted = template_from({**DRAFTED, "id": "purchase_order"})
+        assert drafted.id == "purchase_order"
+        assert not _is_shipped_purchase_order(drafted)
+        assert _is_shipped_purchase_order(template_from("purchase_order"))
+
+    def test_the_fingerprint_changes_with_the_fields(self):
+        a = template_fingerprint(template_from(DRAFTED))
+        b = template_fingerprint(
+            template_from({**DRAFTED, "header": DRAFTED["header"] + ["extra"]})
+        )
+        assert a != b and a.startswith("e02_purchase_order|po_number,po_date")

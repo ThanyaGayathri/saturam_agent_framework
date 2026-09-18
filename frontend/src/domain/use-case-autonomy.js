@@ -34,7 +34,9 @@ export const SHAPES = {
    templateId: "gallery-uc-09",
    prompt: "Every Monday, explain gross margin rate by category and channel against plan and the same period last year. Send it to the finance team.",
   },
-  fields: ["metrics", "dimensions", "comparison", "outputs", "schedule", "recipient"],
+  // Outputs are not asked (18 Sep): every Analytics Automation produces the report and a
+  // dashboard; the form infers them.
+  fields: ["metrics", "dimensions", "comparison", "schedule", "recipient"],
  },
  alert: {
   id: "alert",
@@ -103,9 +105,12 @@ export const CATEGORIES = {
   // Chosen on the form, not on the card: which shape an Analytics Automation is depends on
   // whether it should report every run or only speak when a KPI crosses a line -- a decision
   // that comes after the KPI, not before it.
+  // Three kinds (K25): the monitoring report, the diagnostic that explains one KPI's change
+  // (the same Inform chain with the decomposition before the model), and the alert.
   trigger: [
-   { shape: "inform", label: "Every run, on a schedule", hint: "A report each time: what moved, where, and why." },
-   { shape: "alert", label: "Only when a KPI crosses a threshold", hint: "Notifies when it fires. A quiet day sends nothing." },
+   { shape: "inform", template: null, label: "Report the numbers, every run", hint: "Several KPIs with their breakdowns, on a schedule; a comparison if you want one." },
+   { shape: "inform", template: "metric_diagnosis", label: "Explain why one KPI changed, every run", hint: "Two periods, the change decomposed across every dimension the data carries; one sentence whose subject changes with the data." },
+   { shape: "alert", template: null, label: "Only when a KPI crosses a threshold", hint: "Notifies when it fires. A quiet day sends nothing." },
   ],
   examples: [
    { shape: "inform", title: "Gross Margin Analysis", templateId: "gallery-uc-09", prompt: SHAPES.inform.retail.prompt },
@@ -198,13 +203,30 @@ export const TEMPLATE_FIELDS = {
   "writeTarget", "targetObjects", "recordGuardrails", "exceptionsTo", "acknowledge",
   "createdAs", "perRunCap", "rollback",
  ],
+ // The diagnostic kind (K25): one KPI, the two periods, what to search across, how readily
+ // a slice is called unusual, the evidence columns; then the outputs and the delivery.
+ // Asked: the KPI, the two periods, what to search across, delivery; sensitivity is optional
+ // with a default. Not asked: outputs (always the report and a dashboard), the evidence
+ // columns (derived from the fact), the support floor and the norm (derived, shown).
+ metric_diagnosis: ["metrics", "comparison", "dimensions", "sensitivity", "schedule", "recipient"],
 };
+
+/** Field labels a template reads differently: the diagnostic's "dimensions" are the columns
+ *  the cause is searched across, its "metrics" is one KPI. */
+export const TEMPLATE_FIELD_META = {
+ metric_diagnosis: {
+  metrics: { label: "The KPI", hint: "One KPI — the one that moved. Its formula is read into its parts and its fact's rows are searched." },
+  dimensions: { label: "Search the cause across", hint: "The columns of the fact a change can sit in. All of them by default; untick one to leave it out." },
+  comparison: { label: "The two periods", hint: "A diagnosis compares by nature: the run's date against the period before, or the same period last year." },
+ },
+};
+export const fieldMetaFor = (field, spec) => TEMPLATE_FIELD_META[spec?.template]?.[field] || FIELD_META[field] || { label: field, hint: "" };
 
 /** The category name a person sees, with the trigger where the category spans two shapes. */
 export function displayName(spec) {
  const c = categoryOf(spec);
  if (!c) return SHAPES[spec.shape]?.label || "Use case";
- if (c.trigger) { const t = c.trigger.find((x) => x.shape === spec.shape); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
+ if (c.trigger) { const t = c.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || c.trigger.find((x) => x.shape === spec.shape); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
  if (c.templates) { const t = c.templates.find((x) => x.id === spec.template); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
  return c.label;
 }
@@ -233,8 +255,10 @@ export const FIELD_META = {
  metrics: { slot: "metrics", key: "metricIds", label: "KPIs", hint: "From your KPI registry. Only KPIs that exist." },
  metric: { slot: "metric", key: "metricIds", label: "KPI", hint: "One KPI. Monitoring watches one thing." },
  dimensions: { slot: "dimensions", key: "dimensions", label: "Analyse by", hint: "The dimensions the analysis cuts across." },
- comparison: { slot: "comparison", key: "comparison", label: "Baseline", hint: "What turns a value into a change." },
+ comparison: { slot: "comparison", key: "comparison", label: "Compare with", hint: "Optional. A baseline turns a value into a change; without one the report carries the numbers as they are." },
  outputs: { slot: "outputs", key: "outputs", label: "Outputs", hint: "What each run produces: the report (email + in-app), a dashboard composed at activation, or both." },
+ sensitivity: { slot: "sensitivity", key: "sensitivity", label: "Sensitivity · optional", hint: "Usual works for most data. Change it after a run: 'only clear outliers' if the report names noise, 'flag more' if it names nothing. Sets the statistical bar and how many rows a slice needs before it can be named." },
+ evidenceColumns: { slot: "evidence columns", key: "evidenceColumns", label: "Evidence columns", hint: "Which columns to show on the rows behind the finding. A reason column is always tallied." },
  operator: { slot: "operator", key: "condition", label: "Trigger condition", hint: "The direction of the breach." },
  threshold: { slot: "threshold", key: "condition", label: "Threshold", hint: "The number worth notifying someone for." },
  scope: { slot: "scope", key: "scope", label: "Scope", hint: "Where the condition is evaluated." },
@@ -270,7 +294,7 @@ export const FIELD_META = {
 
 /** The slots the backend has no contract field for yet (open item R-15). Shown on the form, sent
  *  as flat keys, and flagged so a demo audience knows which fields are proposed. */
-export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
+export const PROPOSED_CONTRACT_FIELDS = new Set(["sensitivity", "evidenceColumns", "operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
 
 /** The roles a document is resolved against follow from the mapping and the guardrails and
  *  are read from the target's own data (K24); the plan names them one by one. */
@@ -283,12 +307,17 @@ export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
  switch (spec.shape) {
   case "inform": {
+   if (spec.template === "metric_diagnosis") {
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    const sens = { clear: "only clear outliers", usual: "the usual bar", more: "a lower bar" }[spec.sensitivity || "usual"];
+    return `Explains why ${m || "the KPI"} changed, ${cadence}: the run's value against ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, the change decomposed across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the data carries"} by arithmetic (each slice's contribution, how unusual it is for itself at ${sens}, enough rows to be named), the winning slice searched one level down with the rows behind it. The AI step writes one sentence from that ranking -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Changes nothing.`;
+   }
    if (spec.category === "analytics_automation" && spec.analytics) {
     const names = (spec.analytics.kpis || []).filter((k) => spec.metricIds?.includes(k.identifier)).map((k) => k.name);
     const n = spec.metricIds?.length || 0;
     const outputs = spec.outputs || [];
     const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
-    return `Reads ${n} KPI${n === 1 ? "" : "s"} the data supports${names.length ? ` (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""})` : ""}, compares each with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}${spec.dimensions?.length ? ` and by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, has the AI step explain what moved -- every figure checked against the numbers -- and ${outputs.includes("report") ? `sends the report ${cadence}${spec.notify ? ` to ${spec.notify}` : " in-app"}` : "keeps the result in-app"}${outputs.includes("dashboard") ? "; a dashboard is composed from the same KPIs at activation" : ""}. Changes nothing.`;
+    return `Reads ${n} KPI${n === 1 ? "" : "s"} the data supports${names.length ? ` (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""})` : ""}, ${spec.comparison ? `compares each with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}` : "takes each as it is"}${spec.dimensions?.length ? `${spec.comparison ? " and" : ","} by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, has the AI step ${spec.comparison ? "explain what moved" : "describe the numbers"} -- every figure checked against the numbers -- and ${outputs.includes("report") ? `sends the report ${cadence}${spec.notify ? ` to ${spec.notify}` : " in-app"}` : "keeps the result in-app"}${outputs.includes("dashboard") ? "; a dashboard is composed from the same KPIs at activation" : ""}. Changes nothing.`;
    }
    return `Explains ${spec.metricIds?.length ? spec.metricIds.join(" and ") : "the KPIs"}${spec.dimensions?.length ? ` by ${spec.dimensions.join(", ").toLowerCase()}` : ""}, and delivers it to ${spec.notify || "someone"}. Changes nothing.`;
   }

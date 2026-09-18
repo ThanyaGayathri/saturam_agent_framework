@@ -631,11 +631,21 @@ async def _master_data(step_input: StepInput) -> Dict[str, Any]:
     elif isinstance(options.get("master_data_rows"), Mapping):
         rows = dict(options["master_data_rows"])
     else:
-        source = str(
-            (value or {}).get("source")
-            if isinstance(value, Mapping)
-            else value or "salesforce"
+        # No rows and no named source: the reference data lives in the write target
+        # (K24), so its connection is the one used.
+        target = slot(step_input, "write target")
+        target_kind = str(
+            (target.get("type") or target.get("kind") or "salesforce")
+            if isinstance(target, Mapping)
+            else target or "salesforce"
         ).lower()
+        source = str(
+            (value or {}).get("source") or "write target"
+            if isinstance(value, Mapping)
+            else value or "write target"
+        ).lower()
+        if source == "write target":
+            source = target_kind
         if "salesforce" not in source:
             raise ValueError(
                 f"master data source {source!r} is not one this deployment can load"
@@ -643,8 +653,12 @@ async def _master_data(step_input: StepInput) -> Dict[str, Any]:
         from egpt_retail.documents.salesforce import aload_master_data, client_from
 
         roles = (value or {}).get("roles") if isinstance(value, Mapping) else None
+        # The slot's own connection when it carries one; otherwise the write target's.
         credentials = (
-            value if isinstance(value, Mapping) else slot(step_input, "write target")
+            value
+            if isinstance(value, Mapping)
+            and any(k in value for k in ("login_url", "my_domain", "client_id"))
+            else target
         )
         client = await asyncio.to_thread(client_from, credentials)
         try:

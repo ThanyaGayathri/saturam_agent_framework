@@ -60,8 +60,13 @@ class Kind(Enum):
 
 
 class Comparison(Enum):
+    """
+    Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are.
+    """
+
     prior_period = "prior_period"
     prior_year = "prior_year"
+    NoneType_None = None
 
 
 class Output(Enum):
@@ -81,7 +86,10 @@ class AnalyticsSuggestion(BaseModel):
     dimensions: list[str] = Field(
         ..., description="The grains the chosen KPIs break down by."
     )
-    comparison: Comparison
+    comparison: Comparison | None = Field(
+        ...,
+        description="Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are.",
+    )
     comparison_reason: str | None = None
     schedule: str = Field(..., description="A `ScheduleCadence` value.")
     schedule_reason: str | None = None
@@ -281,6 +289,58 @@ class DeploymentEnvironment(Enum):
     production = "production"
     staging = "staging"
     development = "development"
+
+
+class DiagnosisColumn(BaseModel):
+    column: str
+    description: str | None = None
+
+
+class DiagnosisDimension(BaseModel):
+    column: str
+    label: str
+    distinct: int
+    description: str | None = None
+
+
+class Kind1(Enum):
+    ratio = "ratio"
+    additive = "additive"
+
+
+class DiagnosisOptions(BaseModel):
+    kpi_identifier: str
+    diagnosable: bool
+    reason: str | None = Field(None, description="When not diagnosable: why.")
+    kind: Kind1 | None = None
+    numerator: str | None = None
+    denominator: str | None = None
+    table: str | None = None
+    window_days: int | None = None
+    step_days: int | None = None
+    as_of: date | None = None
+    rows_in_period: int | None = None
+    rows_in_baseline: int | None = None
+    history_periods: int | None = None
+    support_floors: dict[str, int] | None = Field(
+        None,
+        description="Rows a slice needs to be named, per sensitivity (clear, usual, more).",
+    )
+    dimensions: list[DiagnosisDimension] | None = None
+    columns: list[DiagnosisColumn] | None = None
+    reason_columns: list[str] | None = None
+
+
+class DiagnosisOptionsRequest(BaseModel):
+    kpi_identifier: str
+    window: int | None = Field(
+        None,
+        description="Days between the two periods; null means the KPI's own window.",
+        ge=1,
+    )
+    as_of: date | None = Field(
+        None, description="The run date to size the periods at; null means today."
+    )
 
 
 class Dialect(Enum):
@@ -814,6 +874,10 @@ class PreflightCheck(BaseModel):
     name: str
     passed: bool
     reason: str
+    advisory: bool | None = Field(
+        False,
+        description="Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by.",
+    )
 
 
 class ProbeName(Enum):
@@ -825,6 +889,7 @@ class ProbeName(Enum):
     gold = "gold"
     delivery = "delivery"
     dry_answer = "dry_answer"
+    diagnosis = "diagnosis"
 
 
 class ProbeResult(BaseModel):
@@ -1472,6 +1537,7 @@ class UseCaseTemplate(Enum):
 
     kpi_change = "kpi_change"
     document_to_record = "document_to_record"
+    metric_diagnosis = "metric_diagnosis"
 
 
 class UseCaseWrite(BaseModel):

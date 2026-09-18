@@ -386,12 +386,12 @@ def test_missing_parameters_are_gaps_for_the_chosen_shape(reader, kpis):
         "kpi_identifiers": ["supplier__on_time_rate_30d"],
     }
     inform = assess_gaps(spec, reader=reader, kpis=kpis, draft={}, level=1, now=NOW)
+    # A comparison is a choice, never a gap: an Inform without one reports the numbers.
     assert [g["subject"] for g in _gaps(inform, "missing_parameter")] == [
-        "comparison",
         "schedule",
         "recipient",
     ]
-    assert "spec.time_window" in _gaps(inform, "missing_parameter")[0]["detail"]
+    assert "draft.step8.schedule" in _gaps(inform, "missing_parameter")[0]["detail"]
     act = assess_gaps(
         spec,
         reader=reader,

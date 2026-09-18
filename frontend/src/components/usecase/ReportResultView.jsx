@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ExternalLink, ShieldCheck, ShieldAlert } from "lucide-react";
 import { reportResult } from "../../domain/use-case-analytics";
+import DiagnosisInsight from "./DiagnosisInsight";
 
 /**
  * An Inform run's result (K23): the report as the recipient sees it, the grounding verdict
@@ -24,8 +25,10 @@ export default function ReportResultView({ run, live }) {
  return (
   <div className="mt-3 space-y-3">
    <div className="grid grid-cols-4 gap-2 text-center">
-    <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{r.kpis.length}</p><p className="text-[11px] text-text-muted">KPIs compared</p></div>
-    <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{withBaseline}</p><p className="text-[11px] text-text-muted">with a baseline{r.backfilled.length ? ` (${r.backfilled.length} computed for it)` : ""}</p></div>
+    <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{r.diagnosis ? 1 : r.kpis.length}</p><p className="text-[11px] text-text-muted">{r.diagnosis ? "KPI diagnosed" : r.compared ? "KPIs compared" : "KPIs read"}</p></div>
+    {r.compared || r.diagnosis
+     ? <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{r.diagnosis ? (r.diagnosis.ranking || []).filter((e) => e.drivers?.length).length : withBaseline}</p><p className="text-[11px] text-text-muted">{r.diagnosis ? "dimensions with a named slice" : `with a baseline${r.backfilled.length ? ` (${r.backfilled.length} computed for it)` : ""}`}</p></div>
+     : <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">Not compared</p><p className="text-[11px] text-text-muted">the numbers as they are{r.computedNow.length ? ` (${r.computedNow.length} computed for this date)` : ""}</p></div>}
     <div className={`rounded-lg px-3 py-2.5 ${r.grounding?.passed === false ? "bg-status-warning-light" : "bg-status-success-light"}`}><p className={`text-2xl font-bold tabular-nums ${r.grounding?.passed === false ? "text-status-warning" : "text-status-success"}`}>{r.grounding?.checked ?? 0}</p><p className="text-[11px] text-text-muted">{r.grounding?.passed === false ? "figures checked · narrative withheld" : "figures checked, all in the numbers"}</p></div>
     <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">{r.delivery?.status === "sent" ? "Emailed" : r.delivery?.status === "held" ? "Composed, not sent" : r.delivery?.status === "no_recipient" ? "In-app only" : r.delivery?.status || "—"}</p><p className="text-[11px] text-text-muted">{(r.delivery?.to || []).join(", ") || (live ? "no address" : "rehearsal")}</p></div>
    </div>
@@ -34,12 +37,12 @@ export default function ReportResultView({ run, live }) {
     {r.grounding?.passed === false
      ? <span className="inline-flex items-center gap-1 rounded-full bg-status-warning-light px-2 py-0.5 font-semibold text-status-warning"><ShieldAlert size={12} /> narrative withheld: {(r.grounding.unsupported || []).join(", ")} not in the numbers</span>
      : <span className="inline-flex items-center gap-1 rounded-full bg-status-success-light px-2 py-0.5 font-semibold text-status-success"><ShieldCheck size={12} /> every figure in the narrative is one the comparison carried</span>}
-    <span>as of {r.asOf} vs {r.comparisonLabel}</span>
+    <span>as of {r.asOf}{r.compared ? ` vs ${r.comparisonLabel}` : ""}</span>
     {run.provenance_ref && <span>· provenance {run.provenance_ref}</span>}
    </p>
 
    <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-    {[["report", "The report"], ["numbers", "The numbers"]].map(([v, label]) => (
+    {[["report", "The report"], ...(r.diagnosis ? [["why", "Where the change sits"]] : []), ["numbers", "The numbers"]].map(([v, label]) => (
      <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
     ))}
    </div>
@@ -48,6 +51,10 @@ export default function ReportResultView({ run, live }) {
     <div className="overflow-hidden rounded-lg border border-border bg-surface">
      <iframe title={r.title} srcDoc={r.html} sandbox="" className="h-[640px] w-full bg-[#f9fafb]" />
     </div>
+   )}
+
+   {view === "why" && r.diagnosis && (
+    <div className="rounded-lg border border-border bg-surface px-4 py-3"><DiagnosisInsight diagnosis={r.diagnosis} /></div>
    )}
 
    {view === "numbers" && (

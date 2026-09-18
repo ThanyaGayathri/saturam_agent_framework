@@ -110,6 +110,19 @@ export const SHAPE_STAGES = {
  * automated steps protect the write. Per document, not per run.
  */
 export const TEMPLATE_STAGES = {
+ // The diagnostic kind (K25): the Inform sequence with the decomposition before the model.
+ metric_diagnosis: [
+  stage("Read gold", STAGE_KIND.executor, "read_gold", { consumes: ["metrics"] }),
+  computeSatisfied("Compute metrics", []),
+  stage("Compare to baseline", STAGE_KIND.executor, "compare_to_baseline", { consumes: ["comparison", "window"], description: "The KPI at the run's date against gold at the baseline date. A baseline date gold does not hold yet is materialised for it." }),
+  stage("Decompose the change", STAGE_KIND.executor, "decompose_change", { consumes: ["metrics", "comparison", "window", "dimensions", "sensitivity", "evidence columns"], description: "Where the change sits, by arithmetic: each slice of each dimension gets its contribution (rate and mix effects for a rate), its surprise against its own history, and a support floor; dimensions are ranked, the winning slice searched one level down, and the rows behind it fetched. The model that follows narrates this ranking; it never picks the cause." }),
+  stage("Explain", STAGE_KIND.model, null, { role: "explanation", description: "One model step. Writes the sentence from the ranked drivers and the evidence; every figure is one the arithmetic produced." }),
+  stage("Check grounding", STAGE_KIND.executor, "check_report_grounding", { description: "Every figure in the explanation must be one the decomposition carried; an explanation that invents one is withheld and the report carries the numbers alone." }),
+  stage("Record provenance", STAGE_KIND.executor, "record_provenance"),
+  stage("Render report", STAGE_KIND.executor, "render_report", { consumes: ["title", "outputs"], description: "The sentence, the ranked drivers, the evidence and the numbers as an HTML report and its text twin." }),
+  stage("Deliver", STAGE_KIND.executor, "deliver_in_app", { consumes: ["recipient"] }),
+  stage("Send report", STAGE_KIND.executor, "send_report", { consumes: ["recipient"], description: "The HTML report by email to the recipients; held in a rehearsal." }),
+ ],
  document_to_record: [
   stage("Receive", STAGE_KIND.executor, "receive_messages", { consumes: ["source mailbox", "message filter"], description: "New messages matching the filter. None → run logged, nothing else." }),
   stage("Screen", STAGE_KIND.branch, "screen_documents", { consumes: ["document type"], description: "One document of the right type, from a known sender, under the size limit. Fails → exception." }),
@@ -150,7 +163,7 @@ export function datasetsForSpec(spec) {
 }
 
 const scheduleLabel = (v) => SCHEDULES.find((s) => s.value === v)?.label || "Every morning";
-const comparisonLabel = (v) => COMPARISONS.find((c) => c.value === v)?.label?.toLowerCase() || "the period before";
+const comparisonLabel = (v) => (v ? COMPARISONS.find((c) => c.value === v)?.label?.toLowerCase() || "the period before" : "nothing — the numbers as they are");
 const opLabel = (op) => OPERATORS.find((o) => o.value === op)?.label || "goes above";
 const limitLabel = (op) => LIMIT_OPERATORS.find((o) => o.value === op)?.label || op;
 const timeoutLabel = (v) => TIMEOUT_BEHAVIOURS.find((t) => t.value === v)?.label?.toLowerCase() || "do nothing";
@@ -166,8 +179,10 @@ export function slotValue(spec, slot) {
  switch (field) {
   case "metrics": return spec.metricIds.join(", ") || null;
   case "metric": return spec.metricIds[0] || null;
-  case "dimensions": return spec.dimensions.join(", ") || null;
-  case "comparison": return spec.comparison ? comparisonLabel(spec.comparison) : null;
+  case "dimensions": return spec.dimensions.join(", ") || (spec.template === "metric_diagnosis" ? "every dimension the fact carries" : null);
+  case "comparison": return spec.template === "metric_diagnosis" && !spec.comparison ? "the period before (a diagnosis compares by nature)" : comparisonLabel(spec.comparison);
+  case "sensitivity": return { clear: "only clear outliers", usual: "usual", more: "flag more" }[spec.sensitivity || "usual"];
+  case "evidenceColumns": return (spec.evidenceColumns || []).length ? spec.evidenceColumns.join(", ") : "the fact's own columns";
   case "outputs": return (spec.outputs || []).length ? spec.outputs.join(" + ") : "report";
   case "operator": return spec.condition?.operator ? opLabel(spec.condition.operator) : null;
   case "threshold": return spec.condition?.threshold != null ? `${spec.condition.threshold}${spec.condition.unit || ""}` : null;
@@ -333,9 +348,17 @@ function describe(st, spec, reads) {
   case "send_email":
    return { title: spec.acknowledge ? `Replies to the sender · exceptions to ${spec.exceptionsTo || "the exceptions address"}` : `Exceptions to ${spec.exceptionsTo || "the exceptions address"}`, detail: "The sender gets the created record's number, or the reason it was not created. The exception email carries the classification in words, what was extracted, and a link to the in-app record with the document and the candidate list." };
   case "compare_to_baseline":
-   return {
+   return spec.comparison || spec.template === "metric_diagnosis" ? {
     title: `Compares with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}`,
-    detail: `Each KPI at the run's date against gold at the baseline date -- the KPI's own window back -- per KPI and per breakdown row${spec.dimensions?.length ? ` (${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")})` : ""}. A baseline date gold does not hold yet is computed from the KPI's formula, once. Deterministic.`,
+    detail: `Each KPI at the run's date against gold at the baseline date -- the KPI's own window back -- per KPI and per breakdown row${spec.dimensions?.length && spec.template !== "metric_diagnosis" ? ` (${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")})` : ""}. A date gold does not hold yet is computed from the KPI's formula, once. Deterministic.`,
+   } : {
+    title: "Takes the numbers as they are",
+    detail: `Each KPI at the run's date${spec.dimensions?.length ? `, broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, carried forward as it is. Nothing is compared; choose a baseline on the form to see what moved. A date gold does not hold yet is computed from the KPI's formula, once.`,
+   };
+  case "decompose_change":
+   return {
+    title: `Finds where the change in ${spec.metricIds[0] || "the KPI"} sits`,
+    detail: `Searches ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}: each slice's contribution to the change (its own rate, or its share of the mix), how unusual it is against its own recent history at sensitivity "${slotValue(spec, "sensitivity")}", and whether it has enough rows to be named. The winning slice is searched one level down and the rows behind it are fetched, with any reason column tallied. All arithmetic — nothing here is judged.`,
    };
   case "check_report_grounding":
    return {
@@ -378,7 +401,8 @@ export function planFor(spec) {
  const level = shape;
  const reads = datasetsForSpec(spec);
  const sources = reads.map((r) => r.source);
- const stages = (spec.template && TEMPLATE_STAGES[spec.template]) || SHAPE_STAGES[shape.id];
+ // A comparison is a choice: when none is chosen the Compare stage is what it then does.
+ const stages = ((spec.template && TEMPLATE_STAGES[spec.template]) || SHAPE_STAGES[shape.id]).map((st) => (st.executorRef === "compare_to_baseline" && !spec.comparison && spec.template !== "metric_diagnosis" ? { ...st, name: "Take the numbers as they are", consumes: ["window"], description: "No comparison chosen: each KPI's value at the run's date and its breakdown rows, carried forward as they are. Nothing is compared." } : st));
  const steps = [];
 
  steps.push({

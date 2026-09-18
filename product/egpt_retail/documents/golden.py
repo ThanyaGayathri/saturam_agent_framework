@@ -158,8 +158,15 @@ def _line_values(
     product: Mapping[str, Any],
     quantity: float,
     twist: Mapping[str, Any],
+    *,
+    domain: str = "",
 ) -> Dict[str, Any]:
     price = float(product.get("unit_price") or 10.0)
+    # What a part-number column carries: a column the document attributes to us gets our
+    # code; one attributed to the customer, or to neither ("Part No."), gets the number
+    # the customer's own cross-reference holds for this product, else our code -- a
+    # required column is never left blank on a generated document.
+    theirs = (product.get("part_numbers") or {}).get(domain) if domain else None
     out: Dict[str, Any] = {}
     for name, _ in template.lines:
         if name in twist:
@@ -177,9 +184,8 @@ def _line_values(
         elif _LINE_TOTAL.match(name):
             out[name] = round(price * quantity, 2)
         elif _PART.search(name):
-            out[name] = (
-                product.get("code") if "supplier" in name or "product" in name else None
-            )
+            ours = "supplier" in name or "our" in name or "vendor" in name
+            out[name] = product.get("code") if ours else (theirs or product.get("code"))
         else:
             out[name] = None
     return out
@@ -249,14 +255,24 @@ def generate_cases(
     ) -> Dict[str, Any]:
         nonlocal counter
         counter += 1
-        chosen = product or products[counter % len(products)]
+        # A case about something other than the item takes an item this customer has
+        # ordered before, so only the rule the case is about trips; the item cases pick
+        # their own.
+        familiar = [
+            p for p in products if _history_median(master, ctx["id"], p.get("id"))
+        ] or products
+        chosen = product or familiar[counter % len(familiar)]
         qty = (
             quantity
             if quantity is not None
             else (_history_median(master, ctx["id"], chosen.get("id")) or 5)
         )
         ref = reference or f"{prefix}-{1000 + counter}"
-        lines = [_line_values(template, 1, chosen, qty, line_twist or {})]
+        lines = [
+            _line_values(
+                template, 1, chosen, qty, line_twist or {}, domain=ctx["domain"]
+            )
+        ]
         total = (
             sum(
                 float(line.get(n) or 0)
@@ -453,7 +469,12 @@ def generate_cases(
                 "Item nobody sells",
                 ctx,
                 "PRODUCT_NOT_FOUND",
-                line_twist={item_field: "Miscellaneous sundries, assorted"},
+                # An item nobody sells carries a part number nobody has, too: a real
+                # code beside an unknown description would resolve the product by code.
+                line_twist={
+                    item_field: "Miscellaneous sundries, assorted",
+                    **{n: "ZZ-0000" for n, _ in template.lines if _PART.search(n)},
+                },
             )
         )
     cases.append(make("Scanned copy", ctx, "SCANNED_DOCUMENT", scanned=True))

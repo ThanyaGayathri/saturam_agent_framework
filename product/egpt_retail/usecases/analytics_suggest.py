@@ -150,7 +150,7 @@ class AnalyticsSuggestion:
     business_areas: List[str] = field(default_factory=list)
     kpis: List[Dict[str, Any]] = field(default_factory=list)
     dimensions: List[str] = field(default_factory=list)
-    comparison: str = "prior_period"
+    comparison: Optional[str] = None
     comparison_reason: str = ""
     schedule: str = "weekly"
     schedule_reason: str = ""
@@ -339,6 +339,10 @@ def suggest_analytics(
         - {"overall", "time_period"}
     )
 
+    # A comparison only when the words ask for one: naming a period, a change, or a
+    # question about a change. A monitoring ask without those reports the numbers as
+    # they are, and the form offers "compare with" as a choice.
+    comparison: Optional[str]
     if re.search(r"last year|year over year|yoy|same period", low):
         comparison, comparison_reason = "prior_year", "the ask says last year"
     elif re.search(r"plan|target|budget", low):
@@ -346,8 +350,20 @@ def suggest_analytics(
             "prior_period",
             "plan/target is not connected; the period before is the baseline",
         )
+    elif kind == "diagnostic" or re.search(
+        r"\b(compare|compared|vs\.?|versus|change[ds]?|dropp?(ed|ing)?|fell|fall|"
+        r"rose|rise|up|down|trend|movement|moved|delta|growth|decline|previous|prior|"
+        r"before|week over week|month over month|wow|mom)\b",
+        low,
+    ):
+        comparison, comparison_reason = (
+            "prior_period",
+            "the ask is about a change, so the period before is the baseline"
+            if kind == "diagnostic"
+            else "the ask compares, so the period before is the baseline",
+        )
     else:
-        comparison, comparison_reason = "prior_period", "the period before, the default"
+        comparison, comparison_reason = None, "nothing compared; the ask does not"
 
     if re.search(r"\b(weekly|every week|every monday|each week|on mondays?)\b", low):
         schedule, schedule_reason = "weekly", "the ask says weekly"

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
+import UseCaseLatestReport from "../usecase/UseCaseLatestReport";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
 import { REFRESH_OPTIONS, labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
 import {
@@ -324,6 +325,10 @@ export default function DashboardView() {
      </p>
     </div>
    )}
+
+   {/* A dashboard a use case composed (K23/K25) opens on that use case's latest report: the
+       sentence its last run wrote, above the tiles it refreshes. Nothing for a hand-built one. */}
+   {dashboard.owner === "use_case" && <UseCaseLatestReport title={dashboard.name} />}
 
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
     {dashboard.tiles.map((tile) => (

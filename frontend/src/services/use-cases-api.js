@@ -19,6 +19,11 @@ export function fetchUseCase(useCaseId, { signal } = {}) {
 }
 
 /** `PATCH /use-cases/{id}` - title, description, autonomy, level. */
+/** Delete a use case the person built, with its runs and golden cases (204). */
+export function deleteUseCase(useCaseId, { signal } = {}) {
+  return apiJson(`/use-cases/${enc(useCaseId)}`, "DELETE", undefined, { signal });
+}
+
 export function updateUseCase(useCaseId, body, { signal } = {}) {
   return apiJson(`/use-cases/${enc(useCaseId)}`, "PATCH", body, { signal });
 }
@@ -196,4 +201,9 @@ export function suggestAnalyticsUseCase(question, { recipient, signal } = {}) {
  *  fits the pair. */
 export function suggestTargetObjects({ template, description, target }, { signal } = {}) {
   return apiJson("/record-mappings/suggest-objects", "POST", { template, description: description || undefined, target: target || undefined }, { signal });
+}
+
+/** `POST /use-cases/analytics/diagnosis-options` (K25): what one KPI can be searched across and what the data can bear. */
+export function fetchDiagnosisOptions({ kpiIdentifier, window, asOf }, { signal } = {}) {
+  return apiJson("/use-cases/analytics/diagnosis-options", "POST", { kpi_identifier: kpiIdentifier, window: window || null, as_of: asOf || null }, { signal });
 }

@@ -47,6 +47,92 @@ def render_prompt() -> str:
     return _PROMPT_PATH.read_text()
 
 
+_DIAGNOSIS_PROMPT_PATH = _PROMPT_PATH.with_name("diagnosis_explanation.md")
+
+
+def render_diagnosis_prompt() -> str:
+    """The diagnostic kind's instructions (K25): narrate the ranking, never choose."""
+    return _DIAGNOSIS_PROMPT_PATH.read_text()
+
+
+def render_diagnosis_message(
+    diagnosis: Mapping[str, Any], *, question: str = ""
+) -> str:
+    """The user message for one diagnostic run: the ranking, compacted, as JSON."""
+    ranking = list(diagnosis.get("ranking") or [])
+    winner = diagnosis.get("winner")
+    runners_up: List[Any] = []
+    for entry in ranking:
+        for driver in entry.get("drivers") or []:
+            if (
+                winner
+                and driver.get("dimension") == winner.get("dimension")
+                and driver.get("value") == winner.get("value")
+            ):
+                continue
+            runners_up.append(driver)
+            if len(runners_up) >= 3:
+                break
+        if len(runners_up) >= 3:
+            break
+    evidence = diagnosis.get("evidence") or {}
+    unit = str((diagnosis.get("headline") or {}).get("unit") or "")
+
+    def driver_words(driver: Any) -> Any:
+        """A driver with its share as a percent and its contribution in the KPI's unit,
+        so the narrator copies "45% of the change" and "+0.6 pts" rather than 0.4454."""
+        if not isinstance(driver, Mapping):
+            return driver
+        out = dict(driver)
+        share = out.pop("share_of_gap", None)
+        contribution = out.pop("contribution", None)
+        out.pop("rate_effect", None)
+        out.pop("mix_effect", None)
+        if share is not None:
+            out["share_of_change"] = f"{float(share) * 100:.0f}%"
+        if contribution is not None:
+            sign = "+" if float(contribution) >= 0 else ""
+            out["contribution"] = (
+                f"{sign}{float(contribution):.1f} pts"
+                if unit == "%"
+                else f"{sign}{float(contribution):.1f}"
+            )
+        return _tidy(out)
+
+    payload = {
+        "question": question,
+        "headline": _tidy(
+            {
+                k: v
+                for k, v in (diagnosis.get("headline") or {}).items()
+                if k not in {"exact_delta", "history", "kind"}
+            }
+        ),
+        "winner": driver_words(winner),
+        "runners_up": [driver_words(r) for r in runners_up],
+        "intersections": [
+            {
+                "dimension": i.get("dimension"),
+                "top": driver_words((i.get("drivers") or [None])[0]),
+            }
+            for i in (diagnosis.get("intersections") or [])[:2]
+        ],
+        "evidence": _tidy(
+            {
+                "side": evidence.get("side"),
+                "count": evidence.get("count"),
+                "tallies": evidence.get("tallies"),
+            }
+        ),
+        "confidence": _tidy(diagnosis.get("confidence")),
+        "caveats": diagnosis.get("caveats") or [],
+    }
+    return (
+        "Write the diagnosis for this ranking. Copy every figure exactly; the winner is "
+        "the winner.\n\n" + json.dumps(payload, indent=1, default=str)
+    )
+
+
 def _tidy(value: Any) -> Any:
     """Whole numbers as integers, others to one decimal: the figures the model copies are
     the figures the report prints, so the checker sees the same rounding on both sides."""

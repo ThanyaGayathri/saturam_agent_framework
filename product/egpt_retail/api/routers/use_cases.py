@@ -141,6 +141,26 @@ async def suggest_analytics_use_case(
     return wire.AnalyticsSuggestion.model_validate(suggestion)
 
 
+@router.post(
+    "/use-cases/analytics/diagnosis-options", response_model=wire.DiagnosisOptions
+)
+async def diagnosis_options_for_kpi(
+    body: wire.DiagnosisOptionsRequest,
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> wire.DiagnosisOptions:
+    """The diagnostic kind's form (K25): what one KPI can be searched across and what the
+    data can bear -- computed, never asked. Deterministic; nothing stored."""
+    from datetime import date as _date
+
+    from egpt_retail.executors.diagnostics import diagnosis_options
+
+    as_of = _date.fromisoformat(str(body.as_of)) if body.as_of else None
+    options = await asyncio.to_thread(
+        diagnosis_options, body.kpi_identifier, as_of=as_of, window_days=body.window
+    )
+    return wire.DiagnosisOptions.model_validate(options)
+
+
 def _suggest_analytics_sync(question: str, recipient: str) -> Dict[str, Any]:
     from egpt_retail.app.db import (
         build_warehouse_engine,

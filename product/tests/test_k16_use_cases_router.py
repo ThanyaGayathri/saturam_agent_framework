@@ -1403,18 +1403,16 @@ def test_generated_cases_run_score_and_gate_activation() -> None:
             cases["E-09: PO 27012128 (resend)"]["last_result"]["checks"][0]["detail"]
             == "expected DUPLICATE_PO, got created"
         )
+        # The golden cases are advisory (1.11.2): readiness reports the failures, and
+        # activation goes ahead -- the verdict is the person's to weigh, not a gate.
         service._environ = dict(ENV_WITH_CREDS, AZURE_OPENAI_API_KEY="k")
-        refused = client.post(f"/use-cases/{use_case_id}/activate", json={"level": 4})
-        assert (
-            refused.status_code == 409
-            and "golden_cases" in refused.json()["blocked_by"]
-        )
-        assert (
-            "5 failing"
-            in next(c for c in refused.json()["checks"] if c["name"] == "golden_cases")[
-                "reason"
-            ]
-        )
+        preflight = client.post(f"/use-cases/{use_case_id}/preflight").json()
+        golden = next(c for c in preflight["checks"] if c["name"] == "golden_cases")
+        assert not golden["passed"] and golden["advisory"]
+        assert "5 failing" in golden["reason"]
+        assert preflight["allowed"] and "golden_cases" not in preflight["blocked_by"]
+        activated = client.post(f"/use-cases/{use_case_id}/activate", json={"level": 4})
+        assert activated.status_code == 200, activated.json()
 
 
 def test_uploaded_case_is_run_and_its_output_accepted_as_expected() -> None:

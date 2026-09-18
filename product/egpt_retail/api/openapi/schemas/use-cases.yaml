@@ -24,7 +24,7 @@ UseCaseShape:
 
 UseCaseTemplate:
   type: string
-  enum: [kpi_change, document_to_record]
+  enum: [kpi_change, document_to_record, metric_diagnosis]
   description: |
     The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
     Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
@@ -339,6 +339,7 @@ PreflightCheck:
     name: {type: string}
     passed: {type: boolean}
     reason: {type: string}
+    advisory: {type: boolean, default: false, description: "Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by."}
 
 PreflightResult:
   type: object
@@ -864,7 +865,7 @@ GoldenCaseWrite:
 
 ProbeName:
   type: string
-  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer]
+  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer, diagnosis]
 ProbeResult:
   type: object
   description: |
@@ -900,6 +901,48 @@ AnalyticsSuggestRequest:
   properties:
     question: {type: string, description: "The ask, in the person's own words."}
     recipient: {type: string, description: "A default address when the ask names none."}
+DiagnosisOptionsRequest:
+  type: object
+  required: [kpi_identifier]
+  properties:
+    kpi_identifier: {type: string}
+    window: {type: [integer, "null"], minimum: 1, description: "Days between the two periods; null means the KPI's own window."}
+    as_of: {type: [string, "null"], format: date, description: "The run date to size the periods at; null means today."}
+DiagnosisDimension:
+  type: object
+  required: [column, label, distinct]
+  properties:
+    column: {type: string}
+    label: {type: string}
+    distinct: {type: integer}
+    description: {type: string}
+DiagnosisColumn:
+  type: object
+  required: [column]
+  properties:
+    column: {type: string}
+    description: {type: string}
+DiagnosisOptions:
+  type: object
+  required: [kpi_identifier, diagnosable]
+  properties:
+    kpi_identifier: {type: string}
+    diagnosable: {type: boolean}
+    reason: {type: string, description: "When not diagnosable: why."}
+    kind: {type: string, enum: [ratio, additive]}
+    numerator: {type: string}
+    denominator: {type: [string, "null"]}
+    table: {type: string}
+    window_days: {type: [integer, "null"]}
+    step_days: {type: integer}
+    as_of: {type: string, format: date}
+    rows_in_period: {type: integer}
+    rows_in_baseline: {type: integer}
+    history_periods: {type: integer}
+    support_floors: {type: object, additionalProperties: {type: integer}, description: "Rows a slice needs to be named, per sensitivity (clear, usual, more)."}
+    dimensions: {type: array, items: {$ref: './use-cases.yaml#/DiagnosisDimension'}}
+    columns: {type: array, items: {$ref: './use-cases.yaml#/DiagnosisColumn'}}
+    reason_columns: {type: array, items: {type: string}}
 AnalyticsFeasibility:
   type: string
   enum: [ready, buildable]
@@ -930,7 +973,7 @@ AnalyticsSuggestion:
       items:
         $ref: './use-cases.yaml#/AnalyticsKpiSuggestion'
     dimensions: {type: array, items: {type: string}, description: "The grains the chosen KPIs break down by."}
-    comparison: {type: string, enum: [prior_period, prior_year]}
+    comparison: {type: [string, "null"], enum: [prior_period, prior_year, null], description: "Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are."}
     comparison_reason: {type: string}
     schedule: {type: string, description: "A `ScheduleCadence` value."}
     schedule_reason: {type: string}

@@ -64,9 +64,33 @@ export function loadTemplateCatalogue() {
  return [...SHIPPED_TEMPLATES, ...rows.filter((t) => !seen.has(t.id) && seen.add(t.id))];
 }
 
+/** Whether a template *is* the shipped one of that id -- same fields, not merely the same id.
+ *  A drafted "Purchase order" saved before ids were kept apart carries `purchase_order` with
+ *  its own fields; the shipped preset's rules and golden set do not apply to it. */
+export function isShippedTemplate(template) {
+ if (!template) return false;
+ const shipped = SHIPPED_TEMPLATES.find((t) => t.id === template.id);
+ if (!shipped) return false;
+ const names = (t) => [...headerFields(t).map((f) => f.name), "|", ...lineFields(t).map((f) => f.name)].join(",");
+ return names(shipped) === names(template);
+}
+
+/** An id of the person's own that no shipped entry uses: a drafted "Purchase order" must not
+ *  shadow the shipped `purchase_order`, whose curated golden set and hints it does not carry. */
+export function uniqueCatalogueId(id, shippedIds, takenIds = []) {
+ const shipped = new Set(shippedIds);
+ if (!shipped.has(id)) return id;
+ let candidate = `${id}_custom`;
+ for (let n = 2; shipped.has(candidate) || takenIds.includes(candidate); n += 1) candidate = `${id}_custom_${n}`;
+ return candidate;
+}
+
 export function saveTemplateToCatalogue(raw) {
- const template = normalizeTemplate(raw);
- if (!template || SHIPPED_TEMPLATES.some((t) => t.id === template.id)) return template;
+ let template = normalizeTemplate(raw);
+ if (!template) return template;
+ if (SHIPPED_TEMPLATES.some((t) => t.id === template.id)) {
+  template = normalizeTemplate({ ...raw, id: uniqueCatalogueId(template.id, SHIPPED_TEMPLATES.map((t) => t.id)), basedOn: raw.basedOn || template.id });
+ }
  const custom = readLocalJson(CATALOGUE_KEY, []);
  const rows = (Array.isArray(custom) ? custom : []).filter((t) => t && t.id !== template.id);
  writeLocalJson(CATALOGUE_KEY, [...rows, template]);

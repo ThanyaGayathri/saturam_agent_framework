@@ -348,6 +348,22 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             False,
             10,
         ),
+        "decompose_change": ExecutorMetadata(
+            "Decompose the change",
+            "Where a KPI's change sits, by arithmetic: each slice of each candidate dimension gets its contribution (rate and mix effects for a rate), its surprise against its own history and a support floor; dimensions are ranked, the winning slice searched one level down, the rows behind it fetched.",
+            (
+                "comparison_result",
+                "metrics",
+                "comparison",
+                "window",
+                "dimensions",
+                "sensitivity",
+                "evidence columns",
+            ),
+            ("comparison_result", "diagnosis"),
+            False,
+            30,
+        ),
         "check_report_grounding": ExecutorMetadata(
             "Check the narrative against the numbers",
             "Every figure the explanation states must be one the comparison carried; a narrative that invents one is withheld and the report goes out with the numbers alone.",

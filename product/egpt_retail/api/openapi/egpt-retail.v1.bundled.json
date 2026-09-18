@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.11.1",
+    "version": "1.12.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -589,11 +589,16 @@
             "description": "The grains the chosen KPIs break down by."
           },
           "comparison": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "prior_period",
-              "prior_year"
-            ]
+              "prior_year",
+              null
+            ],
+            "description": "Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are."
           },
           "comparison_reason": {
             "type": "string"
@@ -1550,6 +1555,154 @@
           "staging",
           "development"
         ]
+      },
+      "DiagnosisColumn": {
+        "type": "object",
+        "required": [
+          "column"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "DiagnosisDimension": {
+        "type": "object",
+        "required": [
+          "column",
+          "label",
+          "distinct"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "distinct": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "DiagnosisOptions": {
+        "type": "object",
+        "required": [
+          "kpi_identifier",
+          "diagnosable"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "diagnosable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "When not diagnosable: why."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "additive"
+            ]
+          },
+          "numerator": {
+            "type": "string"
+          },
+          "denominator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "table": {
+            "type": "string"
+          },
+          "window_days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "step_days": {
+            "type": "integer"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "rows_in_period": {
+            "type": "integer"
+          },
+          "rows_in_baseline": {
+            "type": "integer"
+          },
+          "history_periods": {
+            "type": "integer"
+          },
+          "support_floors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Rows a slice needs to be named, per sensitivity (clear, usual, more)."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisDimension"
+            }
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisColumn"
+            }
+          },
+          "reason_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DiagnosisOptionsRequest": {
+        "type": "object",
+        "required": [
+          "kpi_identifier"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Days between the two periods; null means the KPI's own window."
+          },
+          "as_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The run date to size the periods at; null means today."
+          }
+        }
       },
       "Dialect": {
         "type": "string",
@@ -4084,6 +4237,11 @@
           },
           "reason": {
             "type": "string"
+          },
+          "advisory": {
+            "type": "boolean",
+            "default": false,
+            "description": "Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by."
           }
         }
       },
@@ -4131,7 +4289,8 @@
           "golden",
           "gold",
           "delivery",
-          "dry_answer"
+          "dry_answer",
+          "diagnosis"
         ]
       },
       "ProbeResult": {
@@ -6423,7 +6582,8 @@
         "type": "string",
         "enum": [
           "kpi_change",
-          "document_to_record"
+          "document_to_record",
+          "metric_diagnosis"
         ],
         "description": "The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the\nAct sequence as section 07 describes it; `document_to_record` is the Act sequence a\ndocument-driven automation needs -- receive, screen, extract, resolve -- before the same\nguarded write. Both are Act. The interface reads the template from the requirement's own\nwords and never asks for it; the compiler checks it belongs to the shape.\n"
       },
@@ -12498,6 +12658,107 @@
                       ],
                       "uncovered": [],
                       "notes": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/analytics/diagnosis-options": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "diagnosisOptions",
+        "summary": "What a diagnostic ask on one KPI can search across, and what the data can bear.",
+        "description": "The diagnostic kind's form (1.12.0, K25). For one registered KPI: whether its formula\ncan be decomposed and as what (a ratio's numerator and denominator, or an additive\naggregate), the columns of its fact a change can be searched across (low-cardinality\ntext columns the formula does not itself read; never an id, a date, a status or a\nreason) with their distinct counts and descriptions, the rows in the period and the\none before, and the support floor each sensitivity implies. Nothing asked that the data\ncan decide. Deterministic; nothing stored.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosisOptionsRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "kpi_identifier": "rfq__closed_won_rate",
+                    "window": 7
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The options.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosisOptions"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "kpi_identifier": "rfq__closed_won_rate",
+                      "diagnosable": true,
+                      "kind": "ratio",
+                      "numerator": "COUNT(*) FILTER (WHERE pipeline_stage = 'Closed Won')",
+                      "denominator": "COUNT(*)",
+                      "table": "silver.dc_rfq_quotes",
+                      "window_days": 90,
+                      "step_days": 7,
+                      "as_of": "2026-09-17",
+                      "rows_in_period": 480,
+                      "rows_in_baseline": 454,
+                      "history_periods": 12,
+                      "support_floors": {
+                        "clear": 36,
+                        "usual": 24,
+                        "more": 12
+                      },
+                      "dimensions": [
+                        {
+                          "column": "brand",
+                          "label": "brand",
+                          "distinct": 26,
+                          "description": "The brand quoted."
+                        }
+                      ],
+                      "columns": [
+                        {
+                          "column": "quote_id",
+                          "description": ""
+                        }
+                      ],
+                      "reason_columns": [
+                        "lost_reason"
+                      ]
                     }
                   }
                 }

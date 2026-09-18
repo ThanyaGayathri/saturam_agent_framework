@@ -56,6 +56,7 @@ from egpt_retail.executors.analytics import (
     send_report,
 )
 from egpt_retail.executors.areas import detect_business_areas
+from egpt_retail.executors.diagnostics import decompose_change
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.documents import DOCUMENT_EXECUTORS
 from egpt_retail.executors.gaps import check_spec_gaps
@@ -222,6 +223,8 @@ K23_EXECUTORS = (
     render_report,
     send_report,
 )
+#: The diagnostic kind's one new stage (K25): the decomposition between Compare and Explain.
+K25_EXECUTORS = (decompose_change,)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -584,6 +587,7 @@ def build_registry() -> Registry:
         + GOLDEN_EXECUTORS
         + K15_EXECUTORS
         + K23_EXECUTORS
+        + K25_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

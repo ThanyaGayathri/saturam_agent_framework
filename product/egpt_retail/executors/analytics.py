@@ -50,6 +50,9 @@ COMPARISONS = {
     "prior_period": "the period before",
     "prior_year": "the same period last year",
 }
+#: The comparison slot left empty: the numbers are read for the run's date and reported
+#: as they are -- no baseline read, no backfill, no delta. Not a default; a choice.
+NO_COMPARISON = "none"
 DEFAULT_WINDOW_DAYS = 7
 
 
@@ -264,9 +267,9 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
     """
     options = _options(step_input)
     as_of = _as_of(options)
-    comparison = str(slot(step_input, "comparison") or "prior_period").strip().lower()
+    comparison = str(slot(step_input, "comparison") or NO_COMPARISON).strip().lower()
     if comparison not in COMPARISONS:
-        comparison = "prior_period"
+        comparison = NO_COMPARISON
     # The window slot, when the form set one, is the person's choice and wins over each
     # KPI's declared window; blank means "each KPI's own", then the default.
     chosen_window = _number(slot(step_input, "window"))
@@ -298,6 +301,29 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
         )
     if not current:
         current, missing_now = await _gold_at(step_input, identifiers, as_of)
+    # The run's own date is materialised the same way a missing baseline is: a run made
+    # before the nightly pass (or on a date it never covered) computes gold for that date
+    # from the formulas rather than reporting "no gold row" -- the read the nightly run
+    # would make, not a side effect on anyone.
+    absent_now = [i for i in identifiers if i not in current]
+    computed_now: List[str] = []
+    if absent_now and options.get("backfill_baseline", True):
+        output = await materialise_gold(
+            StepInput(
+                additional_data={
+                    "kpi_identifiers": absent_now,
+                    "as_of": as_of.isoformat(),
+                    "run_id": f"asof_{as_of.isoformat()}",
+                }
+            )
+        )
+        if output.success and not output.stop:
+            again, still = await _gold_at(step_input, absent_now, as_of)
+            current.update(again)
+            computed_now = [i for i in absent_now if i in again]
+            missing_now = {**missing_now, **still}
+            for identifier in computed_now:
+                missing_now.pop(identifier, None)
     definitions = _definitions(options, identifiers)
 
     # Group the KPIs by their baseline date: one gold read per date, not per KPI.
@@ -314,6 +340,7 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
         i
         for i in identifiers
         if (definitions.get(i) or {}).get("grain") != "time_period"
+        and comparison != NO_COMPARISON
     ]
     for when in sorted({baseline_for[i] for i in compared}):
         group = [i for i in compared if baseline_for[i] == when]
@@ -361,7 +388,11 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
             "unit": str(definition.get("unit") or ""),
             "grain": grain,
             "as_of": now.get("as_of") or as_of.isoformat(),
-            "baseline_as_of": baseline_for[identifier].isoformat(),
+            "baseline_as_of": (
+                baseline_for[identifier].isoformat()
+                if comparison != NO_COMPARISON
+                else None
+            ),
             "current": None,
             "baseline": None,
             "delta": None,
@@ -451,7 +482,10 @@ async def compare_to_baseline(step_input: StepInput) -> StepOutput:
     content = {
         "as_of": as_of.isoformat(),
         "comparison": comparison,
-        "comparison_label": COMPARISONS[comparison],
+        "comparison_label": COMPARISONS.get(
+            comparison, "nothing -- the numbers as they are"
+        ),
+        "computed_now": computed_now,
         "window_days": window_days,
         "kpis": kpis,
         "missing": [{"kpi_identifier": k, "reason": v} for k, v in missing_now.items()],
@@ -486,6 +520,59 @@ def _figures_in(comparison: Mapping[str, Any]) -> set:
     return figures
 
 
+def _figures_in_diagnosis(diagnosis: Mapping[str, Any]) -> set:
+    """Every number the decomposition produced -- headline, drivers, intersections,
+    evidence counts and tallies -- at whole, one- and two-decimal precision. Dates and
+    identifiers are not figures; the walk skips strings."""
+    figures: set = set()
+
+    def add(value: Any) -> None:
+        if isinstance(value, bool):
+            return
+        number = _number(value)
+        if number is None:
+            return
+        for rounded in (round(number, 1), round(number, 0), round(number, 2)):
+            figures.add(rounded)
+            figures.add(abs(rounded))
+        # A share of the gap is quoted as a percent by the narrator ("51% of the change").
+        if -1.0 <= number <= 1.0:
+            for rounded in (round(number * 100, 0), round(number * 100, 1)):
+                figures.add(rounded)
+                figures.add(abs(rounded))
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, inner in value.items():
+                if key in {
+                    "as_of",
+                    "baseline_as_of",
+                    "kpi_identifier",
+                    "dimension",
+                    "value",
+                }:
+                    continue
+                walk(inner)
+        elif isinstance(value, (list, tuple)):
+            for inner in value:
+                walk(inner)
+        elif isinstance(value, (int, float)):
+            add(value)
+
+    walk(
+        {
+            k: v
+            for k, v in diagnosis.items()
+            if k not in {"candidates", "dimensions_searched"}
+        }
+    )
+    # The caveats are text the narrator copies too ("96 slices below the floor of 24").
+    for caveat in diagnosis.get("caveats") or []:
+        for number in _numbers_in(str(caveat)):
+            add(number)
+    return figures
+
+
 def _numbers_in(text: str) -> List[float]:
     """Every figure in a sentence, dates and years left out (a date is not a figure)."""
     out: List[float] = []
@@ -504,14 +591,22 @@ async def check_report_grounding(step_input: StepInput) -> StepOutput:
     numbers and no narrative rather than with an invented one. Also refuses an explanation
     whose ``findings`` name a KPI the comparison did not cover.
     """
+    from egpt_retail.executors.diagnostics import diagnosis_of
+
     comparison = comparison_of(step_input)
     explanation = explanation_of(step_input)
-    if comparison is None:
+    diagnosis = diagnosis_of(step_input)
+    if comparison is None and diagnosis is None:
         return StepOutput(
             content={"refused": "no comparison to check against"},
             success=False,
             stop=True,
         )
+    comparison = comparison or {
+        "as_of": (diagnosis or {}).get("headline", {}).get("as_of"),
+        "kpis": [],
+    }
+    extra: Dict[str, Any] = {"diagnosis": diagnosis} if diagnosis is not None else {}
     if explanation is None:
         return StepOutput(
             content={
@@ -519,11 +614,16 @@ async def check_report_grounding(step_input: StepInput) -> StepOutput:
                 "explanation": None,
                 "grounding": {"passed": True, "checked": 0, "unsupported": []},
                 "notes": "no explanation to check; the report carries the numbers only",
+                **extra,
             },
             success=True,
         )
     allowed = _figures_in(comparison)
     covered = {str(k.get("identifier")) for k in comparison.get("kpis") or []}
+    if diagnosis is not None:
+        # The diagnostic kind (K25): the narrative quotes the decomposition's figures.
+        allowed |= _figures_in_diagnosis(diagnosis)
+        covered.add(str((diagnosis.get("headline") or {}).get("kpi_identifier") or ""))
     texts: List[str] = [str(explanation.get("headline") or "")]
     repaired: List[str] = []
     findings: List[Dict[str, Any]] = []
@@ -563,6 +663,7 @@ async def check_report_grounding(step_input: StepInput) -> StepOutput:
             "explanation": explanation if passed else None,
             "explanation_rejected": None if passed else explanation,
             "grounding": grounding,
+            **extra,
         },
         success=True,
         stop=False,
@@ -587,7 +688,7 @@ def _fmt(value: Any, unit: str = "") -> str:
 def _delta_text(kpi: Mapping[str, Any]) -> str:
     delta = _number(kpi.get("delta"))
     if delta is None:
-        return "no baseline"
+        return "not compared" if kpi.get("baseline_as_of") is None else "no baseline"
     sign = "+" if delta > 0 else ""
     pct = kpi.get("delta_pct")
     unit = str(kpi.get("unit") or "")
@@ -602,16 +703,50 @@ def report_text(
     explanation: Optional[Mapping[str, Any]],
     *,
     title: str,
+    diagnosis: Optional[Mapping[str, Any]] = None,
 ) -> str:
     lines = [
         title,
-        f"As of {comparison.get('as_of')} vs {comparison.get('comparison_label')}",
+        f"As of {comparison.get('as_of')}"
+        + (
+            f" vs {comparison.get('comparison_label')}"
+            if comparison.get("comparison") != NO_COMPARISON
+            and comparison.get("comparison_label")
+            else ""
+        ),
         "",
     ]
     if explanation:
         lines += [str(explanation.get("headline") or ""), ""]
         for finding in explanation.get("findings") or []:
             lines.append(f"- {finding.get('text')}")
+        lines.append("")
+    if diagnosis:
+        head = diagnosis.get("headline") or {}
+        unit = str(head.get("unit") or "")
+        lines.append(
+            f"Where the change sits: {head.get('name')} {_fmt(head.get('baseline'), unit)} -> "
+            f"{_fmt(head.get('current'), unit)} ({head.get('baseline_as_of')} -> {head.get('as_of')})"
+        )
+        for entry in (diagnosis.get("ranking") or [])[:5]:
+            for driver in (entry.get("drivers") or [])[:1]:
+                share = driver.get("share_of_gap")
+                lines.append(
+                    f"  {driver.get('dimension')} = {driver.get('value')}: {driver.get('effect')}, "
+                    f"{_fmt(driver.get('baseline'), unit)} -> {_fmt(driver.get('current'), unit)}, "
+                    f"{f'{share * 100:.0f}% of the change' if share is not None else 'share n/a'}, "
+                    f"{driver.get('support')} rows"
+                )
+        evidence = diagnosis.get("evidence") or {}
+        for column, values in (evidence.get("tallies") or {}).items():
+            lines.append(
+                f"  {column}: "
+                + ", ".join(f"{v.get('value')} ({v.get('count')})" for v in values[:5])
+            )
+        already = {str(c) for c in (explanation or {}).get("caveats") or []}
+        for caveat in diagnosis.get("caveats") or []:
+            if str(caveat) not in already:
+                lines.append(f"  note: {caveat}")
         lines.append("")
     lines.append("KPIs")
     for kpi in comparison.get("kpis") or []:
@@ -643,6 +778,207 @@ def _bar(value: Optional[float], maximum: float) -> str:
     )
 
 
+_FONT = "-apple-system,Segoe UI,Helvetica,Arial,sans-serif"
+_EFFECT_WORDS = {
+    "rate": "its own rate moved",
+    "mix": "its share of the mix moved",
+    "volume": "its count moved",
+}
+
+
+def _bar_html(share: float, *, colour: str, width: int = 160) -> str:
+    """A signed horizontal bar, email-safe: two cells, the fill sized by |share| (capped)."""
+    filled = max(2, min(width, int(round(abs(share) * width))))
+    return (
+        f'<div style="display:inline-block;width:{width}px;height:8px;background:#ede9fe;border-radius:4px;vertical-align:middle;overflow:hidden">'
+        f'<div style="width:{filled}px;height:8px;background:{colour};border-radius:4px"></div></div>'
+    )
+
+
+def _history_html(history: Sequence[Any], current: Any, unit: str) -> str:
+    """Twelve small bars for the trailing values, the current one last and darker: the
+    eye sees "usual" without a number. Inline-block divs, which every mail client draws."""
+    raw = [_number(v) for v in list(history)[::-1]] + [_number(current)]
+    values: List[float] = [v for v in raw if v is not None]
+    if len(values) < 3:
+        return ""
+    low, high = min(values), max(values)
+    span = (high - low) or 1.0
+    bars = ""
+    for i, v in enumerate(values):
+        h = 6 + int(round(30 * (v - low) / span))
+        last = i == len(values) - 1
+        bars += (
+            f'<div title="{_fmt(v, unit)}" style="display:inline-block;width:9px;height:{h}px;margin-right:3px;vertical-align:bottom;'
+            f'background:{"#6d28d9" if last else "#c4b5fd"};border-radius:2px"></div>'
+        )
+    from statistics import median as _median
+
+    usual = _median(values[:-1]) if len(values) > 1 else values[-1]
+    return (
+        f'<div style="height:38px;line-height:0;margin-top:6px">{bars}</div>'
+        f'<div style="font:11px {_FONT};color:#6b7280;margin-top:3px;white-space:nowrap">'
+        f"{_fmt(values[0], unit)} … <b>{_fmt(values[-2], unit)} → {_fmt(values[-1], unit)}</b> · usual {_fmt(usual, unit)}</div>"
+        f'<div style="font:10px {_FONT};color:#9ca3af;margin-top:1px">the last {len(values) - 1} periods, then now</div>'
+    )
+
+
+def _diagnosis_html(diagnosis: Mapping[str, Any]) -> str:
+    """The diagnostic kind's section (K25), laid out as an insight rather than a table: the
+    KPI's move as two numbers; the driver as a card -- what it is, what it did, how much
+    of the change it accounts for as a bar, how unusual against its own history as a
+    sparkline of bars; then what else moved, each with a signed bar; then inside the driver;
+    then why (the reason tally as bars). Email-safe: tables, inline styles, no scripts."""
+    e = html.escape
+    head = diagnosis.get("headline") or {}
+    unit = str(head.get("unit") or "")
+    winner = diagnosis.get("winner") or {}
+    delta = _number(head.get("delta"))
+    up = delta is not None and delta >= 0
+    delta_colour = "#15803d" if up else "#b91c1c"
+    delta_text = (
+        (
+            f"{'+' if up else ''}{delta:,.1f} pts"
+            if unit == "%"
+            else f"{'+' if up else ''}{_fmt(delta, unit)}"
+        )
+        if delta is not None
+        else "—"
+    )
+    z_bar = float(diagnosis.get("z_bar") or 2)
+
+    hero = (
+        f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr>'
+        f'<td style="vertical-align:bottom;padding:0"><div style="font:600 11px {_FONT};color:#6d28d9;text-transform:uppercase;letter-spacing:.06em">Why it changed</div>'
+        f'<div style="font:600 15px {_FONT};color:#111827;margin-top:2px">{e(str(head.get("name", "")))}</div>'
+        f'<div style="font:700 34px/1.1 {_FONT};color:#111827;margin-top:6px"><span style="color:#9ca3af;font-weight:500">{e(_fmt(head.get("baseline"), unit))}</span> '
+        f'<span style="color:#9ca3af">→</span> {e(_fmt(head.get("current"), unit))} '
+        f'<span style="display:inline-block;font:600 13px {_FONT};color:{delta_colour};background:{"#dcfce7" if up else "#fee2e2"};border-radius:999px;padding:3px 10px;vertical-align:middle;margin-left:6px">{e(delta_text)}</span></div>'
+        f'<div style="font:12px {_FONT};color:#6b7280;margin-top:4px">{e(str(head.get("baseline_as_of")))} → {e(str(head.get("as_of")))} · {e(str(head.get("rows_in_period")))} rows in the period</div></td>'
+        f'<td style="vertical-align:bottom;padding:0 0 0 16px;text-align:right;width:160px"><div style="font:600 10px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.05em;text-align:left">Trend</div>'
+        f"{_history_html(head.get('history') or [], head.get('current'), unit)}</td>"
+        f"</tr></table>"
+    )
+
+    driver = ""
+    if winner:
+        share = _number(winner.get("share_of_gap"))
+        z = _number(winner.get("z"))
+        unusual = z is not None and abs(z) >= z_bar
+        driver = (
+            f'<div style="border:1px solid #d9c2f7;border-radius:12px;padding:16px 18px;margin:14px 0 0;background:linear-gradient(#ffffff,#f7f2ff)">'
+            f'<div style="font:600 11px {_FONT};color:#6d28d9;text-transform:uppercase;letter-spacing:.06em">The driver · {e(str(winner.get("dimension", "")).replace("_", " "))}</div>'
+            f'<div style="font:700 26px/1.2 {_FONT};color:#111827;margin-top:4px">{e(str(winner.get("value", "")))}</div>'
+            f'<div style="font:14px {_FONT};color:#374151;margin-top:6px">{e(_EFFECT_WORDS.get(str(winner.get("effect")), ""))}: '
+            f"<b>{e(_fmt(winner.get('baseline'), unit))} → {e(_fmt(winner.get('current'), unit))}</b> over {e(str(winner.get('support')))} rows</div>"
+            f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:12px"><tr>'
+            f'<td style="padding:0 18px 0 0;vertical-align:top"><div style="font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Of the change</div>'
+            f'<div style="font:700 22px {_FONT};color:#111827;margin-top:2px">{e(f"{share * 100:.0f}%" if share is not None else "—")}</div>'
+            f'<div style="margin-top:4px">{_bar_html(share or 0, colour="#6d28d9")}</div></td>'
+            f'<td style="padding:0 0 0 18px;vertical-align:top;border-left:1px solid #e9d5ff"><div style="font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Against its usual</div>'
+            f'<div style="font:700 22px {_FONT};color:{"#b91c1c" if unusual else "#111827"};margin-top:2px">{e(_fmt(winner.get("norm"), unit))}'
+            f' <span style="font:600 12px {_FONT};color:{"#b91c1c" if unusual else "#6b7280"}">{e(("unusual · z " + f"{z:+.1f}") if unusual and z is not None else ("within its range" if z is not None else "no history"))}</span></div>'
+            f"</td></tr></table>"
+            "</div>"
+        )
+
+    also = ""
+    tops = []
+    for entry in diagnosis.get("ranking") or []:
+        for d in (entry.get("drivers") or [])[:1]:
+            if (
+                winner
+                and d.get("dimension") == winner.get("dimension")
+                and d.get("value") == winner.get("value")
+            ):
+                continue
+            tops.append(d)
+    if tops:
+        rows = ""
+        for d in tops[:5]:
+            share = _number(d.get("share_of_gap")) or 0.0
+            same_way = (share >= 0) == up if delta is not None else share >= 0
+            colour = "#6d28d9" if same_way else "#f59e0b"
+            z = _number(d.get("z"))
+            unusual = z is not None and abs(z) >= z_bar
+            rows += (
+                f"<tr>"
+                f'<td style="padding:7px 10px 7px 0;font:13px {_FONT};color:#111827;white-space:nowrap"><span style="color:#6b7280">{e(str(d.get("dimension", "")).replace("_", " "))} · </span><b>{e(str(d.get("value", "")))}</b>'
+                + (
+                    f' <span style="font:600 10px {_FONT};color:#b91c1c;background:#fee2e2;border-radius:999px;padding:1px 6px;vertical-align:middle">unusual</span>'
+                    if unusual
+                    else ""
+                )
+                + f"</td>"
+                f'<td style="padding:7px 10px;font:12px {_FONT};color:#374151;white-space:nowrap">{e(_fmt(d.get("baseline"), unit))} → {e(_fmt(d.get("current"), unit))}</td>'
+                f'<td style="padding:7px 0 7px 10px;white-space:nowrap">{_bar_html(share, colour=colour, width=120)} <span style="font:12px {_FONT};color:{"#374151" if same_way else "#b45309"};margin-left:6px">{e(f"{share * 100:+.0f}%")}{"" if same_way else " · the other way"}</span></td>'
+                f"</tr>"
+            )
+        also = (
+            f'<div style="font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Also moving · share of the change</div>'
+            f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse">{rows}</table>'
+        )
+
+    inside = ""
+    for entry in (diagnosis.get("intersections") or [])[:1]:
+        top = (entry.get("drivers") or [None])[0]
+        if top:
+            inside = (
+                f'<div style="font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Inside {e(str(winner.get("value", "")))}</div>'
+                f'<div style="font:13px {_FONT};color:#374151">{e(str(top.get("dimension", "")).replace("_", " "))} · <b>{e(str(top.get("value", "")))}</b> — {e(_EFFECT_WORDS.get(str(top.get("effect")), ""))}, '
+                f"{e(_fmt(top.get('baseline'), unit))} → {e(_fmt(top.get('current'), unit))}, {e(str(top.get('support')))} rows.</div>"
+            )
+
+    why = ""
+    evidence = diagnosis.get("evidence") or {}
+    for column, values in (evidence.get("tallies") or {}).items():
+        values = list(values)[:6]
+        top_n = max((int(v.get("count") or 0) for v in values), default=1) or 1
+        rows = "".join(
+            f'<tr><td style="padding:4px 10px 4px 0;font:13px {_FONT};color:#111827;white-space:nowrap">{e(str(v.get("value")))}</td>'
+            f'<td style="padding:4px 0;white-space:nowrap">{_bar_html(int(v.get("count") or 0) / top_n, colour="#0d9488", width=140)} <span style="font:12px {_FONT};color:#374151;margin-left:6px">{v.get("count")}</span></td></tr>'
+            for v in values
+        )
+        side = "that did not convert" if evidence.get("side") == "losing" else "rows"
+        why = (
+            f'<div style="font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Why · {e(column.replace("_", " "))} across the {e(str(evidence.get("count")))} {e(side)}</div>'
+            f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse">{rows}</table>'
+            f'<div style="font:11px {_FONT};color:#9ca3af;margin-top:4px">The rows themselves are on the run in the app.</div>'
+        )
+
+    caveats = "".join(
+        f'<li style="margin:2px 0">{e(str(c))}</li>'
+        for c in diagnosis.get("caveats") or []
+    )
+    foot = (
+        f'<div style="font:11px {_FONT};color:#9ca3af;margin-top:16px;padding-top:10px;border-top:1px solid #e5e7eb">'
+        f"Searched across {e(', '.join(str(d).replace('_', ' ') for d in diagnosis.get('dimensions_searched') or []))} · sensitivity {e(str(diagnosis.get('sensitivity')))} · "
+        f"a slice needs {e(str(diagnosis.get('support_floor')))} rows to be named · the norm is each slice's last {e(str(diagnosis.get('history_periods')))} periods."
+        + (
+            f'<ul style="margin:6px 0 0;padding-left:16px">{caveats}</ul>'
+            if caveats
+            else ""
+        )
+        + "</div>"
+    )
+    return (
+        f'<div style="border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin:12px 0;background:#fff">'
+        f"{hero}{driver}{also}{inside}{why}{foot}</div>"
+    )
+
+
+def _eyebrow(use_case: str, title: str) -> str:
+    """The line above the title: the use case's name, minus the title when the two start
+    the same way ("Why did X change? -- weekly report" over "Why did X change?" reads as
+    "Enterprise GPT · weekly report")."""
+    if not use_case:
+        return "Enterprise GPT"
+    rest = use_case[len(title) :].strip(" -—·") if use_case.startswith(title) else ""
+    if use_case.startswith(title):
+        return f"Enterprise GPT · {rest}" if rest else "Enterprise GPT"
+    return use_case
+
+
 def report_html(
     comparison: Mapping[str, Any],
     explanation: Optional[Mapping[str, Any]],
@@ -651,9 +987,11 @@ def report_html(
     use_case: str = "",
     dashboard_url: str = "",
     grounding: Optional[Mapping[str, Any]] = None,
+    diagnosis: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """An email-safe HTML report: inline styles, tables, CSS-free bars. Headline and
-    findings when the explanation passed grounding; the numbers either way."""
+    findings when the explanation passed grounding; the numbers either way; the
+    decomposition when the run made one (K25)."""
     e = html.escape
     kpis = list(comparison.get("kpis") or [])
     scalars = [k for k in kpis if not k.get("rows")]
@@ -670,8 +1008,12 @@ def report_html(
             f'<div style="font:600 12px/1.3 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">{e(kpi["name"])}</div>'
             f'<div style="font:700 26px/1.2 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111827;margin-top:6px">{e(_fmt(kpi.get("current"), kpi.get("unit", "")))}</div>'
             f'<div style="font:500 12px/1.4 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:{colour};margin-top:4px">{e(_delta_text(kpi))}'
-            f' <span style="color:#9ca3af">vs {e(_fmt(kpi.get("baseline"), kpi.get("unit", "")))}</span></div>'
-            "</div></td>"
+            + (
+                f' <span style="color:#9ca3af">vs {e(_fmt(kpi.get("baseline"), kpi.get("unit", "")))}</span>'
+                if kpi.get("baseline_as_of")
+                else ""
+            )
+            + "</div></div></td>"
         )
 
     def table(kpi: Mapping[str, Any]) -> str:
@@ -750,7 +1092,15 @@ def report_html(
             '<p style="font:12px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#b45309;margin:12px 0">'
             "The narrative for this run was withheld: it stated figures the numbers do not support. The numbers are below.</p>"
         )
-    tiles = "".join(tile(k) for k in scalars)
+    # A diagnosis carries its KPI in its own hero; the tile would say the same twice.
+    diagnosed = (
+        {str((diagnosis or {}).get("headline", {}).get("kpi_identifier") or "")}
+        if diagnosis
+        else set()
+    )
+    tiles = "".join(
+        tile(k) for k in scalars if str(k.get("identifier")) not in diagnosed
+    )
     tables = "".join(table(k) for k in breakdowns)
     link = (
         f'<p style="font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:14px 0 0"><a href="{e(dashboard_url)}" style="color:#6d28d9">Open the live dashboard</a></p>'
@@ -759,11 +1109,19 @@ def report_html(
     )
     return (
         '<div style="max-width:720px;margin:0 auto;padding:20px;background:#f9fafb;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">'
-        f'<p style="font:600 11px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin:0">{e(use_case or "Enterprise GPT")}</p>'
+        f'<p style="font:600 11px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin:0">{e(_eyebrow(use_case, title))}</p>'
         f'<h1 style="font:700 22px/1.3 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111827;margin:4px 0 2px">{e(title)}</h1>'
-        f'<p style="font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6b7280;margin:0 0 10px">As of {e(str(comparison.get("as_of")))} · compared with {e(str(comparison.get("comparison_label")))}</p>'
+        f'<p style="font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6b7280;margin:0 0 10px">As of {e(str(comparison.get("as_of")))}'
+        + (
+            f" · compared with {e(str(comparison.get('comparison_label')))}"
+            if comparison.get("comparison") != NO_COMPARISON
+            and comparison.get("comparison_label")
+            else ""
+        )
+        + "</p>"
         f"{narrative}"
-        f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:6px -6px"><tr>{tiles}</tr></table>'
+        + (_diagnosis_html(diagnosis) if diagnosis else "")
+        + f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:6px -6px"><tr>{tiles}</tr></table>'
         f"{tables}{link}"
         '<p style="font:11px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#9ca3af;margin:18px 0 0">Generated by Enterprise GPT. Numbers from the governed KPI registry; every narrative figure checked against them before sending.</p>'
         "</div>"
@@ -773,12 +1131,20 @@ def report_html(
 async def render_report(step_input: StepInput) -> StepOutput:
     """The report as HTML and text from the comparison and the (grounded) explanation.
     Reads the ``title`` slot (default: the use case's question) and ``dashboard_url``."""
+    from egpt_retail.executors.diagnostics import diagnosis_of
+
     options = _options(step_input)
     comparison = comparison_of(step_input)
-    if comparison is None:
+    diagnosis = diagnosis_of(step_input)
+    if comparison is None and diagnosis is None:
         return StepOutput(
             content={"refused": "no comparison to render"}, success=False, stop=True
         )
+    comparison = comparison or {
+        "as_of": (diagnosis or {}).get("headline", {}).get("as_of"),
+        "kpis": [],
+        "comparison": NO_COMPARISON,
+    }
     previous = step_input.previous_step_content
     checked = grounding_of(step_input)
     if checked is not None:
@@ -801,8 +1167,9 @@ async def render_report(step_input: StepInput) -> StepOutput:
         use_case=str(options.get("use_case_title") or ""),
         dashboard_url=str(options.get("dashboard_url") or ""),
         grounding=grounding,
+        diagnosis=diagnosis,
     )
-    text_body = report_text(comparison, explanation, title=title)
+    text_body = report_text(comparison, explanation, title=title, diagnosis=diagnosis)
     headline = (
         str(explanation.get("headline"))
         if explanation and explanation.get("headline")
@@ -822,6 +1189,7 @@ async def render_report(step_input: StepInput) -> StepOutput:
                 "as_of": comparison.get("as_of"),
             },
             "dashboard_url": str(options.get("dashboard_url") or ""),
+            **({"diagnosis": diagnosis} if diagnosis is not None else {}),
             # deliver_in_app reads these two.
             "headline": headline,
             "provenance_ref": (
@@ -879,6 +1247,7 @@ async def send_report(step_input: StepInput) -> StepOutput:
             "dashboard_url",
             "headline",
             "provenance_ref",
+            "diagnosis",
         )
         if key in rendered
     }

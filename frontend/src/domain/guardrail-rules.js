@@ -12,7 +12,7 @@
  * of the same interpreter, used by the rehearse simulation.
  */
 import { MASTER_DATA_ROLES } from "./use-case-autonomy";
-import { headerFields, lineFields } from "./extraction-templates";
+import { isShippedTemplate, headerFields, lineFields } from "./extraction-templates";
 
 export const RULE_KINDS = [
  { id: "sender_known", label: "Sender known", check: "The sender's email domain matches no customer or contact", scope: "none", params: {}, needs: "customer", exception: "UNKNOWN_SENDER", priority: 0 },
@@ -94,7 +94,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Rules a template's own field names call for. Mirrors the platform's `suggest_rules`. */
 export function suggestRules(template) {
  if (!template) return [];
- if (template.id === "purchase_order") return PURCHASE_ORDER_RULES.map(normalizeRule);
+ if (template.id === "purchase_order" && isShippedTemplate(template)) return PURCHASE_ORDER_RULES.map(normalizeRule);
  const header = headerFields(template).map((f) => f.name);
  const lines = lineFields(template).map((f) => f.name);
  const out = [{ id: "sender_known", kind: "sender_known", label: "Sender known", field: null, params: {} }];

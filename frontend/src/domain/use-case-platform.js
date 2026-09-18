@@ -70,9 +70,11 @@ export function kpiParameters(spec, sources = []) {
   severity: spec.severity || "",
   recipient: spec.notify || "",
   // The Inform shape's report slots (K23): what to produce, and the report's title.
-  outputs: spec.outputs && spec.outputs.length ? spec.outputs : undefined,
+  outputs: spec.category === "analytics_automation" ? ["report", "dashboard"] : spec.outputs && spec.outputs.length ? spec.outputs : undefined,
   title: spec.title || undefined,
   window: spec.window || undefined,
+  // The diagnostic kind's two slots (K25).
+  ...(spec.template === "metric_diagnosis" ? { sensitivity: spec.sensitivity || "usual", "evidence columns": spec.evidenceColumns || [] } : {}),
   candidates: spec.candidates || null,
   guardrails: spec.guardrails || [],
   approver: spec.approver || "",
@@ -253,6 +255,21 @@ export function specFromPlatform(useCase, platformSpec, base) {
   category: platformSpec?.template === "document_to_record" ? "process_automation" : base.category,
   platform: { ...(base.platform || {}), useCaseId: useCase.id, version: useCase.version, status: useCase.status, parameters: p },
  };
+ if (platformSpec?.template === "metric_diagnosis") {
+  return {
+   ...next,
+   category: "analytics_automation",
+   metricIds: Array.isArray(p.metrics) ? p.metrics : base.metricIds,
+   comparison: p.comparison ?? base.comparison ?? null,
+   window: p.window ?? base.window ?? null,
+   dimensions: Array.isArray(p.dimensions) ? p.dimensions : base.dimensions,
+   sensitivity: p.sensitivity || base.sensitivity || "usual",
+   evidenceColumns: Array.isArray(p["evidence columns"]) ? p["evidence columns"] : base.evidenceColumns || [],
+   outputs: Array.isArray(p.outputs) ? p.outputs : base.outputs,
+   notify: typeof p.recipient === "string" ? p.recipient : base.notify,
+   schedule: scheduleFromCadence(p.schedule || useCase.schedule) || base.schedule,
+  };
+ }
  if (platformSpec?.template !== "document_to_record") return next;
  return {
   ...next,
@@ -293,6 +310,8 @@ export function runStats(run) {
   const durationMs = run?.finished_at && run?.started_at ? new Date(run.finished_at) - new Date(run.started_at) : null;
   return {
    report: true, received: kpis, created: sent, previewed: status === "held" ? 1 : 0, exceptions: 0, held: 0, value: 0, hasValue: false, objects: ["Report"],
+   // Whether the run compared anything (a comparison is a choice) and whether it diagnosed a change (K25).
+   compared: !!result.comparison_result?.comparison && result.comparison_result.comparison !== "none", diagnosed: !!result.diagnosis,
    byClass: result.grounding?.passed === false ? { NARRATIVE_WITHHELD: 1 } : {}, idle: false, durationMs,
    records: [], notify: status || null, recipients: result.delivery?.to || [],
    headline: result.report.headline || "", withheld: result.grounding?.passed === false,

@@ -166,6 +166,12 @@ _ITEM = re.compile(
 _THEIR_PART = re.compile(
     r"^(customer|buyer|their|client)_?(part|item|sku|code|ref|product)"
 )
+# A part number the document does not attribute to either side ("Part No." on a customer's
+# purchase order): tried as the customer's own part number first, then as our code.
+_BARE_PART = re.compile(
+    r"^(part|part_no|part_number|item_no|item_number|item_code|item|sku|product_code|"
+    r"code|catalogue_number)$"
+)
 _OUR_CODE = re.compile(
     r"^(supplier|our|vendor|seller)?_?(product_code|sku|part_number|part_no|part|"
     r"item_code|item_number|item_no|code|product_id|material_number|catalogue_number)$"
@@ -192,7 +198,8 @@ def resolution_sources(template: ExtractionTemplate) -> Dict[str, Any]:
         "ship_to": {"address": _first(header, _SHIP_TO)},
         "product": {
             "description": _first(lines, _ITEM),
-            "customer_part_number": _first(lines, _THEIR_PART),
+            "customer_part_number": _first(lines, _THEIR_PART)
+            or _first(lines, _BARE_PART),
             "supplier_product_code": _first(lines, _OUR_CODE),
         },
         "reference": reference_field(template),

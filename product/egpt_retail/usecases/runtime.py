@@ -108,11 +108,18 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
     the report then carries the numbers only -- never a refusal of the run.
     """
     from egpt_retail.executors.analytics import comparison_of
-    from egpt_retail.skills.report_explanation import render_message
+    from egpt_retail.executors.diagnostics import diagnosis_of
+    from egpt_retail.skills.report_explanation import (
+        render_diagnosis_message,
+        render_message,
+    )
 
     async def explain(step_input: StepInput) -> StepOutput:
         comparison = comparison_of(step_input)
-        if comparison is None:
+        # The diagnostic kind (K25): the decomposition is what the model narrates, and
+        # it travels with the comparison so the report renders both.
+        diagnosis = diagnosis_of(step_input)
+        if comparison is None and diagnosis is None:
             return StepOutput(
                 content={"refused": "no comparison to explain"},
                 success=False,
@@ -123,12 +130,17 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
         explanation: Optional[Dict[str, Any]] = None
         notes = ""
         if override is not None:
-            explanation = dict(await asyncio.to_thread(override, comparison))
+            explanation = dict(
+                await asyncio.to_thread(override, diagnosis or comparison)
+            )
         elif agent is None:
             notes = "no explanation model is configured; the report carries the numbers only"
         else:
-            message = render_message(
-                comparison, question=str(options.get("question") or "")
+            question = str(options.get("question") or "")
+            message = (
+                render_diagnosis_message(diagnosis, question=question)
+                if diagnosis is not None
+                else render_message(comparison or {}, question=question)
             )
             response = await agent.arun(message)
             content = getattr(response, "content", None)
@@ -140,30 +152,37 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
                 explanation = dict(content)
             else:
                 notes = "the model returned an explanation of the wrong shape"
-        return StepOutput(
-            content={
-                "comparison_result": comparison,
-                "explanation": explanation,
-                "notes": notes,
-            },
-            success=True,
-        )
+        result: Dict[str, Any] = {
+            "comparison_result": comparison,
+            "explanation": explanation,
+            "notes": notes,
+        }
+        if diagnosis is not None:
+            result["diagnosis"] = diagnosis
+        return StepOutput(content=result, success=True)
 
     return Step(name=name, executor=explain, on_error=OnError.fail)
 
 
-def build_explanation_agent(model: Any, *, agent_id: str, db: Any = None) -> Any:
+def build_explanation_agent(
+    model: Any, *, agent_id: str, db: Any = None, diagnosis: bool = False
+) -> Any:
     """The explanation agent for one use case: the report_explanation skill's prompt and
-    output schema, on the small tier's model."""
+    output schema -- the diagnosis_explanation prompt for the diagnostic kind (K25), same
+    schema -- on the small tier's model."""
     from egpt.agent import Agent
 
-    from egpt_retail.skills.report_explanation import ReportExplanation, render_prompt
+    from egpt_retail.skills.report_explanation import (
+        ReportExplanation,
+        render_diagnosis_prompt,
+        render_prompt,
+    )
 
     return Agent(
         id=agent_id,
         name=agent_id,
         model=model,
-        instructions=render_prompt(),
+        instructions=render_diagnosis_prompt() if diagnosis else render_prompt(),
         output_schema=ReportExplanation,
         db=db,
     )

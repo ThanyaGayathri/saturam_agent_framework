@@ -468,9 +468,10 @@ def run_query(
     try:
         cursor = raw.cursor()
         try:
-            cursor.execute(
-                "SET LOCAL statement_timeout = %s", (int(statement_timeout_ms),)
-            )
+            # Postgres does not take a bind parameter in SET (psycopg 3 binds server-side,
+            # so the placeholder reaches the server as ``$1`` and is a syntax error); the
+            # value is an int, interpolated as one.
+            cursor.execute(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}")
             cursor.execute(sql)
             columns = [d[0] for d in (cursor.description or ())]
             fetched = cursor.fetchmany(int(limit)) if columns else []

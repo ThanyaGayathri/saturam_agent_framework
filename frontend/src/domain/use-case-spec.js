@@ -57,12 +57,14 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   successMeasure: "",
   // inform
   metricIds: [],
-  outputs: [],
+  outputs: ["report", "dashboard"], // inferred, never asked: every Analytics Automation produces both
   window: null,
   analytics: null,
   metricTerms: [],
   dimensions: [],
   comparison: null,
+  sensitivity: "usual", // the diagnostic kind (K25): clear | usual | more
+  evidenceColumns: [],
   // alert
   condition: null,
   scope: "",
@@ -235,12 +237,15 @@ export function gapsFor(spec, registryNames, measurable) {
   }
  }
 
- if (need.has("dimensions") && spec.dimensions.length === 0) {
+ if (spec.template === "metric_diagnosis" && spec.metricIds.length !== 1) {
+  push({ id: "metric-one", kind: GAP_KIND.missing, field: "metrics", ask: spec.metricIds.length ? "A diagnosis explains one KPI. Which one?" : "Which KPI changed?", options: spec.metricIds.slice(0, 8) });
+ }
+ // The diagnostic searches every dimension unless told otherwise, so none chosen is not a gap.
+ if (need.has("dimensions") && spec.dimensions.length === 0 && spec.template !== "metric_diagnosis") {
   push({ id: "dimensions", kind: GAP_KIND.missing, field: "dimensions", ask: "Analyse it by which of these?", multi: true });
  }
- if (need.has("comparison") && !spec.comparison) {
-  push({ id: "comparison", kind: GAP_KIND.missing, field: "comparison", ask: "Against which baseline?" });
- }
+ // No gap for a missing comparison: it is a choice, and a report without one carries
+ // the numbers as they are.
  if (need.has("operator") && !spec.condition?.operator) {
   push({ id: "operator", kind: GAP_KIND.missing, field: "operator", ask: "Should it fire when the metric goes above, falls below, or moves by more than a number?" });
  }

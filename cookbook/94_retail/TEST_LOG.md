@@ -6465,6 +6465,292 @@ nine for that goal. `vite build` clean; suite 1517 passed.
 
 ---
 
+### K25 -- the diagnostic kind: why one KPI changed, computed fresh every run
+
+**Package:** K25, branch `usecase_processautomation`. Contract 1.12.0 (additive):
+`diagnosisOptions`, `UseCaseTemplate.metric_diagnosis`, probe `diagnosis`. Design:
+`docs/plan/analytics-automation-design.md` §11.
+
+**Status:** PASS (18 Sep 2026): unit tests, the executor over the real quote fact, the
+whole chain offline with a stand-in narrator, and the builder end to end in the browser --
+readiness, rehearsal with the real model, activation, a live run emailed.
+
+**Description:** Analytics Automation gains a second kind next to the monitoring report:
+the same Inform chain with one deterministic stage between *Compare to baseline* and
+*Explain* -- **Decompose the change** -- and the model narrating that stage's ranking rather
+than choosing a cause.
+
+- `diagnostics/parts.py` reads a gold formula into its parts: table, window predicate, and
+  type -- *ratio* (`100.0 * A / NULLIF(B, 0)`, `A / NULLIF(B, 0)`, `AVG(x)`) with a numerator
+  and denominator, or *additive* (`COUNT(*)`, `SUM(x)`). A formula outside the shape is
+  refused, never guessed. All four RFQ formula shapes read.
+- `diagnostics/decompose.py` is the arithmetic, pure: per slice its contribution (additive:
+  its delta; ratio: the two-way split into a **rate effect** and a **mix effect**, which sum
+  to the headline change), its **surprise** against its own trailing history (robust z on
+  median and MAD, capped ±5), a **support floor** (max(20, 5 % of the period) scaled by
+  sensitivity) below which a slice is folded away, and the ranking: dimensions by the share
+  of the gap their top slice explains, unusual slices first, ties within a tenth reported.
+  Sensitivity is three words -- clear / usual / more -- mapping to |z| ≥ 3 / 2 / 1.5.
+- `executors/diagnostics.py`: `decompose_change` groups the fact's rows under the parts by
+  every **candidate dimension** (low-cardinality text columns the formula does not read;
+  never an id, a date, a status, a stage or a reason) for the run's date, the baseline and
+  twelve trailing periods; ranks; searches the winner one level down; fetches the evidence
+  rows (the losing side for a rate) with any reason column tallied. Every statement
+  guard-checked; the comparison carried forward untouched. `diagnosis_options` is what the
+  form shows: diagnosable, kind and parts, the candidate columns with distinct counts, rows
+  per period, the support floor per sensitivity.
+- The chain: `metric_diagnosis` template (Inform) with the new stage; `sensitivity` and
+  `evidence columns` slots, defaults `usual` / none; a diagnosis's comparison defaults to
+  the period before (inherent), every candidate dimension is searched unless told otherwise.
+  `diagnosis_explanation.md` (small tier, same `ReportExplanation` schema) narrates the
+  ranking; `check_report_grounding` accepts the decomposition's figures (and its caveats'
+  numbers); the report gains a "Where the change sits" section -- the ranked table with
+  effect, then → now, share of the change, vs its usual, rows -- the intersection and the
+  tally; the run result carries `diagnosis` and the run view gains that tab.
+- Readiness: `diagnosis_kpi` (one KPI, readable formula), `diagnosis_dimensions`,
+  `diagnosis_support` (rows in the period against the floor); probe `diagnosis` on the
+  screen.
+- The form: the Analytics Automation trigger is three kinds -- report the numbers / explain
+  why one KPI changed / only on a threshold; the diagnostic's fields are the KPI (one, with
+  what it is made of and the rows per period), the two periods, **search the cause across**
+  (the fact's columns with their cardinalities, all on by default), **sensitivity** (three
+  chips, the floor they imply shown), **evidence columns**; then outputs, delivery. The
+  suggestion sets the kind from a diagnostic ask.
+
+**Verification.** Over `silver.dc_rfq_quotes`, closed-won rate as of 17 Sep vs 10 Sep: 54.4 %
+→ 55.8 %; winner **pim_category = Griddles**, rate effect, 48.5 % → 53.4 % against a usual
+34.9 % (z +3.5), 51 % of the gap, 73 rows; evidence 34 lost Griddles quotes, lost reasons
+tallied. Offline chain: an invented "999" in the narrative is caught (`unsupported: ['999']`),
+a clean narrative passes (7 figures). In the browser: "Why did our closed-won rate change
+last week? Every Monday to …" filled the form as the diagnostic kind; readiness 9 of 9;
+the rehearsal with gpt-5.4 wrote *"Closed-won rate rose from 54.5% to 55.8% last week;
+Griddles drove it -- its own win rate moved from 49.3% to 53.3%, against a usual 35.3% --
+and of the 35 Griddles quotes still lost, Chosen Competitor, Constraints Budget, and High
+Too Price lead the reasons (5 each)."* -- 22 figures checked, all in the numbers (the first
+attempt was withheld on a "98" copied from a caveat, which the checker now admits);
+activated in production, a live run emailed the report, dashboard composed. Tests:
+`product/tests/test_k25_diagnostics.py` (10); suite 1554 passed; ruff, mypy, contract
+check, `vite build` clean.
+
+**The dashboard shows the latest report.** Rather than a new tile kind in the dashboards
+model, a dashboard whose owner is `use_case` opens on `UseCaseLatestReport` -- the owning
+use case's last successful run found by the dashboard's name: the headline sentence, live
+run or rehearsal and when, the grounding verdict, and for a diagnosis the winning slice
+with its share of the change and its usual value; "Open the run" links to the use case.
+Hand-built dashboards are untouched. Verified on `dsh_e7a71c1f2858`.
+
+**"Why it changed" as an insight, not a table.** The report's section (`_diagnosis_html`,
+email-safe) and its screen twin (`DiagnosisInsight.jsx`, used by the run view's tab and by
+the dashboard panel) now read: the KPI's move as two numbers with a delta pill and the
+period dates; **the driver** as a card -- what it is, what it did (its own rate / its share
+of the mix / its count), then → now over N rows, its share of the change as a bar, its
+usual value with "unusual · z +3.9" in red when it is, and the KPI's last twelve periods as
+small bars; **also moving** -- each other dimension's top slice with then → now and a signed
+bar, amber when it pulled the other way; **inside the driver**; and **why** -- the reason
+tally as bars over the rows that did not convert. The footnote carries what was searched,
+the sensitivity, the floor and the caveats. Rendered from the live run's data; a live run
+sent the redesigned report (27 figures grounded).
+
+**Validated and fixed, same day.** Reading the dashboard and the emailed report against
+each other and against the data: (1) the diagnosis quoted +1.4 pts while the KPI tile said
++1.3 -- the executor rounded nothing while gold rounds to the formula's precision; the
+headline is now rounded to the formula's own `ROUND` places (`FormulaParts.precision`) and
+its delta is the difference of the rounded values, so tile, sentence and diagnosis quote
+one number (the shares of the gap stay exact underneath); (2) the narrator wrote "0.4 of
+the gap" and "0.6 of the change" for the same slice -- its input now carries
+`share_of_change` as a percent ("45%") and `contribution` in the KPI's unit ("+0.6 pts"),
+and the live run wrote "Griddles drove 45% of the change (+0.6 pts)"; (3) the email's
+eyebrow repeated the title, the KPI tile repeated the hero, and the trend sat inside the
+driver card under "against its usual" as if it were the slice's -- the eyebrow is
+"Enterprise GPT" (plus what the use-case name adds), the diagnosed KPI's tile is dropped,
+the trend moved beside the hero numbers; (4) the text twin listed the caveat twice;
+(5) the dashboard's first row is three tiles -- the KPI (previous → now, delta, rows), the
+trend (twelve bars, first and last values, the step), where the change sits (each
+dimension's top slice as a signed bar, the dimension under the value, red dot for unusual,
+amber for the other way) -- and "Why it changed" below without the numbers the tiles carry.
+Live run `run_8a86fa17`: 29 figures grounded, deltas agree (1.3 / 1.3). (6) The third row
+repeated the KPI: the dashboard the use case composed carried the diagnosed KPI as a tile
+under the panel that already shows it. `compose_dashboard` now composes a diagnosis's
+dashboard from the KPI's **breakdown siblings** in the registry (same concept, a grain, an
+identifier extending the KPI's -- `rfq__closed_won_rate_by_brand`), the drill-down under
+the "why"; the KPI itself only when it has none. Recomposed as `dsh_ef5750e721fd`. Then, asked "if I pick three dimensions, three widgets?" --
+yes, now: a diagnosis's dashboard is composed from **one query tile per dimension searched**
+(the KPI's own formula grouped by that column, `{as_of}` as the refresh's date, guard-checked
+like any query tile, computed once at composition so the dashboard opens with numbers), the
+chosen dimensions or every candidate; the registry siblings only when the formula cannot be
+read. On the way this found a bug in the dashboards' query runner: `SET LOCAL
+statement_timeout = %s` with a bound parameter, which psycopg 3 sends server-side and
+Postgres rejects (`syntax error at or near "$1"`) -- every query tile failed; the timeout
+is an int and is now interpolated. The trend tile is a chart: every bar labelled, the
+first date, the two compared dates, the two compared bars darker, the median of the history
+as a dashed "usual" line; the email's sparkline gains first … baseline → now · usual.
+Recomposed as `dsh_e6d9b3602453`: eight breakdown tiles, all fresh.
+
+**What the form asks, re-validated (18 Sep).** Asked: the goal in words; the KPI (one);
+the two periods (inferred, editable); search the cause across (all on, untick to leave
+out); recipients and frequency; the owner. Optional with a default: sensitivity (Usual;
+"change it after a run -- only clear outliers if the report names noise, flag more if it
+names nothing"). Not asked any more: **outputs** -- every Analytics Automation produces
+the report and a dashboard (compiler default and the form's inferred value, both kinds);
+**evidence columns** -- the rows behind the finding were fetched but never shown, and
+which columns to show is the fact's to decide: an identifier, the dimension the finding
+sits in, who and what, the closing date, the measure, the reason, the outcome (`quote_id,
+pim_category, customer_name, product_name, closed_date, deal_value_usd, lost_reason,
+quote_status` for the quote fact). The rows themselves now appear on the run's "Where the
+change sits" tab (first twelve, with the count); the email says they are on the run.
+
+**Other questions the data can answer, tried before handing them over (18 Sep).**
+`quotes_generated` month on month: 395 -> 351 (-44); Refrigeration 72 -> 36 against a usual
+56, z -5, 82 % of the drop; India West next. `open_pipeline_value` month on month: $9.57m
+-> $10.52m; Live Chat +$264k (28 %), no slice unusual for itself, inside Live Chat: Portal
+Dealer. `average_days_to_close` at sensitivity *flag more*: 15.3 -> 15.1; the first cut
+named Refrigeration, which had *risen* (a slice that pulled the other way, -79 %) --
+fixed as a rule: a slice that moved with the headline ranks ahead of one that pulled
+against it, so the driver is the finding and the opposite mover the contrast
+(`decompose_dimension` ordering, tested); now Foodservice Consultant, z -5. The chat KPIs
+(`chat_to_quote_rate`, `live_chat_buy_inquiries`) read 100 % -> 100 % this window: nothing
+to explain, and the diagnosis says so rather than inventing a driver.
+
+**The decomposition verified against the data by hand.** Plain SQL over
+`silver.dc_rfq_quotes` for as_of 18 Sep vs 11 Sep, independent of the executor: headline
+54.47 % (250/459) -> 55.83 % (273/489), delta 1.362 pts (report: 54.5 -> 55.8); Griddles
+49.28 % (34/69) -> 53.33 % (40/75), support 75 (report: 49.3 -> 53.3, 75 rows); Griddles
+rate effect 0.622, mix effect -0.016, contribution 0.607 pts, share of gap 0.445 (report:
+0.4454, "45 %"); the contributions of every pim_category sum to 1.362 pts -- exactly the
+headline delta, as the two-way split must; Griddles' norm = median of the twelve prior
+weekly values 35.28 % with MAD 3.14 -> z +3.88 (report: usual 35.3 %, z +3.9); Griddles
+lost in the period 35 rows with Chosen Competitor 5, Constraints Budget 5, High Too Price 5,
+Specification Alternative 4, Response No 4, Decision Delayed 3 (report: identical);
+Ranges 54.9 -> 57.7, Ovens 49.2 -> 51.4, Online Marketplace 52.8 -> 55.3 (report:
+identical). Every figure the narrative quoted is the data's.
+
+**Same day, two follow-ups.** *Gold for the run's own date:* `compare_to_baseline` now
+materialises the run's date the way it materialises a missing baseline, so a run made
+before the nightly pass reports the numbers rather than "no gold row at as_of"
+(`comparison_result.computed_now` names the KPIs computed for it); the 18 Sep pass was also
+run by hand for every KPI (16 materialised; `rfq__quote_volume_1`, hand-authored, failed on
+its own formula). *"Compared" only when something is:* the compiler emits the Compare
+stage as **Take the numbers as they are** when no comparison is chosen (a diagnosis always
+compares), the plan mirror does the same, and every sentence that said "compares" --
+the run panel, the run history ("15 KPIs read → report emailed"; "1 KPI diagnosed"),
+the run summary, the result tiles ("Not compared · the numbers as they are"), readiness
+coverage, the rehearse blurb, `describeShape` -- now says so only when a baseline was
+chosen. Verified live: the monitoring use case runs as "15 KPI(s) read, report sent" with
+today's gold; the diagnosis as "1 KPI diagnosed, report sent", 33 figures grounded.
+
+---
+
+### K23 follow-up -- the comparison is a choice, never a default (18 Sep 2026)
+
+**Status:** PASS. Decided in the analytics brainstorm: a baseline put in front of a person
+who did not ask for one makes the report narrate a delta nobody wanted. `comparison` is now
+optional end to end -- `OPTIONAL_SLOTS` in the compiler, `_OPTIONAL_PARAMETERS` in the gap
+check (contract 1.11.3: `AnalyticsSuggestion.comparison` nullable) -- and the suggester sets
+one only from the words: a period named ("last year"), a change asked about ("dropping",
+"versus", "change"), or a diagnostic kind, where two periods are inherent. Without one,
+`compare_to_baseline` reads gold for the run's date alone (no baseline read, no backfill),
+`baseline_as_of` is null, tiles read "not compared", the report header drops "compared
+with". The form's field is "Compare with", optional, with a "No comparison" chip first and
+its hint saying what a report without one carries; the plan reads "Reads the numbers as
+they are -- nothing compared". Checked live: "visibility into the pipeline every Monday" ->
+no comparison; "why is our closed-won rate dropping?" -> the period before. Tests updated
+(R9 gap expectations, K23 +1); suite 1543 passed. The diagnostic kind is planned, not
+built: `docs/plan/analytics-automation-design.md` §11.
+
+---
+
+### K16 follow-up -- "Refresh in run history not working" (18 Sep 2026)
+
+**Status:** PASS. The button did reload (the network log shows `GET /use-cases/{id}/runs
+-> 200` on every click, no console error) but gave no sign of it, and the page's own
+15-second poll had usually already shown the same rows -- so a click that changed nothing
+read as a click that did nothing. `UseCasePlatformPage` now records when it last read the
+platform and whether a read is in flight; `RunHistory` shows "updated just now / 23 s ago /
+14:32", spins the icon and disables the button while a read runs. Verified in the browser:
+"updated 11 s ago" -> click -> "updated just now". `vite build` clean.
+
+---
+
+### K24 follow-up -- "8 of 17 golden cases pass" on a drafted template (18 Sep 2026)
+
+**Status:** PASS. Activation refused with nine failing golden cases (E-01..E-07, E-09,
+E-13). One root cause behind all of them: a template drafted from the customer's sample and
+kept under the label "Purchase order" took the shipped id `purchase_order` -- the catalogue
+save treated it as the shipped one, the platform's `generate_cases` handed it the curated
+sixteen (expected in the shipped names `due_date`, `order_total`), the form's
+`suggestRules` handed it the shipped preset (`date_window` on `due_date`), and its
+`part_number` column fed only the product-code attempt so E-01's customer part number
+306727 never matched. Fixed as five rules rather than one patch:
+
+- `saveTemplateToCatalogue` / `saveMappingToCatalogue` never issue a shipped id
+  (`uniqueCatalogueId` -> `purchase_order_custom`); `isShippedTemplate` (same id *and* same
+  fields) gates the shipped preset in `suggestRules`, and `_is_shipped_purchase_order` gates
+  the curated set on the platform.
+- A generated set is stamped with the template it was made for (`expected.template`,
+  `template_fingerprint`) and remade when the template changed.
+- A bare part number (`part_no`, `part_number`, `item_no`, ...) feeds the customer's-part
+  attempt first, then our code (`_BARE_PART`, both sides); generated documents fill such a
+  column with the customer's cross-reference number, and "Item nobody sells" carries a part
+  number nobody has.
+- Cases not about the item take an item the customer has ordered before, so only the rule
+  the case is about trips.
+- Readiness gains `guardrail_fields`: a rule reading a field the template lacks is named
+  (it is skipped at run time, never passed) and fails live; the form marks the row amber
+  with "Use <the template's field> instead" / "Remove it", and the stale "under master data"
+  warning is gone.
+
+Verified live on the person's use case: the generated set remade for the drafted template
+(12 + the uploaded sample) -> 12 of 13 pass; the one left, "Date in the past", is exactly
+the guardrail readiness names (`date_window` on `due_date`), fixed on the form with one
+click. Suite 1542 passed; ruff, mypy, `vite build` clean.
+
+Same day, two asks on the back of it. **The golden cases no longer gate activation:**
+`PreflightCheck.advisory` (contract 1.11.2) -- an advisory check is reported and never
+sets `allowed` false; `golden_cases` is advisory, shown on the readiness screen as "to
+note" with the link to the failing cases; `guardrail_fields`, `mapping_sources` and the
+credential checks still block. Router test updated (activation proceeds with 5 failing
+cases; the reason still names them). **Each guardrail's column is chosen on the form:** an
+active rule shows a select of the template's own fields (header fields for a header check,
+line fields for a line check; `total ↔ line_total` for the total check), a field the
+template lacks listed as "(not in this template)"; changing it re-derives the rule, so the
+amber note clears. In the browser: Due-date sanity `due_date` -> `delivery_date`, note gone.
+
+---
+
+### K24 follow-up -- rehearse refused: "requires a 'master data' parameter" (18 Sep 2026)
+
+**Status:** PASS. A use case saved from the K24 form (no master-data section) sent `master
+data` as `{}`, and the compiler counted an empty slot as unfilled, so readiness said
+"workflow_compiles: the document_to_record template requires a 'master data' parameter and
+nothing filled it". Fixed at the source of the rule: `master data` and `match thresholds`
+join `SLOT_DEFAULTS` (origin DEFAULT, like window/title/outputs) -- master data defaults to
+`{"source": "write target"}`, thresholds to `{}` (the matcher's own defaults). `_master_data`
+resolves "write target" to the target's kind and uses the write target's connection unless
+the slot carries one of its own. Test added in `test_k15_orchestration.py`. Verified live on
+the person's draft: readiness all PASS (spec, compiles, mailbox, target, model,
+mapping_sources); a rehearsal over the 36 generated cases succeeded -- 15 documents, 21
+exceptions -- with the reference data read from the trial org. Suite 1538 passed.
+
+---
+
+### K16 follow-up -- delete a user-built use case (18 Sep 2026)
+
+**Status:** PASS. `DELETE /use-cases/{id}` existed (K16) but removed only the use-case row,
+leaving its runs and golden cases orphaned (no foreign key on either table). `store.delete`
+now removes runs and cases in the same transaction; the dashboard an Analytics Automation
+composed stays under KPIs -> Dashboards. The platform page gains **Delete** beside Edit and
+Activate: confirms in words (an activated use case is paused first so the schedule stops,
+run history and golden cases go with it, records already created in the target stay --
+undoing those is the rollback plan's job, per run), then returns to the gallery.
+Verified live: a throwaway use case with one golden case -> 204, second call 404, zero rows
+in `retail_use_cases`, `retail_use_case_runs`, `retail_use_case_cases`. Suite 1537 passed.
+
+Same day, on request: the 17 Draft orders the platform had created in the trial org on 16
+Sep (Northwind PO numbers, 19 line items) deleted through `delete_record`; the line items
+cascade with the order; 0 drafts left, the 21 accounts untouched.
+
+---
+
 ### K23 follow-up -- a different question than the RFQ ask (17 Sep, later)
 
 **Status:** PASS. Asked whether an analytics use case other than the RFQ report works, three

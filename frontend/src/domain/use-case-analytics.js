@@ -22,21 +22,32 @@ export function patchFromSuggestion(suggestion, spec) {
   metricIds: ids.length ? ids : spec.metricIds,
   metricTerms: [],
   dimensions: suggestion?.dimensions?.length ? suggestion.dimensions : spec.dimensions,
-  comparison: suggestion?.comparison || spec.comparison || "prior_period",
+  comparison: suggestion ? (suggestion.comparison ?? null) : (spec.comparison ?? null),
   schedule: suggestion?.schedule || spec.schedule,
   window: suggestion?.window ?? spec.window ?? null,
   notify: (suggestion?.recipients || []).join(", ") || spec.notify,
-  outputs: suggestion?.outputs?.length ? suggestion.outputs.filter((o) => o !== "alert") : spec.outputs,
+  // Both kinds produce a report and a dashboard (decided 18 Sep); the diagnostic's differ in shape.
+  outputs: ["report", "dashboard"],
   title: spec.title || suggestion?.title || "",
   analytics: analyticsFromSuggestion(suggestion),
  };
+ // A diagnostic ask is the diagnostic kind (K25): one KPI, the change decomposed. The
+ // template is set here so the form switches its fields; the person can switch it back.
+ if (suggestion?.kind === "diagnostic") {
+  patch.template = "metric_diagnosis";
+  patch.metricIds = ids.slice(0, 1).length ? ids.slice(0, 1) : spec.metricIds.slice(0, 1);
+  patch.dimensions = [];
+ } else if (suggestion) {
+  patch.template = null;
+ }
  const understood = [];
- if (ids.length) understood.push(`${ids.length} KPI${ids.length === 1 ? "" : "s"} the data supports: ${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}`);
+ if (suggestion?.kind === "diagnostic") understood.push(`a diagnosis of ${patch.metricIds[0] || "one KPI"}: the change decomposed across every dimension the data carries`);
+ else if (ids.length) understood.push(`${ids.length} KPI${ids.length === 1 ? "" : "s"} the data supports: ${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}`);
  if (patch.dimensions?.length) understood.push(`broken down by ${patch.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}`);
- if (suggestion?.comparison_reason) understood.push(`compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} — ${suggestion.comparison_reason}`);
+ if (suggestion?.comparison_reason) understood.push(suggestion.comparison ? `compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} — ${suggestion.comparison_reason}` : `not compared — ${suggestion.comparison_reason}`);
  if (suggestion?.schedule_reason) understood.push(`${suggestion.schedule} — ${suggestion.schedule_reason}`);
  if (suggestion?.window) understood.push(`the numbers cover the last ${suggestion.window} day${suggestion.window === 1 ? "" : "s"}`);
- if (patch.outputs?.length) understood.push(`outputs: ${patch.outputs.join(" + ")}`);
+
  if (suggestion?.recipients?.length) understood.push(`to ${suggestion.recipients.join(", ")}`);
  if (suggestion?.uncovered?.length) understood.push(`nothing registered covers: ${suggestion.uncovered.slice(0, 6).join(", ")}`);
  return { patch, understood };
@@ -55,6 +66,8 @@ export function reportResult(result) {
   html: result.report.html,
   asOf: comparison.as_of,
   comparisonLabel: comparison.comparison_label,
+  compared: !!comparison.comparison && comparison.comparison !== "none",
+  computedNow: comparison.computed_now || [],
   kpis: (comparison.kpis || []).map((k) => ({ id: k.identifier, name: k.name, unit: k.unit, grain: k.grain, current: k.current, baseline: k.baseline, delta: k.delta, deltaPct: k.delta_pct, rows: k.rows?.length || 0, reason: k.reason })),
   backfilled: comparison.backfilled || [],
   explanation: result.explanation || null,
@@ -62,6 +75,8 @@ export function reportResult(result) {
   grounding: result.grounding || null,
   delivery: result.delivery || null,
   inApp: result.in_app || null,
+  // The diagnostic kind (K25): the decomposition the sentence was written from.
+  diagnosis: result.diagnosis || null,
  };
 }
 

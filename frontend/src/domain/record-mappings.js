@@ -11,7 +11,7 @@
  * embedded on the spec as `recordMappingDef`, so the spec is self-contained on the platform.
  */
 import { readLocalJson, writeLocalJson } from "../storage/local-json";
-import { headerFields, lineFields } from "./extraction-templates";
+import { headerFields, lineFields, uniqueCatalogueId } from "./extraction-templates";
 import { MASTER_DATA_ROLES } from "./use-case-autonomy";
 
 export const MAPPING_CATALOGUE_KEY = "retailgpt:record-mappings:v1";
@@ -81,8 +81,11 @@ export function loadMappingCatalogue() {
  return [...SHIPPED_MAPPINGS, ...rows.filter((m) => !seen.has(m.id) && seen.add(m.id))];
 }
 export function saveMappingToCatalogue(raw) {
- const mapping = normalizeMapping(raw);
- if (!mapping || SHIPPED_MAPPINGS.some((m) => m.id === mapping.id)) return mapping;
+ let mapping = normalizeMapping(raw);
+ if (!mapping) return mapping;
+ // A mapping named like a shipped one ("Order + OrderItem") gets an id of its own; the
+ // shipped id would make the platform read the shipped rows instead of the person's.
+ if (SHIPPED_MAPPINGS.some((m) => m.id === mapping.id)) mapping = normalizeMapping({ ...raw, id: uniqueCatalogueId(mapping.id, SHIPPED_MAPPINGS.map((m) => m.id)), basedOn: raw.basedOn || mapping.id });
  const custom = readLocalJson(MAPPING_CATALOGUE_KEY, []);
  writeLocalJson(MAPPING_CATALOGUE_KEY, [...(Array.isArray(custom) ? custom : []).filter((m) => m && m.id !== mapping.id), mapping]);
  return mapping;

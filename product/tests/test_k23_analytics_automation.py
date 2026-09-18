@@ -537,6 +537,18 @@ class TestSuggestion:
             and out.comparison == "prior_period"
         )
 
+    def test_a_monitoring_ask_without_a_period_is_not_compared(self):
+        # "Visibility into the pipeline every Monday" names no period and asks about no
+        # change: nothing is compared, and the form offers a baseline as a choice.
+        out = suggest_analytics(
+            "Full visibility into the quote pipeline by brand, every Monday.", REGISTRY
+        )
+        assert out.comparison is None and "does not" in out.comparison_reason
+        out = suggest_analytics(
+            "How did quotes generated change versus last week?", REGISTRY
+        )
+        assert out.comparison == "prior_period"
+
     def test_last_year_and_uncovered_words(self):
         out = suggest_analytics(
             "Compare quotes generated with last year; also tell me about churn.",
@@ -598,7 +610,10 @@ class TestCompilerInform:
         ]
         assert compiled.parameters[
             "title"
-        ] == "Weekly RFQ pipeline" and compiled.parameters["outputs"] == ["report"]
+        ] == "Weekly RFQ pipeline" and compiled.parameters["outputs"] == [
+            "report",
+            "dashboard",
+        ]
         assert compiled.parameter_origins["title"] is ParameterOrigin.DEFAULT
         assert set(SHAPE_PARAMETERS[UseCaseShape.INFORM]) >= {
             "window",

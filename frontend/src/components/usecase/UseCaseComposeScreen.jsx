@@ -15,7 +15,7 @@ import {
  CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES,
  FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
  PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor, templateFromText,
+ TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldMetaFor, fieldsFor, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
@@ -23,7 +23,7 @@ import {
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
 import { REPORT_OUTPUTS, analyticsFromSuggestion, analyticsSuggestionFor, isAnalyticsInform, patchFromSuggestion } from "../../domain/use-case-analytics";
-import { suggestAnalyticsUseCase } from "../../services/use-cases-api";
+import { fetchDiagnosisOptions, suggestAnalyticsUseCase } from "../../services/use-cases-api";
 import { fetchKpiList } from "../../services/kpis-api";
 import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-templates";
 import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardrail-rules";
@@ -85,8 +85,8 @@ const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 t
 const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
 
-function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse }) {
- const meta = FIELD_META[name] || { label: name, hint: "" };
+function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, template }) {
+ const meta = fieldMetaFor(name, { template });
  const o = origin && ORIGIN_LABEL[origin];
  const pref = suggestion?.options?.find((x) => x.label === suggestion.preferred);
  return (
@@ -234,6 +234,16 @@ export default function UseCaseComposeScreen() {
   const base = emptySpec(t.problemSignal || t.title || "", shape, category);
   return persist(applyPatch({ ...base, title: t.title || "" }, { metricIds: shape === "alert" ? metrics.slice(0, 1) : metrics }, ORIGIN.spec));
  });
+ // The diagnostic kind (K25): what the chosen KPI can be searched across and what the data
+ // can bear, from the platform -- computed, never asked. Refetched when the KPI or the
+ // window changes.
+ const [diagnosis, setDiagnosis] = useState(null);
+ useEffect(() => {
+  if (spec.template !== "metric_diagnosis" || !spec.metricIds[0]) { setDiagnosis(null); return undefined; }
+  const ac = new AbortController();
+  fetchDiagnosisOptions({ kpiIdentifier: spec.metricIds[0], window: spec.window || null }, { signal: ac.signal }).then(setDiagnosis).catch((err) => { if (err?.name !== "AbortError") setDiagnosis({ diagnosable: false, reason: err?.detail || err?.message || "the platform did not answer" }); });
+  return () => ac.abort();
+ }, [spec.template, spec.metricIds[0], spec.window]);
  const setSpec = (updater) => setSpecState((prev) => persist(typeof updater === "function" ? updater(prev) : updater));
 
  const category = categoryOf(spec);
@@ -276,9 +286,9 @@ export default function UseCaseComposeScreen() {
   setAssistantOpen(false);
   lastAsked.current = null;
  };
- const setMode = (shapeId) => {
-  if (shapeId === spec.shape) return;
-  const next = persist(withShape(spec, shapeId, spec.category));
+ const setMode = (shapeId, template = null) => {
+  if (shapeId === spec.shape && (template || null) === (spec.template || null)) return;
+  const next = persist(withShape(spec, shapeId, spec.category, template || null));
   setSpecState(next);
   lastAsked.current = null;
  };
@@ -514,11 +524,28 @@ export default function UseCaseComposeScreen() {
  const example = category.examples.find((e) => (e.template ? e.template === spec.template : e.shape === spec.shape)) || (category.templates && !spec.template ? null : category.examples[0]);
  const examples = category.templates && !spec.template ? category.examples : example ? [example] : [];
 
- const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt) });
+ const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt), template: spec.template });
 
  const renderField = (f) => {
   switch (f) {
    case "metrics": case "metric":
+    if (spec.template === "metric_diagnosis") {
+     const chosen = spec.metricIds[0] || "";
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     const sug = (spec.analytics?.kpis || []).find((k) => k.identifier === chosen);
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <select value={chosen} onChange={(e) => setField(f, e.target.value ? [e.target.value] : [])} className={`${select} w-full max-w-[28rem]`}>
+        <option value="">Choose the KPI that changed…</option>
+        {platformKpis.map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+       </select>
+       {sug?.why && <p className="mt-1 text-[11px] text-text-muted">Chosen because you said: {sug.why}.</p>}
+       {diagnosis && chosen && (diagnosis.diagnosable
+        ? <p className="mt-1.5 text-[11px] text-text-secondary">{known[chosen]?.name || chosen} is a <b>{diagnosis.kind}</b> over <span className="font-mono">{diagnosis.table}</span>{diagnosis.denominator ? <>: <span className="font-mono">{diagnosis.numerator}</span> ÷ <span className="font-mono">{diagnosis.denominator}</span></> : <>: <span className="font-mono">{diagnosis.numerator}</span></>}. {diagnosis.rows_in_period} rows in the period, {diagnosis.rows_in_baseline} in the one before ({diagnosis.step_days} days apart).</p>
+        : <p className="mt-1.5 text-[11px] text-status-warning">This KPI cannot be diagnosed: {diagnosis.reason}.</p>)}
+      </Field>
+     );
+    }
     if (isAnalyticsInform(spec)) {
      const byId = Object.fromEntries((spec.analytics?.kpis || []).map((k) => [k.identifier, k]));
      const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
@@ -579,6 +606,21 @@ export default function UseCaseComposeScreen() {
      </Field>
     );
    case "dimensions":
+    if (spec.template === "metric_diagnosis") {
+     const offered = diagnosis?.dimensions || [];
+     const all = spec.dimensions.length === 0;
+     const on = (c) => all || spec.dimensions.includes(c);
+     const toggle = (c) => { const current = all ? offered.map((d) => d.column) : spec.dimensions; const next = on(c) ? current.filter((x) => x !== c) : [...current, c]; setField(f, next.length === offered.length ? [] : next); };
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       {!spec.metricIds[0] ? <p className="text-[11px] text-text-muted">Choose the KPI first; its fact's columns are listed here.</p>
+        : !diagnosis ? <p className="text-[11px] text-text-muted">Reading the fact's columns…</p>
+        : offered.length === 0 ? <p className="text-[11px] text-status-warning">The fact carries no column a change can be searched across.</p>
+        : <div className="flex flex-wrap gap-1.5">{offered.map((d) => <button key={d.column} type="button" aria-pressed={on(d.column)} title={`${d.distinct} distinct values${d.description ? ` · ${d.description}` : ""}`} onClick={() => toggle(d.column)} className={chip(on(d.column))}>{d.label} <span className="opacity-70">· {d.distinct}</span></button>)}</div>}
+       <p className="mt-1.5 text-[11px] text-text-muted">{all ? "All of them, ranked by how much of the change each explains; untick one to leave it out." : `${spec.dimensions.length} of ${offered.length}; the rest are not searched.`} Ids, dates, statuses and reason columns are never a cause and are not offered.</p>
+      </Field>
+     );
+    }
     if (isAnalyticsInform(spec)) {
      // Every breakdown the registry can actually make: the grains its KPIs carry, with the
      // ones the chosen and suggested KPIs offer first; plus one typed by hand.
@@ -597,6 +639,28 @@ export default function UseCaseComposeScreen() {
      );
     }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;
+   case "sensitivity": {
+    const levels = [["clear", "Only clear outliers", "a slice is named when it is far outside its own history (|z| ≥ 3) and has 1.5× the usual rows"], ["usual", "Usual", "outside its own history at |z| ≥ 2"], ["more", "Flag more", "|z| ≥ 1.5, and half the usual rows suffice"]];
+    const floor = diagnosis?.support_floors?.[spec.sensitivity || "usual"];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap gap-1.5">{levels.map(([v, label, why]) => <button key={v} type="button" aria-pressed={(spec.sensitivity || "usual") === v} title={why} onClick={() => setField(f, v)} className={chip((spec.sensitivity || "usual") === v)}>{label}</button>)}</div>
+      <p className="mt-1.5 text-[11px] text-text-muted">Usual works for most data; change it after a run — "only clear outliers" if the report names noise, "flag more" if it names nothing.{floor != null ? ` At this setting a slice needs ${floor} rows in the period to be named; the norm is each slice's last ${diagnosis?.history_periods || 12} periods.` : ""}</p>
+     </Field>
+    );
+   }
+   case "evidenceColumns": {
+    const columns = diagnosis?.columns || [];
+    const reasons = new Set(diagnosis?.reason_columns || []);
+    const chosenCols = spec.evidenceColumns || [];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      {columns.length === 0 ? <p className="text-[11px] text-text-muted">{spec.metricIds[0] ? "Reading the fact's columns…" : "Choose the KPI first."}</p>
+       : <div className="flex flex-wrap gap-1.5">{columns.map((c) => { const on = chosenCols.includes(c.column); const forced = reasons.has(c.column); return <button key={c.column} type="button" aria-pressed={on || forced} disabled={forced} title={forced ? "A reason column is always tallied" : c.description || c.column} onClick={() => setField(f, on ? chosenCols.filter((x) => x !== c.column) : [...chosenCols, c.column])} className={`${chip(on || forced)} font-mono ${forced ? "opacity-80" : ""}`}>{c.column}</button>; })}</div>}
+      <p className="mt-1.5 text-[11px] text-text-muted">{chosenCols.length ? `${chosenCols.length} columns on the evidence rows.` : "None chosen: the fact's first columns are shown."} For a rate, the evidence is the rows on the losing side.</p>
+     </Field>
+    );
+   }
    case "comparison":
     if (isAnalyticsInform(spec)) {
      const w = spec.window || null;
@@ -606,9 +670,10 @@ export default function UseCaseComposeScreen() {
      return (
       <Field key={f} name={f} {...fieldProps(f)}>
        <div className="flex flex-wrap items-center gap-1.5">
-        {COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)).map((c) => <button key={c.value} type="button" aria-pressed={spec.comparison === c.value} onClick={() => setField(f, c.value)} className={chip(spec.comparison === c.value)}>{c.label}</button>)}
+        {spec.template !== "metric_diagnosis" && <button type="button" aria-pressed={!spec.comparison} onClick={() => setField(f, null)} className={chip(!spec.comparison)}>No comparison</button>}
+        {COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)).map((c) => { const on = spec.comparison === c.value || (spec.template === "metric_diagnosis" && !spec.comparison && c.value === "prior_period"); return <button key={c.value} type="button" aria-pressed={on} onClick={() => setField(f, c.value)} className={chip(on)}>{c.label}</button>; })}
        </div>
-       {spec.comparison !== "prior_year" && (
+       {spec.comparison && spec.comparison !== "prior_year" && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
          <span>How far back:</span>
          <button type="button" aria-pressed={!w} onClick={() => setSpec((s) => applyPatch(s, { window: null }, ORIGIN.authored))} className={chip(!w)}>each KPI's own window</button>
@@ -616,7 +681,7 @@ export default function UseCaseComposeScreen() {
          <input type="number" min="1" placeholder="other" value={w && ![7, 14, 28, 90].includes(w) ? w : ""} onChange={(e) => setSpec((s) => applyPatch(s, { window: e.target.value ? Number(e.target.value) : null }, ORIGIN.authored))} className={`${input} w-20`} /><span className="text-text-muted">days</span>
         </div>
        )}
-       <p className="mt-1.5 text-[11px] text-text-muted">{spec.comparison === "prior_year" ? "The same date a year earlier; the baseline is computed from each KPI's formula if gold has none for it." : w ? `Each KPI is compared with its value ${w} days earlier, whatever its own window.` : `Each KPI is compared with its value one window earlier, ${ownWindow}.`}{spec.analytics?.comparisonReason ? ` Suggested: ${spec.analytics.comparisonReason}.` : ""}</p>
+       <p className="mt-1.5 text-[11px] text-text-muted">{!spec.comparison ? "The numbers and their breakdowns as they are on the run's date; nothing is compared. Choose a baseline to see what moved." : spec.comparison === "prior_year" ? "The same date a year earlier; the baseline is computed from each KPI's formula if gold has none for it." : w ? `Each KPI is compared with its value ${w} days earlier, whatever its own window.` : `Each KPI is compared with its value one window earlier, ${ownWindow}.`}{spec.analytics?.comparisonReason ? ` Suggested: ${spec.analytics.comparisonReason}.` : ""}</p>
       </Field>
      );
     }
@@ -943,13 +1008,13 @@ export default function UseCaseComposeScreen() {
 
     {category.trigger && (
      <Field name="mode" origin={null}>
-      <div className="grid gap-2 sm:grid-cols-2">
-       {category.trigger.map((t) => (
-        <button key={t.shape} type="button" aria-pressed={spec.shape === t.shape} onClick={() => setMode(t.shape)} className={`rounded-lg border px-3 py-2 text-left ${spec.shape === t.shape ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+      <div className={`grid gap-2 ${category.trigger.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+       {category.trigger.map((t) => { const on = spec.shape === t.shape && (spec.template || null) === (t.template || null); return (
+        <button key={`${t.shape}:${t.template || ""}`} type="button" aria-pressed={on} onClick={() => setMode(t.shape, t.template || null)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
          <span className="block text-sm font-semibold text-text-primary">{t.label}</span>
          <span className="block text-xs text-text-muted">{t.hint}</span>
         </button>
-       ))}
+       ); })}
       </div>
      </Field>
     )}

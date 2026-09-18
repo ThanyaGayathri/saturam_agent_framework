@@ -109,6 +109,29 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.12.0 — 2026-09-18 — the diagnostic kind: `diagnosisOptions` (additive)
+
+Agreed by: Lane K. One new operation, `POST /use-cases/analytics/diagnosis-options`
+(`DiagnosisOptionsRequest` -> `DiagnosisOptions`): for one registered KPI, whether its
+formula can be decomposed and as what, the columns its fact carries that a change can be
+searched across (with distinct counts and descriptions), the rows per period and the
+support floor each sensitivity implies. The form asks nothing the data can decide. The
+`metric_diagnosis` template (Inform) is a new value of `Spec.template`; its slots
+`sensitivity` and `evidence columns` travel in `Spec.parameters` like every other.
+
+## 1.11.3 — 2026-09-18 — `AnalyticsSuggestion.comparison` nullable (additive)
+
+Agreed by: Lane K. A comparison is a choice, never a default: the suggestion sets one only
+when the ask names a period or asks about a change, and is `null` otherwise. The Inform
+shape's `comparison` slot is optional at compile time; a run without one reports the
+numbers as they are (no baseline read, no delta).
+
+## 1.11.2 — 2026-09-18 — `PreflightCheck.advisory` (additive)
+
+Agreed by: Lane K. One new boolean, default false: an advisory check is reported and never
+blocks -- `allowed` and `blocked_by` ignore it. The golden cases become advisory: their
+verdict is shown for the person to weigh, not a gate the platform closes on activation.
+
 ## 1.11.1 — 2026-09-17 — `AnalyticsSuggestion.window` (additive)
 
 Agreed by: Lane K. One new, nullable field: the days the numbers should cover when the ask
