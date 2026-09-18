@@ -71,7 +71,9 @@ def suggest(
         if with_prose:
             # One assembly, shared with the playground's knowledge mode: two copies of this
             # would be two places deciding which embedder the prose and ontology indexes are
-            # built from, and `knowledge/embedding.py` exists so that is decided once.
+            # built from, and `knowledge/embedding.py` exists so that is decided once. The
+            # vector backend is chosen inside it by `knowledge/vector.py`, so this path and
+            # `load-knowledge` cannot end up on different stores.
             from egpt_retail.app.stores import build_knowledge_stores
 
             stores = build_knowledge_stores(settings, driver)

@@ -150,7 +150,9 @@ export default function ConfigureExternalForm() {
       baseUrl:          form.authType !== "oauth2" ? form.baseUrl : form.baseUrl,
     };
     if (isNew) addExternal(common);
-    else upsertExternal(normalizeExternal({ id: existing.id, ...common }));
+    // Saving an edit -- even to a seeded placeholder -- means someone has taken ownership of
+    // this row with real values, so it stops being a "seed" the Data Sources grid hides.
+    else upsertExternal(normalizeExternal({ id: existing.id, ...common, seed: false }));
     navigate("/configure/external");
   };
 

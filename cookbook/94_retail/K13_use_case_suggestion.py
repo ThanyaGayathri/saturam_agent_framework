@@ -32,16 +32,19 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
+# Run by hand against compose Postgres; the deployment default is Azure AI Search (AZ-C), so
+# choose pgvector here unless an Azure AI Search endpoint is actually configured.
+if not os.environ.get("EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT"):
+    os.environ.setdefault("EGPT_RETAIL_KNOWLEDGE_BACKEND", "pgvector")
 
 import psycopg  # noqa: E402
 from egpt.knowledge.knowledge import Knowledge  # noqa: E402
 from egpt.metrics import ProviderMode  # noqa: E402
-from egpt.vectordb.pgvector import PgVector  # noqa: E402
-from egpt.vectordb.search import SearchType  # noqa: E402
 from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.contracts.kpi import KpiDefinition  # noqa: E402
 from egpt_retail.contracts.semantic import available_tables  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.knowledge.vector import build_knowledge_vector_db  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
 from egpt_retail.ontology.store import OntologyStore  # noqa: E402
 from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
@@ -226,14 +229,7 @@ settings = RetailSettings(
     retail_azure_small_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
 )
 embedder = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
-knowledge = Knowledge(
-    vector_db=PgVector(
-        table_name=settings.retail_knowledge_table,
-        db_url=settings.retail_db_url,
-        search_type=SearchType.hybrid,
-        embedder=embedder.embedder,
-    )
-)
+knowledge = Knowledge(vector_db=build_knowledge_vector_db(settings, embedder.embedder))
 ontology = OntologyStore(driver=driver, embedder=embedder.embedder)
 context = gather_context(
     graph,

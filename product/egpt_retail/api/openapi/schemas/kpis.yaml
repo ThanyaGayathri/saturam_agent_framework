@@ -88,6 +88,12 @@ Kpi:
         - type: "null"
     unit: {type: string, default: ""}
     industry_benchmark: {type: string, default: ""}
+    rationale:
+      type: [string, "null"]
+      description: Why the model proposed this KPI -- the sentence naming the tables or concepts it derives from, carried over from `KpiSuggestion.rationale` when the KPI was adopted. Null on a KPI authored by hand or adopted before this field existed.
+    business_value:
+      type: [string, "null"]
+      description: What tracking this KPI lets someone decide or catch, carried over from `KpiSuggestion.business_value` on adopt. Null on a KPI authored by hand or adopted before this field existed.
     active: {type: boolean}
     source:
       $ref: './kpis.yaml#/KpiOrigin'
@@ -97,6 +103,11 @@ Kpi:
     process_ids:
       type: array
       items: {type: string}
+    dashboard_names:
+      type: array
+      items: {type: string}
+      default: []
+      description: Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.
     feasibility:
       $ref: './common.yaml#/Feasibility'
     updated_at:
@@ -138,6 +149,12 @@ KpiWrite:
         - type: "null"
     unit: {type: string}
     industry_benchmark: {type: string}
+    rationale:
+      type: [string, "null"]
+      description: The suggestion's `rationale`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.
+    business_value:
+      type: [string, "null"]
+      description: The suggestion's `business_value`, resent verbatim on adopt. Optional, carried forward on update when omitted.
     active: {type: boolean}
     dataset_ids:
       type: array
@@ -164,6 +181,9 @@ KpiSuggestion:
     rationale:
       type: string
       description: One sentence naming the tables or concepts it derives from.
+    business_value:
+      type: [string, "null"]
+      description: One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed.
     derived_from_tables:
       type: array
       items: {type: string}
@@ -219,6 +239,16 @@ KpiSuggestionRunRequest:
       description: The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.
       items:
         $ref: './common.yaml#/BusinessAreaId'
+    ask:
+      type: [string, "null"]
+      maxLength: 2000
+      description: |
+        What the customer wants to measure, in their own words ("Add KPI" -> AI generated).
+        Handed to the agents as the request to answer first, after the focus and before the
+        standing ask -- a steer, never a filter: what comes back is still every metric the data
+        supports, judged and stamped exactly as an unprompted run's would be, so a request the
+        harvest cannot back produces no invented metric, only the agent's note saying so.
+        Whitespace-only reads as absent.
 
 KpiSuggestionRun:
   type: object
@@ -248,6 +278,9 @@ KpiSuggestionRun:
       description: The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.
       items:
         $ref: './common.yaml#/BusinessAreaId'
+    ask:
+      type: [string, "null"]
+      description: The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.
     created_at:
       $ref: './common.yaml#/Timestamp'
     started_at:

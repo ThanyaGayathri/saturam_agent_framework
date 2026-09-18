@@ -260,6 +260,7 @@ export function normalizeExternal(e) {
  connectionStatus: e.connectionStatus || "untested",
  lastSyncAt: e.lastSyncAt || null,
  lastError: e.lastError || "",
+ seed: !!e.seed,
  };
 }
 

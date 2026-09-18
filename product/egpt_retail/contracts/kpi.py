@@ -248,6 +248,12 @@ class KpiDefinition:
     level: Optional[KpiLevel] = None
     unit: Optional[str] = None
     industry_benchmark: Optional[str] = None
+    #: Why the model proposed it and what tracking it is worth -- ``KpiSuggestion``'s
+    #: ``rationale``/``business_value``, kept when a proposal is adopted so the registry can
+    #: still say them afterwards. Presentation, like the fields above: never read by
+    #: feasibility or execution. ``None`` for a hand-authored KPI.
+    rationale: Optional[str] = None
+    business_value: Optional[str] = None
     active: bool = True
     source: KpiOrigin = KpiOrigin.CUSTOMER
     dataset_ids: Tuple[str, ...] = ()

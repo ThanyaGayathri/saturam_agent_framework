@@ -20,7 +20,12 @@ from egpt_retail.memory.config import build_memory_config
 def test_provider_mode_setting_reaches_memory_config(mode):
     """One setting, both subsystems. It was hardcoded to FRONTIER while knowledge read the
     setting, which would have given one deployment two vector spaces."""
-    assert build_memory_config(RetailSettings(retail_provider_mode=mode)).mode is mode
+    # pgvector named explicitly: since AZ-B the default backend is azure_ai_search, which
+    # refuses without an endpoint; this test is about the mode reaching the config.
+    settings = RetailSettings(
+        retail_provider_mode=mode, retail_memory_backend="pgvector"
+    )
+    assert build_memory_config(settings).mode is mode
 
 
 def test_build_agent_os_is_pure_construction(monkeypatch):
@@ -45,7 +50,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -66,6 +71,11 @@ def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
 
     monkeypatch.setattr(factory_module, "PlaygroundStore", _fake_store("playground"))
     monkeypatch.setattr(factory_module, "DashboardStore", _fake_store("dashboard"))
+    monkeypatch.setattr(
+        factory_module,
+        "DashboardQueryResultStore",
+        _fake_store("dashboard_query_result"),
+    )
     monkeypatch.setattr(factory_module, "KpiRegistryStore", _fake_store("kpi"))
     monkeypatch.setattr(factory_module, "ProposalStore", _fake_store("proposal"))
     monkeypatch.setattr(
@@ -84,6 +94,7 @@ def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
     assert calls == [
         "playground",
         "dashboard",
+        "dashboard_query_result",
         "kpi",
         "proposal",
         "suggestion_run",

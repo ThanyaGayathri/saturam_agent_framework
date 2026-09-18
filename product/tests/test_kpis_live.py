@@ -362,6 +362,7 @@ def test_list_kpi_suggestions_reads_a_real_snapshot_and_stamps_real_feasibility(
                 result_shape="scalar",
                 confidence="high",
                 rationale="crm_contact has contact_id.",
+                business_value="Shows how many customers can actually be reached.",
                 derived_from_tables=["crm_contact"],
                 proposed_sql="SELECT count(*) FROM crm_contact",
                 catalogue_source=None,
@@ -406,6 +407,7 @@ def test_list_kpi_suggestions_filters_out_a_non_matching_business_area(
                 result_shape="scalar",
                 confidence="high",
                 rationale="crm_contact has contact_id.",
+                business_value="Shows how many customers can actually be reached.",
                 derived_from_tables=["crm_contact"],
                 proposed_sql="SELECT count(*) FROM crm_contact",
                 catalogue_source=None,
@@ -481,6 +483,144 @@ def test_delete_kpi_refuses_while_another_owners_private_dashboard_references_it
         assert "1 dashboard you do not have visibility into" in excinfo.value.detail
     finally:
         dashboard_store.delete(dashboard.id, "someone_else")
+
+
+# ---------------------------------------------------------------------------
+# `DashboardStore.map_referencing` / `KpiRegistryStore.dashboard_names_by_kpi` -- the read-only
+# generalization of `delete_if_unreferenced`'s reference check (above), behind `GET /kpis`'s
+# `dashboard_names` field ("Maps to" on the discovery screen). One bulk query per route rather
+# than `list_referencing` called once per KPI in the registry.
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_names_by_kpi_covers_zero_one_and_many_referencing_dashboards(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    import asyncio
+
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    unreferenced = "livetest_kpi__unreferenced"
+    single = "livetest_kpi__single_dashboard"
+    multi = "livetest_kpi__multi_dashboard"
+    store.save(_definition(identifier=unreferenced))
+    store.save(_definition(identifier=single))
+    store.save(_definition(identifier=multi))
+
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    created = []
+    try:
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__dashboard_a",
+                owner="local",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_a1",
+                        kpi_identifier=single,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="x",
+                    ),
+                    Tile(
+                        id="tl_livetest_kpi_a2",
+                        kpi_identifier=multi,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=1, y=0, w=1, h=1),
+                        title="y",
+                    ),
+                ],
+            )
+        )
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__dashboard_b",
+                owner="local",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_b1",
+                        kpi_identifier=multi,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="z",
+                    ),
+                ],
+            )
+        )
+
+        result = store.dashboard_names_by_kpi([unreferenced, single, multi])
+        # Zero references: absent from the map entirely, not present with an empty tuple.
+        assert unreferenced not in result
+        assert result[single] == ("livetest_kpi__dashboard_a",)
+        assert result[multi] == (
+            "livetest_kpi__dashboard_a",
+            "livetest_kpi__dashboard_b",
+        )
+
+        # Omitted `identifiers` covers every KPI any dashboard references, not only the ones
+        # asked about.
+        everything = dashboard_store.map_referencing()
+        assert everything[single] == ("livetest_kpi__dashboard_a",)
+        assert everything[multi] == (
+            "livetest_kpi__dashboard_a",
+            "livetest_kpi__dashboard_b",
+        )
+
+        async_result = asyncio.run(
+            store.adashboard_names_by_kpi([single, multi, unreferenced])
+        )
+        assert async_result == {
+            single: ("livetest_kpi__dashboard_a",),
+            multi: ("livetest_kpi__dashboard_a", "livetest_kpi__dashboard_b"),
+        }
+    finally:
+        for dashboard in created:
+            dashboard_store.delete(dashboard.id, "local")
+
+
+def test_get_kpi_wire_response_includes_dashboard_names(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from egpt_retail.api.routers.kpis import get_kpi
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    store.save(_definition())
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    dashboard = dashboard_store.create(
+        name="livetest_kpi__wire_dashboard",
+        owner="local",
+        visibility=Visibility.PRIVATE,
+        tiles=[
+            Tile(
+                id="tl_livetest_kpi_wire",
+                kpi_identifier=IDENT,
+                chart=ChartKind.NUMBER,
+                position=TilePosition(x=0, y=0, w=1, h=1),
+                title="x",
+            )
+        ],
+    )
+    try:
+        wire = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        assert wire.dashboard_names == ["livetest_kpi__wire_dashboard"]
+    finally:
+        dashboard_store.delete(dashboard.id, "local")
 
 
 # ---------------------------------------------------------------------------
@@ -877,6 +1017,44 @@ def test_compute_kpi_writes_gold_and_the_series_reads_it_back(
     assert series.value == series.points[-1].value
     assert series.provenance_ref == result.run_id
     assert series.as_of is not None and series.as_of.date() == result.as_of
+
+
+def test_list_kpi_health_reports_fresh_for_a_kpi_just_computed(
+    store: KpiRegistryStore, warehouse: Any
+) -> None:
+    """``GET /kpis/health`` end to end: compute writes gold for exactly this KPI, then the
+    health row for its identifier reads back ``fresh`` with this run's own id -- the same
+    round trip ``test_compute_kpi_writes_gold_and_the_series_reads_it_back`` checks for the
+    series, now for the freshness row the KPI health tab reads."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import (
+        _warehouse_engine,
+        compute_kpi,
+        list_kpi_health,
+    )
+
+    store.save(_definition(sql="SELECT count(*) FROM crm_contact"))
+    try:
+        result = asyncio.run(compute_kpi(IDENT, store=store))
+    except HTTPException as exc:
+        pytest.skip(f"compute refused ({exc.status_code}): {exc.detail}")
+    if result.status.value == "failed":
+        pytest.skip(f"the formula failed against this warehouse: {result.error}")
+
+    engine_gen = _warehouse_engine()
+    engine = next(engine_gen)
+    try:
+        rows = asyncio.run(list_kpi_health(store=store, engine=engine))
+    finally:
+        engine_gen.close()  # runs `_warehouse_engine`'s `finally: engine.dispose()`
+
+    row = next(r for r in rows if r.identifier == IDENT)
+    assert row.status.value == "fresh"
+    assert row.last_run_id == result.run_id
+    assert row.staleness_hours is not None and row.staleness_hours >= 0
 
 
 def test_suggestion_run_store_phase_round_trips_and_only_a_running_row_takes_one(

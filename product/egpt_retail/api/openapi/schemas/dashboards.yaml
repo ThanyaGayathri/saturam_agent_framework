@@ -1,9 +1,57 @@
-# Dashboards: a named set of KPI references with layout, filters, a refresh schedule and a
-# visibility rule. Reads go to gold and nothing else -- never silver, never a live aggregation.
+# Dashboards: a named set of tiles with layout, filters, a refresh schedule and a visibility
+# rule. A `kpi` tile references a registered KPI and reads gold; a `query` tile carries its own
+# guarded SQL and reads a cached result. Neither runs SQL when a dashboard is opened -- never
+# silver, never a live aggregation.
 
 ChartKind:
   type: string
   enum: [number, line, bar, table]
+
+TileSource:
+  type: string
+  enum: [kpi, query]
+  description: |
+    Where a tile's numbers come from. `kpi` (the default): a registered, ready KPI's gold
+    view. `query`: the tile's own SQL, checked by the warehouse read guard and cached on the
+    dashboard's refresh schedule.
+
+AxisKind:
+  type: string
+  enum: [time, category]
+
+ChartAxis:
+  type: object
+  description: One result column a `query` tile plots. `kind` matters on the x axis only.
+  required: [column]
+  properties:
+    column: {type: string}
+    kind:
+      $ref: './dashboards.yaml#/AxisKind'
+    label: {type: string, default: ""}
+    unit: {type: string, default: ""}
+
+TileQuery:
+  type: object
+  description: |
+    A `query` tile's SQL and how its result maps onto the chart. `source_tables` is derived
+    by the server from the SQL at write time and returned for information; a client value is
+    ignored. Postgres dialect, one read statement, tables restricted to the semantic layer.
+  required: [sql]
+  properties:
+    sql: {type: string, minLength: 1}
+    dialect: {type: string, default: postgres}
+    source_tables:
+      type: array
+      items: {type: string}
+    x:
+      oneOf:
+        - $ref: './dashboards.yaml#/ChartAxis'
+        - type: "null"
+    y:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/ChartAxis'
+    series_by: {type: [string, "null"]}
 
 TilePosition:
   type: object
@@ -16,10 +64,18 @@ TilePosition:
 
 Tile:
   type: object
-  required: [id, kpi_identifier, chart, position]
+  required: [id, chart, position, source]
   properties:
     id: {type: string}
-    kpi_identifier: {type: string}
+    source:
+      $ref: './dashboards.yaml#/TileSource'
+    kpi_identifier:
+      type: [string, "null"]
+      description: The KPI a `kpi` tile reads. Null on a `query` tile.
+    query:
+      oneOf:
+        - $ref: './dashboards.yaml#/TileQuery'
+        - type: "null"
     title: {type: string, default: ""}
     chart:
       $ref: './dashboards.yaml#/ChartKind'
@@ -28,26 +84,77 @@ Tile:
     grain_value:
       type: [string, "null"]
       description: For a KPI at a non-overall grain, which row -- a supplier id, a location -- this tile shows. Null shows the top-N as a table.
+    description:
+      type: string
+      default: ""
+      description: Shown under the chart. Editable; never used to run anything.
+    rationale:
+      type: string
+      default: ""
+      description: Why the suggestion agent proposed this chart. Empty on a hand-built tile.
 
 TileWrite:
   type: object
-  required: [kpi_identifier, chart, position]
+  required: [chart, position]
+  description: |
+    A tile to create or replace. `source` defaults to `kpi`, which requires `kpi_identifier`;
+    `query` requires `query`. `id`, when given on a whole-dashboard write, keeps that tile's
+    identity across the write instead of minting a new one -- what lets a per-tile edit leave
+    every other tile's id stable.
   properties:
-    kpi_identifier: {type: string}
+    id: {type: [string, "null"]}
+    source:
+      $ref: './dashboards.yaml#/TileSource'
+    kpi_identifier: {type: [string, "null"]}
+    query:
+      oneOf:
+        - $ref: './dashboards.yaml#/TileQuery'
+        - type: "null"
     title: {type: string}
     chart:
       $ref: './dashboards.yaml#/ChartKind'
     position:
       $ref: './dashboards.yaml#/TilePosition'
     grain_value: {type: [string, "null"]}
+    description: {type: string}
+    rationale: {type: string}
 
-DashboardFilter:
+TilePatch:
   type: object
-  required: [field, value]
+  description: A partial edit of one tile. Every field optional; an omitted field is left unchanged. A changed `query` is re-checked by the guard and recomputed.
   properties:
-    field:
-      $ref: './dashboards.yaml#/DashboardFilterField'
-    value: {type: string}
+    title: {type: string}
+    chart:
+      $ref: './dashboards.yaml#/ChartKind'
+    position:
+      $ref: './dashboards.yaml#/TilePosition'
+    grain_value: {type: [string, "null"]}
+    query:
+      $ref: './dashboards.yaml#/TileQuery'
+    description: {type: string}
+
+DashboardFilterColumn:
+  type: object
+  description: |
+    A column exposed as an end-user filter on the published dashboard -- a definition, never a
+    selection: it names which `(table, column)` becomes a dropdown, not a value someone picked
+    in it. What a viewer picks is per-viewer, transient view-time state carried in the URL of
+    `GET /dashboards/{id}/data`, never part of the saved dashboard (R13.1).
+  required: [table, column]
+  properties:
+    table: {type: string}
+    column: {type: string}
+
+DashboardFilterValues:
+  type: object
+  description: Distinct values of one of a dashboard's chosen filter columns, for its dropdown.
+  required: [table, column, values]
+  properties:
+    table: {type: string}
+    column: {type: string}
+    values:
+      type: array
+      items: {type: string}
 
 RefreshSchedule:
   type: string
@@ -78,7 +185,7 @@ Dashboard:
     filters:
       type: array
       items:
-        $ref: './dashboards.yaml#/DashboardFilter'
+        $ref: './dashboards.yaml#/DashboardFilterColumn'
     refresh_schedule:
       $ref: './dashboards.yaml#/RefreshSchedule'
     visibility:
@@ -102,7 +209,7 @@ DashboardWrite:
     filters:
       type: array
       items:
-        $ref: './dashboards.yaml#/DashboardFilter'
+        $ref: './dashboards.yaml#/DashboardFilterColumn'
     refresh_schedule:
       $ref: './dashboards.yaml#/RefreshSchedule'
     visibility:
@@ -119,10 +226,12 @@ SeriesPoint:
 TileData:
   type: object
   description: One tile's values from gold, with the stamp every gold row carries so a stale number is distinguishable from a wrong one.
-  required: [tile_id, kpi_identifier, status, computed_at]
+  required: [tile_id, status, computed_at]
   properties:
     tile_id: {type: string}
-    kpi_identifier: {type: string}
+    kpi_identifier:
+      type: [string, "null"]
+      description: Null on a `query` tile.
     status:
       $ref: './kpis.yaml#/KpiHealthStatus'
     value: {type: [number, "null"]}
@@ -137,7 +246,11 @@ TileData:
     rows:
       type: array
       items: {type: object, additionalProperties: true}
-      description: For a `rowset` KPI or a table chart.
+      description: For a `rowset` KPI, a table chart, or a `query` tile's cached result.
+    columns:
+      type: array
+      items: {type: string}
+      description: Column order of `rows`, for a `query` tile. Empty on a `kpi` tile.
     as_of:
       oneOf:
         - $ref: './common.yaml#/Timestamp'
@@ -160,10 +273,6 @@ DashboardData:
     read_at:
       $ref: './common.yaml#/Timestamp'
 
-DashboardFilterField:
-  type: string
-  enum: [business_area, time_window]
-
 DashboardSuggestionRunStatus:
   type: string
   description: Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.
@@ -171,47 +280,158 @@ DashboardSuggestionRunStatus:
 
 DashboardSuggestionRunRequest:
   type: object
-  description: What to run. `purpose` is the caller's own words for what the dashboard should help them track.
+  description: |
+    What to run. `purpose` is the caller's own words for what the dashboard should help them
+    track. `kpi_identifiers` are the metrics the agent reads as context -- their definitions
+    and the tables behind them -- not a list it must tile one for one. `table_names` widens
+    the tables it may read beyond those the metrics name. `chart_budget` is a soft cap on
+    how many charts to compose; the agent may return fewer.
   required: [purpose]
   properties:
     purpose:
       type: string
       minLength: 1
+    kpi_identifiers:
+      type: array
+      items: {type: string}
+    table_names:
+      type: array
+      items: {type: string}
+    chart_budget:
+      type: [integer, "null"]
+      minimum: 1
+      maximum: 12
 
-DashboardTileSuggestion:
+DashboardSuggestionStage:
+  type: string
+  description: Where a running suggestion is, for the person waiting. `reading` the metrics and tables, `drafting` charts, `guarding` each query, `previewing` each with real rows.
+  enum: [reading, drafting, guarding, previewing, done]
+
+QueryGuardStatus:
+  type: string
+  enum: [ok, rewritten, refused]
+  description: |
+    What the warehouse read guard made of a query. `ok`: passed unchanged. `rewritten`: passed
+    after a mechanical fix -- a personal-data column dropped from the projection, a missing
+    LIMIT added, a LIMIT above the row cap lowered; `detail` says which. `refused`: not
+    runnable, `detail` says why; the chart is kept as a stub so the SQL can be fixed.
+
+QueryGuardVerdict:
   type: object
-  description: One candidate metric for the dashboard. Always a real, registered, ready KPI -- the agent selects from this deployment's own registry, it does not invent one.
-  required: [kpi_identifier, name, rationale]
+  required: [status, detail]
   properties:
-    kpi_identifier: {type: string}
-    name: {type: string}
-    rationale:
+    status:
+      $ref: './dashboards.yaml#/QueryGuardStatus'
+    detail: {type: string}
+    tables:
+      type: array
+      items: {type: string}
+      description: The tables the statement reads, once parsed.
+
+QueryPreview:
+  type: object
+  description: One query's guard verdict and, when it ran, a bounded sample of its result.
+  required: [guard, columns, rows, duration_ms]
+  properties:
+    guard:
+      $ref: './dashboards.yaml#/QueryGuardVerdict'
+    sql:
       type: string
-      description: One sentence naming why this metric fits the stated purpose.
+      description: The statement as it would run -- the caller's, or the guard's rewrite of it.
+    columns:
+      type: array
+      items: {type: string}
+    rows:
+      type: array
+      items: {type: object, additionalProperties: true}
+    duration_ms: {type: integer}
+    error:
+      type: [string, "null"]
+      description: The database's own refusal when the guard passed the statement but the warehouse did not (a typo in a column name, say).
+
+QueryPreviewRequest:
+  type: object
+  required: [query]
+  properties:
+    query:
+      $ref: './dashboards.yaml#/TileQuery'
+    table_names:
+      type: array
+      items: {type: string}
+      description: Narrows the allow-list to these tables when given; otherwise the whole semantic layer.
+
+DashboardChartSuggestion:
+  type: object
+  description: |
+    One composed chart. `source: kpi` reuses a registered, ready KPI's own SQL through gold
+    (`kpi_identifier` set, `query` null); `source: query` carries SQL the agent composed from
+    the tables it was shown (`query` set). Every `query` chart passed through the warehouse
+    read guard and a bounded dry run before reaching the caller; `guard` and `preview` say what
+    happened. `description` is written for the person reading the dashboard and is theirs to
+    edit.
+  required: [title, chart, source, description, rationale, guard]
+  properties:
+    title: {type: string}
+    chart:
+      $ref: './dashboards.yaml#/ChartKind'
+    source:
+      $ref: './dashboards.yaml#/TileSource'
+    kpi_identifier: {type: [string, "null"]}
+    grain_value: {type: [string, "null"]}
+    query:
+      oneOf:
+        - $ref: './dashboards.yaml#/TileQuery'
+        - type: "null"
+    description: {type: string}
+    rationale: {type: string}
+    guard:
+      $ref: './dashboards.yaml#/QueryGuardVerdict'
+    preview:
+      oneOf:
+        - $ref: './dashboards.yaml#/QueryPreview'
+        - type: "null"
 
 DashboardSuggestion:
   type: object
   description: |
-    A suggested dashboard configuration for the given purpose, editable before creation. Every
-    tile names a real, ready KPI from this deployment's registry; the one filter this agent may
-    propose is `business_area`, the one `DashboardFilterField` with a well-defined value space
-    to draw from today -- `time_window` has no established value shape anywhere in this contract
-    yet (#222), so this agent never proposes one rather than inventing a format nothing else
-    would recognise.
-  required: [name, tiles, filters, notes]
+    A suggested dashboard for the given purpose, editable before creation: a name and the
+    charts the agent composed from the selected metrics and the tables behind them. `filters`
+    is always empty here -- a filter is now a chosen `(table, column)` (R13.1), which the agent
+    has no basis to pick on its own; a person adds filter columns afterward in the dashboard
+    builder. `context` says what the agent was shown.
+  required: [name, charts, filters, notes]
   properties:
     name: {type: string}
-    tiles:
+    charts:
       type: array
       items:
-        $ref: './dashboards.yaml#/DashboardTileSuggestion'
+        $ref: './dashboards.yaml#/DashboardChartSuggestion'
     filters:
       type: array
       items:
-        $ref: './dashboards.yaml#/DashboardFilter'
+        $ref: './dashboards.yaml#/DashboardFilterColumn'
     notes:
       type: string
-      description: Empty on a clean run; otherwise what was missing or why the list is short.
+      description: Empty on a clean run; otherwise what was missing, why the list is short, or what was dropped.
+    context:
+      $ref: './dashboards.yaml#/SuggestionContextSummary'
+
+SuggestionContextSummary:
+  type: object
+  description: What the agent read, for the review screen to show.
+  properties:
+    kpi_identifiers:
+      type: array
+      items: {type: string}
+    table_names:
+      type: array
+      items: {type: string}
+    described_columns: {type: integer}
+    total_columns: {type: integer}
+    withheld_columns:
+      type: array
+      items: {type: string}
+      description: Personal-data columns, as `table.column`, never shown to the agent.
 
 DashboardSuggestionRun:
   type: object
@@ -228,6 +448,10 @@ DashboardSuggestionRun:
     id: {type: string}
     status:
       $ref: './dashboards.yaml#/DashboardSuggestionRunStatus'
+    stage:
+      oneOf:
+        - $ref: './dashboards.yaml#/DashboardSuggestionStage'
+        - type: "null"
     purpose: {type: string}
     created_at:
       $ref: './common.yaml#/Timestamp'

@@ -1,0 +1,428 @@
+import { useEffect, useState } from "react";
+import { Play, Trash2 } from "lucide-react";
+import SlidePanel from "../../ui/SlidePanel";
+import ChartTile, { GuardPill } from "../ChartTile";
+import { fetchSemanticTable } from "../../../services/semantic-tables-api";
+import { fetchKpi } from "../../../services/kpis-api";
+import { previewDashboardQuery } from "../../../services/dashboards-api";
+import { OVERALL_GRAIN, tileDataFromPreview } from "../../../storage/dashboards";
+
+const CHART_OPTIONS = [
+ { value: "number", label: "Number" },
+ { value: "line", label: "Line" },
+ { value: "bar", label: "Bar" },
+ { value: "table", label: "Table" },
+];
+
+/** How long the KPI-grain lookup below gets before it's treated as failed (round-4 review: an
+ * unresolved -- not rejected -- request used to leave "Checking…" showing, and Table blocked,
+ * forever with no way out). */
+const KPI_GRAIN_FETCH_TIMEOUT_MS = 10000;
+
+/** Sentinel for "asked, but couldn't tell" -- a real `grain` is always a non-empty vocabulary
+ * term (`product`, `supplier`, `"overall"`, ...), never this, so it can't collide with one. */
+const KPI_GRAIN_UNKNOWN = "__unknown__";
+
+/** One column of the schema pane -- the same description/meaning text the compose agent was
+ * shown, so a person editing SQL by hand has the same vocabulary the model had. */
+function SchemaTable({ table }) {
+ if (!table) return null;
+ return (
+  <div className="mb-3 overflow-hidden rounded-lg border border-border">
+   <div className="flex items-center justify-between bg-surface-tertiary px-2.5 py-1.5">
+    <span className="font-mono text-[11px] font-medium text-text-primary">{table.ref?.name}</span>
+    {table.ref?.row_count != null && (
+     <span className="text-[10px] text-text-muted">{table.ref.row_count.toLocaleString()} rows</span>
+    )}
+   </div>
+   {table.description && (
+    <p className="border-b border-border px-2.5 py-1.5 text-[11px] text-text-secondary">{table.description}</p>
+   )}
+   {(table.columns || []).map((column) => (
+    <div
+     key={column.name}
+     className={`grid grid-cols-[100px_1fr] gap-2 border-t border-border px-2.5 py-1.5 text-[11px] ${
+      column.is_personal_data ? "opacity-60" : ""
+     }`}
+    >
+     <code className="text-text-primary">{column.name}</code>
+     {column.is_personal_data ? (
+      <span className="font-semibold uppercase tracking-wide text-status-critical">personal data · blocked</span>
+     ) : (
+      <span className="text-text-secondary">{column.meaning || column.description || <em className="text-text-muted">No description</em>}</span>
+     )}
+    </div>
+   ))}
+  </div>
+ );
+}
+
+/**
+ * The chart editor: title, chart kind, SQL (editable for a query chart, read-only for a kpi
+ * chart with a "detach and edit as query" escape hatch), a Run preview against the real
+ * warehouse read guard, a description field, and the schema pane. Opens from the pencil on
+ * any chart in the review step or on a saved dashboard.
+ *
+ * `chart` is the review-step shape (a `DashboardChartSuggestion`-like object, possibly with a
+ * `preview` already attached); `onSave(chart)` gets the edited version back, `onDelete` (when
+ * given) removes it, `onClose` cancels.
+ */
+export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
+ const [title, setTitle] = useState(chart.title || "");
+ const [kind, setKind] = useState(chart.chart);
+ const [sql, setSql] = useState(chart.query?.sql || "");
+ const [description, setDescription] = useState(chart.description || "");
+ const [detached, setDetached] = useState(chart.source === "query");
+ const [preview, setPreview] = useState(chart.preview || null);
+ const [guard, setGuard] = useState(chart.guard || null);
+ const [running, setRunning] = useState(false);
+ const [tables, setTables] = useState({});
+
+ const isQuery = detached;
+
+ // The KPI's own `grain` (round-3 review: a `Tile` never carries it, only `grain_value`, so a
+ // KPI at the "overall" grain -- always exactly one row, no `grain_value` to set -- slipped
+ // past the round-2 guard below entirely). `undefined` while loading (or not needed: a query
+ // tile, or `grain_value` alone already settles it); `KPI_GRAIN_FETCH_TIMEOUT_MS` and
+ // `kpiGrainAttempt` below are round-4's answer to the same fetch hanging (not rejecting)
+ // forever on "Checking…" with Table stuck blocked and no way out.
+ const [kpiGrain, setKpiGrain] = useState(undefined);
+ const [kpiGrainAttempt, setKpiGrainAttempt] = useState(0);
+ useEffect(() => {
+  if (isQuery || !chart.kpi_identifier || chart.grain_value != null) return undefined;
+  setKpiGrain(undefined);
+  let cancelled = false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KPI_GRAIN_FETCH_TIMEOUT_MS);
+  fetchKpi(chart.kpi_identifier, { signal: controller.signal })
+   .then((kpi) => {
+    if (!cancelled) setKpiGrain(kpi.grain || KPI_GRAIN_UNKNOWN);
+   })
+   .catch(() => {
+    if (!cancelled) setKpiGrain(KPI_GRAIN_UNKNOWN);
+   })
+   .finally(() => clearTimeout(timer));
+  return () => {
+   cancelled = true;
+   controller.abort();
+   clearTimeout(timer);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [isQuery, chart.kpi_identifier, chart.grain_value, kpiGrainAttempt]);
+
+ // A KPI tile scoped to one grain (`grain_value`, e.g. one supplier) always resolves to a
+ // single row server-side (`_tile_data`'s `_resolve_row`), so it can never come back with the
+ // multiple rows a table needs -- "Table" would silently render as a plain number instead. The
+ // same collapse hits a KPI at the "overall" grain even with `grain_value` unset: that grain's
+ // formula returns exactly one column and no keys (`warehouse/gold.py`'s `GRAIN_OVERALL`), so
+ // `_resolve_row` always finds exactly one row too. Query tiles and un-scoped per-dimension KPI
+ // tiles (a real top-N table) are unaffected. Unknown -- still loading, timed out, or failed --
+ // fails closed (blocks Table) rather than risk saving the exact bug this guards against.
+ const tableUnavailableReason = (() => {
+  if (isQuery) return null;
+  if (chart.grain_value != null) {
+   return "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown.";
+  }
+  if (kpiGrain === OVERALL_GRAIN) {
+   return "This metric has no breakdown to list (grain: overall) -- a table has nothing to show beyond the single value. Detach and edit as a query to build one.";
+  }
+  if (kpiGrain === undefined) {
+   return "Checking whether this metric has a breakdown to list…";
+  }
+  if (kpiGrain === KPI_GRAIN_UNKNOWN) {
+   return "Couldn't check whether this metric has a breakdown to list.";
+  }
+  return null;
+ })();
+ const sourceTables = isQuery ? preview?.guard?.tables || chart.query?.source_tables || [] : chart.query?.source_tables || [];
+ // What this chart already declared as its tables when the editor opened, before any edit --
+ // narrows the preview's own guard check to that set (round-1 review, finding #5: the client
+ // never passed a table scope at all, so a preview here checked against the entire semantic
+ // layer regardless of what the chart's own schema pane claimed it may read). Left `undefined`
+ // for a brand-new or just-detached chart (nothing declared yet to narrow to) rather than an
+ // empty array -- the backend reads an *empty* `table_names` as "no table is in scope", which
+ // would refuse the very first preview outright rather than leaving it unscoped.
+ const [initialSourceTables] = useState(chart.query?.source_tables || []);
+
+ useEffect(() => {
+  let cancelled = false;
+  const missing = sourceTables.filter((name) => !(name in tables));
+  if (!missing.length) return undefined;
+  Promise.all(
+   missing.map((name) => fetchSemanticTable(name).then((t) => [name, t]).catch(() => [name, null])),
+  ).then((entries) => {
+   if (!cancelled) setTables((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+  });
+  return () => {
+   cancelled = true;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [JSON.stringify(sourceTables)]);
+
+ // The SQL this editor opened with -- already live (persisted and previously validated), just
+ // composed (guarded and previewed by the run that wrote it), or, for a brand-new/just-detached
+ // chart, empty. Trusted as-is unless the chart *arrived* with a `refused` guard verdict, so
+ // editing an unrelated field (the title, the description) on an otherwise-untouched chart
+ // never requires a fresh preview -- while a composed chart the guard refused cannot be saved
+ // untouched (the server would 422 it anyway; the pill already says why, so Save says so too
+ // rather than letting the person find out from the write). Read off `chart.guard`, the frozen
+ // verdict the chart arrived with -- not the live, mutable `guard` state, which only tracks
+ // whatever was last *previewed* and can disagree with what `sql` currently holds: edit to a
+ // bad query, run preview (`guard` turns `refused`, tied to that bad text), then revert `sql`
+ // back to `originalSql` by hand without re-previewing -- `guard` is still `refused`, stale,
+ // describing text no longer in the box, even though `sql === originalSql` is byte-for-byte the
+ // original, already-validated query. `chart.guard` never moves, so it can't go stale that way.
+ // `previewedSql` is the text of the most recent `runPreview()` call
+ // this session, or `null` before the first one. Together these are what `canSave` checks
+ // (round-1 review, finding #9): editing `sql` away from both leaves neither satisfied, so
+ // Save is blocked until a fresh preview backs the new text -- closing the gap where editing
+ // SQL after a preview left the old "Guard ok" pill showing, and Save persisted the new text
+ // alongside a verdict that was never actually checked against it. The backend re-validates on
+ // every write regardless (a stale-but-saved refusal would still 422), so this is a UI-trust
+ // fix, not a security one -- but the pill claiming "checked" for unchecked SQL is the bug.
+ const originalSql = chart.query?.sql || "";
+ const [previewedSql, setPreviewedSql] = useState(null);
+
+ const runPreview = async () => {
+  setRunning(true);
+  try {
+   const result = await previewDashboardQuery(
+    { sql },
+    initialSourceTables.length ? { tableNames: initialSourceTables } : {},
+   );
+   setPreview(result);
+   setGuard(result.guard);
+  } catch (err) {
+   setGuard({ status: "refused", detail: err?.detail || err?.message || "The preview could not run." });
+   setPreview(null);
+  } finally {
+   setPreviewedSql(sql);
+   setRunning(false);
+  }
+ };
+
+ const sqlIsOriginal = sql === originalSql && chart.guard?.status !== "refused";
+ const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
+ const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
+ // A chart can *arrive* already set to "table" with a grain_value (e.g. from the suggestion
+ // agent) -- the button above only blocks switching *into* table, so without this check here
+ // canSave/save() would happily persist that untouched, re-introducing the single-row-as-table
+ // bug this panel exists to prevent.
+ const tableKindBlocked = kind === "table" && Boolean(tableUnavailableReason);
+ const canSave =
+  !tableKindBlocked && (!isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running));
+
+ // Named out of the Save button's `title` (round-2 review: that was a 3-level nested ternary
+ // mixing three unrelated disabled-reasons inline in JSX) so each branch reads and tests on its
+ // own -- worth it especially because the middle branch mirrors `sqlIsOriginal` above, which is
+ // exactly the condition a previous round got subtly wrong by reading live `guard` instead of
+ // the chart's frozen arrival verdict.
+ const saveDisabledReason = () => {
+  if (canSave) return undefined;
+  if (tableKindBlocked) return tableUnavailableReason;
+  if (!isQuery) return undefined;
+  if (sql.trim().length === 0) return "Write a query before saving.";
+  if (chart.guard?.status === "refused" && sql === originalSql) {
+   return "The read guard refused this query. Change it and run the preview.";
+  }
+  return "Run the preview again -- the query changed since it was last checked.";
+ };
+
+ const save = () => {
+  if (!canSave) return;
+  const base = {
+   ...chart,
+   title,
+   chart: kind,
+   description,
+   guard: guard || chart.guard,
+   preview,
+  };
+  if (isQuery) {
+   onSave({
+    ...base,
+    source: "query",
+    kpi_identifier: null,
+    query: { ...chart.query, sql, source_tables: preview?.guard?.tables || chart.query?.source_tables || [] },
+   });
+  } else {
+   onSave(base);
+  }
+ };
+
+ return (
+  <SlidePanel
+   title="Edit chart"
+   subtitle={isQuery ? "Composed query" : `From metric · ${chart.kpi_identifier || ""}`}
+   onClose={onClose}
+   widthClass="max-w-[880px]"
+   footer={
+    <div className="flex w-full items-center justify-between">
+     {onDelete ? (
+      <button
+       type="button"
+       onClick={onDelete}
+       className="inline-flex items-center gap-1.5 text-xs font-semibold text-status-critical hover:underline"
+      >
+       <Trash2 size={13} />
+       Delete chart
+      </button>
+     ) : (
+      <span />
+     )}
+     <div className="flex items-center gap-2">
+      <button type="button" onClick={onClose} className="rounded-lg px-3.5 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary">
+       Cancel
+      </button>
+      <button
+       type="button"
+       onClick={save}
+       disabled={!canSave}
+       title={saveDisabledReason()}
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       Save chart
+      </button>
+     </div>
+    </div>
+   }
+  >
+   <div className="grid grid-cols-1 gap-5 md:grid-cols-[1.6fr_1fr]">
+    <div className="min-w-0 space-y-4">
+     <div>
+      <label className="mb-1 block text-xs font-semibold text-text-secondary">Title</label>
+      <input
+       value={title}
+       onChange={(e) => setTitle(e.target.value)}
+       className="w-full rounded-md border border-border bg-surface-default px-2.5 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none"
+      />
+     </div>
+
+     <div>
+      <label className="mb-1 block text-xs font-semibold text-text-secondary">Chart</label>
+      <div className="inline-flex overflow-hidden rounded-md border border-border-light text-xs">
+       {CHART_OPTIONS.map((o) => {
+        const disabled = o.value === "table" && Boolean(tableUnavailableReason);
+        return (
+         <button
+          key={o.value}
+          type="button"
+          onClick={() => !disabled && setKind(o.value)}
+          disabled={disabled}
+          title={disabled ? tableUnavailableReason : undefined}
+          className={`border-r border-border-light px-2.5 py-1 font-medium last:border-r-0 ${
+           disabled
+            ? "cursor-not-allowed text-text-muted opacity-50"
+            : kind === o.value
+              ? "bg-primary-light font-semibold text-primary"
+              : "text-text-secondary hover:bg-surface-secondary"
+          }`}
+         >
+          {o.label}
+         </button>
+        );
+       })}
+      </div>
+      {tableUnavailableReason && kind === "table" && (
+       <p className="mt-1.5 text-[11px] text-status-warning">
+        {tableUnavailableReason}
+        {kpiGrain === KPI_GRAIN_UNKNOWN && (
+         <>
+          {" "}
+          <button
+           type="button"
+           onClick={() => setKpiGrainAttempt((n) => n + 1)}
+           className="font-semibold underline hover:no-underline"
+          >
+           Retry
+          </button>
+         </>
+        )}
+       </p>
+      )}
+     </div>
+
+     <div>
+      <div className="mb-1 flex items-center justify-between">
+       <label className="text-xs font-semibold text-text-secondary">Query</label>
+       {!isQuery && (
+        <button
+         type="button"
+         onClick={() => setDetached(true)}
+         className="text-[11px] font-semibold text-primary hover:underline"
+        >
+         Detach and edit as query
+        </button>
+       )}
+      </div>
+      <textarea
+       readOnly={!isQuery}
+       value={isQuery ? sql : chart.kpi_identifier ? `-- reused from metric ${chart.kpi_identifier}` : ""}
+       onChange={(e) => setSql(e.target.value)}
+       rows={10}
+       spellCheck={false}
+       className={`w-full resize-y rounded-md border border-border-light bg-[#14161f] px-3 py-2.5 font-mono text-xs leading-relaxed text-[#d9dcef] focus:border-primary focus:outline-none ${
+        !isQuery ? "opacity-70" : ""
+       }`}
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+       {isQuery && (
+        <button
+         type="button"
+         onClick={runPreview}
+         disabled={running || !sql.trim()}
+         className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-surface-default px-2.5 py-1 text-xs font-semibold text-text-primary hover:bg-surface-secondary disabled:opacity-50"
+        >
+         <Play size={12} />
+         {running ? "Running…" : "Run preview"}
+        </button>
+       )}
+       {guard ? <GuardPill guard={guard} /> : null}
+       {preview && !preview.error && (
+        <span className="text-[11px] text-text-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+         {preview.rows.length} rows · {preview.duration_ms} ms
+        </span>
+       )}
+      </div>
+      {guard?.detail && guard.status !== "ok" && (
+       <p className={`mt-1.5 rounded-md border px-2 py-1.5 text-[11px] ${guard.status === "refused" ? "border-status-critical/30 bg-status-critical/5 text-text-secondary" : "border-status-warning/30 bg-status-warning/5 text-text-secondary"}`}>
+        {guard.detail}
+       </p>
+      )}
+      {preview?.error && (
+       <p className="mt-1.5 rounded-md border border-status-critical/30 bg-status-critical/5 px-2 py-1.5 text-[11px] text-text-secondary">
+        The warehouse refused it: {preview.error}
+       </p>
+      )}
+     </div>
+
+     <div>
+      <label className="mb-1 block text-xs font-semibold text-text-secondary">Description</label>
+      <textarea
+       value={description}
+       onChange={(e) => setDescription(e.target.value)}
+       rows={3}
+       className="w-full resize-none rounded-md border border-border bg-surface-default px-2.5 py-1.5 text-sm leading-relaxed text-text-primary focus:border-primary focus:outline-none"
+      />
+      <p className="mt-1 text-[11px] text-text-muted">Shown under the chart. Not used to run the query.</p>
+     </div>
+
+     {preview && !preview.error && (
+      <ChartTile
+       tile={{ ...chart, chart: kind, title, description, query: { ...chart.query, sql: preview.sql || sql } }}
+       data={tileDataFromPreview({ ...chart, chart: kind, query: { ...chart.query, sql } }, preview)}
+      />
+     )}
+    </div>
+
+    <div className="min-w-0">
+     <p className="mb-2 text-xs font-semibold text-text-secondary">Tables this chart may read</p>
+     {sourceTables.length === 0 && <p className="text-xs text-text-muted">Run the preview to see which tables it reads.</p>}
+     {sourceTables.map((name) => (
+      <SchemaTable key={name} table={tables[name]} />
+     ))}
+    </div>
+   </div>
+  </SlidePanel>
+ );
+}

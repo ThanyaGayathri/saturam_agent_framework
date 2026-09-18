@@ -1,11 +1,25 @@
-import { AlertTriangle, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, Sparkles } from "lucide-react";
 
 /**
  * Step 3 of the AI path: shown while `useDashboardSuggestionRun` is polling, and again (with
  * `error` set) if the run failed - the same status/error split `KpiDiscoveryPage.jsx`'s
- * suggestion-run state machine renders for `POST /kpis/suggestions`.
+ * suggestion-run state machine renders for `POST /kpis/suggestions`. `stage` is the backend's
+ * own progress word for the run, so each line below is a fact the server has finished, not an
+ * animation.
  */
-export default function AiGeneratingStep({ purpose, error, onBack, onRetry }) {
+
+const STAGES = [
+ { key: "reading", label: "Reading the metrics and the tables behind them" },
+ { key: "drafting", label: "Drafting charts for the purpose" },
+ { key: "guarding", label: "Checking each query against the warehouse read guard" },
+ { key: "previewing", label: "Previewing each chart with real rows" },
+];
+
+const ORDER = STAGES.map((s) => s.key);
+
+export default function AiGeneratingStep({ purpose, stage, error, onBack, onRetry }) {
+ const reached = stage ? ORDER.indexOf(stage) : -1;
+
  return (
   <>
    <div className="mb-4 flex justify-end">
@@ -49,16 +63,29 @@ export default function AiGeneratingStep({ purpose, error, onBack, onRetry }) {
       </div>
      </div>
     ) : (
-     <div className="flex items-center gap-2 pt-1.5">
-      <span className="text-sm font-medium text-text-muted">
-       Drafting metrics and a filter…
-      </span>
-      <span className="flex gap-1">
-       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
-       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
-       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
-      </span>
-     </div>
+     <ul className="flex-1 divide-y divide-dashed divide-border">
+      {STAGES.map((s, i) => {
+       const done = reached > i || stage === "done";
+       const running = reached === i;
+       return (
+        <li key={s.key} className="flex items-center gap-3 py-2 text-sm">
+         <span
+          className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full ${
+           done
+            ? "border border-status-success/40 bg-status-success/10 text-status-success"
+            : running
+              ? "animate-spin border-2 border-primary border-r-transparent"
+              : "border border-border-light"
+          }`}
+         >
+          {done ? <Check size={11} strokeWidth={3} /> : null}
+         </span>
+         <span className={done || running ? "text-text-primary" : "text-text-muted"}>{s.label}</span>
+        </li>
+       );
+      })}
+      <li className="pt-2 text-xs text-text-muted">Usually under a minute.</li>
+     </ul>
     )}
    </div>
   </>

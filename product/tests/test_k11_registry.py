@@ -27,10 +27,11 @@ from egpt_retail.executors.kpi import feasibility_summary, verdict_rows
 from egpt_retail.kpi.store import KPI_LABEL, KpiRegistryStore, row_to_definition
 
 #: The 9 columns B2 (issue #231) added after the original 13: subject_area, level, unit,
-#: industry_benchmark, active, source, dataset_ids, process_ids, updated_at. Appended to every
-#: hand-built "row" fixture in this file so `row_to_definition` (which now reads 22 columns)
-#: keeps working; `source` must be a real `KpiOrigin` value (`KpiOrigin(None)` raises) and
-#: `active` a real bool, the rest tolerate `None`.
+#: industry_benchmark, active, source, dataset_ids, process_ids -- plus contract 1.2.2's
+#: rationale and business_value -- then updated_at. Appended to every hand-built "row"
+#: fixture in this file so `row_to_definition` (which now reads 24 columns) keeps working;
+#: `source` must be a real `KpiOrigin` value (`KpiOrigin(None)` raises) and `active` a real
+#: bool, the rest tolerate `None`.
 _B2_COLUMNS: Tuple[Any, ...] = (
     None,
     None,
@@ -38,6 +39,8 @@ _B2_COLUMNS: Tuple[Any, ...] = (
     None,
     True,
     "customer",
+    None,
+    None,
     None,
     None,
     None,
@@ -137,6 +140,23 @@ class TestRoundTrip:
         # writes real B2 defaults (source=CUSTOMER, active=True) matching `original`'s own
         # field defaults, so no further padding is needed there.
         rebuilt = row_to_definition(list(insert) + [None])
+        assert rebuilt == original
+
+    def test_rationale_and_business_value_survive_the_row(self) -> None:
+        # Contract 1.2.2: the two suggestion-era sentences an adopt carries into the
+        # registry. Both nullable text, written after process_ids and read back before
+        # updated_at -- the same padding rule as the round trip above.
+        original = _kpi(
+            rationale="Derived from crm_deal's amount and stage columns.",
+            business_value="Shows whether the pipeline is converting, not just growing.",
+        )
+        connection = _Connection()
+        KpiRegistryStore(connection).save(original)
+        insert = next(p for sql, p in connection.log if "INSERT INTO" in sql)
+        assert insert[-2:] == (original.rationale, original.business_value)
+        rebuilt = row_to_definition(list(insert) + [None])
+        assert rebuilt.rationale == original.rationale
+        assert rebuilt.business_value == original.business_value
         assert rebuilt == original
 
     def test_json_columns_come_back_as_objects_too(self) -> None:

@@ -10,8 +10,17 @@
 import { apiGet, apiJson } from "../lib/api";
 
 /** `GET /kpis` - every registered KPI, each with real `feasibility` and `identifier`. */
-export function fetchKpiList() {
-  return apiGet("/kpis");
+export function fetchKpiList({ signal } = {}) {
+  return apiGet("/kpis", { signal });
+}
+
+/** `GET /kpis/{kpi_id}` - one KPI, resolved by `identifier` despite the path segment's name
+ * (same as `fetchKpiSeries`/`computeKpi`/`updateKpi`/`deleteKpi` below). Includes `grain`,
+ * which `fetchKpiList` also carries per row but which nothing needs fetched singly until the
+ * chart editor (`ChartEditorPanel.jsx`) started reading it to tell an "overall"-grain KPI
+ * (always exactly one row, no breakdown to table) from a per-dimension one. */
+export function fetchKpi(identifier, { signal } = {}) {
+  return apiGet(`/kpis/${encodeURIComponent(identifier)}`, { signal });
 }
 
 /** `POST /kpis/suggestions` - start a run of the `kpi_suggestion` agent over the current
@@ -23,11 +32,16 @@ export function fetchKpiList() {
  * areas the customer cares about, handed to the agents as a priority -- "propose for these
  * first" -- never as a filter, so nothing is dropped for being outside them. An empty list (or
  * none at all) means no focus -- the backend leaves the prompt untouched in that case, so there
- * is nothing to gain by listing every supported area when nothing was actually chosen. Nothing
- * is stored beyond the run row - a suggestion becomes a KPI only through `createKpi`. */
-export function startKpiSuggestionRun(businessAreas, { signal } = {}) {
+ * is nothing to gain by listing every supported area when nothing was actually chosen. `ask`
+ * (contract 1.2.3) is what the customer wants to measure, in their own words -- "Add KPI" ->
+ * AI generated -- handed to the agents as the request to answer first; blank is the same as
+ * none. Nothing is stored beyond the run row - a suggestion becomes a KPI only through
+ * `createKpi`. */
+export function startKpiSuggestionRun(businessAreas, { ask, signal } = {}) {
   const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
   const body = areas.length ? { business_areas: areas } : {};
+  const request = typeof ask === "string" ? ask.trim() : "";
+  if (request) body.ask = request;
   return apiJson("/kpis/suggestions", "POST", body, { signal });
 }
 
@@ -57,6 +71,14 @@ export function fetchKpiSuggestions(businessArea, { signal } = {}) {
  * formula). */
 export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
+}
+
+/** `GET /kpis/health` - freshness of every registered KPI from gold (a `KpiHealth[]`:
+ * `{kpi_id, identifier, status, last_computed_at, as_of, staleness_hours, last_run_id,
+ * last_error}`). `status` is one of `fresh`/`stale`/`never_computed`/`failed`/`not_scheduled` -
+ * every registered KPI gets a row, even one gold has never materialised. */
+export function fetchKpiHealth({ signal } = {}) {
+  return apiGet("/kpis/health", { signal });
 }
 
 /** `GET /kpis/{kpi_id}/series` - one KPI's value over its last `days` business dates, read
@@ -91,4 +113,15 @@ export function computeKpi(identifier, { signal } = {}) {
  * `ApiError.detail` names the dashboards the caller can see, so show it as-is. */
 export function deleteKpi(identifier, { signal } = {}) {
   return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "DELETE", undefined, { signal });
+}
+
+/** `PATCH /kpis/{kpi_id}` - edit an already-adopted KPI's definition. `body` is a `KpiWrite`,
+ * same shape as `createKpi`: the required fields (`name`, `description`, `business_area`,
+ * `grain`, `sql`, `source_tables`) must be sent in full every time -- the api carries forward
+ * only the *optional* ones (concept, unit, level, ...) omitted from the body, not the required
+ * ones. Editing `sql` moves the KPI back to review: the server drops `validated_against_snapshot`
+ * whenever `sql`/`source_tables` change. 422s naming the defect the same way `createKpi` does;
+ * 409 if the row changed between the server's own read and write of it (retry by re-fetching). */
+export function updateKpi(identifier, body, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "PATCH", body, { signal });
 }

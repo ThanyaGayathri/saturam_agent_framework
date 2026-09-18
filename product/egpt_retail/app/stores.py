@@ -1,7 +1,8 @@
 """The knowledge-layer stores a K10 fan-out needs, built once from settings.
 
 ``entrypoints/suggest.py`` and the playground's ``knowledge`` mode both want the same three
-things -- an embedder, the prose store over pgvector, and the ontology store over Neo4j -- and
+things -- an embedder, the prose store (pgvector or Azure AI Search, per
+``knowledge/vector.py``), and the ontology store over Neo4j -- and
 until this module ``suggest.py`` was the only one that built them. The playground therefore
 fanned out over the semantic leg alone, which made "chat with the knowledge base" search table
 and column names rather than the knowledge base.
@@ -108,10 +109,18 @@ def _embedder_for(mode: ProviderMode) -> Any:
 
 def build_knowledge_stores(settings: RetailSettings, driver: Any) -> KnowledgeStores:
     """Cached by the values that decide the stores; see :func:`_build_knowledge_stores`."""
+    # Everything ``knowledge/vector.py`` reads to pick and address the store. The backend and
+    # the Azure endpoint/index are part of the key for the same reason the table and db url
+    # are: a key that omitted them would hand back a store built for a different backend.
+    # The API key is deliberately not here -- a credential does not decide *which* store this
+    # is, and it should not sit in a dict key.
     key = (
         settings.retail_provider_mode,
+        settings.retail_knowledge_backend,
         settings.retail_knowledge_table,
         settings.retail_db_url,
+        settings.retail_knowledge_search_endpoint,
+        settings.retail_knowledge_search_index,
     )
     with _STORES_LOCK:
         cached = _STORES.get(key)
@@ -138,19 +147,13 @@ def _build_knowledge_stores(settings: RetailSettings, driver: Any) -> KnowledgeS
     than a model load.
     """
     from egpt.knowledge.knowledge import Knowledge
-    from egpt.vectordb.pgvector import PgVector
-    from egpt.vectordb.search import SearchType
 
+    from egpt_retail.knowledge.vector import build_knowledge_vector_db
     from egpt_retail.ontology.store import OntologyStore
 
     resolved = _embedder_for(settings.retail_provider_mode)
     knowledge = Knowledge(
-        vector_db=PgVector(
-            table_name=settings.retail_knowledge_table,
-            db_url=settings.retail_db_url,
-            search_type=SearchType.hybrid,
-            embedder=resolved.embedder,
-        )
+        vector_db=build_knowledge_vector_db(settings, resolved.embedder)
     )
     ontology = OntologyStore(driver=driver, embedder=resolved.embedder)
     return KnowledgeStores(

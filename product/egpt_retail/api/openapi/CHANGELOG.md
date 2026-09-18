@@ -109,6 +109,116 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the
+run request and its echo on the run -- so no negotiation and no major bump.
+
+- **`KpiSuggestionRunRequest.ask`** (string or null, at most 2000 characters, not required)
+  and **`KpiSuggestionRun.ask`** (its echo). The discovery page's "Add KPI" gains an
+  AI-generated path: the customer says what they want to measure, in their own words, and a
+  suggestion run is started with that as its request. It reaches both agents in the message
+  after the focus (1.1.8) and before the standing ask, worded as the request to answer first
+  -- a steer, never a filter, for the same reason the focus is one: what comes back is still
+  judged by `assemble`, stamped with the ontology's area, and checked for feasibility exactly
+  as an unprompted run's proposals are, so a request the harvest cannot back produces no
+  invented metric, only the agent's `notes` saying so. Whitespace-only reads as absent; the
+  message is then exactly what it was before this field existed. Echoed on the run row so a
+  screen restoring a run from its id can say what it was for.
+
+## 1.2.2 — 2026-09-17 — kpis: `Kpi.rationale`, `Kpi.business_value` kept after adopt (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two new, nullable, non-required fields on
+`Kpi` and `KpiWrite` -- so no negotiation and no major bump.
+
+- **`Kpi.rationale`, `Kpi.business_value`** (string or null, not required) and the same two on
+  **`KpiWrite`**. 1.1.10 gave a *suggestion* its "why the model proposed it" and "what value it
+  provides" text, and the discovery panel shows both -- until the customer clicks "Add to my
+  metrics", at which point the panel switches to the registry row and both vanish, because the
+  registry never had anywhere to keep them. Adopt now resends them on `KpiWrite` and the
+  registry stores them, so the panel says the same thing about a KPI after it is governed as it
+  did while it was a proposal, on every later visit and for every viewer. Presentation only,
+  like `unit`/`industry_benchmark`: neither participates in feasibility or execution, and an
+  update that omits them carries the stored value forward the way every optional `KpiWrite`
+  field does. Nullable and outside `required` rather than a breaking bump: a KPI authored by
+  hand, or adopted before this field existed, reads back with both `null`.
+
+## 1.2.1 — 2026-09-16 — merge: reconcile with `fix/dashboard-suggestion-routing` (additive)
+
+Agreed by: product (nandha-saturam). Additive on top of 1.2.0 -- the dashboards work below was
+authored in parallel with, and had not yet incorporated, #272/#276/#277/#278/#280 (already on
+`fix/dashboard-suggestion-routing`, this PR's retargeted base). Reconciling the two:
+
+- **`DashboardSuggestionRunRequest.preselected_kpi_identifiers`** (added on the base branch by
+  #272, a free-text "already selected by the caller" line appended to the agent's message) is
+  **not carried forward** -- superseded by 1.2.0's own `kpi_identifiers`, which does the same
+  job as structured, validated composer context (the agent is shown the metric's definition and
+  the semantic-layer tables behind it, not just its name in a sentence) rather than free text.
+  A caller written against the base branch's field name gets a 422 naming the unknown field,
+  same as any other unrecognised property; `kpi_identifiers` is the field to send instead.
+- **`KpiSuggestion.business_value`** (1.1.10, below) is unaffected and carried forward as-is --
+  unrelated to dashboards, no overlap with anything in 1.2.0.
+- Every other dashboards-relevant change on the base branch (the unified create-dashboard mode
+  picker, the editable refresh-schedule control, the abandon-AI-suggestion reset) was already
+  independently reapplied on top of 1.2.0's new chart/tile model during this PR's own round-1
+  review response, before the base was retargeted -- so nothing further to port for those.
+
+## 1.2.0 — 2026-09-16 — dashboards: composed charts, per-tile CRUD (**breaking**)
+
+Agreed by: product (nandha-saturam). **Breaking, not additive** -- flagged in round-1 review
+of the PR that introduced it (#281), which shipped this exact rename against an unchanged
+`info.version` for a day; this entry is that fix, landing before the PR merges to `main`.
+
+- **`DashboardSuggestion.tiles` → `charts`, type changed `DashboardTileSuggestion[]` →
+  `DashboardChartSuggestion[]`.** A strictly-typed client built against 1.1.8's `tiles` field
+  breaks. The dashboard-suggestion agent no longer only selects a KPI identifier from a closed
+  list (1.1.8's whole design) -- it is shown the selected metrics' definitions and the
+  semantic layer's tables/columns/joins behind them, and composes the chart a purpose needs: a
+  metric's own SQL reused as-is (`source: kpi`, unchanged tile shape) or a query composed
+  across the tables (`source: query`, new). `DashboardTileSuggestion` is removed;
+  `DashboardChartSuggestion` carries `title`, `chart`, `source`, `kpi_identifier`/`query`,
+  `description`, `rationale`, and a `guard` verdict (`ok`/`rewritten`/`refused`, with detail)
+  from the warehouse read guard every composed query passes before the caller sees it, plus an
+  optional bounded `preview` (columns/rows/duration).
+- **`Tile`/`TileWrite`** gain `source` (`kpi`|`query`, default `kpi`), `query` (a new
+  `TileQuery`: `sql`, `dialect`, `source_tables`, `x`/`y` `ChartAxis`, `series_by`),
+  `description` and `rationale` -- all additive, all defaulted, so a pre-1.2.0 tile JSON
+  reads back unchanged as `source: kpi`. `kpi_identifier` on `Tile` is now nullable (null on a
+  `query` tile) -- additive in the loosening direction, but a caller that assumed it always
+  present should check `source` first.
+- **New routes, all additive:** `POST/PATCH/DELETE /dashboards/{id}/tiles[/{tile_id}]` (a
+  tile keeps its id across an edit instead of every write reminting every tile's id -- also a
+  behaviour change on the *existing* whole-array `PATCH`, worth knowing even though no schema
+  changed: `TileWrite.id`, optional, is honoured when a client sends one); `POST
+  /dashboards/queries/preview` (guard + bounded run, nothing stored); `POST
+  /dashboards/{id}/refresh` (recompute every `query` tile now).
+- **`DashboardSuggestionRunRequest`** gains `kpi_identifiers`, `table_names`, `chart_budget`
+  (additive, all optional) -- what the agent reads as context, not a KPI list it must tile one
+  for one. **`DashboardSuggestionRun`** gains `stage` (additive, nullable) for progress while
+  `running`.
+- **`Column`** (the semantic-layer schema) gains `concept`, `meaning`, `joinable` (additive) --
+  already on the domain dataclass (`contracts/semantic.py`, contract 1.2.0 there predates this
+  one) but never mirrored onto the wire shape until now. **`GET /semantic/tables` and `GET
+  /semantic/tables/{table_name}`** are mounted on the real router for the first time (no
+  schema change -- they were already contracted, stub-only); a personal-data column's
+  `sampled_values` are stripped over this surface regardless of scope, since real observed
+  values are not a description of the data and were never meant to be readable this way.
+
+## 1.1.10 — 2026-09-16 — kpis: `KpiSuggestion.business_value` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on an
+existing schema -- so no negotiation and no major bump.
+
+- **`KpiSuggestion.business_value`** (string or null, not required). K12's `rationale` answers
+  "what data is this derived from" -- traceability, not motivation. Nothing in the contract
+  said why a proposed metric is worth tracking at all, which the discovery screen's "Why the
+  model proposed it" panel needed to answer on its own. `business_value` is the agent's
+  one-or-two-sentence answer to that, rendered alongside `rationale` rather than folded into
+  it, since the two are different claims with different evidence: one traces to tables, the
+  other to what a customer would do differently once they can see the number. Nullable and
+  outside `required` rather than a breaking bump: a suggestion run persisted before this field
+  existed reads back with `business_value: null`, not a contract violation.
+
 ## 1.1.8 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path

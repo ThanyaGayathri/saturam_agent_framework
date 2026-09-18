@@ -2,10 +2,16 @@
 
 One table, ``tiles`` and ``filters`` held as JSONB the same way KPI's ``source_tables``/
 ``parameters`` are (``kpi/store.py``), self-provisioning behind an advisory lock like every
-other retail-owned table in this database. The readiness gate on write -- every tile's
-``kpi_identifier`` must be ``ready`` -- lives in ``api/routers/dashboards.py``, not here: it
-needs the KPI registry and an open semantic reader, and this store's job stays "the dashboard
-table", not "everything a dashboard touches".
+other retail-owned table in this database. The readiness gate on write -- every ``kpi`` tile's
+``kpi_identifier`` must be ``ready``, every ``query`` tile's SQL must pass the guard -- lives
+in ``api/routers/dashboards.py``, not here: it needs the KPI registry, an open semantic reader
+and the warehouse, and this store's job stays "the dashboard table", not "everything a
+dashboard touches".
+
+Per-tile edits (``upsert_tile``/``remove_tile``, contract 1.2.0) are single JSONB statements
+rather than read-modify-write of the whole array, so two people editing two charts of the
+same dashboard at once cannot overwrite each other, and tile ids stay stable across edits --
+the interface keys its grid on them.
 """
 
 from __future__ import annotations
@@ -13,15 +19,19 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from egpt_retail.contracts.dashboards import (
+    AxisKind,
+    ChartAxis,
     ChartKind,
     Dashboard,
-    DashboardFilter,
+    DashboardFilterColumn,
     RefreshSchedule,
     Tile,
     TilePosition,
+    TileQuery,
+    TileSource,
     Visibility,
 )
 
@@ -75,10 +85,53 @@ def _ddl(schema: str) -> Tuple[str, ...]:
     )
 
 
+def _axis_to_json(axis: ChartAxis) -> Dict[str, Any]:
+    return {
+        "column": axis.column,
+        "kind": axis.kind.value,
+        "label": axis.label,
+        "unit": axis.unit,
+    }
+
+
+def _axis_from_json(payload: Dict[str, Any]) -> ChartAxis:
+    return ChartAxis(
+        column=payload["column"],
+        kind=AxisKind(payload.get("kind") or AxisKind.CATEGORY.value),
+        label=payload.get("label") or "",
+        unit=payload.get("unit") or "",
+    )
+
+
+def _query_to_json(query: TileQuery) -> Dict[str, Any]:
+    return {
+        "sql": query.sql,
+        "dialect": query.dialect,
+        "source_tables": sorted(query.source_tables),
+        "x": _axis_to_json(query.x) if query.x is not None else None,
+        "y": [_axis_to_json(axis) for axis in query.y],
+        "series_by": query.series_by,
+    }
+
+
+def _query_from_json(payload: Dict[str, Any]) -> TileQuery:
+    x = payload.get("x")
+    return TileQuery(
+        sql=payload["sql"],
+        source_tables=frozenset(payload.get("source_tables") or ()),
+        dialect=payload.get("dialect") or "postgres",
+        x=_axis_from_json(x) if x else None,
+        y=tuple(_axis_from_json(axis) for axis in (payload.get("y") or ())),
+        series_by=payload.get("series_by"),
+    )
+
+
 def _tile_to_json(tile: Tile) -> Dict[str, Any]:
     return {
         "id": tile.id,
+        "source": tile.source.value,
         "kpi_identifier": tile.kpi_identifier,
+        "query": _query_to_json(tile.query) if tile.query is not None else None,
         "chart": tile.chart.value,
         "position": {
             "x": tile.position.x,
@@ -88,29 +141,45 @@ def _tile_to_json(tile: Tile) -> Dict[str, Any]:
         },
         "title": tile.title,
         "grain_value": tile.grain_value,
+        "description": tile.description,
+        "rationale": tile.rationale,
     }
 
 
 def _tile_from_json(payload: Dict[str, Any]) -> Tile:
+    """A row written before 1.2.0 has no ``source`` -- it is a ``kpi`` tile, so the default
+    reads it back unchanged; nothing on disk needs migrating."""
     position = payload["position"]
+    query = payload.get("query")
     return Tile(
         id=payload["id"],
-        kpi_identifier=payload["kpi_identifier"],
+        kpi_identifier=payload.get("kpi_identifier"),
         chart=ChartKind(payload["chart"]),
         position=TilePosition(
             x=position["x"], y=position["y"], w=position["w"], h=position["h"]
         ),
         title=payload.get("title", ""),
         grain_value=payload.get("grain_value"),
+        source=TileSource(payload.get("source") or TileSource.KPI.value),
+        query=_query_from_json(query) if query else None,
+        description=payload.get("description") or "",
+        rationale=payload.get("rationale") or "",
     )
 
 
-def _filter_to_json(item: DashboardFilter) -> Dict[str, Any]:
-    return {"field": item.field, "value": item.value}
+def _filter_to_json(item: DashboardFilterColumn) -> Dict[str, Any]:
+    return {"table": item.table, "column": item.column}
 
 
-def _filter_from_json(payload: Dict[str, Any]) -> DashboardFilter:
-    return DashboardFilter(field=payload["field"], value=payload["value"])
+def _filter_from_json(payload: Dict[str, Any]) -> Optional[DashboardFilterColumn]:
+    """``None`` for a row written before this shape existed (``field``/``value`` keys, no
+    ``table``/``column``) -- that filter never did anything functionally (R13.1's own
+    change note), so it is dropped on read rather than migrated."""
+    table = payload.get("table")
+    column = payload.get("column")
+    if not table or not column:
+        return None
+    return DashboardFilterColumn(table=table, column=column)
 
 
 def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
@@ -125,7 +194,7 @@ def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
         name=row[1],
         description=row[2] or "",
         tiles=tuple(_tile_from_json(t) for t in tiles),
-        filters=tuple(_filter_from_json(f) for f in filters),
+        filters=tuple(f for f in (_filter_from_json(item) for item in filters) if f),
         refresh_schedule=RefreshSchedule(row[5]),
         visibility=Visibility(row[6]),
         owner=row[7],
@@ -157,10 +226,13 @@ def _kpi_existence_guard_sql() -> str:
     """
     from egpt_retail.kpi.store import KPI_SCHEMA as _kpi_schema
 
+    # A `query` tile names no KPI (`kpi_identifier` is JSON null), so it has nothing to
+    # guard here -- its own gate is the SQL guard, applied by the router before the write.
     return f"""NOT EXISTS (
         SELECT 1
         FROM jsonb_array_elements(%s::jsonb) AS t
-        WHERE NOT EXISTS (
+        WHERE t ->> 'kpi_identifier' IS NOT NULL
+          AND NOT EXISTS (
             SELECT 1 FROM {_kpi_schema}.kpi_definition AS kd
             WHERE kd.identifier = t ->> 'kpi_identifier'
         )
@@ -199,7 +271,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
@@ -254,7 +326,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
@@ -387,6 +459,92 @@ class DashboardStore:
             visibility=visibility,
         )
 
+    def upsert_tile(
+        self, dashboard_id: str, owner: str, tile: Tile
+    ) -> Optional[Dashboard]:
+        """Replace the tile with ``tile.id`` in place, or append it when no tile has that id.
+        One statement over the JSONB array, so a concurrent edit of another tile is never
+        lost. ``None`` if the dashboard does not exist or ``owner`` does not own it; raises
+        :class:`DashboardKpiVanishedError` for a ``kpi`` tile whose KPI is gone."""
+        tile_json = json.dumps(_tile_to_json(tile))
+        one_tile_array = json.dumps([_tile_to_json(tile)])
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.dashboard SET
+                        tiles = CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM jsonb_array_elements(tiles) AS t
+                                WHERE t ->> 'id' = %s
+                            )
+                            THEN (
+                                SELECT COALESCE(jsonb_agg(
+                                    CASE WHEN t ->> 'id' = %s THEN %s::jsonb ELSE t END
+                                    ORDER BY ord), '[]'::jsonb)
+                                FROM jsonb_array_elements(tiles) WITH ORDINALITY AS e(t, ord)
+                            )
+                            ELSE tiles || %s::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s AND owner = %s AND {_kpi_existence_guard_sql()}""",
+                (
+                    tile.id,
+                    tile.id,
+                    tile_json,
+                    tile_json,
+                    dashboard_id,
+                    owner,
+                    one_tile_array,
+                ),
+            )
+            matched = cursor.rowcount == 1
+        if not matched:
+            self._connection.rollback()
+            current = self.get(dashboard_id)
+            if current is not None and current.owner == owner:
+                raise DashboardKpiVanishedError(
+                    "the tile references a KPI that no longer exists"
+                )
+            return None
+        self._connection.commit()
+        return self.get(dashboard_id)
+
+    async def aupsert_tile(
+        self, dashboard_id: str, owner: str, tile: Tile
+    ) -> Optional[Dashboard]:
+        """Async variant."""
+        return await asyncio.to_thread(self.upsert_tile, dashboard_id, owner, tile)
+
+    def remove_tile(
+        self, dashboard_id: str, owner: str, tile_id: str
+    ) -> Optional[Dashboard]:
+        """Drop the tile with ``tile_id``. ``None`` if the dashboard is not the owner's or
+        has no such tile -- the router turns both into a 404."""
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.dashboard SET
+                        tiles = (
+                            SELECT COALESCE(jsonb_agg(t ORDER BY ord), '[]'::jsonb)
+                            FROM jsonb_array_elements(tiles) WITH ORDINALITY AS e(t, ord)
+                            WHERE t ->> 'id' <> %s
+                        ),
+                        updated_at = now()
+                    WHERE id = %s AND owner = %s
+                      AND EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(tiles) AS t
+                        WHERE t ->> 'id' = %s
+                      )""",
+                (tile_id, dashboard_id, owner, tile_id),
+            )
+            matched = cursor.rowcount == 1
+        self._connection.commit()
+        return self.get(dashboard_id) if matched else None
+
+    async def aremove_tile(
+        self, dashboard_id: str, owner: str, tile_id: str
+    ) -> Optional[Dashboard]:
+        """Async variant."""
+        return await asyncio.to_thread(self.remove_tile, dashboard_id, owner, tile_id)
+
     def delete(self, dashboard_id: str, owner: str) -> bool:
         with self._connection.cursor() as cursor:
             cursor.execute(
@@ -455,3 +613,37 @@ class DashboardStore:
     async def alist_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
         """Async variant."""
         return await asyncio.to_thread(self.list_referencing, kpi_identifier)
+
+    def map_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Dashboard names referencing each of ``kpi_identifiers`` (every KPI named by any
+        tile, when omitted), one query rather than :meth:`list_referencing` called once per
+        KPI -- the shape a registry list view needs, where ``list_referencing``'s single-KPI
+        form would otherwise mean N round trips for an N-row registry.
+
+        Same reach-across-schemas exception ``list_referencing`` already documents: every
+        dashboard regardless of owner or visibility, because "who else still needs this KPI"
+        does not depend on who is asking. A KPI absent from the result has no dashboard
+        referencing it -- callers building a full map should default missing keys to ``()``
+        rather than treat absence as an error.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT tile ->> 'kpi_identifier' AS kpi_identifier,
+                           array_agg(DISTINCT d.name ORDER BY d.name) AS names
+                    FROM {self._schema}.dashboard AS d,
+                         jsonb_array_elements(d.tiles) AS tile
+                    WHERE tile ->> 'kpi_identifier' IS NOT NULL
+                    {"AND tile ->> 'kpi_identifier' = ANY(%s)" if kpi_identifiers is not None else ""}
+                    GROUP BY kpi_identifier""",
+                (list(kpi_identifiers),) if kpi_identifiers is not None else (),
+            )
+            rows = cursor.fetchall()
+        return {row[0]: tuple(row[1]) for row in rows}
+
+    async def amap_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.map_referencing, kpi_identifiers)

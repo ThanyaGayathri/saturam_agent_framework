@@ -126,6 +126,10 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         ADD COLUMN IF NOT EXISTS dataset_ids jsonb NOT NULL DEFAULT '[]'::jsonb""",
         f"""ALTER TABLE {schema}.kpi_definition
         ADD COLUMN IF NOT EXISTS process_ids jsonb NOT NULL DEFAULT '[]'::jsonb""",
+        # Contract 1.2.2: a suggestion's "why proposed" / "what value" text, kept on adopt.
+        # Nullable -- a hand-authored KPI, or one adopted before these existed, has neither.
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS rationale text",
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS business_value text",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
         ON {schema}.kpi_definition (business_area)""",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
@@ -229,6 +233,8 @@ def _definition_to_row(kpi: KpiDefinition) -> Tuple[Any, ...]:
         kpi.source.value,
         json.dumps(list(kpi.dataset_ids)),
         json.dumps(list(kpi.process_ids)),
+        kpi.rationale,
+        kpi.business_value,
     )
 
 
@@ -288,7 +294,9 @@ def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
         source=KpiOrigin(row[18]),
         dataset_ids=tuple(dataset_ids or ()),
         process_ids=tuple(process_ids or ()),
-        updated_at=row[21],
+        rationale=row[21],
+        business_value=row[22],
+        updated_at=row[23],
     )
 
 
@@ -373,9 +381,10 @@ class KpiRegistryStore:
                     (identifier, name, description, sql, grain, business_area,
                      source_tables, result_shape, dialect, parameters, time_window,
                      validated_against_snapshot, concept, subject_area, level, unit,
-                     industry_benchmark, active, source, dataset_ids, process_ids)
+                     industry_benchmark, active, source, dataset_ids, process_ids,
+                     rationale, business_value)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s)
+                            %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (identifier) DO NOTHING
                     RETURNING identifier""",
                 _definition_to_row(validated_kpi),
@@ -429,7 +438,8 @@ class KpiRegistryStore:
                         dialect = %s, parameters = %s, time_window = %s,
                         validated_against_snapshot = %s, concept = %s, subject_area = %s,
                         level = %s, unit = %s, industry_benchmark = %s, active = %s,
-                        source = %s, dataset_ids = %s, process_ids = %s, updated_at = now()
+                        source = %s, dataset_ids = %s, process_ids = %s,
+                        rationale = %s, business_value = %s, updated_at = now()
                     WHERE identifier = %s AND updated_at = %s""",
                 row[1:] + (kpi.identifier, expected_updated_at),
             )
@@ -473,9 +483,10 @@ class KpiRegistryStore:
                         (identifier, name, description, sql, grain, business_area,
                          source_tables, result_shape, dialect, parameters, time_window,
                          validated_against_snapshot, concept, subject_area, level, unit,
-                         industry_benchmark, active, source, dataset_ids, process_ids)
+                         industry_benchmark, active, source, dataset_ids, process_ids,
+                         rationale, business_value)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s, %s)
+                                %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (identifier) DO UPDATE SET
                             name = EXCLUDED.name,
                             description = EXCLUDED.description,
@@ -498,6 +509,8 @@ class KpiRegistryStore:
                             source = EXCLUDED.source,
                             dataset_ids = EXCLUDED.dataset_ids,
                             process_ids = EXCLUDED.process_ids,
+                            rationale = EXCLUDED.rationale,
+                            business_value = EXCLUDED.business_value,
                             updated_at = now()""",
                     _definition_to_row(kpi),
                 )
@@ -614,6 +627,27 @@ class KpiRegistryStore:
         return await asyncio.to_thread(
             self.delete_if_unreferenced, identifier, caller=caller
         )
+
+    def dashboard_names_by_kpi(
+        self, identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Dashboard names referencing each of ``identifiers`` (every KPI any dashboard
+        tile names, when omitted), for the registry list's ``Kpi.dashboard_names`` field.
+
+        The read-only generalization of :meth:`delete_if_unreferenced`'s reference check:
+        that method blocks a delete when the result is non-empty, this exposes the same
+        "who still needs this KPI" answer for display, unconditionally and for every KPI at
+        once via :meth:`DashboardStore.map_referencing` -- one query for a whole list route
+        rather than one per row. A KPI absent from the returned mapping has no referencing
+        dashboard; treat a missing key as ``()``, not as an error.
+        """
+        return _DashboardStore(self._connection).map_referencing(identifiers)
+
+    async def adashboard_names_by_kpi(
+        self, identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.dashboard_names_by_kpi, identifiers)
 
     # --- reading -----------------------------------------------------------------------
 
@@ -970,7 +1004,7 @@ class KpiRegistryStore:
                            source_tables, result_shape, dialect, parameters, time_window,
                            validated_against_snapshot, concept, subject_area, level, unit,
                            industry_benchmark, active, source, dataset_ids, process_ids,
-                           updated_at
+                           rationale, business_value, updated_at
                     FROM {self._schema}.kpi_definition {where} ORDER BY identifier""",
                 params,
             )

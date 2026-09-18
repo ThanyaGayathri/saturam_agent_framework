@@ -38,6 +38,10 @@ secrets:
     # The ontology graph's password. Empty is refused by load-knowledge at startup, with the
     # variable named -- the settings' own posture -- rather than defaulting to a guess.
     neo4jPassword: ""
+    # Azure AI Search admin key for K1 memory (AZ-B). Empty renders no
+    # EGPT_RETAIL_MEMORY_SEARCH_API_KEY, and the substrate refuses at startup rather than
+    # guessing a credential. Key Vault object: search-api-key.
+    searchApiKey: ""
 
 auth:
   enabled: false
@@ -120,6 +124,31 @@ storage:
   endpoint: http://egpt-minio:9000
   container: egpt-landing
   prefix: ""                             # when the landing root is not the container root
+
+memory:
+  # K1's vector substrate (EGPT_RETAIL_MEMORY_BACKEND): `azure_ai_search` is the deployment's
+  # truth (AZ-B, docs/plan/azure-migration-plan.md) and needs search.endpoint; `pgvector` is the
+  # control-plane Postgres, which values.local.yaml selects for kind. The setting refuses at
+  # startup, naming the variable, when azure_ai_search has no endpoint -- never a silent fallback.
+  backend: azure_ai_search
+
+search:
+  # Azure AI Search, K1 memory vectors (AZ-B). NEVER EXECUTED: no service exists in any
+  # environment this chart has run in; AZ-B's substrate was proven against a mocked transport
+  # only (cookbook/95_azure_migration/TEST_LOG.md). The index is created at the embedder's
+  # dimension (1024, Mode B) on first boot and cannot be widened in place. The admin key is
+  # secrets.values.searchApiKey.
+  endpoint: ""                           # https://<service>.search.windows.net
+  memoryIndex: egpt-retail-memory
+  # K2 knowledge prose (AZ-C): its own index on the same service, same api key.
+  knowledgeIndex: egpt-retail-knowledge
+
+knowledge:
+  # K2 prose's vector store (EGPT_RETAIL_KNOWLEDGE_BACKEND): `azure_ai_search` is the
+  # deployment's truth (AZ-C) and needs search.endpoint; `pgvector` is the control-plane
+  # Postgres, which values.local.yaml selects for kind. Refuses at point of use without an
+  # endpoint, naming the variable.
+  backend: azure_ai_search
 
 neo4j:
   # Two databases in one Enterprise instance is the target. UNVERIFIED without a licence.
