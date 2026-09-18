@@ -42,6 +42,9 @@ os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
 # dimension and the framework refuses to reuse one of a different width, so a cookbook
 # running Mode A (768) would leave the deployment's Mode B (1024) table unusable.
 os.environ.setdefault("EGPT_RETAIL_MEMORY_TABLE", "memory_vectors_k1_cookbook")
+# AZ-B flipped the default memory backend to Azure AI Search; this cookbook runs
+# against the compose Postgres, so it says so explicitly.
+os.environ.setdefault("EGPT_RETAIL_MEMORY_BACKEND", "pgvector")
 MEMORY_TABLE = os.environ["EGPT_RETAIL_MEMORY_TABLE"]
 
 

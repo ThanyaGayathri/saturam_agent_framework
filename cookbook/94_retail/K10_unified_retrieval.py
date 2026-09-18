@@ -31,6 +31,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
 os.environ.setdefault("EGPT_RETAIL_MEMORY_TABLE", "memory_vectors_k10_cookbook")
+# AZ-B flipped the default memory backend to Azure AI Search; this cookbook runs
+# against the compose Postgres, so it says so explicitly.
+os.environ.setdefault("EGPT_RETAIL_MEMORY_BACKEND", "pgvector")
+# Run by hand against compose Postgres; the deployment default is Azure AI Search (AZ-C), so
+# choose pgvector here unless an Azure AI Search endpoint is actually configured.
+if not os.environ.get("EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT"):
+    os.environ.setdefault("EGPT_RETAIL_KNOWLEDGE_BACKEND", "pgvector")
 
 from egpt.integrations.knowledge.embedder.sentence_transformer import (  # noqa: E402,F401
     SentenceTransformerEmbedder,
@@ -38,11 +45,10 @@ from egpt.integrations.knowledge.embedder.sentence_transformer import (  # noqa:
 from egpt.knowledge.knowledge import Knowledge  # noqa: E402
 from egpt.memory.types import MemoryQuery, Scope  # noqa: E402
 from egpt.metrics import ProviderMode  # noqa: E402
-from egpt.vectordb.pgvector import PgVector  # noqa: E402
-from egpt.vectordb.search import SearchType  # noqa: E402
 from egpt_retail.app.components import build_memory_provider  # noqa: E402
 from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.knowledge.vector import build_knowledge_vector_db  # noqa: E402
 from egpt_retail.memory.scopes import SYSTEM_USER_ID  # noqa: E402
 from egpt_retail.semantic.promotion import promote_concepts  # noqa: E402
 from egpt_retail.ontology.store import OntologyStore  # noqa: E402
@@ -70,11 +76,13 @@ print("=" * 78)
 
 resolved = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
 knowledge = Knowledge(
-    vector_db=PgVector(
-        table_name=PROSE_TABLE,
-        db_url=DB_URL,
-        search_type=SearchType.hybrid,
-        embedder=resolved.embedder,
+    vector_db=build_knowledge_vector_db(
+        RetailSettings(
+            retail_db_url=DB_URL,
+            retail_knowledge_table=PROSE_TABLE,
+            retail_provider_mode=ProviderMode.LOCAL,
+        ),
+        resolved.embedder,
     ),
 )
 driver = GraphDatabase.driver(NEO4J, auth=AUTH)

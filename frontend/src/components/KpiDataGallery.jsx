@@ -1,72 +1,101 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import {
-  Database,
-  MoreVertical,
-  Pencil,
-  Search,
-  Trash2,
-  AlertTriangle,
-} from "lucide-react";
-import { Select } from "./ui";
-import {
-  KPI_DATA_CATALOG_DATASETS,
-  getDatasetById,
-  groupDatasetsBySource,
-} from "../domain/kpi-data-catalog";
-import { useKpiSources } from "../hooks/useKpiSources";
-import sapSvg from "../assets/sap.svg";
-import snowflakeSvg from "../assets/snowflake.svg";
-import postgresSvg from "../assets/postgres.svg";
-import salesforceSvg from "../assets/salesforce.svg";
-
-const SOURCE_ICON = {
-  sap: sapSvg,
-  snowflake: snowflakeSvg,
-  postgres: postgresSvg,
-  salesforce: salesforceSvg,
-};
-
-const SOURCE_OPTIONS = [
-  { value: "", label: "Source: All" },
-  { value: "sap", label: "SAP" },
-  { value: "snowflake", label: "Snowflake" },
-  { value: "postgres", label: "PostgreSQL" },
-  { value: "salesforce", label: "Salesforce" },
-];
-
-const AREA_OPTIONS = [
-  { value: "", label: "Business area: All" },
-  { value: "Inventory", label: "Inventory" },
-  { value: "Orders", label: "Orders" },
-  { value: "E-Commerce", label: "E-Commerce" },
-  { value: "Support", label: "Support" },
-  { value: "Finance", label: "Finance" },
-  { value: "Pricing", label: "Pricing" },
-  { value: "Supply Chain", label: "Supply Chain" },
-  { value: "Retail Performance", label: "Retail Performance" },
-  { value: "POS", label: "POS" },
-  { value: "Merchandise", label: "Merchandise" },
-];
-
-const STATUS_OPTIONS = [
-  { value: "", label: "Status: All" },
-  { value: "healthy", label: "Healthy" },
-  { value: "stale", label: "Stale" },
-];
+import { AlertTriangle, Database, Search } from "lucide-react";
+import { Modal, Select } from "./ui";
+import { useDataCatalog } from "../hooks/useDataCatalog";
 
 const SORT_OPTIONS = [
-  { value: "sync", label: "Sort: Recently synced" },
-  { value: "name", label: "Sort: Name" },
   { value: "kpis", label: "Sort: KPI count" },
+  { value: "rows", label: "Sort: Row count" },
+  { value: "name", label: "Sort: Name" },
 ];
 
+const ROW_COUNT_FORMATTER = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+
+function formatRowCount(n) {
+  if (n == null) return "Unknown";
+  return `${ROW_COUNT_FORMATTER.format(n)} rows`;
+}
+
+function formatHarvestedAt(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function schemaLabel(schema) {
+  if (!schema) return "Unspecified schema";
+  return schema.charAt(0).toUpperCase() + schema.slice(1);
+}
+
+/** Datasets grouped by the semantic layer's own schema (silver/gold) -- the real grouping
+ * key a table carries, unlike a source-system label the backend does not track per table. */
+function groupDatasetsBySchema(datasets) {
+  const map = new Map();
+  for (const d of datasets) {
+    const key = d.schema || "unspecified";
+    if (!map.has(key)) map.set(key, { schema: key, datasets: [] });
+    map.get(key).datasets.push(d);
+  }
+  return [...map.values()];
+}
+
+/** All of a dataset's columns, searchable and scrollable -- what the "+N" overflow on a card
+ * opens rather than leaving the rest of the attribute list with no way to see it. */
+function AttributeListModal({ dataset, onClose }) {
+  const [q, setQ] = useState("");
+  const all = dataset.attributeTags || [];
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter((t) => t.toLowerCase().includes(needle));
+  }, [all, q]);
+
+  return (
+    <Modal title="All attributes" onClose={onClose}>
+      <p className="-mt-2 mb-3 truncate font-mono text-xs text-text-muted" title={dataset.technicalName}>
+        {dataset.technicalName}
+      </p>
+      <div className="relative mb-3">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+          aria-hidden
+        />
+        <input
+          type="search"
+          autoFocus
+          placeholder="Search attributes…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-full rounded-lg border border-border bg-surface-default py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-primary focus:ring-4 focus:ring-primary/25"
+        />
+      </div>
+      <p className="mb-2 text-xs text-text-muted">
+        {filtered.length} of {all.length} attribute{all.length === 1 ? "" : "s"}
+      </p>
+      <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-6 text-center text-sm text-text-muted">No attributes match "{q}".</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {filtered.map((t) => (
+              <li key={t} className="px-3 py-2 font-mono text-[12.5px] text-text-secondary">
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function DatasetCard({ dataset, highlight }) {
-  const stale = dataset.status === "stale";
+  const [showAllAttrs, setShowAllAttrs] = useState(false);
   const visibleTags = (dataset.attributeTags || []).slice(0, 4);
   const more = (dataset.attributeTags || []).length - visibleTags.length;
   const kpiCount = dataset.linkedKpiNames?.length ?? 0;
-  const sourceIcon = SOURCE_ICON[dataset.sourceId];
 
   return (
     <div
@@ -76,35 +105,13 @@ function DatasetCard({ dataset, highlight }) {
           : "border-border"
       }`}
     >
-      {/* Top: source icon | status + menu (matches Configure internal source cards) */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary p-2">
-          {sourceIcon ? (
-            <img src={sourceIcon} alt="" className="h-full w-full object-contain" />
-          ) : (
-            <Database size={22} className="text-primary" aria-hidden />
-          )}
+          <Database size={22} className="text-primary" aria-hidden />
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {stale ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#fec84b] bg-[#fffaeb] px-2.5 py-1 text-xs font-medium text-[#b54708]">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Stale
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#6ce9a6] bg-[#ecfdf3] px-2.5 py-1 text-xs font-medium text-[#027a48]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#12b76a]" aria-hidden />
-              Healthy
-            </span>
-          )}
-          <button
-            type="button"
-            className="rounded p-1 text-text-muted transition-colors hover:bg-surface-secondary"
-            aria-label="More options"
-          >
-            <MoreVertical size={16} />
-          </button>
-        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-secondary px-2.5 py-1 text-xs font-medium text-text-secondary">
+          {schemaLabel(dataset.schema)}
+        </span>
       </div>
 
       <h3
@@ -114,17 +121,20 @@ function DatasetCard({ dataset, highlight }) {
         {dataset.technicalName}
       </h3>
 
-      <p className="mb-3 mt-2 line-clamp-2 text-[13.5px] leading-5 text-text-secondary">{dataset.description}</p>
+      <p className="mb-3 mt-2 line-clamp-2 text-[13.5px] leading-5 text-text-secondary">
+        {dataset.description || "No description recorded for this table."}
+      </p>
 
-      {/* Two-column stats (reference: volume + last sync) */}
       <div className="mb-3 flex justify-between border-t border-border pt-3">
         <div className="min-w-0 pr-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Rows</p>
-          <p className="mt-0.5 truncate text-sm font-semibold text-text-primary">{dataset.rowCountLabel}</p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-text-primary">
+            {formatRowCount(dataset.rowCount)}
+          </p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Last sync</p>
-          <p className="mt-0.5 text-sm font-semibold text-text-primary">{dataset.lastSyncLabel}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Attributes</p>
+          <p className="mt-0.5 text-sm font-semibold text-text-primary">{dataset.attributeTags?.length ?? 0}</p>
         </div>
       </div>
 
@@ -144,12 +154,17 @@ function DatasetCard({ dataset, highlight }) {
               </span>
             ))}
             {more > 0 ? (
-              <span className="rounded-md border border-dashed border-border-light px-1.5 py-0.5 text-[11px] font-medium text-text-muted">
+              <button
+                type="button"
+                onClick={() => setShowAllAttrs(true)}
+                className="rounded-md border border-dashed border-border-light px-1.5 py-0.5 text-[11px] font-medium text-text-muted transition hover:border-primary hover:text-primary"
+              >
                 +{more}
-              </span>
+              </button>
             ) : null}
           </div>
         ) : null}
+        {showAllAttrs ? <AttributeListModal dataset={dataset} onClose={() => setShowAllAttrs(false)} /> : null}
         {(dataset.businessTags || []).length > 0 ? (
           <div className="mb-1 flex flex-wrap gap-1.5">
             {(dataset.businessTags || []).map((t) => (
@@ -164,25 +179,6 @@ function DatasetCard({ dataset, highlight }) {
           </div>
         ) : null}
       </div>
-
-      <div className="mt-auto flex shrink-0 items-center justify-end gap-1 border-t border-border pt-2.5">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-secondary px-2.5 py-1 text-[12px] font-semibold text-text-tertiary transition hover:border-border-light hover:bg-surface-tertiary"
-          aria-label="Edit dataset"
-        >
-          <Pencil size={13} />
-          Edit
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-[12px] font-semibold text-red-700 transition hover:bg-red-500/[0.14] dark:text-red-400"
-          aria-label="Remove dataset"
-        >
-          <Trash2 size={13} />
-          Remove
-        </button>
-      </div>
     </div>
   );
 }
@@ -191,23 +187,28 @@ export default function KpiDataGallery() {
   const [searchParams] = useSearchParams();
   const highlightId = (searchParams.get("ds") || "").trim();
   const [search, setSearch] = useState("");
-  const [source, setSource] = useState("");
+  const [schema, setSchema] = useState("");
   const [businessArea, setBusinessArea] = useState("");
-  const [status, setStatus] = useState("");
-  const [sort, setSort] = useState("sync");
+  const [sort, setSort] = useState("kpis");
 
-  const { sources: userSources, removeSource } = useKpiSources();
+  const { status, datasets, snapshot, error, reload } = useDataCatalog();
+
+  const schemaOptions = useMemo(() => {
+    const schemas = [...new Set(datasets.map((d) => d.schema).filter(Boolean))].sort();
+    return [{ value: "", label: "Schema: All" }, ...schemas.map((s) => ({ value: s, label: schemaLabel(s) }))];
+  }, [datasets]);
+
+  const areaOptions = useMemo(() => {
+    const areas = [...new Set(datasets.flatMap((d) => d.businessTags || []))].sort();
+    return [{ value: "", label: "Business area: All" }, ...areas.map((a) => ({ value: a, label: a }))];
+  }, [datasets]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    // User-added KPI sources appear first so newly-added rows are visible.
-    let rows = [...userSources, ...KPI_DATA_CATALOG_DATASETS];
-    if (source) rows = rows.filter((d) => d.sourceId === source);
-    if (status) rows = rows.filter((d) => d.status === status);
+    let rows = [...datasets];
+    if (schema) rows = rows.filter((d) => d.schema === schema);
     if (businessArea) {
-      rows = rows.filter((d) =>
-        (d.businessTags || []).some((t) => t.toLowerCase() === businessArea.toLowerCase())
-      );
+      rows = rows.filter((d) => (d.businessTags || []).some((t) => t.toLowerCase() === businessArea.toLowerCase()));
     }
     if (q) {
       rows = rows.filter((d) => {
@@ -225,17 +226,18 @@ export default function KpiDataGallery() {
     }
     if (sort === "name") {
       rows.sort((a, b) => a.technicalName.localeCompare(b.technicalName));
+    } else if (sort === "rows") {
+      rows.sort((a, b) => (b.rowCount ?? -1) - (a.rowCount ?? -1));
     } else if (sort === "kpis") {
       rows.sort((a, b) => (b.linkedKpiNames?.length || 0) - (a.linkedKpiNames?.length || 0));
     }
     return rows;
-  }, [search, source, businessArea, status, sort, userSources]);
+  }, [datasets, search, schema, businessArea, sort]);
 
   useEffect(() => {
     if (!highlightId) return;
-    const d = getDatasetById(highlightId);
-    if (d) setSearch(d.technicalName);
-  }, [highlightId]);
+    if (datasets.some((d) => d.id === highlightId)) setSearch(highlightId);
+  }, [highlightId, datasets]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -247,18 +249,43 @@ export default function KpiDataGallery() {
 
   const grouped = useMemo(() => {
     const byId = new Map(filtered.map((d) => [d.id, d]));
-    const sources = groupDatasetsBySource(filtered);
-    return sources.map((g) => ({
-      ...g,
-      datasets: g.datasets.filter((d) => byId.has(d.id)),
-    })).filter((g) => g.datasets.length > 0);
+    const schemas = groupDatasetsBySchema(filtered);
+    return schemas
+      .map((g) => ({ ...g, datasets: g.datasets.filter((d) => byId.has(d.id)) }))
+      .filter((g) => g.datasets.length > 0);
   }, [filtered]);
 
   const totalAttrs = filtered.reduce((s, d) => s + (d.attributeTags?.length || 0), 0);
   const totalKpiLinks = new Set(filtered.flatMap((d) => d.linkedKpiNames || [])).size;
+  const harvestedAt = formatHarvestedAt(snapshot?.harvested_at);
+
+  if (status === "loading") {
+    return <p className="text-sm text-text-secondary">Loading data catalog…</p>;
+  }
 
   return (
     <div className="w-full min-w-0">
+      {status === "error" ? (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
+          <AlertTriangle size={15} className="shrink-0 text-status-warning" />
+          <span className="flex-1">{error || "Couldn't load the data catalog — try again shortly."}</span>
+          <button
+            type="button"
+            onClick={reload}
+            className="shrink-0 rounded-lg border border-status-warning/40 px-2.5 py-1 text-xs font-semibold text-text-primary transition-colors hover:bg-status-warning/15"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {harvestedAt ? (
+        <p className="mb-4 text-xs text-text-muted">
+          Synced as of {harvestedAt}
+          {snapshot?.version ? ` · semantic snapshot ${snapshot.version}` : ""}.
+        </p>
+      ) : null}
+
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center" data-tour-kpi-gal="filters">
         <div className="relative min-w-0 flex-1">
           <Search
@@ -273,15 +300,14 @@ export default function KpiDataGallery() {
             className="w-full rounded-xl border border-border bg-surface-default py-2.5 pl-11 pr-4 text-sm text-text-primary placeholder:text-text-muted shadow-sm outline-none transition hover:border-border-light focus:border-primary focus:ring-4 focus:ring-primary/25"
           />
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4 lg:w-auto lg:shrink-0">
-          <Select label={null} options={SOURCE_OPTIONS} value={source} onChange={(e) => setSource(e.target.value)} />
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:shrink-0">
+          <Select label={null} options={schemaOptions} value={schema} onChange={(e) => setSchema(e.target.value)} />
           <Select
             label={null}
-            options={AREA_OPTIONS}
+            options={areaOptions}
             value={businessArea}
             onChange={(e) => setBusinessArea(e.target.value)}
           />
-          <Select label={null} options={STATUS_OPTIONS} value={status} onChange={(e) => setStatus(e.target.value)} />
           <Select label={null} options={SORT_OPTIONS} value={sort} onChange={(e) => setSort(e.target.value)} />
         </div>
       </div>
@@ -301,23 +327,16 @@ export default function KpiDataGallery() {
         {grouped.map((group, groupIdx) => {
           const attrCount = group.datasets.reduce((s, d) => s + (d.attributeTags?.length || 0), 0);
           const kpiCount = new Set(group.datasets.flatMap((d) => d.linkedKpiNames || [])).size;
-          const sourceIcon = SOURCE_ICON[group.sourceId];
           return (
-            <section key={group.sourceId} className={groupIdx > 0 ? "border-t border-border pt-10" : ""}>
+            <section key={group.schema} className={groupIdx > 0 ? "border-t border-border pt-10" : ""}>
               <div className="mb-5 flex flex-wrap items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-default p-1.5 shadow-sm">
-                  {sourceIcon ? (
-                    <img src={sourceIcon} alt="" className="h-full w-full object-contain" />
-                  ) : (
-                    <span className="text-[11px] font-bold text-primary">
-                      {group.sourceLabel.slice(0, 2).toUpperCase()}
-                    </span>
-                  )}
+                  <Database size={18} className="text-primary" aria-hidden />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-[18px] font-semibold tracking-[-0.2px] text-text-primary">
-                      {group.sourceLabel}
+                      {schemaLabel(group.schema)}
                     </h3>
                     <span className="rounded-full bg-primary-light px-2.5 py-0.5 text-[11px] font-semibold text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
                       {group.datasets.length} dataset{group.datasets.length === 1 ? "" : "s"}
@@ -342,8 +361,14 @@ export default function KpiDataGallery() {
 
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-primary/35 bg-surface-secondary/80 py-14 text-center dark:bg-surface-secondary/40">
-          <p className="text-sm font-semibold text-text-primary">No datasets match the current filters.</p>
-          <p className="mt-1 text-[13px] text-text-muted">Try clearing a filter or widening your search.</p>
+          <p className="text-sm font-semibold text-text-primary">
+            {status === "error" ? "No datasets to show." : "No datasets match the current filters."}
+          </p>
+          <p className="mt-1 text-[13px] text-text-muted">
+            {status === "error"
+              ? "The catalog couldn't be loaded — see the message above."
+              : "Try clearing a filter or widening your search."}
+          </p>
         </div>
       ) : null}
 

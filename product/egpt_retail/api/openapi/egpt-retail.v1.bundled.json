@@ -2335,6 +2335,14 @@
               "type": "string"
             }
           },
+          "dashboard_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet."
+          },
           "feasibility": {
             "$ref": "#/components/schemas/Feasibility"
           },

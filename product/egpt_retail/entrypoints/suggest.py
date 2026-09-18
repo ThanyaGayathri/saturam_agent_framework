@@ -70,20 +70,14 @@ def suggest(
         knowledge = ontology = None
         if with_prose:
             from egpt.knowledge.knowledge import Knowledge
-            from egpt.vectordb.pgvector import PgVector
-            from egpt.vectordb.search import SearchType
 
             from egpt_retail.knowledge.embedding import resolve_knowledge_embedder
+            from egpt_retail.knowledge.vector import build_knowledge_vector_db
             from egpt_retail.ontology.store import OntologyStore
 
             embedder = resolve_knowledge_embedder(mode=settings.retail_provider_mode)
             knowledge = Knowledge(
-                vector_db=PgVector(
-                    table_name=settings.retail_knowledge_table,
-                    db_url=settings.retail_db_url,
-                    search_type=SearchType.hybrid,
-                    embedder=embedder.embedder,
-                )
+                vector_db=build_knowledge_vector_db(settings, embedder.embedder)
             )
             ontology = OntologyStore(driver=driver, embedder=embedder.embedder)
 

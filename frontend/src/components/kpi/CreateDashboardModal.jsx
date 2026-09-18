@@ -20,6 +20,10 @@ function metricFromKpi(kpi) {
   description: kpi.description || "",
   businessArea: kpi.businessAreaId || kpi.business_area || "",
   sourceTables: kpi.source_tables || kpi.sourceTables || [],
+  // Threaded through so `DashboardBuilderStep.jsx` can flag an accepted AI-suggested chart
+  // whose KPI resolves to `OVERALL_GRAIN` without a second fetch per chart -- see
+  // `storage/dashboards.js`'s `tableUnavailableForChart`.
+  grain: kpi.grain || "",
  };
 }
 

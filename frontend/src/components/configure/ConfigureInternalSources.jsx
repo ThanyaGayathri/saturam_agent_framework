@@ -111,6 +111,11 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
    <div className="flex items-start justify-between gap-3">
     <SourceIcon typeId={source.iconId} />
     <div className="flex shrink-0 items-center gap-1.5">
+     {source.isSeed && (
+      <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+       Demo
+      </span>
+     )}
      <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${pill.pill}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${pill.dot}`} />
       {pill.label}
@@ -237,7 +242,16 @@ export default function ConfigureInternalSources() {
  const [filter, setFilter] = useState("all");
 
 
- const sources = useMemo(() => {
+ // Seeded demo rows (`seed: true`) are static placeholders, not real connections -- excluded
+ // from the default grid (and everything computed from it: counts, readiness) so this page
+ // only ever *counts* sources someone actually connected. They stay in storage rather than
+ // being deleted, and are still reachable through the "Show N demo sources" toggle below --
+ // without a real edit link to a seed row, `ConfigureInternalSourceForm`'s "clear `seed` on
+ // save" fix would be dead code, since a row filtered out of every list has no Edit button
+ // pointing at it anywhere in the UI. Revealing them (marked "Demo") gives that fix a real
+ // path: editing one with real credentials and saving clears `seed`, and it then reappears
+ // as a normal source even with the toggle off.
+ const { allSources, seedCount } = useMemo(() => {
   const internal = (data.internalSources || []).map((s) => ({
    id: s.id,
    name: s.name,
@@ -246,6 +260,7 @@ export default function ConfigureInternalSources() {
    typeLabel: internalSourceTypeLabel(s.sourceType),
    sourceType: s.sourceType,
    kind: null,
+   isSeed: !!s.seed,
    editPath: `/configure/internal-sources/edit/${encodeURIComponent(s.id)}`,
    remove: () => removeInternal(s.id),
   }));
@@ -262,14 +277,23 @@ export default function ConfigureInternalSources() {
    typeLabel: categoryFor(e.providerId),
    sourceType: e.providerId,
    kind: "platform",
+   isSeed: !!e.seed,
    editPath: `/configure/external/edit/${encodeURIComponent(e.id)}`,
    remove: () => removeExternal(e.id),
   }));
 
-  return [...internal, ...external];
+  const all = [...internal, ...external];
+  return { allSources: all, seedCount: all.filter((s) => s.isSeed).length };
  }, [data.internalSources, data.externalIntegrations, profileId, removeInternal, removeExternal]);
 
- const readiness = useMemo(() => workspaceReadiness(sources), [sources]);
+ const [showSeeded, setShowSeeded] = useState(false);
+
+ // Real sources only -- never affected by the reveal toggle, so peeking at demo rows never
+ // inflates "workspace readiness" or the connected-sources count.
+ const realSources = useMemo(() => allSources.filter((s) => !s.isSeed), [allSources]);
+ const sources = showSeeded ? allSources : realSources;
+
+ const readiness = useMemo(() => workspaceReadiness(realSources), [realSources]);
 
  // Sources that finished modelling while the user was on this screen. The unlock banner is a
  // MOMENT -- it is worth showing when it happens, not as a permanent fixture -- so it is keyed on
@@ -380,8 +404,10 @@ export default function ConfigureInternalSources() {
    })()}
 
    {/* One line answering the only question that matters before anything else on this screen:
-       can the product answer questions yet? */}
-   {sources.length > 0 && (
+       can the product answer questions yet? Keyed on real sources only -- peeking at demo
+       rows via the reveal toggle should never conjure this banner on an otherwise-empty
+       profile. */}
+   {realSources.length > 0 && (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-4 py-3.5">
      <div className="min-w-[240px]">
       <div className="flex flex-wrap items-center gap-2">
@@ -438,6 +464,15 @@ export default function ConfigureInternalSources() {
      })}
     </div>
     <div className="ml-auto flex items-center gap-2">
+     {seedCount > 0 && (
+      <button
+       type="button"
+       onClick={() => setShowSeeded((v) => !v)}
+       className="text-sm font-semibold text-primary transition-colors hover:text-primary-hover"
+      >
+       {showSeeded ? "Hide demo sources" : `Show ${seedCount} demo source${seedCount === 1 ? "" : "s"}`}
+      </button>
+     )}
      <button
       type="button"
       onClick={() => navigate("/configure/external")}

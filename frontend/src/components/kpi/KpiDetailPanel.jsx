@@ -146,6 +146,10 @@ export default function KpiDetailPanel({
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] || FEASIBILITY_STYLE.blocked : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
+ const datasetIds = Array.isArray(detailRow.kpi.datasetIds) ? detailRow.kpi.datasetIds : [];
+ // Real and always present on a registry KPI's formula (unlike `datasetIds`, which nothing
+ // in the adopt/create/edit flow currently sets) -- see the "Linked datasets" section below.
+ const sourceTables = Array.isArray(detailRow.kpi.sourceTables) ? detailRow.kpi.sourceTables : [];
  const startEdit = () => {
   setDraftDescription((suggested ? detailRow.suggestion.description : detailRow.kpi.desc) || "");
   setDraftSql((suggested ? detailRow.suggestion.proposed_sql : detailRow.kpi.sql) || "");
@@ -253,11 +257,9 @@ export default function KpiDetailPanel({
 
  <section>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Linked datasets</p>
+ {datasetIds.length > 0 ? (
  <ul className="mt-2 space-y-2">
- {(Array.isArray(detailRow.kpi.datasetIds) ? detailRow.kpi.datasetIds : []).length === 0 ? (
- <li className="text-sm text-text-muted">No datasets linked.</li>
- ) : (
- detailRow.kpi.datasetIds.map(id => {
+ {datasetIds.map(id => {
  const d = getDatasetById(id);
  return (
  <li key={id}>
@@ -278,9 +280,32 @@ export default function KpiDetailPanel({
  </Link>
  </li>
  );
- })
- )}
+ })}
  </ul>
+ ) : sourceTables.length > 0 ? (
+ /* Not yet linked to a catalog dataset (nothing in the adopt/create/edit flow sets
+     `dataset_ids` today -- tracked separately). `source_tables` is real and always
+     present on a registry KPI's formula, so show what the SQL actually reads rather
+     than a dead end. Plain tags, not the linked-dataset pills above: a raw table name
+     has no gallery page to open and no health status to report. */
+ <>
+ <p className="mt-1 text-[11px] text-text-muted">
+ Not yet linked to a catalog dataset -- tables this KPI&apos;s formula reads.
+ </p>
+ <ul className="mt-2 flex flex-wrap gap-1.5">
+ {sourceTables.map((table) => (
+ <li
+ key={table}
+ className="rounded-md bg-surface-secondary px-2 py-1 font-mono text-xs text-text-secondary"
+ >
+ {table}
+ </li>
+ ))}
+ </ul>
+ </>
+ ) : (
+ <p className="mt-2 text-sm text-text-muted">No datasets linked.</p>
+ )}
  </section>
 
  <section>

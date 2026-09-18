@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from egpt_retail.contracts.dashboards import (
     AxisKind,
@@ -613,3 +613,37 @@ class DashboardStore:
     async def alist_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
         """Async variant."""
         return await asyncio.to_thread(self.list_referencing, kpi_identifier)
+
+    def map_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Dashboard names referencing each of ``kpi_identifiers`` (every KPI named by any
+        tile, when omitted), one query rather than :meth:`list_referencing` called once per
+        KPI -- the shape a registry list view needs, where ``list_referencing``'s single-KPI
+        form would otherwise mean N round trips for an N-row registry.
+
+        Same reach-across-schemas exception ``list_referencing`` already documents: every
+        dashboard regardless of owner or visibility, because "who else still needs this KPI"
+        does not depend on who is asking. A KPI absent from the result has no dashboard
+        referencing it -- callers building a full map should default missing keys to ``()``
+        rather than treat absence as an error.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT tile ->> 'kpi_identifier' AS kpi_identifier,
+                           array_agg(DISTINCT d.name ORDER BY d.name) AS names
+                    FROM {self._schema}.dashboard AS d,
+                         jsonb_array_elements(d.tiles) AS tile
+                    WHERE tile ->> 'kpi_identifier' IS NOT NULL
+                    {"AND tile ->> 'kpi_identifier' = ANY(%s)" if kpi_identifiers is not None else ""}
+                    GROUP BY kpi_identifier""",
+                (list(kpi_identifiers),) if kpi_identifiers is not None else (),
+            )
+            rows = cursor.fetchall()
+        return {row[0]: tuple(row[1]) for row in rows}
+
+    async def amap_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.map_referencing, kpi_identifiers)
