@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from egpt_retail.contracts.kpi import (
     Dialect,
     Feasibility,
+    FormulaExplanation,
     KpiDefinition,
     KpiLevel,
     KpiOrigin,
@@ -130,6 +131,9 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         # Nullable -- a hand-authored KPI, or one adopted before these existed, has neither.
         f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS rationale text",
         f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS business_value text",
+        # Contract 1.2.5: the suggestion's plain-English rendering of `sql`, kept on adopt the
+        # same way rationale/business_value are. Nullable for the same reason.
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS formula_explanation jsonb",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
         ON {schema}.kpi_definition (business_area)""",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
@@ -235,6 +239,17 @@ def _definition_to_row(kpi: KpiDefinition) -> Tuple[Any, ...]:
         json.dumps(list(kpi.process_ids)),
         kpi.rationale,
         kpi.business_value,
+        json.dumps(
+            {
+                "expression_before": kpi.formula_explanation.expression_before,
+                "numerator_label": kpi.formula_explanation.numerator_label,
+                "denominator_label": kpi.formula_explanation.denominator_label,
+                "expression_after": kpi.formula_explanation.expression_after,
+                "condition_label": kpi.formula_explanation.condition_label,
+            }
+            if kpi.formula_explanation
+            else None
+        ),
     )
 
 
@@ -261,6 +276,9 @@ def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
     process_ids = row[20]
     if isinstance(process_ids, str):
         process_ids = json.loads(process_ids)
+    formula_explanation = row[23]
+    if isinstance(formula_explanation, str):
+        formula_explanation = json.loads(formula_explanation)
     return KpiDefinition(
         identifier=row[0],
         name=row[1],
@@ -296,7 +314,18 @@ def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
         process_ids=tuple(process_ids or ()),
         rationale=row[21],
         business_value=row[22],
-        updated_at=row[23],
+        formula_explanation=(
+            FormulaExplanation(
+                expression_before=formula_explanation["expression_before"],
+                numerator_label=formula_explanation.get("numerator_label"),
+                denominator_label=formula_explanation.get("denominator_label"),
+                expression_after=formula_explanation.get("expression_after", ""),
+                condition_label=formula_explanation.get("condition_label"),
+            )
+            if formula_explanation
+            else None
+        ),
+        updated_at=row[24],
     )
 
 
@@ -382,9 +411,9 @@ class KpiRegistryStore:
                      source_tables, result_shape, dialect, parameters, time_window,
                      validated_against_snapshot, concept, subject_area, level, unit,
                      industry_benchmark, active, source, dataset_ids, process_ids,
-                     rationale, business_value)
+                     rationale, business_value, formula_explanation)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s, %s)
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (identifier) DO NOTHING
                     RETURNING identifier""",
                 _definition_to_row(validated_kpi),
@@ -439,7 +468,8 @@ class KpiRegistryStore:
                         validated_against_snapshot = %s, concept = %s, subject_area = %s,
                         level = %s, unit = %s, industry_benchmark = %s, active = %s,
                         source = %s, dataset_ids = %s, process_ids = %s,
-                        rationale = %s, business_value = %s, updated_at = now()
+                        rationale = %s, business_value = %s, formula_explanation = %s,
+                        updated_at = now()
                     WHERE identifier = %s AND updated_at = %s""",
                 row[1:] + (kpi.identifier, expected_updated_at),
             )
@@ -484,9 +514,9 @@ class KpiRegistryStore:
                          source_tables, result_shape, dialect, parameters, time_window,
                          validated_against_snapshot, concept, subject_area, level, unit,
                          industry_benchmark, active, source, dataset_ids, process_ids,
-                         rationale, business_value)
+                         rationale, business_value, formula_explanation)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s, %s, %s, %s)
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (identifier) DO UPDATE SET
                             name = EXCLUDED.name,
                             description = EXCLUDED.description,
@@ -511,6 +541,7 @@ class KpiRegistryStore:
                             process_ids = EXCLUDED.process_ids,
                             rationale = EXCLUDED.rationale,
                             business_value = EXCLUDED.business_value,
+                            formula_explanation = EXCLUDED.formula_explanation,
                             updated_at = now()""",
                     _definition_to_row(kpi),
                 )
@@ -1004,7 +1035,7 @@ class KpiRegistryStore:
                            source_tables, result_shape, dialect, parameters, time_window,
                            validated_against_snapshot, concept, subject_area, level, unit,
                            industry_benchmark, active, source, dataset_ids, process_ids,
-                           rationale, business_value, updated_at
+                           rationale, business_value, formula_explanation, updated_at
                     FROM {self._schema}.kpi_definition {where} ORDER BY identifier""",
                 params,
             )

@@ -14,6 +14,7 @@ import pytest
 from egpt_retail.contracts.kpi import (
     Dialect,
     FeasibilityVerdict,
+    FormulaExplanation,
     KpiDefinition,
     KpiParameter,
     ParameterKind,
@@ -28,10 +29,10 @@ from egpt_retail.kpi.store import KPI_LABEL, KpiRegistryStore, row_to_definition
 
 #: The 9 columns B2 (issue #231) added after the original 13: subject_area, level, unit,
 #: industry_benchmark, active, source, dataset_ids, process_ids -- plus contract 1.2.2's
-#: rationale and business_value -- then updated_at. Appended to every hand-built "row"
-#: fixture in this file so `row_to_definition` (which now reads 24 columns) keeps working;
-#: `source` must be a real `KpiOrigin` value (`KpiOrigin(None)` raises) and `active` a real
-#: bool, the rest tolerate `None`.
+#: rationale and business_value, contract 1.2.5's formula_explanation -- then updated_at.
+#: Appended to every hand-built "row" fixture in this file so `row_to_definition` (which now
+#: reads 25 columns) keeps working; `source` must be a real `KpiOrigin` value (`KpiOrigin(None)`
+#: raises) and `active` a real bool, the rest tolerate `None`.
 _B2_COLUMNS: Tuple[Any, ...] = (
     None,
     None,
@@ -39,6 +40,7 @@ _B2_COLUMNS: Tuple[Any, ...] = (
     None,
     True,
     "customer",
+    None,
     None,
     None,
     None,
@@ -145,7 +147,7 @@ class TestRoundTrip:
     def test_rationale_and_business_value_survive_the_row(self) -> None:
         # Contract 1.2.2: the two suggestion-era sentences an adopt carries into the
         # registry. Both nullable text, written after process_ids and read back before
-        # updated_at -- the same padding rule as the round trip above.
+        # formula_explanation/updated_at -- the same padding rule as the round trip above.
         original = _kpi(
             rationale="Derived from crm_deal's amount and stage columns.",
             business_value="Shows whether the pipeline is converting, not just growing.",
@@ -153,10 +155,39 @@ class TestRoundTrip:
         connection = _Connection()
         KpiRegistryStore(connection).save(original)
         insert = next(p for sql, p in connection.log if "INSERT INTO" in sql)
-        assert insert[-2:] == (original.rationale, original.business_value)
+        assert insert[-3:-1] == (original.rationale, original.business_value)
         rebuilt = row_to_definition(list(insert) + [None])
         assert rebuilt.rationale == original.rationale
         assert rebuilt.business_value == original.business_value
+        assert rebuilt == original
+
+    def test_formula_explanation_survives_the_row(self) -> None:
+        # Contract 1.2.5: the suggestion's plain-English rendering of `sql`, stored as jsonb
+        # and read back before `updated_at` -- the same padding rule as the round trip above.
+        # This is the regression the local live-run turned up: the field round-tripped through
+        # the wire contract and the domain dataclass but the registry's own Postgres store had
+        # never been taught the column, so an adopted KPI's formula silently vanished on save.
+        original = _kpi(
+            formula_explanation=FormulaExplanation(
+                expression_before="value = ROUND( 100 x",
+                numerator_label="sessions with at least one rage click",
+                denominator_label="all web sessions",
+                expression_after=", 1 )",
+                condition_label=None,
+            ),
+        )
+        connection = _Connection()
+        KpiRegistryStore(connection).save(original)
+        insert = next(p for sql, p in connection.log if "INSERT INTO" in sql)
+        assert json.loads(insert[-1]) == {
+            "expression_before": "value = ROUND( 100 x",
+            "numerator_label": "sessions with at least one rage click",
+            "denominator_label": "all web sessions",
+            "expression_after": ", 1 )",
+            "condition_label": None,
+        }
+        rebuilt = row_to_definition(list(insert) + [None])
+        assert rebuilt.formula_explanation == original.formula_explanation
         assert rebuilt == original
 
     def test_json_columns_come_back_as_objects_too(self) -> None:
