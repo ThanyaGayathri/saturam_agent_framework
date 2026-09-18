@@ -628,6 +628,27 @@ class KpiRegistryStore:
             self.delete_if_unreferenced, identifier, caller=caller
         )
 
+    def dashboard_names_by_kpi(
+        self, identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Dashboard names referencing each of ``identifiers`` (every KPI any dashboard
+        tile names, when omitted), for the registry list's ``Kpi.dashboard_names`` field.
+
+        The read-only generalization of :meth:`delete_if_unreferenced`'s reference check:
+        that method blocks a delete when the result is non-empty, this exposes the same
+        "who still needs this KPI" answer for display, unconditionally and for every KPI at
+        once via :meth:`DashboardStore.map_referencing` -- one query for a whole list route
+        rather than one per row. A KPI absent from the returned mapping has no referencing
+        dashboard; treat a missing key as ``()``, not as an error.
+        """
+        return _DashboardStore(self._connection).map_referencing(identifiers)
+
+    async def adashboard_names_by_kpi(
+        self, identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.dashboard_names_by_kpi, identifiers)
+
     # --- reading -----------------------------------------------------------------------
 
     def get(self, identifier: str) -> Optional[KpiDefinition]:
