@@ -78,7 +78,7 @@ from egpt_retail.dashboards.query_results import (
     DashboardQueryResultStore,
     QueryResultRecord,
 )
-from egpt_retail.warehouse.schema import SILVER_SCHEMA
+from egpt_retail.warehouse.schema import GOLD_SCHEMA, SILVER_SCHEMA
 
 __all__ = [
     "DISTINCT_VALUES_LIMIT",
@@ -598,7 +598,10 @@ def run_query(
     own (R6's live finding), so a chart's bare ``FROM crm_contact`` -- the only form the
     semantic layer's table names come in, see ``TableRef.name`` vs. ``TableRef.qualified`` --
     does not resolve without it, and fails as "relation ... does not exist" against a table
-    that is right there in silver.
+    that is right there in silver. Both schemas, not just silver: ``build_warehouse_read_guard``
+    (``app/sql_guard.py``) allow-lists gold's fixed relations (``kpi_value``, ``kpi_run``,
+    ``kpi_latest_run``) as bare names too, so a composed chart reading one of those unqualified
+    needs it on the path exactly as much as a silver table does.
 
     The timeout is inlined into the ``SET`` text, never bound: psycopg 3 sends parameters
     server-side (``$1``), and PostgreSQL does not accept a parameter in a ``SET`` statement --
@@ -612,7 +615,7 @@ def run_query(
     try:
         cursor = raw.cursor()
         try:
-            cursor.execute(f"SET LOCAL search_path = {SILVER_SCHEMA}")
+            cursor.execute(f"SET LOCAL search_path = {SILVER_SCHEMA}, {GOLD_SCHEMA}")
             cursor.execute(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}")
             cursor.execute(sql)
             columns = [d[0] for d in (cursor.description or ())]
