@@ -3,8 +3,9 @@ import { Play, Trash2 } from "lucide-react";
 import SlidePanel from "../../ui/SlidePanel";
 import ChartTile, { GuardPill } from "../ChartTile";
 import { fetchSemanticTable } from "../../../services/semantic-tables-api";
+import { fetchKpi } from "../../../services/kpis-api";
 import { previewDashboardQuery } from "../../../services/dashboards-api";
-import { tileDataFromPreview } from "../../../storage/dashboards";
+import { OVERALL_GRAIN, tileDataFromPreview } from "../../../storage/dashboards";
 
 const CHART_OPTIONS = [
  { value: "number", label: "Number" },
@@ -12,6 +13,15 @@ const CHART_OPTIONS = [
  { value: "bar", label: "Bar" },
  { value: "table", label: "Table" },
 ];
+
+/** How long the KPI-grain lookup below gets before it's treated as failed (round-4 review: an
+ * unresolved -- not rejected -- request used to leave "Checking…" showing, and Table blocked,
+ * forever with no way out). */
+const KPI_GRAIN_FETCH_TIMEOUT_MS = 10000;
+
+/** Sentinel for "asked, but couldn't tell" -- a real `grain` is always a non-empty vocabulary
+ * term (`product`, `supplier`, `"overall"`, ...), never this, so it can't collide with one. */
+const KPI_GRAIN_UNKNOWN = "__unknown__";
 
 /** One column of the schema pane -- the same description/meaning text the compose agent was
  * shown, so a person editing SQL by hand has the same vocabulary the model had. */
@@ -69,6 +79,61 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  const [tables, setTables] = useState({});
 
  const isQuery = detached;
+
+ // The KPI's own `grain` (round-3 review: a `Tile` never carries it, only `grain_value`, so a
+ // KPI at the "overall" grain -- always exactly one row, no `grain_value` to set -- slipped
+ // past the round-2 guard below entirely). `undefined` while loading (or not needed: a query
+ // tile, or `grain_value` alone already settles it); `KPI_GRAIN_FETCH_TIMEOUT_MS` and
+ // `kpiGrainAttempt` below are round-4's answer to the same fetch hanging (not rejecting)
+ // forever on "Checking…" with Table stuck blocked and no way out.
+ const [kpiGrain, setKpiGrain] = useState(undefined);
+ const [kpiGrainAttempt, setKpiGrainAttempt] = useState(0);
+ useEffect(() => {
+  if (isQuery || !chart.kpi_identifier || chart.grain_value != null) return undefined;
+  setKpiGrain(undefined);
+  let cancelled = false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KPI_GRAIN_FETCH_TIMEOUT_MS);
+  fetchKpi(chart.kpi_identifier, { signal: controller.signal })
+   .then((kpi) => {
+    if (!cancelled) setKpiGrain(kpi.grain || KPI_GRAIN_UNKNOWN);
+   })
+   .catch(() => {
+    if (!cancelled) setKpiGrain(KPI_GRAIN_UNKNOWN);
+   })
+   .finally(() => clearTimeout(timer));
+  return () => {
+   cancelled = true;
+   controller.abort();
+   clearTimeout(timer);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [isQuery, chart.kpi_identifier, chart.grain_value, kpiGrainAttempt]);
+
+ // A KPI tile scoped to one grain (`grain_value`, e.g. one supplier) always resolves to a
+ // single row server-side (`_tile_data`'s `_resolve_row`), so it can never come back with the
+ // multiple rows a table needs -- "Table" would silently render as a plain number instead. The
+ // same collapse hits a KPI at the "overall" grain even with `grain_value` unset: that grain's
+ // formula returns exactly one column and no keys (`warehouse/gold.py`'s `GRAIN_OVERALL`), so
+ // `_resolve_row` always finds exactly one row too. Query tiles and un-scoped per-dimension KPI
+ // tiles (a real top-N table) are unaffected. Unknown -- still loading, timed out, or failed --
+ // fails closed (blocks Table) rather than risk saving the exact bug this guards against.
+ const tableUnavailableReason = (() => {
+  if (isQuery) return null;
+  if (chart.grain_value != null) {
+   return "This chart is scoped to one row, so a table has nothing to list. Detach and edit as a query to build a breakdown.";
+  }
+  if (kpiGrain === OVERALL_GRAIN) {
+   return "This metric has no breakdown to list (grain: overall) -- a table has nothing to show beyond the single value. Detach and edit as a query to build one.";
+  }
+  if (kpiGrain === undefined) {
+   return "Checking whether this metric has a breakdown to list…";
+  }
+  if (kpiGrain === KPI_GRAIN_UNKNOWN) {
+   return "Couldn't check whether this metric has a breakdown to list.";
+  }
+  return null;
+ })();
  const sourceTables = isQuery ? preview?.guard?.tables || chart.query?.source_tables || [] : chart.query?.source_tables || [];
  // What this chart already declared as its tables when the editor opened, before any edit --
  // narrows the preview's own guard check to that set (round-1 review, finding #5: the client
@@ -139,8 +204,13 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  const sqlIsOriginal = sql === originalSql && chart.guard?.status !== "refused";
  const sqlMatchesLastPreview = previewedSql !== null && sql === previewedSql;
  const previewOk = sqlMatchesLastPreview && guard?.status !== "refused";
+ // A chart can *arrive* already set to "table" with a grain_value (e.g. from the suggestion
+ // agent) -- the button above only blocks switching *into* table, so without this check here
+ // canSave/save() would happily persist that untouched, re-introducing the single-row-as-table
+ // bug this panel exists to prevent.
+ const tableKindBlocked = kind === "table" && Boolean(tableUnavailableReason);
  const canSave =
-  !isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running);
+  !tableKindBlocked && (!isQuery || (sql.trim().length > 0 && (sqlIsOriginal || previewOk) && !running));
 
  // Named out of the Save button's `title` (round-2 review: that was a 3-level nested ternary
  // mixing three unrelated disabled-reasons inline in JSX) so each branch reads and tests on its
@@ -148,7 +218,9 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
  // exactly the condition a previous round got subtly wrong by reading live `guard` instead of
  // the chart's frozen arrival verdict.
  const saveDisabledReason = () => {
-  if (canSave || !isQuery) return undefined;
+  if (canSave) return undefined;
+  if (tableKindBlocked) return tableUnavailableReason;
+  if (!isQuery) return undefined;
   if (sql.trim().length === 0) return "Write a query before saving.";
   if (chart.guard?.status === "refused" && sql === originalSql) {
    return "The read guard refused this query. Change it and run the preview.";
@@ -229,19 +301,45 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
      <div>
       <label className="mb-1 block text-xs font-semibold text-text-secondary">Chart</label>
       <div className="inline-flex overflow-hidden rounded-md border border-border-light text-xs">
-       {CHART_OPTIONS.map((o) => (
-        <button
-         key={o.value}
-         type="button"
-         onClick={() => setKind(o.value)}
-         className={`border-r border-border-light px-2.5 py-1 font-medium last:border-r-0 ${
-          kind === o.value ? "bg-primary-light font-semibold text-primary" : "text-text-secondary hover:bg-surface-secondary"
-         }`}
-        >
-         {o.label}
-        </button>
-       ))}
+       {CHART_OPTIONS.map((o) => {
+        const disabled = o.value === "table" && Boolean(tableUnavailableReason);
+        return (
+         <button
+          key={o.value}
+          type="button"
+          onClick={() => !disabled && setKind(o.value)}
+          disabled={disabled}
+          title={disabled ? tableUnavailableReason : undefined}
+          className={`border-r border-border-light px-2.5 py-1 font-medium last:border-r-0 ${
+           disabled
+            ? "cursor-not-allowed text-text-muted opacity-50"
+            : kind === o.value
+              ? "bg-primary-light font-semibold text-primary"
+              : "text-text-secondary hover:bg-surface-secondary"
+          }`}
+         >
+          {o.label}
+         </button>
+        );
+       })}
       </div>
+      {tableUnavailableReason && kind === "table" && (
+       <p className="mt-1.5 text-[11px] text-status-warning">
+        {tableUnavailableReason}
+        {kpiGrain === KPI_GRAIN_UNKNOWN && (
+         <>
+          {" "}
+          <button
+           type="button"
+           onClick={() => setKpiGrainAttempt((n) => n + 1)}
+           className="font-semibold underline hover:no-underline"
+          >
+           Retry
+          </button>
+         </>
+        )}
+       </p>
+      )}
      </div>
 
      <div>

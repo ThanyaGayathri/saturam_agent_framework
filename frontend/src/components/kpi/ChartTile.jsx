@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
-import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts";
+import { DemoAreaSpark, DemoBarsWithAxes } from "../shared/DemoSparkCharts";
 
 /**
  * One chart on a dashboard, rendered from a `Tile` (or a composed chart of the same shape)
@@ -239,7 +239,7 @@ export default function ChartTile({
 
      {tile.chart === "bar" &&
       (hasTrend ? (
-       <DemoAreaSparkWithAxes data={series.slice(-12).map((p) => p.value)} viewHeight={44} stroke="#731dd8" fillOpacityTop={0.22} />
+       <DemoBarsWithAxes data={series.slice(-12).map((p) => p.value)} viewHeight={44} barFill="#731dd8" />
       ) : categoryBars ? (
        <CategoryBars rows={rows} xColumn={xColumn} yColumn={yColumn} unit={data?.unit} />
       ) : showScalar ? (

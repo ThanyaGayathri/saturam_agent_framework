@@ -277,6 +277,20 @@ function xAxisLabelIndices(n) {
   return [0, mid, n - 1];
 }
 
+/** Bar rects for a set of normalized points, evenly slotted between x0 and x1 and sitting on
+ * baselineY -- shared by DemoBarsWithAxes (plot region inset for axes) and DemoComboSpark
+ * (full-width, no axis inset). */
+function barGeometry(pts, x0, x1, baselineY, barWidthFraction) {
+  if (!pts.length) return [];
+  const n = pts.length;
+  const slot = (x1 - x0) / n;
+  const w = slot * barWidthFraction;
+  return pts.map((p, i) => {
+    const cx = x0 + slot * (i + 0.5);
+    return { key: i, x: cx - w / 2, y: p.y, w, h: Math.max(0.35, baselineY - p.y) };
+  });
+}
+
 /**
  * Area chart with Y and X axes, full width of container. For dashboard trend panels.
  */
@@ -389,6 +403,130 @@ export function DemoAreaSparkWithAxes({
             />
           ))
         : null}
+    </ResponsiveChartBox>
+  );
+
+  if (!pts.length) return null;
+
+  return (
+    <ChartHoverWrap
+      dataLength={data.length}
+      renderTooltip={(idx) => (
+        <span className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#d0d5da]">
+            {captionForIndex(idx, data.length)}
+          </span>
+          <span className="text-xs font-semibold tabular-nums">{formatPoint(data[idx], idx)}</span>
+        </span>
+      )}
+    >
+      <div className="flex w-full min-w-0 flex-col gap-2 px-3 sm:px-5 md:px-6">
+        <div className="flex w-full min-w-0 items-stretch gap-3">
+          <div className={`${axisColClass}`} style={{ color: axisLabelFill }}>
+            <span className="block">{formatPoint(max)}</span>
+            <span className="block">{formatPoint(mid)}</span>
+            <span className="block">{formatPoint(min)}</span>
+          </div>
+          <div className="min-h-0 min-w-0 flex-1">{svgChart}</div>
+        </div>
+        <div className="flex w-full min-w-0 gap-3">
+          <div className="w-[2.85rem] shrink-0 sm:w-12" aria-hidden />
+          <div
+            className="flex min-w-0 flex-1 justify-between gap-1 px-1 text-center text-sm font-semibold leading-none sm:gap-2 sm:px-2"
+            style={{ color: axisLabelFill }}
+          >
+            {xIndices.map((idx) => (
+              <span key={`x-${idx}`} className="min-w-0 truncate">
+                {captionForIndex(idx, data.length)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ChartHoverWrap>
+  );
+}
+
+/**
+ * Bar chart with Y and X axes, full width of container -- the bar counterpart of
+ * DemoAreaSparkWithAxes, for dashboard tiles whose chart type is "bar".
+ */
+export function DemoBarsWithAxes({
+  data,
+  viewWidth = 122,
+  viewHeight = 64,
+  maxHeight,
+  barFill = "#6941c6",
+  barOpacity = 0.85,
+  barWidthFraction = 0.55,
+  className = "",
+  formatPoint = formatChartNumber,
+  captionForIndex = defaultCaption,
+  axisLabelFill = "#717680",
+}) {
+  const plotX0 = 14;
+  const plotX1 = viewWidth - 14;
+  const plotY0 = 12;
+  const plotY1 = viewHeight - 14;
+
+  const gridYs = plotHorizontalGridYs(plotY0, plotY1);
+  const pts = useMemo(
+    () => normalizeSeriesYsInPlot(data, plotY0, plotY1, plotX0, plotX1),
+    [data, plotY0, plotY1, plotX0, plotX1],
+  );
+
+  const bars = useMemo(
+    () => barGeometry(pts, plotX0, plotX1, plotY1, barWidthFraction),
+    [pts, plotX0, plotX1, plotY1, barWidthFraction],
+  );
+
+  const { max, min, mid } = useMemo(() => {
+    if (!data?.length) return { max: 0, min: 0, mid: 0 };
+    const mx = Math.max(...data);
+    const mn = Math.min(...data);
+    return { max: mx, min: mn, mid: (mx + mn) / 2 };
+  }, [data]);
+
+  const xIndices = useMemo(() => xAxisLabelIndices(data.length), [data.length]);
+
+  const axisColClass =
+    "flex w-[2.85rem] shrink-0 flex-col justify-between self-stretch pt-[11px] pb-[13px] text-right text-sm font-semibold tabular-nums leading-none sm:w-12";
+
+  const svgChart = !pts.length ? null : (
+    <ResponsiveChartBox viewWidth={viewWidth} viewHeight={viewHeight} maxHeight={maxHeight} className={className}>
+      <line
+        x1={plotX0}
+        y1={plotY0}
+        x2={plotX0}
+        y2={plotY1}
+        stroke="#e9e9eb"
+        strokeWidth={0.55}
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={plotX0}
+        y1={plotY1}
+        x2={plotX1}
+        y2={plotY1}
+        stroke="#e9e9eb"
+        strokeWidth={0.55}
+        vectorEffect="non-scaling-stroke"
+      />
+      {gridYs.map((y) => (
+        <line
+          key={y}
+          x1={plotX0}
+          y1={y}
+          x2={plotX1}
+          y2={y}
+          stroke="#eef0f4"
+          strokeWidth={0.45}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      {bars.map((b) => (
+        <rect key={b.key} x={b.x} y={b.y} width={b.w} height={b.h} rx={0.85} fill={barFill} opacity={barOpacity} />
+      ))}
     </ResponsiveChartBox>
   );
 
@@ -588,19 +726,10 @@ export function DemoComboSpark({
     [linePath, pts, viewHeight],
   );
 
-  const bars = useMemo(() => {
-    if (!pts.length) return [];
-    const n = pts.length;
-    const slot = VIEW_W / n;
-    const w = slot * barWidthFraction;
-    return pts.map((p, i) => {
-      const cx = slot * (i + 0.5);
-      const x = cx - w / 2;
-      const yTop = p.y;
-      const h = Math.max(0.35, viewHeight - yTop);
-      return { key: i, x, y: yTop, w, h };
-    });
-  }, [pts, viewHeight, barWidthFraction]);
+  const bars = useMemo(
+    () => barGeometry(pts, 0, VIEW_W, viewHeight, barWidthFraction),
+    [pts, viewHeight, barWidthFraction],
+  );
 
   if (!pts.length) return null;
 

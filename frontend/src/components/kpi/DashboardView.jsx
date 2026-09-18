@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Filter, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
 import AiGeneratingStep from "./create-dashboard/AiGeneratingStep";
 import { useDashboardSuggestionRun } from "../../hooks/useDashboardSuggestionRun";
 import { REFRESH_OPTIONS, labelForRefresh, spanForChart, tileWriteFromChart } from "../../storage/dashboards";
+import { fetchKpiList } from "../../services/kpis-api";
 import {
  addDashboardTile,
  deleteDashboardApi,
@@ -41,6 +42,12 @@ import {
  * tiles' tables, the agent (rightly, by its refusal rule) answered "no chart: the only table
  * available is crm_contact" to a prompt about quote requests, which is a worse outcome than
  * a wider read.
+ *
+ * The refresh schedule and the business-area filter are each editable the same way: a select
+ * in the header picks a new value, a confirm modal names what it will become (shared state,
+ * seen by every viewer, not a per-viewer setting), and only Save actually PATCHes it. The two
+ * are mutually locked while either has an unconfirmed pick, so only one confirm modal is ever
+ * open at a time.
  */
 
 export default function DashboardView() {
@@ -88,6 +95,38 @@ export default function DashboardView() {
  // not a second write to undo the first (reapplies #272's editable-schedule control, silently
  // reverted to read-only text by this PR per round-1 review's issue-level comment).
  const [pendingSchedule, setPendingSchedule] = useState(null);
+ // The business-area filter picked but not yet confirmed -- same "not yet saved" role as
+ // `pendingSchedule`, but `undefined` (not `null`) means "no pending change": `null` is itself
+ // a real, selectable value here ("No filter"), same as `businessAreaFilter` in the create
+ // flow's own `DashboardBuilderStep.jsx`, so it can't double as the sentinel too.
+ const [pendingFilter, setPendingFilter] = useState(undefined);
+ // The deployment's business areas, for the filter select's options -- the same set
+ // `CreateDashboardModal.jsx` derives from `GET /kpis` for the create flow's own filter
+ // picker. Fetched once, not per dashboard switch (the registry isn't dashboard-scoped); a
+ // failure just leaves it empty, the same non-fatal posture that fetch already takes -- the
+ // select still shows "No filter" and whatever the dashboard's own current filter already is.
+ const [readyBusinessAreas, setReadyBusinessAreas] = useState([]);
+ useEffect(() => {
+  let cancelled = false;
+  fetchKpiList()
+   .then((kpis) => {
+    if (cancelled) return;
+    setReadyBusinessAreas(
+     Array.from(
+      new Set(
+       (kpis || [])
+        .filter((k) => k?.feasibility?.verdict === "ready")
+        .map((k) => k.business_area)
+        .filter(Boolean),
+      ),
+     ).sort(),
+    );
+   })
+   .catch(() => {});
+  return () => {
+   cancelled = true;
+  };
+ }, []);
 
  // `dashboardId` this component is currently showing, readable inside async callbacks that
  // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
@@ -113,10 +152,11 @@ export default function DashboardView() {
   let cancelled = false;
   setDashboardState({ status: "loading", dashboard: null, error: null });
   // A pending/in-flight edit belongs to the dashboard being left, not the one being opened --
-  // without this, an unconfirmed schedule pick survives a back/forward navigation (no `key`
-  // on this route, so the component isn't guaranteed to remount) and the confirm modal
-  // reopens on the new dashboard showing the old one's leftover value.
+  // without this, an unconfirmed schedule or filter pick survives a back/forward navigation
+  // (no `key` on this route, so the component isn't guaranteed to remount) and the confirm
+  // modal reopens on the new dashboard showing the old one's leftover value.
   setPendingSchedule(null);
+  setPendingFilter(undefined);
   setBusy(false);
   // Same for a composition run and its draft: they were started for the dashboard being
   // left, and its composed chart must not land on the one being opened.
@@ -190,6 +230,17 @@ export default function DashboardView() {
 
  const { dashboard } = dashboardState;
  const editingTile = editingTileId ? dashboard.tiles.find((t) => t.id === editingTileId) : null;
+ // The one filter kind anything currently writes or reads (`business_area`) -- `time_window`
+ // is a declared-but-unused contract enum member (#222), so there is nothing to show for it
+ // yet. `dashboard.filters` is a flat `{field, value}[]`, not keyed, so this is a find, not a
+ // lookup.
+ const currentBusinessAreaFilter = dashboard.filters?.find((f) => f.field === "business_area")?.value || null;
+ // The current value stays selectable even if it has since dropped out of
+ // `readyBusinessAreas` (the ready set moves; a saved filter doesn't reactively follow it) --
+ // same reasoning `CreateDashboardModal.jsx`'s own `businessAreaOptions` documents.
+ const businessAreaOptions = Array.from(
+  new Set([...readyBusinessAreas, currentBusinessAreaFilter].filter(Boolean)),
+ ).sort();
 
  const handleDelete = async () => {
   if (!window.confirm(`Delete "${dashboard.name}"?`)) return;
@@ -247,6 +298,44 @@ export default function DashboardView() {
   } catch (err) {
    if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setActionError(err?.message || "Could not change the schedule.");
+  } finally {
+   setBusy(false);
+  }
+ };
+
+ // Same confirm-before-save shape as the schedule select above, for the same reason: this is
+ // shared state, not a per-viewer setting.
+ const handleFilterChange = (e) => {
+  const next = e.target.value || null;
+  // Always set, never conditionally skipped -- same reason `handleScheduleChange` always does:
+  // re-picking the dashboard's current value must clear a stale, since-abandoned pending pick.
+  setPendingFilter(next === currentBusinessAreaFilter ? undefined : next);
+ };
+
+ const cancelFilterChange = () => setPendingFilter(undefined);
+
+ const confirmFilterChange = async () => {
+  const nextValue = pendingFilter;
+  // Staleness guard, same as `confirmScheduleChange`.
+  const dashboardIdAtCall = dashboard.id;
+  setPendingFilter(undefined);
+  setActionError(null);
+  setBusy(true);
+  try {
+   // Keeps any filter kind this editor doesn't touch (there is none in practice yet -- see
+   // `currentBusinessAreaFilter`'s comment -- but a whole-array PATCH must not silently drop
+   // one a future filter kind added).
+   const otherFilters = (dashboard.filters || []).filter((f) => f.field !== "business_area");
+   const nextFilters = nextValue ? [...otherFilters, { field: "business_area", value: nextValue }] : otherFilters;
+   const updated = await updateDashboardApi(dashboard.id, {
+    name: dashboard.name,
+    filters: nextFilters,
+   });
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+   setDashboardState({ status: "ready", dashboard: updated, error: null });
+  } catch (err) {
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
+   setActionError(err?.message || "Could not change the filter.");
   } finally {
    setBusy(false);
   }
@@ -368,11 +457,30 @@ export default function DashboardView() {
         aria-label="Refresh schedule"
         value={pendingSchedule ?? dashboard.refresh_schedule}
         onChange={handleScheduleChange}
-        disabled={busy}
+        // Locked against the *other* pending edit below rather than just `busy`: without
+        // this, picking a filter (opening its confirm modal) then also picking a schedule
+        // before confirming would leave two pending edits racing to open/replace the same
+        // modal slot.
+        disabled={busy || pendingFilter !== undefined}
         className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
        >
         {REFRESH_OPTIONS.map((o) => (
          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+       </select>
+      </span>
+      <span className="inline-flex items-center gap-1">
+       <Filter size={11} />
+       <select
+        aria-label="Business area filter"
+        value={pendingFilter ?? currentBusinessAreaFilter ?? ""}
+        onChange={handleFilterChange}
+        disabled={busy || pendingSchedule !== null}
+        className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
+       >
+        <option value="">No filter</option>
+        {businessAreaOptions.map((area) => (
+         <option key={area} value={area}>Business area = {area}</option>
         ))}
        </select>
       </span>
@@ -561,6 +669,38 @@ export default function DashboardView() {
        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
       >
        Save schedule
+      </button>
+     </div>
+    </Modal>
+   )}
+
+   {pendingFilter !== undefined && (
+    <Modal title="Change the filter?" onClose={cancelFilterChange}>
+     <p className="text-sm text-text-secondary">
+      {pendingFilter ? (
+       <>
+        This dashboard's filter will be set to{" "}
+        <span className="font-semibold text-text-primary">business area = {pendingFilter}</span>{" "}
+        from now on.
+       </>
+      ) : (
+       "This dashboard's filter will be cleared (no filter) from now on."
+      )}
+     </p>
+     <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+      <button
+       type="button"
+       onClick={cancelFilterChange}
+       className="rounded-lg px-3.5 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
+      >
+       Cancel
+      </button>
+      <button
+       type="button"
+       onClick={confirmFilterChange}
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+      >
+       Save filter
       </button>
      </div>
     </Modal>
