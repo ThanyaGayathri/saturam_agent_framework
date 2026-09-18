@@ -1279,7 +1279,11 @@ async def _source_table_status_for(
 
     ``async`` -- and awaits :func:`asource_table_status` rather than calling the sync
     ``source_table_status`` directly -- so ``get_kpi`` below, an async route like every other
-    read here, never blocks the event loop on the warehouse round trip.
+    read here, never blocks the event loop on the warehouse round trip. The whole body (engine
+    construction included) is wrapped in one broad ``except`` -- ``source_table_status`` already
+    guards its own query the same way, but ``sorted(definition.source_tables)`` or the
+    ``asyncio.to_thread`` dispatch inside :func:`asource_table_status` failing outside that
+    inner guard must not turn into a 500 on a KPI's own definition either.
     """
     settings = RetailSettings()
     try:
@@ -1288,6 +1292,8 @@ async def _source_table_status_for(
         return ()
     try:
         return await asource_table_status(sorted(definition.source_tables), engine)
+    except Exception:
+        return ()
     finally:
         engine.dispose()
 
@@ -1299,14 +1305,23 @@ async def get_kpi(
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:read")),
 ):
-    definition = store.get(kpi_id)
+    """``async`` only for :func:`_source_table_status_for`'s real warehouse I/O -- every other
+    call this route makes (``store.get``, and ``_respond_with_kpi``'s own Neo4j/Postgres
+    feasibility lookup) is still the synchronous code every other route here already shares, so
+    each runs via ``asyncio.to_thread`` rather than blocking the event loop directly now that
+    this function is a coroutine (round-2 review: before this route was ``def``, FastAPI's own
+    threadpool dispatch covered this for free; becoming ``async def`` opted out of that).
+    """
+    definition = await asyncio.to_thread(store.get, kpi_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
-    return _respond_with_kpi(
+    source_table_status = await _source_table_status_for(definition)
+    return await asyncio.to_thread(
+        _respond_with_kpi,
         definition,
         request,
         store,
-        source_table_status=await _source_table_status_for(definition),
+        source_table_status=source_table_status,
     )
 
 

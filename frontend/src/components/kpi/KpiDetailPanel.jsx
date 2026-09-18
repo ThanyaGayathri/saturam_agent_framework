@@ -6,6 +6,7 @@ import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
 import KpiTrend from "./KpiTrend";
 import { Tabs } from "../ui";
+import { formatShortDateTime } from "../../lib/format-date";
 import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "./KpiDiscovery";
 
 /**
@@ -44,7 +45,7 @@ function formatTimestamp(value) {
  if (!value) return null;
  const d = new Date(value);
  if (Number.isNaN(d.getTime())) return null;
- return d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+ return formatShortDateTime(d, { includeYear: true });
 }
 
 /** Today, `YYYY-MM-DD`, for the "Re-run for another date" picker's default/max. */
@@ -138,7 +139,7 @@ function Pill({ children }) {
  * trust/audit summary -- everything here is a real field off `GET /kpis/{id}` or its `series`,
  * never computed or guessed client-side. Registry-only (`kpi.fromRegistry`); the caller never
  * mounts this tab for a suggestion or seed row. */
-function WhereItComesFrom({ kpi, feasibility, feasibilityStyle, trend, onComputeForDate }) {
+function WhereItComesFrom({ kpi, sourceTableStatus, feasibility, feasibilityStyle, trend, onComputeForDate }) {
  const [copied, setCopied] = useState(false);
  const [redate, setRedate] = useState(() => todayIso());
  const windowLabel = formatTimeWindow(kpi.timeWindow);
@@ -146,8 +147,11 @@ function WhereItComesFrom({ kpi, feasibility, feasibilityStyle, trend, onCompute
  const computing = trend?.status === "computing";
  const parameters = Array.isArray(kpi.parameters) ? kpi.parameters : [];
  const sourceTables = Array.isArray(kpi.sourceTables) ? kpi.sourceTables : [];
+ // A prop of its own, not read off `kpi` -- see `KpiDiscoveryPage.jsx`'s
+ // `sourceTableStatusForPanel` comment: keeping it out of `detailRow`/`kpi` entirely is what
+ // stops its own (still-loading, then real) arrival from ever touching `detailRow`'s identity.
  const statusByTable = Object.fromEntries(
-  (Array.isArray(kpi.sourceTableStatus) ? kpi.sourceTableStatus : []).map((s) => [s.table, s])
+  (Array.isArray(sourceTableStatus) ? sourceTableStatus : []).map((s) => [s.table, s])
  );
 
  const copySql = () => {
@@ -304,6 +308,7 @@ function WhereItComesFrom({ kpi, feasibility, feasibilityStyle, trend, onCompute
 
 export default function KpiDetailPanel({
  detailRow,
+ sourceTableStatus = [],
  nameToIdsMap,
  profileId,
  processLabelById,
@@ -346,7 +351,17 @@ export default function KpiDetailPanel({
  useEffect(() => {
   setEditingDraft(false);
   setActiveTab("overview");
+  setConfirmingRemove(false);
  }, [detailRow]);
+ // `confirmingRemove` (armed by "Remove from my metrics" on "Edit definition") is otherwise
+ // untouched by switching tabs -- round-2 review: switch away and back to "Edit definition"
+ // without this, and the panel resumes right on the armed "Yes, remove" / "Cancel" state, one
+ // misclick from a removal the customer didn't just ask for again. Disarmed on every tab change,
+ // not only a switch away from "edit": arriving at "edit" should always start from the plain
+ // "Remove from my metrics" link, never pre-armed.
+ useEffect(() => {
+  setConfirmingRemove(false);
+ }, [activeTab]);
  // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
  // own join-aware `feasibility` -- a set difference over the tables the semantic graph
  // actually holds -- and that is what is shown below. `mappingConfidenceForKpi`'s score is
@@ -777,6 +792,7 @@ export default function KpiDetailPanel({
  {fromRegistry && activeTab === "definition" && (
   <WhereItComesFrom
    kpi={detailRow.kpi}
+   sourceTableStatus={sourceTableStatus}
    feasibility={feasibility}
    feasibilityStyle={feasibilityStyle}
    trend={trend}

@@ -37,6 +37,10 @@ const SUGGEST_POLL_MS = 2000;
 const SUGGEST_POLL_RELAXED_MS = 5000;
 const SUGGEST_POLL_RELAX_AFTER_MS = 30_000;
 const SUGGEST_CEILING_MS = 4 * 60 * 1000;
+// One stable empty array, not a fresh `[]` literal per render -- handed to `KpiDetailPanel` as
+// `sourceTableStatus` before its lineage fetch resolves, so a row with nothing to show yet
+// doesn't get a new array reference on every unrelated re-render either.
+const EMPTY_SOURCE_TABLE_STATUS = [];
 
 const IDLE_SUGGESTION_STATE = {
  status: "idle",
@@ -344,21 +348,16 @@ export default function KpiDiscoveryPage() {
   if (!lineageRef.current[detailIdentifier]) loadLineage(detailIdentifier);
  }, [detailIdentifier, loadLineage]);
 
- // The row actually handed to `KpiDetailPanel`: `detailRow` with `sourceTableStatus` merged in
- // once lineage is ready. Memoized on the lineage *entry object* (stable across renders once
- // set -- `loadLineage` only calls `setLineageById` on its loading->ready transition, never
- // again for the same identifier), not on `lineageById` as a whole -- so this stays the same
- // reference across every unrelated re-render (another row's series ticking, the suggestion-run
- // clock, etc.) instead of handing `KpiDetailPanel` a fresh object every time. `KpiDetailPanel`
- // resets its active tab and any open edit form whenever this reference changes (`useEffect`
- // on `detailRow`), so a stray new reference here was silently bouncing the customer off
- // whatever tab -- or edit -- they had open, including from this PR's own "Re-run for another
- // date" flow (`computeSeries` -> `patchSeries` -> a `KpiDiscoveryPage` re-render).
- const lineageEntry = detailIdentifier ? lineageById[detailIdentifier] : null;
- const panelDetailRow = useMemo(() => {
-  if (!detailRow || lineageEntry?.status !== "ready") return detailRow;
-  return { ...detailRow, kpi: { ...detailRow.kpi, sourceTableStatus: lineageEntry.sourceTableStatus } };
- }, [detailRow, lineageEntry]);
+ // `source_table_status` is handed to `KpiDetailPanel` as its OWN prop, never merged into a
+ // copy of `detailRow` -- round 1 tried memoizing that merge, but the merge itself still
+ // produces a new `detailRow` reference the instant lineage goes loading->ready, and
+ // `KpiDetailPanel` resets its active tab and any open edit form whenever `detailRow`'s
+ // reference changes (`useEffect` on it). A customer who switches tabs before that warehouse
+ // round trip resolves (routinely faster than a customer's first click) would still get bounced
+ // back to Overview. Keeping this out of `detailRow` entirely means `detailRow`'s identity is
+ // exactly what it was before this PR -- lineage arriving can never trigger that effect.
+ const sourceTableStatusForPanel =
+  (detailIdentifier && lineageById[detailIdentifier]?.sourceTableStatus) || EMPTY_SOURCE_TABLE_STATUS;
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -1149,7 +1148,8 @@ export default function KpiDiscoveryPage() {
 
    {detailRow && (
     <KpiDetailPanel
-     detailRow={panelDetailRow}
+     detailRow={detailRow}
+     sourceTableStatus={sourceTableStatusForPanel}
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}

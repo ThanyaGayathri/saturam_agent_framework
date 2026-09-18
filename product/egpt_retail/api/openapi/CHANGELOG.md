@@ -109,6 +109,29 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.4 — 2026-09-18 — kpis: `Kpi.source_table_status`, `POST /kpis/{kpi_id}/compute`'s `as_of` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new schema (`SourceTableStatus`), one new
+optional field on `Kpi`, one new optional query parameter and a documented `422`, nothing
+removed or renamed -- so no negotiation and no major bump.
+
+- **`Kpi.source_table_status`** (array of `SourceTableStatus`, default `[]`). The detail
+  panel's "where this number comes from" tab needed each of a KPI's `source_tables`' most
+  recent load (row count, when it loaded, the load's quality-gate verdict) -- read from the
+  warehouse's own `quality.load_run`/`quality.load_stream_count` history
+  (`warehouse/lineage.py`), joined to the control-plane KPI definition via the existing
+  stream-id registry. Populated only by `GET /kpis/{kpi_id}` (a list read never pays for N
+  per-row warehouse queries); `create_kpi`/`update_kpi` return it empty. Best-effort: `[]`,
+  never a failure, when the warehouse is unreachable or a table has no load history -- this is
+  enrichment for the panel, not core KPI data.
+- **`POST /kpis/{kpi_id}/compute`'s new `as_of` query parameter** (date, optional, defaults to
+  today UTC). The same panel's "Re-run for another date" needed to materialise a specific past
+  business date, not only today -- `materialise_gold` already accepted an `as_of` via its
+  workflow `additional_data`, just unreachable from the API. Bounded to
+  `[today - 3 years, today]` at `_as_of()` (`executors/gold.py`), the shared point every
+  `materialise_gold` caller passes through; out of range is a new **`422`**
+  (`common.yaml#/Error`), not the `503`/`409` this route already returns for other refusals.
+
 ## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the

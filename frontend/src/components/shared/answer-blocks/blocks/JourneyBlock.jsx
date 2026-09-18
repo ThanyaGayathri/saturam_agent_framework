@@ -17,6 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { AlertTriangle, Circle, Star, X, ExternalLink } from "lucide-react";
 import BlockShell from "../BlockShell";
+import { formatShortDateTime } from "../../../../lib/format-date";
 
 const LANE_COLORS = {
   GA4: { bg: "#FEF3C7", ring: "#F59E0B", text: "#B45309" },
@@ -41,7 +42,7 @@ function formatShortTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return formatShortDateTime(d, { hourFormat: "numeric" });
 }
 
 // Custom node component  -  coloured pill with an icon + short label.
