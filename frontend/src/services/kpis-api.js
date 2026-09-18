@@ -10,8 +10,8 @@
 import { apiGet, apiJson } from "../lib/api";
 
 /** `GET /kpis` - every registered KPI, each with real `feasibility` and `identifier`. */
-export function fetchKpiList() {
-  return apiGet("/kpis");
+export function fetchKpiList({ signal } = {}) {
+  return apiGet("/kpis", { signal });
 }
 
 /** `GET /kpis/{kpi_id}` - one KPI, resolved by `identifier` despite the path segment's name

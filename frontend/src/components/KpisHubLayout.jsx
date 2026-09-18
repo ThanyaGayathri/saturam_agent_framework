@@ -31,7 +31,7 @@ const TAB_COPY = {
   gallery: {
     title: "Data catalog",
     description:
-      "Browse datasets and attributes that power KPIs. This is a read-only view — add or edit datasets from Configure.",
+      "Every table the semantic layer exposes, with the attributes and KPIs it actually powers. Read-only — connect and model new sources from Configure.",
     tourId: "kpi-gallery",
     tourLabel: "Take a quick Data catalog tour",
   },
@@ -88,17 +88,6 @@ export default function KpisHubLayout() {
             </div>
             <p className={catalogSubtitle}>{description}</p>
           </div>
-          {tab === "gallery" ? (
-            <div className={catalogPrimaryAction} data-tour-kpi="connect">
-              <button
-                type="button"
-                onClick={() => navigate("/kpis/sources/new")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
-              >
-                + Add KPI source
-              </button>
-            </div>
-          ) : null}
           {tab === "discover" ? (
             <div className={catalogPrimaryAction}>
               {/* Opens the discovery page's "Add KPI" modal through the URL (`?add=1`), the way
@@ -140,8 +129,22 @@ export default function KpisHubLayout() {
               </>
             )}
           </NavLink>
-          {/* The Data catalog tab (`/kpis/gallery`) is hidden for now; the route itself still
-              resolves, so a direct link keeps working and the header copy above still matches. */}
+          <NavLink
+            to="/kpis/gallery"
+            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
+          >
+            {({ isActive }) => (
+              <>
+                Data catalog
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
+                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
+                  }`}
+                />
+              </>
+            )}
+          </NavLink>
           <NavLink
             to="/kpis/dashboards"
             className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}

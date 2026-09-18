@@ -160,7 +160,11 @@ export default function ConfigureInternalSourceForm() {
  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
  const onSave = () => {
- const base = isNew ? { seed: false } : { id: existing.id, seed: existing.seed };
+ // Saving an edit -- even to a seeded placeholder -- means someone has taken ownership of
+ // this row with real values, so it stops being a "seed" the Data Sources grid hides.
+ // Without this, a seeded row edited with real credentials would stay permanently excluded
+ // from its own listing page with no way back through the UI.
+ const base = isNew ? { seed: false } : { id: existing.id, seed: false };
  const record = normalizeInternal({ ...base, ...form });
  upsertInternal(record);
  navigate("/configure/internal-sources");
