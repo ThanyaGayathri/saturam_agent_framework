@@ -991,7 +991,10 @@ def test_run_query_inlines_the_statement_timeout_rather_than_binding_it():
     )
 
     set_calls = [c for c in engine.calls if c[0].startswith("SET LOCAL")]
-    assert set_calls == [("SET LOCAL statement_timeout = 15000", ())]
+    assert set_calls == [
+        ("SET LOCAL search_path = silver", ()),
+        ("SET LOCAL statement_timeout = 15000", ()),
+    ]
     assert columns == ["n"]
     assert rows == [{"n": 1}]
     # Session hygiene is unchanged: the transaction is rolled back and both handles closed.
@@ -1007,7 +1010,19 @@ def test_run_query_casts_the_timeout_to_an_integer_before_inlining_it():
     queries_module.run_query(
         engine, "SELECT 1 AS n", limit=1, statement_timeout_ms=2500.9
     )
-    assert engine.calls[0] == ("SET LOCAL statement_timeout = 2500", ())
+    assert engine.calls[1] == ("SET LOCAL statement_timeout = 2500", ())
+
+
+def test_run_query_sets_the_search_path_to_silver_before_running_the_statement():
+    """The ``egpt_reader`` role has no search_path of its own (R6's live finding, the same
+    reason ``gold.py``'s materialiser sets it before its compile probe) -- a chart's bare
+    ``FROM crm_deal`` must resolve against silver or it fails as "relation ... does not
+    exist" against a table that is right there in the warehouse."""
+    engine = _RecordingEngine()
+    queries_module.run_query(
+        engine, "SELECT 1 AS n", limit=1, statement_timeout_ms=1000
+    )
+    assert engine.calls[0] == ("SET LOCAL search_path = silver", ())
 
 
 # ---------------------------------------------------------------------------
