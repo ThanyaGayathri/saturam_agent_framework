@@ -33,6 +33,7 @@ from egpt_retail.contracts.data_source import (
     DataSourceType,
     DataSourceUpdate,
     HarvestState,
+    PermissionLevel,
     validate_create,
     validate_credential,
 )
@@ -57,6 +58,8 @@ _COLUMNS: Tuple[str, ...] = (
     "port",
     "database_name",
     "schema_name",
+    "ssl_mode",
+    "permission_level",
     "auth_method",
     "secret_ref",
     "status",
@@ -84,6 +87,8 @@ def _ddl(schema: str) -> Tuple[str, ...]:
             port                 integer,
             database_name        text        NOT NULL,
             schema_name          text        NOT NULL DEFAULT '',
+            ssl_mode             text        NOT NULL DEFAULT 'require',
+            permission_level     text        NOT NULL DEFAULT 'read_only',
             auth_method          text        NOT NULL,
             secret_ref           text        NOT NULL,
             status               text        NOT NULL DEFAULT 'registered',
@@ -96,6 +101,8 @@ def _ddl(schema: str) -> Tuple[str, ...]:
             last_test_message    text        NOT NULL DEFAULT '',
             last_harvest_run_id  text,
             last_harvest_at      timestamptz,
+            CONSTRAINT data_source_permission_level_valid
+                CHECK (permission_level IN ('read_only', 'read_write')),
             CONSTRAINT data_source_status_valid
                 CHECK (status IN ('registered', 'testing', 'connected', 'error')),
             CONSTRAINT data_source_harvest_state_valid
@@ -127,6 +134,8 @@ def _row_to_data_source(row: Sequence[Any]) -> DataSource:
         port=values["port"],
         database_name=values["database_name"],
         schema_name=values["schema_name"],
+        ssl_mode=values["ssl_mode"],
+        permission_level=PermissionLevel(values["permission_level"]),
         auth_method=AuthMethod(values["auth_method"]),
         secret_ref=values["secret_ref"],
         status=DataSourceStatus(values["status"]),
@@ -184,6 +193,8 @@ class DataSourceStore:
             create.port,
             create.database_name,
             create.schema_name,
+            create.ssl_mode,
+            create.permission_level.value,
             create.credential.auth_method.value,
             secret_ref,
             DataSourceStatus.REGISTERED.value,
@@ -277,6 +288,12 @@ class DataSourceStore:
         if patch.schema_name is not None:
             set_clauses.append("schema_name = %s")
             params.append(patch.schema_name)
+        if patch.ssl_mode is not None:
+            set_clauses.append("ssl_mode = %s")
+            params.append(patch.ssl_mode)
+        if patch.permission_level is not None:
+            set_clauses.append("permission_level = %s")
+            params.append(patch.permission_level.value)
         if patch.credential is not None:
             validate_credential(existing.source_type, patch.credential)
             new_secret_ref = secret_store.write(existing.name, patch.credential)

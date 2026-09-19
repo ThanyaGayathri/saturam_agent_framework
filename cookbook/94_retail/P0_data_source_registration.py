@@ -49,6 +49,7 @@ from egpt_retail.contracts.data_source import (  # noqa: E402
     DataSourceType,
     DataSourceUpdate,
     HarvestState,
+    PermissionLevel,
 )
 
 CONTROL_PLANE = os.environ.get(
@@ -93,6 +94,8 @@ created = sources.create(
     ),
     secrets,
 )
+assert created.ssl_mode == "require"  # the wire contract's own default
+assert created.permission_level is PermissionLevel.READ_ONLY  # ditto
 print(
     f"created: id={created.id} status={created.status.value} secret_ref={created.secret_ref}"
 )

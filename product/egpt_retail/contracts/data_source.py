@@ -3,8 +3,22 @@
 Today's harvest reads exactly one operator-configured warehouse
 (``RetailSettings.retail_warehouse_db_url``, schema ``silver``) -- see
 ``semantic/refresh.py``. This contract is the first piece of the self-serve path: a
-customer registering their own Postgres/Snowflake/SAP/Salesforce connection through
-Configure, which #306 will generalise harvest to read and #308 will wire the frontend to.
+customer registering their own database connection through Configure's "Internal Sources"
+form, which #306 will generalise harvest to read and #308 will wire the frontend to.
+
+**Deliberately the ``InternalSource`` resource only** (``api/openapi/paths/configure.yaml``'s
+``/configure/sources``), not ``ExternalIntegration`` (``/configure/integrations`` --
+``ConfigureExternalForm.jsx``'s OAuth API connectors: analytics, CRM, session replay).
+``InternalSource`` already existed in the API contract before #304 -- a stub-only resource
+with real request/response schemas (``InternalSource``/``InternalSourceWrite``/
+``InternalSourcePatch`` in ``api/openapi/schemas/configure.yaml``) but no backing store or
+router, the same "contract first, wiring later" shape ``semantic.py``'s router docstring
+describes for ``/semantic/*``. This module's enums and fields mirror that schema field for
+field (:class:`DataSourceType` is the wire ``SourceType``, :class:`PermissionLevel` the
+wire ``PermissionLevel``, and so on) so #305's router is a thin, close-to-mechanical mapping
+rather than a second, drifting vocabulary. ``ExternalIntegration`` is real work #305 does not
+attempt -- its OAuth connectors are a different integration shape (Lane C's connectors, not
+a SQL warehouse a harvest can introspect) and belong in their own follow-on.
 
 **Credentials never appear in a persisted or returned shape.** :class:`Credential` is
 construction-only input to ``configure/secrets.py``'s ``SecretStore`` -- a
@@ -38,6 +52,7 @@ __all__ = [
     "DataSourceValidationError",
     "HARVESTABLE_SOURCE_TYPES",
     "HarvestState",
+    "PermissionLevel",
     "validate_create",
     "validate_credential",
 ]
@@ -47,20 +62,41 @@ CONTRACT_VERSION = "1.0.0"
 
 
 class DataSourceType(str, Enum):
-    """The source types the Configure UI's forms already offer (``ConfigureInternalSourceForm.jsx``,
-    ``ConfigureExternalForm.jsx``). Registering one is always possible; only
-    :data:`HARVESTABLE_SOURCE_TYPES` can actually be harvested today."""
+    """The wire contract's ``SourceType`` (``api/openapi/schemas/configure.yaml``), exactly --
+    this enum is checked against it by ``test_p0_data_sources.py``. Registering one is always
+    possible; only :data:`HARVESTABLE_SOURCE_TYPES` can actually be harvested today."""
 
     POSTGRES = "postgres"
     SNOWFLAKE = "snowflake"
     SAP_S4HANA = "sap_s4hana"
     SALESFORCE = "salesforce"
+    MYSQL = "mysql"
+    BIGQUERY = "bigquery"
+    OTHER = "other"
 
 
 class AuthMethod(str, Enum):
+    """The wire contract's ``AuthMethod``, exactly. ``InternalSourceWrite`` (the wire request
+    body) has no ``oauth_client_id``/``oauth_client_secret`` fields -- only ``username``,
+    ``password`` and ``api_key`` -- so an ``OAUTH`` credential on this resource is satisfied by
+    ``api_key`` alone (a bearer/access token), never by the full client-credentials pair
+    :class:`Credential` also supports for a future ``ExternalIntegration`` (client_id +
+    client_secret, which that resource's wire schema does carry). See
+    :func:`validate_credential`."""
+
     USERNAME_PASSWORD = "username_password"
     API_KEY = "api_key"
     OAUTH = "oauth"
+
+
+class PermissionLevel(str, Enum):
+    """The wire contract's ``PermissionLevel``, exactly. ``READ_ONLY`` is the floor R6's SQL
+    guard sits on; a ``READ_WRITE`` source is never exposed to a model (the contract's own
+    words) -- #306's harvest workflow and #307's SQL-guard scoping must both check this
+    before ever building a connection from a stored source."""
+
+    READ_ONLY = "read_only"
+    READ_WRITE = "read_write"
 
 
 class DataSourceStatus(str, Enum):
@@ -106,10 +142,15 @@ _ALLOWED_AUTH_METHODS: Mapping[DataSourceType, frozenset] = {
     DataSourceType.SNOWFLAKE: frozenset(
         {AuthMethod.USERNAME_PASSWORD, AuthMethod.API_KEY}
     ),
+    DataSourceType.MYSQL: frozenset({AuthMethod.USERNAME_PASSWORD, AuthMethod.API_KEY}),
+    DataSourceType.BIGQUERY: frozenset({AuthMethod.API_KEY, AuthMethod.OAUTH}),
     DataSourceType.SAP_S4HANA: frozenset(
         {AuthMethod.USERNAME_PASSWORD, AuthMethod.OAUTH}
     ),
     DataSourceType.SALESFORCE: frozenset({AuthMethod.OAUTH}),
+    # Unknown to this deployment's closed vocabulary by definition -- every method stays
+    # possible rather than guessing which one a system nobody has named yet would use.
+    DataSourceType.OTHER: frozenset(AuthMethod),
 }
 
 
@@ -162,10 +203,16 @@ def validate_credential(source_type: DataSourceType, credential: Credential) -> 
         if not credential.api_key:
             raise DataSourceValidationError("credential.api_key", "api_key is required")
     elif credential.auth_method is AuthMethod.OAUTH:
-        if not credential.oauth_client_id or not credential.oauth_client_secret:
+        has_token = bool(credential.api_key)
+        has_client_credentials = bool(
+            credential.oauth_client_id and credential.oauth_client_secret
+        )
+        if not has_token and not has_client_credentials:
             raise DataSourceValidationError(
                 "credential",
-                "oauth requires both oauth_client_id and oauth_client_secret",
+                "oauth requires either api_key (a bearer/access token -- the only oauth "
+                "shape InternalSourceWrite's wire schema carries) or both oauth_client_id "
+                "and oauth_client_secret (the full client-credentials flow)",
             )
 
 
@@ -181,6 +228,8 @@ class DataSourceCreate:
     credential: Credential
     port: Optional[int] = None
     schema_name: str = ""
+    ssl_mode: str = "require"
+    permission_level: PermissionLevel = PermissionLevel.READ_ONLY
     created_by: str = ""
 
 
@@ -197,6 +246,8 @@ class DataSourceUpdate:
     port: Optional[int] = None
     database_name: Optional[str] = None
     schema_name: Optional[str] = None
+    ssl_mode: Optional[str] = None
+    permission_level: Optional[PermissionLevel] = None
     credential: Optional[Credential] = None
 
 
@@ -232,6 +283,8 @@ class DataSource:
     updated_at: datetime
     port: Optional[int] = None
     schema_name: str = ""
+    ssl_mode: str = "require"
+    permission_level: PermissionLevel = PermissionLevel.READ_ONLY
     last_tested_at: Optional[datetime] = None
     last_test_ok: Optional[bool] = None
     last_test_message: str = ""

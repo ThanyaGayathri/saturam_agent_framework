@@ -9,8 +9,10 @@ design rests on: a credential is never accidentally printable.
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
+import pytest
+import yaml
 from egpt_retail.configure.secrets import _credential_from_dict, _credential_to_dict
 from egpt_retail.contracts.data_source import (
     AuthMethod,
@@ -18,8 +20,18 @@ from egpt_retail.contracts.data_source import (
     DataSourceCreate,
     DataSourceType,
     DataSourceValidationError,
+    PermissionLevel,
     validate_create,
     validate_credential,
+)
+
+_CONFIGURE_SCHEMAS = (
+    Path(__file__).resolve().parents[1]
+    / "egpt_retail"
+    / "api"
+    / "openapi"
+    / "schemas"
+    / "configure.yaml"
 )
 
 
@@ -155,3 +167,32 @@ class TestCredentialDictRoundTrip:
         assert data["auth_method"] == "username_password"
         restored = _credential_from_dict(data)
         assert restored.auth_method is AuthMethod.USERNAME_PASSWORD
+
+
+class TestMatchesTheWireContract:
+    """``InternalSource``/``InternalSourceWrite`` (``api/openapi/schemas/configure.yaml``)
+    predate #304 -- a stub-only resource #305's router will back for real. This module's
+    enums are meant to mirror that schema's ``SourceType``/``AuthMethod``/``PermissionLevel``
+    exactly (see the module docstring), so a hand-edit to either side that drifts from the
+    other should fail here rather than surface as a confusing 422 once #305's router maps
+    between them."""
+
+    @staticmethod
+    def _enum_values(name: str) -> set:
+        schemas = yaml.safe_load(_CONFIGURE_SCHEMAS.read_text())
+        return set(schemas[name]["enum"])
+
+    def test_source_type_matches_the_wire_enum(self) -> None:
+        assert {member.value for member in DataSourceType} == self._enum_values(
+            "SourceType"
+        )
+
+    def test_auth_method_matches_the_wire_enum(self) -> None:
+        assert {member.value for member in AuthMethod} == self._enum_values(
+            "AuthMethod"
+        )
+
+    def test_permission_level_matches_the_wire_enum(self) -> None:
+        assert {member.value for member in PermissionLevel} == self._enum_values(
+            "PermissionLevel"
+        )
