@@ -23,9 +23,10 @@ import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTI
  *
  * A real registry KPI (`fromRegistry`) gets a second tab, "Where this number comes from" -- its
  * business definition shape, the tables its formula reads and their load freshness, the formula
- * itself, and a trust/audit summary -- and its edit/remove actions move to a third, "Edit
- * definition". A suggestion or seed/template row has none of that server-side data to show, so
- * it keeps the single scrolling layout this panel always had; nothing about that path changed.
+ * itself, and a trust/audit summary. Its edit/remove actions live on Overview itself, inline with
+ * the description and formula they act on -- there is no separate "Edit definition" tab. A
+ * suggestion or seed/template row has none of that server-side data to show, so it keeps the
+ * single scrolling layout this panel always had; nothing about that path changed.
  */
 const FEASIBILITY_STYLE = {
  ready: { cls: "border-status-success/35 bg-status-success-light dark:bg-status-success/15", label: "text-status-success" },
@@ -113,7 +114,6 @@ function EditKpiForm({ description, sql, onDescriptionChange, onSqlChange, onSav
 const TABS = [
  { value: "overview", label: "Overview" },
  { value: "definition", label: "Where this number comes from" },
- { value: "edit", label: "Edit definition" },
 ];
 
 /** A short uppercase-label card, the same shape every section in this panel already uses --
@@ -584,15 +584,15 @@ export default function KpiDetailPanel({
  const [editingDraft, setEditingDraft] = useState(false);
  const [draftDescription, setDraftDescription] = useState("");
  const [draftSql, setDraftSql] = useState("");
- // "Edit definition"'s own field-level editing, independent of the suggestion-draft state
- // above: a registry row shows Description and SQL as plain text with a small edit control
- // next to each, rather than one combined form behind a single "Edit description or SQL"
- // toggle -- editing one field never hides or discards the other. `null` means neither field
- // is being edited; otherwise which one is, so its Save can resend the *other* field's current
+ // Overview's own field-level editing for a registry row, independent of the suggestion-draft
+ // state above: Description and SQL render as plain text with a small edit control next to
+ // each, rather than one combined form behind a single "Edit description or SQL" toggle --
+ // editing one field never hides or discards the other. `null` means neither field is being
+ // edited; otherwise which one is, so its Save can resend the *other* field's current
  // (unedited) value alongside the change (`updateKpi` requires both every time).
  const [editingField, setEditingField] = useState(null);
  const [fieldDraft, setFieldDraft] = useState("");
- // Which of the three tabs a registry row shows; meaningless (and never rendered) for a
+ // Which of the two tabs a registry row shows; meaningless (and never rendered) for a
  // suggestion or seed row, which keep the single scrolling layout below.
  const [activeTab, setActiveTab] = useState("overview");
  // Closes the form -- and returns to Overview -- whenever the caller hands this panel a
@@ -606,12 +606,12 @@ export default function KpiDetailPanel({
   setActiveTab("overview");
   setConfirmingRemove(false);
  }, [detailRow]);
- // `confirmingRemove` (armed by "Remove from my metrics" on "Edit definition") is otherwise
- // untouched by switching tabs -- round-2 review: switch away and back to "Edit definition"
+ // `confirmingRemove` (armed by "Remove from my metrics" on Overview) is otherwise untouched
+ // by switching tabs -- round-2 review: switch to "Where this number comes from" and back
  // without this, and the panel resumes right on the armed "Yes, remove" / "Cancel" state, one
  // misclick from a removal the customer didn't just ask for again. Disarmed on every tab change,
- // not only a switch away from "edit": arriving at "edit" should always start from the plain
- // "Remove from my metrics" link, never pre-armed.
+ // not only a switch away from Overview: arriving back at Overview should always start from the
+ // plain "Remove from my metrics" link, never pre-armed.
  useEffect(() => {
   setConfirmingRemove(false);
   setEditingField(null);
@@ -673,10 +673,10 @@ export default function KpiDetailPanel({
   // the `useEffect([detailRow])` reset, which fires once the PATCH actually lands.
  };
 
- // The remove/edit block a registry row shows on "Edit definition" -- unchanged content, just
- // relocated off the always-visible scroll it used to share with Overview. Read as a value, not
- // a component, so it closes over this render's locals the same way the inline JSX below always did.
- const editDefinitionTab = (
+ // The description/SQL edit controls and the remove flow for a registry row -- part of
+ // Overview itself rather than a separate "Edit definition" tab. Read as a value, not a
+ // component, so it closes over this render's locals the same way the inline JSX below always did.
+ const registryEditBlock = (
   <div className="space-y-6">
    <section className="rounded-xl border border-border bg-surface-secondary p-4">
     <div className="flex items-center justify-between gap-3">
@@ -866,7 +866,11 @@ export default function KpiDetailPanel({
  <section>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">KPI</p>
  <p className="mt-1 text-base font-semibold text-text-primary">{detailRow.kpi.name}</p>
+ {/* A registry row's description is editable below, as part of `registryEditBlock` -- shown
+     read-only here would just be the same text twice. */}
+ {!fromRegistry && (
  <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
+ )}
  {/* The same reason the card's disabled box gives on hover, said here in full: a proposal
      is not a governed KPI yet, so it cannot be picked for a dashboard until adopted. Skipped
      when the suggestion is itself blocked (missing data) -- adopting it wouldn't help, and the
@@ -877,6 +881,11 @@ export default function KpiDetailPanel({
  </p>
  )}
  </section>
+
+ {/* The description/SQL edit controls and remove flow for a registry row -- see
+     `registryEditBlock` above; not shown for a suggestion or tree/template row, which have
+     their own edit affordances further down. */}
+ {fromRegistry && registryEditBlock}
 
  {/* The value, first: for a registry KPI it is the reason to open this panel after "Add to my
      metrics". Every point is gold's own nightly row for this formula (or today's, computed on
@@ -1133,8 +1142,8 @@ export default function KpiDetailPanel({
  {!suggested && !fromRegistry && (
  /* A tree/template candidate has a real position in Configure's mapping tree (unlike a
      registry row or a live suggestion, neither of which this local edit form can save to
-     directly), so its edit still goes to the master-data screen that owns it. Unchanged from
-     before tabs existed -- a registry row's equivalent now lives on "Edit definition". */
+     directly), so its edit still goes to the master-data screen that owns it. A registry
+     row's equivalent lives inline on Overview instead -- see `registryEditBlock` above. */
  <button
  type="button"
  onClick={onEdit}
@@ -1157,8 +1166,6 @@ export default function KpiDetailPanel({
    onComputeForDate={onTrendComputeForDate}
   />
  )}
-
- {fromRegistry && activeTab === "edit" && editDefinitionTab}
  </div>
  </aside>
  </>
