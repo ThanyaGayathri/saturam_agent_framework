@@ -8,6 +8,7 @@ reaches the discovery screen is the contract's own type rather than a copy of it
 
 from __future__ import annotations
 
+import json
 from typing import Any, List
 
 import pytest
@@ -338,7 +339,11 @@ def _proposal_drafts(*suggestions):
 
 
 def _proposal_draft(
-    identifier="quoterequest__count", sql="SELECT count(*) FROM crm_deal", source=None
+    identifier="quoterequest__count",
+    sql="SELECT count(*) FROM crm_deal",
+    source=None,
+    column_usage=None,
+    table_usage=None,
 ):
     return k12.KpiSuggestionDraft(
         identifier=identifier,
@@ -354,7 +359,165 @@ def _proposal_draft(
         derived_from_tables=["silver.crm_deal"],
         proposed_sql=sql,
         catalogue_source=source,
+        column_usage=column_usage or [],
+        table_usage=table_usage or [],
     )
+
+
+class TestFormulaExplanation:
+    """The discovery panel's FORMULA card -- a human-readable rendering of `proposed_sql`,
+    threaded through the same draft -> `assemble()` -> contract pipeline as every other field."""
+
+    def test_a_draft_with_no_formula_explanation_assembles_to_a_null_one(self) -> None:
+        report = k12.assemble(_set(_draft()), available_tables=frozenset({"crm_deal"}))
+        assert report.suggestions[0].formula_explanation is None
+
+    def test_a_draft_s_formula_explanation_is_carried_through_assemble(self) -> None:
+        draft = _draft(
+            formula_explanation=k12.FormulaExplanationDraft(
+                expression_before="value = ROUND( 100 x",
+                numerator_label="count of buy inquiries with converted_to_quote = true",
+                denominator_label="count of buy inquiries",
+                expression_after=", 1 )",
+                condition_label='where chat_type contains "buy"',
+            )
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        explanation = report.suggestions[0].formula_explanation
+        assert explanation is not None
+        assert explanation.expression_before == "value = ROUND( 100 x"
+        assert (
+            explanation.numerator_label
+            == "count of buy inquiries with converted_to_quote = true"
+        )
+        assert explanation.denominator_label == "count of buy inquiries"
+        assert explanation.expression_after == ", 1 )"
+        assert explanation.condition_label == 'where chat_type contains "buy"'
+
+    def test_the_draft_schema_refuses_a_numerator_with_no_denominator(self) -> None:
+        """The draft's own field is untyped-permissive (both are just `Optional[str]`), so
+        this asymmetry is only caught once it reaches the contract's `FormulaExplanation` --
+        pinned here so a future change that skips that construction doesn't silently let it
+        through `assemble()`."""
+        from egpt_retail.contracts.kpi import FormulaExplanation
+
+        with pytest.raises(ValueError, match="must both be set or both be null"):
+            FormulaExplanation(expression_before="value = X", numerator_label="a")
+
+
+class TestColumnAndTableUsage:
+    """ "The columns it uses" and "the data it reads"'s fact/lookup role -- the same
+    draft -> `assemble()` -> contract pipeline `TestFormulaExplanation` covers."""
+
+    def test_a_draft_with_no_usage_assembles_to_empty_lists(self) -> None:
+        report = k12.assemble(_set(_draft()), available_tables=frozenset({"crm_deal"}))
+        suggestion = report.suggestions[0]
+        assert suggestion.column_usage == []
+        assert suggestion.table_usage == []
+
+    def test_a_draft_s_usage_is_carried_through_assemble(self) -> None:
+        draft = _draft(
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+                k12.ColumnUsageDraft(
+                    table="crm_deal",
+                    column="quote_request_source_url",
+                    used_as=k12.ColumnUsageRoleDraft.FILTER,
+                    why="Only column that marks a deal as a quote request.",
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(table="crm_deal", role=k12.TableRoleDraft.FACT),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        suggestion = report.suggestions[0]
+        assert [cu.column for cu in suggestion.column_usage] == [
+            "deal_id",
+            "quote_request_source_url",
+        ]
+        assert suggestion.column_usage[0].used_as.value == "measure"
+        assert suggestion.column_usage[1].used_as.value == "filter"
+        assert (
+            suggestion.column_usage[1].why
+            == "Only column that marks a deal as a quote request."
+        )
+        assert suggestion.table_usage[0].table == "crm_deal"
+        assert suggestion.table_usage[0].role.value == "fact"
+        assert suggestion.table_usage[0].join_note == ""
+
+    def test_qualified_table_names_are_bared_the_same_as_derived_from_tables(
+        self,
+    ) -> None:
+        """The agent sees tables qualified (`silver.crm_deal`) in the harvest text, and
+        `derived_from_tables` is already normalised to bare names before it reaches the
+        contract -- `column_usage`/`table_usage` must match, or the drift guard below would
+        refuse a draft whose own tables agree with each other in every way except spelling."""
+        draft = _draft(
+            derived_from_tables=["silver.crm_deal"],
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="silver.crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="silver.crm_deal", role=k12.TableRoleDraft.FACT
+                ),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        assert report.dropped == []
+        suggestion = report.suggestions[0]
+        assert suggestion.column_usage[0].table == "crm_deal"
+        assert suggestion.table_usage[0].table == "crm_deal"
+
+    def test_a_table_not_in_derived_from_tables_is_dropped_as_drift(self) -> None:
+        """The same class of drift `KpiDefinition` already refuses between `sql` and
+        `source_tables` -- caught here, at assembly, rather than surfacing only at adoption."""
+        draft = _draft(
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="crm_contact", role=k12.TableRoleDraft.LOOKUP
+                ),
+            ],
+        )
+        report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
+        assert report.suggestions == []
+        assert report.dropped and "quote_request_count" in report.dropped[0]
+
+    def test_a_proposal_carrying_usage_is_json_serializable(self) -> None:
+        """Regression: `as_proposals()` is written straight to jsonb by the proposal store
+        (`egpt_retail.semantic.proposals`), so its payload must survive a real `json.dumps` --
+        not just pydantic's own `model_dump()`, which leaves enum fields (`used_as`, `role`)
+        as `ColumnUsageRole`/`TableRole` instances unless `mode="json"` is passed."""
+        draft = _proposal_draft(
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="silver.crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="silver.crm_deal", role=k12.TableRoleDraft.FACT
+                ),
+            ],
+        )
+        report = k12.assemble(
+            _proposal_drafts(draft), available_tables=frozenset({"crm_deal"})
+        )
+        payload = report.as_proposals()[0].payload
+        json.dumps(payload)  # must not raise TypeError
+        assert payload["column_usage"][0]["used_as"] == "measure"
+        assert payload["table_usage"][0]["role"] == "fact"
 
 
 def test_a_suggestion_with_a_formula_becomes_a_kpi_proposal_the_registry_can_adopt():

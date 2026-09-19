@@ -18,6 +18,7 @@ import { metricsUnlockedBy } from "../configure/source-model-state";
 import { useCaseActivationPath } from "../../domain/automation-registry";
 import {
  fetchKpiList,
+ fetchKpi,
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
  createKpi,
@@ -36,6 +37,15 @@ const SUGGEST_POLL_MS = 2000;
 const SUGGEST_POLL_RELAXED_MS = 5000;
 const SUGGEST_POLL_RELAX_AFTER_MS = 30_000;
 const SUGGEST_CEILING_MS = 4 * 60 * 1000;
+// One stable empty array, not a fresh `[]` literal per render -- handed to `KpiDetailPanel` as
+// `sourceTableStatus` before its lineage fetch resolves, so a row with nothing to show yet
+// doesn't get a new array reference on every unrelated re-render either.
+const EMPTY_SOURCE_TABLE_STATUS = [];
+// Same reasoning as `EMPTY_SOURCE_TABLE_STATUS`, for `columnUsage` -- the list read's own
+// `column_usage` has no `definition` (only `GET /kpis/{id}` pays for the semantic-layer read
+// that fills it in), so the panel's "columns it uses" table reads this decoupled, freshly
+// fetched copy instead of `detailRow.kpi.columnUsage`, exactly like `sourceTableStatus`.
+const EMPTY_COLUMN_USAGE = [];
 
 const IDLE_SUGGESTION_STATE = {
  status: "idle",
@@ -224,12 +234,14 @@ export default function KpiDiscoveryPage() {
   [patchSeries]
  );
  const computeSeries = useCallback(
-  (identifier) => {
+  (identifier, asOf) => {
    seriesAbortRefs.current.get(identifier)?.abort();
    const controller = new AbortController();
    seriesAbortRefs.current.set(identifier, controller);
-   patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
-   computeKpi(identifier, { signal: controller.signal })
+   // `retryAsOf` survives every patch below (`patchSeries` merges) so "Try again" after a
+   // failure re-runs the same date the customer actually asked for, not silently today's.
+   patchSeries(identifier, { status: "computing", error: null, retry: "compute", retryAsOf: asOf });
+   computeKpi(identifier, { asOf, signal: controller.signal })
     .then((result) => {
      if (controller.signal.aborted) return;
      // A formula that fails is a 200 saying so -- the request did what it said; the formula
@@ -242,6 +254,12 @@ export default function KpiDiscoveryPage() {
       });
       return;
      }
+     // `loadSeries` reloads the default trailing window, which only shows this result when
+     // `asOf` happens to fall inside it (or is today, the common "Add to my metrics" case).
+     // A backfill for an older date needs its own, explicit confirmation -- `lastCompute` --
+     // that the panel's Trust section shows regardless of what the trailing window contains,
+     // so "Re-run for another date" never *looks* like it silently did nothing.
+     patchSeries(identifier, { lastCompute: result });
      loadSeries(identifier);
     })
     .catch((err) => {
@@ -255,6 +273,43 @@ export default function KpiDiscoveryPage() {
   },
   [patchSeries, loadSeries]
  );
+
+ // One registry KPI's `source_table_status` (`GET /kpis/{id}`, the single-KPI read -- the list
+ // read `realKpiState.kpis` comes from never fills it in, see `rowFromRegistryKpi`'s own
+ // comment), keyed by identifier for the detail panel's "Where this number comes from" tab.
+ // Same shape as `seriesById` above, and for the same reason: opening a panel loads it once,
+ // an entry already there is shown as-is.
+ const [lineageById, setLineageById] = useState({});
+ const lineageRef = useRef(lineageById);
+ lineageRef.current = lineageById;
+ const lineageAbortRefs = useRef(new Map());
+ const loadLineage = useCallback((identifier) => {
+  lineageAbortRefs.current.get(identifier)?.abort();
+  const controller = new AbortController();
+  lineageAbortRefs.current.set(identifier, controller);
+  setLineageById((prev) => ({ ...prev, [identifier]: { status: "loading" } }));
+  fetchKpi(identifier, { signal: controller.signal })
+   .then((k) => {
+    if (controller.signal.aborted) return;
+    setLineageById((prev) => ({
+     ...prev,
+     [identifier]: {
+      status: "ready",
+      sourceTableStatus: k.source_table_status || [],
+      columnUsage: k.column_usage || [],
+     },
+    }));
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    // Enrichment, not core data (the row's own fields already came from the list read) --
+    // an empty result reads the same as "nothing loaded yet", not an error banner.
+    setLineageById((prev) => ({
+     ...prev,
+     [identifier]: { status: "ready", sourceTableStatus: [], columnUsage: [] },
+    }));
+   });
+ }, []);
 
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
@@ -282,6 +337,7 @@ export default function KpiDiscoveryPage() {
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
    for (const controller of seriesAbortRefs.current.values()) controller.abort();
+   for (const controller of lineageAbortRefs.current.values()) controller.abort();
    removeAbortRef.current?.abort();
    updateAbortRef.current?.abort();
    createAbortRef.current?.abort();
@@ -297,6 +353,26 @@ export default function KpiDiscoveryPage() {
   if (!detailIdentifier) return;
   if (!seriesRef.current[detailIdentifier]) loadSeries(detailIdentifier);
  }, [detailIdentifier, loadSeries]);
+ // Same, for the single-KPI read that fills in `source_table_status` -- the list read that
+ // built this row's other fields never does (see `rowFromRegistryKpi`'s own comment).
+ useEffect(() => {
+  if (!detailIdentifier) return;
+  if (!lineageRef.current[detailIdentifier]) loadLineage(detailIdentifier);
+ }, [detailIdentifier, loadLineage]);
+
+ // `source_table_status` is handed to `KpiDetailPanel` as its OWN prop, never merged into a
+ // copy of `detailRow` -- round 1 tried memoizing that merge, but the merge itself still
+ // produces a new `detailRow` reference the instant lineage goes loading->ready, and
+ // `KpiDetailPanel` resets its active tab and any open edit form whenever `detailRow`'s
+ // reference changes (`useEffect` on it). A customer who switches tabs before that warehouse
+ // round trip resolves (routinely faster than a customer's first click) would still get bounced
+ // back to Overview. Keeping this out of `detailRow` entirely means `detailRow`'s identity is
+ // exactly what it was before this PR -- lineage arriving can never trigger that effect.
+ const sourceTableStatusForPanel =
+  (detailIdentifier && lineageById[detailIdentifier]?.sourceTableStatus) || EMPTY_SOURCE_TABLE_STATUS;
+ // Same reasoning, for `column_usage`'s `definition` field -- see `EMPTY_COLUMN_USAGE`'s comment.
+ const columnUsageForPanel =
+  (detailIdentifier && lineageById[detailIdentifier]?.columnUsage) || EMPTY_COLUMN_USAGE;
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -621,6 +697,9 @@ export default function KpiDiscoveryPage() {
     // after adopt -- on reload and for every viewer -- instead of only for this session.
     rationale: suggestion.rationale ?? null,
     business_value: suggestion.business_value ?? null,
+    formula_explanation: suggestion.formula_explanation ?? null,
+    column_usage: suggestion.column_usage ?? null,
+    table_usage: suggestion.table_usage ?? null,
    },
    { signal: controller.signal }
   )
@@ -732,8 +811,11 @@ export default function KpiDiscoveryPage() {
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
+    // `identifier` stays set on failure (not reset to `null`) so a caller can tell WHICH row's
+    // removal failed -- both the panel's `removeError` and the table row's own inline
+    // confirmation (`KpiDiscovery.jsx`'s `KpiTable`) key off it matching their own row.
     setRemoveState({
-     identifier: null,
+     identifier,
      error: err?.detail || err?.message || "Couldn't remove this KPI.",
     });
    })
@@ -901,11 +983,34 @@ export default function KpiDiscoveryPage() {
    rationale: k.rationale || "",
    businessValue: k.business_value || "",
    fromRegistry: true,
-   // Carried through only so an edit (`handleUpdateKpi` below) can resend the required fields
-   // `PATCH /kpis/{id}` demands every time -- not shown anywhere in the panel itself.
+   // `sql` was previously carried through only so an edit (`handleUpdateKpi` below) could
+   // resend the required fields `PATCH /kpis/{id}` demands every time; the detail panel's
+   // "Where this number comes from" tab now also renders it read-only (when present -- a
+   // `kpis:read`-only caller never receives it, per the api's own scope gate).
    sql: k.sql,
+   // Same scope gate as `sql` (a `kpis:read`-only caller never receives it): its labels can
+   // name the same columns/tables the formula reads. Kept as the wire shape (snake_case
+   // fields) rather than remapped -- there's only ever one reader, `FormulaDisplay` below.
+   formulaExplanation: k.formula_explanation || null,
+   // Same scope gate as `formulaExplanation`, but missing its `definition` field -- like
+   // `sourceTableStatus` below, only `GET /kpis/{id}` pays for the semantic-layer read that
+   // fills that in, never the list `GET /kpis` this row usually comes from. Kept here anyway
+   // for parity with the wire shape; the panel itself reads the fresher `columnUsageForPanel`
+   // (see `EMPTY_COLUMN_USAGE`'s comment), not this field.
+   columnUsage: k.column_usage || [],
    grain: k.grain,
    sourceTables: k.source_tables || [],
+   // The rest of the definition shape the detail panel's technical/trust sections read.
+   // All real fields off the same `GET /kpis` row -- nothing here is computed client-side.
+   dialect: k.dialect,
+   concept: k.concept,
+   timeWindow: k.time_window || null,
+   validatedAgainstSnapshot: k.validated_against_snapshot || null,
+   parameters: k.parameters || [],
+   // Each `source_tables` entry's most recent load, when the warehouse could answer -- only
+   // `GET /kpis/{id}` (a single-KPI read) fills this in, never the list `GET /kpis` this row
+   // usually comes from; re-fetched per KPI when its panel opens (see `loadKpiDetail` below).
+   sourceTableStatus: k.source_table_status || [],
   },
   categoryIndex: -2,
   sectionIndex: -2,
@@ -916,7 +1021,11 @@ export default function KpiDiscoveryPage() {
   sectionName: k.subject_area || "Your KPI registry",
  });
  // The removal error belongs to the row it happened on; another row's panel must not show it.
- const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+ // Scoped by identifier, not just "is this a registry row" -- `removeState.identifier` now
+ // stays set on failure (see `handleRemove`'s catch), so this only shows the error on the row
+ // it actually belongs to, not on every registry row's panel.
+ const removeError = (row) =>
+  row?.kpi?.fromRegistry && removeState.identifier === row.kpi.identifier ? removeState.error : null;
  // Same reasoning as `removeError`, for `handleUpdateKpi`'s save.
  const updateError = (row) =>
   row?.kpi?.fromRegistry && updateState.identifier === row.kpi.identifier ? updateState.error : null;
@@ -1022,6 +1131,8 @@ export default function KpiDiscoveryPage() {
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
     onAdopt={handleAdopt}
+    onRemove={handleRemove}
+    removeState={removeState}
     adoptingIds={adoptingIds}
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
@@ -1075,6 +1186,8 @@ export default function KpiDiscoveryPage() {
    {detailRow && (
     <KpiDetailPanel
      detailRow={detailRow}
+     sourceTableStatus={sourceTableStatusForPanel}
+     columnUsage={columnUsageForPanel}
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}
@@ -1105,13 +1218,14 @@ export default function KpiDiscoveryPage() {
      onTrendRetry={() => {
       if (!detailIdentifier) return;
       const entry = seriesById[detailIdentifier];
-      if (entry?.retry === "compute") computeSeries(detailIdentifier);
+      if (entry?.retry === "compute") computeSeries(detailIdentifier, entry?.retryAsOf);
       else loadSeries(detailIdentifier, entry?.data?.dimension || undefined);
      }}
      onTrendCompute={() => detailIdentifier && computeSeries(detailIdentifier)}
+     onTrendComputeForDate={(asOf) => detailIdentifier && computeSeries(detailIdentifier, asOf)}
      onTrendPickDimension={(dimension) => detailIdentifier && loadSeries(detailIdentifier, dimension)}
      onRemove={handleRemove}
-     removing={removeState.identifier === detailRow.kpi?.identifier}
+     removing={removeState.identifier === detailRow.kpi?.identifier && !removeState.error}
      removeError={removeError(detailRow)}
     />
    )}
