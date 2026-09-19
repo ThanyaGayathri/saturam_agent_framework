@@ -38,6 +38,8 @@ from egpt_retail.app.components import (
 )
 from egpt_retail.app.db import build_control_plane_db, psycopg_dsn
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.secrets import LocalEncryptedSecretStore
+from egpt_retail.configure.store import DataSourceStore
 from egpt_retail.dashboards.query_results import DashboardQueryResultStore
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
@@ -85,17 +87,23 @@ def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
 
 
 def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
-    """Provisions R11's, R13's and B1's control-plane tables once, at boot -- not per request
-    (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh connection
-    per call, but do not re-run DDL on it). Synchronous and cheap (advisory lock, ``CREATE ...
-    IF NOT EXISTS``); run inside the composed lifespan below, same startup point K1's memory
-    check runs at, for the same reason: a deployment that cannot provision its own tables
-    should fail at boot, not on the first request that touches them.
+    """Provisions R11's, R13's, B1's and #304's control-plane tables once, at boot -- not per
+    request (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh
+    connection per call, but do not re-run DDL on it). Synchronous and cheap (advisory lock,
+    ``CREATE ... IF NOT EXISTS``); run inside the composed lifespan below, same startup point
+    K1's memory check runs at, for the same reason: a deployment that cannot provision its own
+    tables should fail at boot, not on the first request that touches them.
 
     ``KpiRegistryStore``'s ``semantic.kpi_definition`` table is otherwise only provisioned by
     ``semantic/refresh.py``'s offline refresh job or ``entrypoints/suggest.py`` -- neither
     guaranteed to have run before the API serves traffic, which left a fresh deployment's
     first ``GET /kpis`` a raw "relation does not exist" 500 instead of an empty list.
+
+    ``LocalEncryptedSecretStore``'s own table is the one exception: provisioned only when
+    ``retail_secret_store_provider`` is ``local_encrypted`` *and* an encryption key is
+    actually set. An unset key is refused where it is used, not at startup -- same posture
+    as ``retail_warehouse_db_url`` elsewhere in this module -- because a deployment that has
+    not configured secrets yet may also not have registered a data source yet.
     """
     import psycopg
 
@@ -108,6 +116,14 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         ProposalStore(connection).ensure_schema()
         SuggestionRunStore(connection).ensure_schema()
         DashboardSuggestionRunStore(connection).ensure_schema()
+        DataSourceStore(connection).ensure_schema()
+        if (
+            settings.retail_secret_store_provider == "local_encrypted"
+            and settings.retail_secret_encryption_key
+        ):
+            LocalEncryptedSecretStore(
+                connection, settings.retail_secret_encryption_key
+            ).ensure_schema()
     finally:
         connection.close()
 

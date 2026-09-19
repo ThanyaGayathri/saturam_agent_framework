@@ -5835,3 +5835,43 @@ results -- the `GET /kpis/suggestions` route does not thread a knowledge store i
 blocking a real non-empty suggestion and not investigated further here.
 
 ---
+
+## Self-serve data sources (#302)
+
+### P0_data_source_registration.py
+
+**Status:** PASS
+
+**Description:** #304 -- the control-plane schema (`configure.data_source`), the wire
+contract (`egpt_retail.contracts.data_source`), and credential storage
+(`egpt_retail.configure.secrets`). Run against the real control-plane Postgres already up
+locally on 5532 (`egpt-retail-postgres-1`, `agnohq/pgvector:18`, database `ai`):
+`PYTHONPATH=product .venv/bin/python cookbook/94_retail/P0_data_source_registration.py`.
+
+Registers a Postgres source with a username/password credential through `DataSourceStore`
+and `LocalEncryptedSecretStore` (the dev fallback of the two `SecretStore` implementations;
+`AzureKeyVaultSecretStore` is exercised by SDK-shape alone -- there is no Key Vault available
+in this environment to run it live against, same limitation `AzureBlobObjectStore`'s own
+managed-identity path already has), then walks every operation #305/#306 will need:
+`get`/`list` agree with `create`'s return value, `record_test_result` moves status to
+`connected`, `set_harvest_state` records a workflow run id, rotating a credential
+(`DataSourceStore.update`) changes `secret_ref` and deletes the old one, and deleting a
+source deletes its secret too.
+
+**Result:** All nine assertions passed. Verified directly against the row and the
+`configure.local_secret` table (not just through the store's own read path) that the
+plaintext password is never present in what gets stored -- `plaintext_password.encode() not
+in ciphertext`, checked against the raw bytea column.
+
+**Also found while wiring this up:** `product/tests/test_k1_memory_wiring.py`'s
+`test_ensure_control_plane_schemas_provisions_all_seven_stores` enumerates every store
+`_ensure_control_plane_schemas` provisions at boot by name; adding `DataSourceStore` there
+without updating that test's monkeypatch list failed it immediately (the real
+`db.schema_utils.ensure_schema` helper reached the test's `_FakeConnection`, which has no
+`cursor()`). Fixed by adding `DataSourceStore` to the patched list and renaming the test to
+"all eight stores"; added a second test asserting `LocalEncryptedSecretStore` is never
+constructed when `retail_secret_encryption_key` is unset, so boot never depends on a
+data-source secret being configured, matching `retail_warehouse_db_url`'s own
+"refused at the point of use" posture.
+
+---

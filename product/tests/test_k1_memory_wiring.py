@@ -50,7 +50,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_eight_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -86,6 +86,7 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
         "DashboardSuggestionRunStore",
         _fake_store("dashboard_suggestion_run"),
     )
+    monkeypatch.setattr(factory_module, "DataSourceStore", _fake_store("data_source"))
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
@@ -99,7 +100,58 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
         "proposal",
         "suggestion_run",
         "dashboard_suggestion_run",
+        "data_source",
     ]
+
+
+def test_ensure_control_plane_schemas_skips_local_secret_store_without_a_key(
+    monkeypatch,
+):
+    """#304: an unset ``retail_secret_encryption_key`` must not fail boot -- only a data
+    source registration attempt should ever hit that refusal, same posture as
+    ``retail_warehouse_db_url``. The default settings used by every other case in this file
+    (no encryption key set) already covers this; this test makes the coverage explicit and
+    would fail loudly if ``_ensure_control_plane_schemas`` ever tried to construct a
+    ``LocalEncryptedSecretStore`` unconditionally."""
+
+    class _FakeConnection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr("psycopg.connect", lambda dsn: _FakeConnection())
+    for name in (
+        "PlaygroundStore",
+        "DashboardStore",
+        "DashboardQueryResultStore",
+        "KpiRegistryStore",
+        "ProposalStore",
+        "SuggestionRunStore",
+        "DashboardSuggestionRunStore",
+        "DataSourceStore",
+    ):
+
+        class _NoopStore:
+            def __init__(self, connection):
+                pass
+
+            def ensure_schema(self):
+                pass
+
+        monkeypatch.setattr(factory_module, name, _NoopStore)
+
+    def _fail_if_constructed(*args, **kwargs):
+        raise AssertionError(
+            "LocalEncryptedSecretStore must not be constructed without an encryption key"
+        )
+
+    monkeypatch.setattr(factory_module, "LocalEncryptedSecretStore", _fail_if_constructed)
+
+    factory_module._ensure_control_plane_schemas(
+        RetailSettings(
+            retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db",
+            retail_secret_encryption_key=None,
+        )
+    )
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():
