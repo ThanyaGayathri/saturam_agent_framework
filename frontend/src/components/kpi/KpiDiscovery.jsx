@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
  AlertTriangle,
  Briefcase,
@@ -14,6 +15,7 @@ import {
  LayoutGrid,
  Plus,
  Sparkles,
+ Trash2,
  Zap,
 } from "lucide-react";
 import { mappingStatusForKpi } from "../../domain/kpi-mapping";
@@ -271,6 +273,8 @@ function KpiTable({
  onToggleSelect,
  onOpenDetail,
  onAdopt,
+ onRemove,
+ removeState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -278,6 +282,45 @@ function KpiTable({
  profileId,
  onOpenUseCase,
 }) {
+ // Which row's "remove from my metrics" is armed, by row key -- local to this Subject Area's
+ // own table, the same scope `KpiDetailPanel.jsx`'s own `confirmingRemove` uses for the panel.
+ // At most one row's confirm shows at a time within this table. `confirmDeletePos` is the
+ // trash button's own bounding rect at the moment it was clicked: the confirmation renders
+ // through a portal (below) rather than as a child of the button's `<td>`, because that cell
+ // sits inside the table's `overflow-x-auto` scroller and a couple of `overflow-hidden`
+ // card wrappers around it (the rounded-corner Business Area/Subject Area groups) -- an
+ // absolutely-positioned popover anchored there is clipped almost in full the moment it
+ // extends past the row's own box, which is silent (no console error, no layout shift) and
+ // easy to miss in review: it *is* in the DOM and *is* clickable, it is just invisible.
+ const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
+ const [confirmDeletePos, setConfirmDeletePos] = useState(null);
+ const openConfirmDelete = (key, buttonEl) => {
+  const rect = buttonEl.getBoundingClientRect();
+  setConfirmDeleteKey(key);
+  setConfirmDeletePos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+ };
+ const closeConfirmDelete = () => {
+  setConfirmDeleteKey(null);
+  setConfirmDeletePos(null);
+ };
+ // A click on the trash button itself is handled by its own onClick (toggling the armed row,
+ // including switching straight to a different row's confirm without this effect's help); this
+ // is only for dismissing an open confirmation by clicking anywhere else on the page. Scroll
+ // (captured, so it also catches the table's own inner scroller, which does not bubble) closes
+ // it too -- the popover's position is captured once at open time, so it would otherwise drift
+ // away from the button it points at rather than following it.
+ useEffect(() => {
+  if (!confirmDeleteKey) return;
+  const close = (e) => {
+   if (!e.target.closest?.("[data-remove-popover-root]")) closeConfirmDelete();
+  };
+  document.addEventListener("mousedown", close);
+  window.addEventListener("scroll", closeConfirmDelete, true);
+  return () => {
+   document.removeEventListener("mousedown", close);
+   window.removeEventListener("scroll", closeConfirmDelete, true);
+  };
+ }, [confirmDeleteKey]);
  const previewDesc = rows
   .map((r) => r.kpi.desc)
   .filter(Boolean)
@@ -472,6 +515,61 @@ function KpiTable({
               <Plus size={15} />
              </button>
             ) : null}
+            {!r.suggested && r.kpi.fromRegistry && onRemove ? (
+             <span className="relative" data-remove-popover-root>
+              <button
+               type="button"
+               className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-status-critical-light hover:text-status-critical hover:opacity-100"
+               aria-label={`Remove ${r.kpi.name} from my metrics`}
+               title="Remove from my metrics"
+               onClick={(e) =>
+                confirmDeleteKey === key ? closeConfirmDelete() : openConfirmDelete(key, e.currentTarget)
+               }
+              >
+               <Trash2 size={15} />
+              </button>
+              {confirmDeleteKey === key &&
+               confirmDeletePos &&
+               createPortal(
+                <div
+                 role="dialog"
+                 aria-label={`Remove ${r.kpi.name}?`}
+                 data-remove-popover-root
+                 style={{ top: confirmDeletePos.top, right: confirmDeletePos.right }}
+                 className="fixed z-30 w-56 rounded-lg border border-border bg-surface p-3 text-left shadow-lg"
+                >
+                 <p className="text-xs leading-snug text-text-secondary">
+                  Remove <strong className="font-semibold text-text-primary">{r.kpi.name}</strong> from your
+                  registry? Dashboards using it must be changed first; you can adopt it again later.
+                 </p>
+                 {removeState?.identifier === r.kpi.identifier && removeState.error && (
+                  <p className="mt-1.5 text-xs text-status-critical">{removeState.error}</p>
+                 )}
+                 <div className="mt-2.5 flex items-center gap-3">
+                  <button
+                   type="button"
+                   disabled={removeState?.identifier === r.kpi.identifier && !removeState.error}
+                   onClick={() => onRemove(r)}
+                   className="inline-flex items-center gap-1.5 rounded-md bg-status-critical px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                   <Trash2 size={12} />
+                   {removeState?.identifier === r.kpi.identifier && !removeState.error
+                    ? "Removing…"
+                    : "Yes, remove"}
+                  </button>
+                  <button
+                   type="button"
+                   onClick={closeConfirmDelete}
+                   className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+                  >
+                   Cancel
+                  </button>
+                 </div>
+                </div>,
+                document.body
+               )}
+             </span>
+            ) : null}
             <button
              type="button"
              className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-surface-secondary hover:opacity-100 hover:text-primary"
@@ -554,6 +652,8 @@ export default function KpiDiscovery({
  onCreateDashboard,
  onOpenDetail,
  onAdopt,
+ onRemove,
+ removeState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -862,6 +962,8 @@ export default function KpiDiscovery({
           onToggleSelect={toggleSelect}
           onOpenDetail={onOpenDetail}
           onAdopt={onAdopt}
+          onRemove={onRemove}
+          removeState={removeState}
           adoptingIds={adoptingIds}
           adoptErrors={adoptErrors}
           onToggleActive={onToggleActive}

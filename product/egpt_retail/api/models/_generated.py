@@ -99,6 +99,18 @@ class CloudProvider(Enum):
     local = "local"
 
 
+class ColumnUsageRole(Enum):
+    """
+    What one column contributes to the formula -- the "USED AS" badge on "the columns it uses".
+    """
+
+    window = "window"
+    filter = "filter"
+    measure = "measure"
+    dimension = "dimension"
+    join_key = "join_key"
+
+
 class Confidence(Enum):
     """
     How strongly the evidence supports a proposal or suggestion. Not a probability; a reviewer reads it to decide what to look at first.
@@ -278,6 +290,33 @@ class FeasibilityVerdict(Enum):
     ready = "ready"
     partial = "partial"
     blocked = "blocked"
+
+
+class FormulaExplanation(BaseModel):
+    """
+    A human-readable rendering of `sql`, for the discovery panel's FORMULA card -- not a numerator/denominator KPI-to-KPI link (there is no such linkage), just two plain-English labels a renderer can lay out as a fraction. Optional; a KPI without one falls back to showing only the raw SQL.
+    """
+
+    expression_before: str = Field(
+        ...,
+        description='Everything in the expression before the ratio, or the whole expression verbatim when there is no ratio -- e.g. "value = ROUND( 100 x" or "value = COUNT(*)".',
+    )
+    numerator_label: str | None = Field(
+        None,
+        description='Plain-English description of the ratio\'s numerator, e.g. "count of buy inquiries with converted_to_quote = true". Null when the formula has no ratio.',
+    )
+    denominator_label: str | None = Field(
+        None,
+        description="Plain-English description of the ratio's denominator. Null in exactly the same cases as `numerator_label`.",
+    )
+    expression_after: str | None = Field(
+        "",
+        description='Everything after the ratio, or empty when there is no ratio -- e.g. ", 1 )".',
+    )
+    condition_label: str | None = Field(
+        None,
+        description="A plain-English \"where ...\" sentence describing the formula's filter/window. Null when there's nothing beyond the ratio itself worth naming.",
+    )
 
 
 class GapKind(Enum):
@@ -878,6 +917,28 @@ class TableRef(BaseModel):
     row_count: int | None = None
 
 
+class TableRole(Enum):
+    """
+    How the formula uses one of its `source_tables` -- the same physical table can be the fact table for one KPI and a lookup for another, so this is per-KPI usage, not a property of the table itself.
+    """
+
+    fact = "fact"
+    lookup = "lookup"
+
+
+class TableUsage(BaseModel):
+    """
+    How the formula uses one source table, paired with `ColumnUsage` to fill out "the data it reads".
+    """
+
+    table: str
+    role: TableRole
+    join_note: str | None = Field(
+        "",
+        description='One line naming what the join confirms or looks up, e.g. "Joined on linked_quote_id -> quote_id to confirm the quote exists". Empty for the fact table, which is read but not joined to anything.',
+    )
+
+
 class TermOrigin(Enum):
     """
     Whether the shipped ontology or the customer's overlay contributed a term (G10). Mirrors `egpt_retail.contracts.vocabulary.TermOrigin`.
@@ -1248,6 +1309,24 @@ class Column(BaseModel):
         description="What this column identifies, as accepted through review. Distinct from `description`, which is what the schema author wrote.",
     )
     joinable: bool | None = False
+
+
+class ColumnUsage(BaseModel):
+    """
+    One column the formula reads, and why -- "the columns it uses". Column-names the agent declares, not a parse of `sql` -- it already reads every table's columns to write the formula, so this is it stating what it used, the same trust `derived_from_tables` already carries for tables.
+    """
+
+    table: str
+    column: str
+    used_as: ColumnUsageRole
+    why: str | None = Field(
+        "",
+        description='One line: why this column and not a sibling that could plausibly mean the same thing, e.g. "Two time columns; the month cannot cut a 28-day window."',
+    )
+    definition: str | None = Field(
+        "",
+        description="The column's own definition from the semantic layer (`Column.meaning`, the reviewed definition -- falling back to `Column.description`, the schema's raw comment, when enrichment hasn't reached the column yet) -- what it holds, not why this KPI reads it (that's `why`). Read-only enrichment, like `SourceTableStatus.description`; not part of what a create/update or the agent's own output carries -- always `\"\"` on write, on a suggestion preview, or when the semantic layer has none.",
+    )
 
 
 class Concept(BaseModel):
@@ -1664,6 +1743,20 @@ class KpiSuggestion(BaseModel):
     derived_from_tables: list[str] = Field(..., min_length=1)
     confidence: Confidence
     proposed_sql: str | None = None
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="A human-readable rendering of `proposed_sql`, for the discovery card's preview before the KPI is adopted. Gated behind `kpis:write` the same way `proposed_sql` is -- its labels can name the same columns/tables the formula reads.",
+    )
+    column_usage: list[ColumnUsage] | None = Field(
+        [],
+        description='Which columns `proposed_sql` reads and why -- "the columns it uses" on the discovery card\'s preview. Gated behind `kpis:write` the same way `proposed_sql` is.',
+        validate_default=True,
+    )
+    table_usage: list[TableUsage] | None = Field(
+        [],
+        description="How `proposed_sql` uses each of `derived_from_tables` -- fact table or lookup, and what a lookup's join confirms. Gated behind `kpis:write` the same way `proposed_sql` is.",
+        validate_default=True,
+    )
     feasibility: Feasibility | None = None
     proposed_by: SkillRef | None = None
 
@@ -1905,6 +1998,47 @@ class SilentSchedule(BaseModel):
 
 class SnoozeRequest(BaseModel):
     until: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+
+
+class SourceTableStatus(BaseModel):
+    """
+    One `source_tables` entry's own presentation detail -- its most recent load (from `quality.load_run`/`quality.load_stream_count`, the same rows the load pipeline itself writes) plus, when available, what the semantic layer and this KPI's own `table_usage` say about it.
+    """
+
+    table: str
+    loaded_at: AwareDatetime | None = Field(
+        None,
+        description="When the load that produced this table's current row count finished. Null when the table has never loaded.",
+    )
+    row_count: int | None = None
+    load_verdict: str | None = Field(
+        None,
+        description="That load's own quality-gate verdict: `passed`, `blocked`, or `failed`.",
+    )
+    description: str | None = Field(
+        "",
+        description="The table's own description from the semantic layer (`Table.description`) -- what one row represents. Empty when the semantic layer has none, or is unreachable.",
+    )
+    concepts: list[str] | None = Field(
+        [],
+        description="Ontology concepts this table is an instance of (`Table.concepts`, K8 mapping). Same visibility as `source_tables` itself -- concept names, not schema internals.",
+    )
+    source_category: str | None = Field(
+        None,
+        description="The table's coarse landing source (`crm`, `analytics`, `session_replay`) from the ingestion contract. Null for a table this deployment's landing contract does not name.",
+    )
+    role: TableRole | None = Field(
+        None,
+        description="This KPI's own `table_usage` entry for the table, when it has one. Gated behind `kpis:write` the same way `sql` is -- null for a `kpis:read`-only caller regardless of whether the KPI has `table_usage` recorded.",
+    )
+    join_note: str | None = Field(
+        None,
+        description="This KPI's own `table_usage` join note for the table, when it has one. Same gate as `role`.",
+    )
+    unused_columns: list[str] | None = Field(
+        [],
+        description="The table's columns, from the semantic layer, that this KPI's `column_usage` does not name. Gated behind `kpis:write` the same way `column_usage` is -- always `[]` for a `kpis:read`-only caller, and also `[]` when the KPI has no `column_usage` recorded (there is nothing to compute a remainder against) or the semantic layer is unreachable.",
+    )
 
 
 class SpecEntity(BaseModel):
@@ -2200,6 +2334,15 @@ class Kpi(BaseModel):
         None,
         description="The formula with `{named}` placeholders. Returned only to callers holding `kpis:write`; a viewer sees the field absent.",
     )
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="A human-readable rendering of `sql`, for the FORMULA card. Gated behind `kpis:write` the same way `sql` is (`_may_read_sql`) -- its labels can name the same columns/tables the formula reads, so it is exactly the schema detail that gate exists to withhold from a `kpis:read`-only caller. Null for a hand-authored KPI, one adopted before this field existed, or a viewer without the scope.",
+    )
+    column_usage: list[ColumnUsage] | None = Field(
+        [],
+        description="The formula's own account of which columns it reads and why -- \"the columns it uses\". Gated behind `kpis:write` the same way `sql` is; always `[]` for a `kpis:read`-only caller, a hand-authored KPI, or one adopted before this field existed. This KPI's own `table_usage` (fact/lookup role, join notes) is not a separate list here -- it rides along on each of `source_table_status`'s entries instead, since both describe the same tables.",
+        validate_default=True,
+    )
     source_tables: list[str]
     parameters: list[KpiParameter] | None = None
     time_window: TimeWindow | None = None
@@ -2222,6 +2365,11 @@ class Kpi(BaseModel):
     dashboard_names: list[str] | None = Field(
         [],
         description="Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.",
+    )
+    source_table_status: list[SourceTableStatus] | None = Field(
+        [],
+        description="Each of `source_tables`' most recent load, from the warehouse's own load history -- only populated by `GET /kpis/{kpi_id}` (a list read never pays for N per-row warehouse queries), and only for a table that resolves to a known landed stream and has actually loaded at least once. Always `[]`, never a partial failure, when the warehouse is unreachable -- this is enrichment for the detail panel, not core KPI data.",
+        validate_default=True,
     )
     feasibility: Feasibility
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
@@ -2299,6 +2447,18 @@ class KpiWrite(BaseModel):
     result_shape: ResultShape | None = None
     dialect: Dialect | None = None
     sql: str
+    formula_explanation: FormulaExplanation | None = Field(
+        None,
+        description="The suggestion's `formula_explanation`, resent verbatim when adopting a proposal so the registry keeps it. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
+    column_usage: list[ColumnUsage] | None = Field(
+        None,
+        description="The suggestion's `column_usage`, resent verbatim when adopting a proposal. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
+    table_usage: list[TableUsage] | None = Field(
+        None,
+        description="The suggestion's `table_usage`, resent verbatim when adopting a proposal. Optional; an update that omits it carries the stored value forward like every other optional field here.",
+    )
     source_tables: list[str]
     parameters: list[KpiParameter] | None = None
     time_window: TimeWindow | None = None

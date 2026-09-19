@@ -17,6 +17,7 @@ Everything written here is prefixed ``livetest_kpi__`` and removed at the end of
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import timedelta
 from typing import Any, Iterator
@@ -108,7 +109,9 @@ def test_get_kpi_returns_a_definition_saved_to_the_real_registry(
     from egpt_retail.api.routers.kpis import get_kpi
 
     store.save(_definition())
-    wire = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    wire = asyncio.run(
+        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert wire.identifier == IDENT
     assert wire.sql == "SELECT count(*) FROM crm_contact"
     assert wire.feasibility.verdict.value in ("ready", "partial", "blocked")
@@ -120,10 +123,12 @@ def test_get_kpi_404s_on_a_missing_identifier(store: KpiRegistryStore) -> None:
     from egpt_retail.api.routers.kpis import get_kpi
 
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(
-            "livetest_kpi__does_not_exist",
-            _FakeRequest(authorization_enabled=False),
-            store=store,
+        asyncio.run(
+            get_kpi(
+                "livetest_kpi__does_not_exist",
+                _FakeRequest(authorization_enabled=False),
+                store=store,
+            )
         )
     assert excinfo.value.status_code == 404
 
@@ -205,7 +210,9 @@ def test_create_kpi_then_get_round_trips_the_new_columns(
     assert created.source.value == "customer"
     assert created.validated_against_snapshot is None
 
-    fetched = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    fetched = asyncio.run(
+        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert fetched.subject_area == "Customer Ops"
     assert fetched.source.value == "customer"
 
@@ -276,7 +283,9 @@ def test_delete_kpi_removes_the_row(store: KpiRegistryStore) -> None:
     store.save(_definition())
     delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        asyncio.run(
+            get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        )
     assert excinfo.value.status_code == 404
 
 
@@ -617,7 +626,9 @@ def test_get_kpi_wire_response_includes_dashboard_names(
         ],
     )
     try:
-        wire = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        wire = asyncio.run(
+            get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        )
         assert wire.dashboard_names == ["livetest_kpi__wire_dashboard"]
     finally:
         dashboard_store.delete(dashboard.id, "local")

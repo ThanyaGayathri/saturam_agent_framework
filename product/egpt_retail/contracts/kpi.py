@@ -44,10 +44,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CONTRACT_VERSION",
+    "ColumnUsage",
+    "ColumnUsageRole",
     "Dialect",
     "Feasibility",
     "FeasibilityReason",
     "FeasibilityVerdict",
+    "FormulaExplanation",
     "assess_feasibility_with_joins",
     "KpiDefinition",
     "KpiLevel",
@@ -56,6 +59,8 @@ __all__ = [
     "KpiParameter",
     "ParameterKind",
     "ResultShape",
+    "TableRole",
+    "TableUsage",
     "TimeWindow",
     "TimeWindowUnit",
     "assess_feasibility",
@@ -211,6 +216,100 @@ class KpiParameter:
 
 
 @dataclass(frozen=True)
+class FormulaExplanation:
+    """A human-readable rendering of the formula, for the discovery panel's FORMULA card --
+    separate from ``sql``, which is the executable text a person should never have to parse to
+    understand what the number means. Optional on every KPI: ``None`` for a hand-authored KPI,
+    or one adopted before this field existed, in which case the panel falls back to showing
+    just the raw SQL.
+
+    Deliberately not a single free-form string. A ratio KPI's numerator and denominator are
+    still one opaque SQL expression each (there is no numerator/denominator *KPI* linkage --
+    see the delivery plan's note on this), but *labelling* the two halves in plain English is
+    enough to render a real fraction instead of a wall of SQL, and an LLM asked for two short
+    labels is far more reliable than one asked to emit a specific inline math-notation string
+    a renderer would then have to parse back apart.
+    """
+
+    #: Everything before the ratio, or the whole expression verbatim when there is no ratio --
+    #: e.g. "value = ROUND( 100 x" or "value = COUNT(*)".
+    expression_before: str
+    #: Plain-English description of the ratio's numerator, e.g. "count of buy inquiries with
+    #: converted_to_quote = true". `None` when the formula has no ratio (a plain count/sum,
+    #: nothing divided) -- `denominator_label` is `None` in exactly the same cases.
+    numerator_label: Optional[str] = None
+    denominator_label: Optional[str] = None
+    #: Everything after the ratio, or empty when there is no ratio -- e.g. ", 1 )".
+    expression_after: str = ""
+    #: A plain-English "where ..." sentence describing the formula's filter/window, e.g. "where
+    #: buy inquiry = chat_type contains "buy" and as_of - 28 < chat_date <= as_of". `None` when
+    #: there's nothing beyond the ratio itself worth naming.
+    condition_label: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.expression_before.strip():
+            raise ValueError("expression_before must not be empty")
+        if (self.numerator_label is None) != (self.denominator_label is None):
+            raise ValueError(
+                "numerator_label and denominator_label must both be set or both be null"
+            )
+
+
+class ColumnUsageRole(str, Enum):
+    """What one column contributes to the formula -- the "USED AS" badge on the discovery
+    panel's "columns it uses" table. A closed set for the same reason every agent-filled field
+    here is: the agent picks from this list, it never invents a role."""
+
+    WINDOW = "window"
+    FILTER = "filter"
+    MEASURE = "measure"
+    DIMENSION = "dimension"
+    JOIN_KEY = "join_key"
+
+
+@dataclass(frozen=True)
+class ColumnUsage:
+    """One column the formula reads, and why -- the discovery panel's "columns it uses" table.
+    Presentation, like ``FormulaExplanation``: nothing here participates in feasibility or
+    execution, and a KPI with none (proposed before this field existed, or hand-authored) just
+    renders no section. Column-*names*, not a parse of ``sql``: the agent already reads every
+    table's columns to write the formula (``suggestions/context.py``'s harvest text), so this
+    is it declaring what it used, the same trust ``derived_from_tables`` already carries for
+    tables -- not a second system re-deriving the same fact by parsing SQL back apart.
+    """
+
+    table: str
+    column: str
+    used_as: ColumnUsageRole
+    #: One line: why this column and not a sibling that could plausibly mean the same thing,
+    #: e.g. "Two time columns; the month cannot cut a 28-day window."
+    why: str = ""
+
+
+class TableRole(str, Enum):
+    """How the formula uses one of its ``source_tables`` -- the "fact · read" / "lookup ·
+    joined" badge next to each table in "the data it reads". The same physical table can be
+    the fact table for one KPI and a lookup for another, so this is per-KPI usage, not a
+    property the table itself carries."""
+
+    FACT = "fact"
+    LOOKUP = "lookup"
+
+
+@dataclass(frozen=True)
+class TableUsage:
+    """How the formula uses one source table -- paired with :class:`ColumnUsage` to fill out
+    "the data it reads". ``join_note`` is one line naming what the join confirms or looks up
+    (e.g. "Joined on linked_quote_id -> quote_id to confirm the quote exists"); empty for the
+    fact table, which is not joined to anything, only read.
+    """
+
+    table: str
+    role: TableRole
+    join_note: str = ""
+
+
+@dataclass(frozen=True)
 class KpiDefinition:
     """One KPI, authoritative in Postgres and mirrored as a graph node (K11).
 
@@ -254,6 +353,15 @@ class KpiDefinition:
     #: feasibility or execution. ``None`` for a hand-authored KPI.
     rationale: Optional[str] = None
     business_value: Optional[str] = None
+    #: A human-readable rendering of `sql`, for the discovery panel's FORMULA card. Same
+    #: carry-on-adopt/None-until-then story as `rationale`/`business_value` above.
+    formula_explanation: Optional[FormulaExplanation] = None
+    #: The formula's own account of which columns it reads and why -- "the columns it uses".
+    #: Same carry-on-adopt/empty-until-then story as `formula_explanation`.
+    column_usage: Tuple[ColumnUsage, ...] = ()
+    #: How the formula uses each of its `source_tables` -- fact table or lookup, and what a
+    #: lookup's join confirms. Same carry-on-adopt/empty-until-then story as `column_usage`.
+    table_usage: Tuple[TableUsage, ...] = ()
     active: bool = True
     source: KpiOrigin = KpiOrigin.CUSTOMER
     dataset_ids: Tuple[str, ...] = ()
@@ -304,6 +412,25 @@ class KpiDefinition:
                 f"{self.identifier}: formula reads {sorted(read - self.source_tables)} "
                 "which source_tables does not list. Feasibility would report ready while the "
                 "formula is missing a table."
+            )
+
+        # Same drift the check above catches for `sql` itself, one layer of presentation
+        # detail over: a `column_usage`/`table_usage` entry naming a table `source_tables`
+        # does not list would render a column or a join note for a table this KPI does not
+        # actually read.
+        column_usage_tables = {cu.table.lower() for cu in self.column_usage}
+        if column_usage_tables - self.source_tables:
+            raise ValueError(
+                f"{self.identifier}: column_usage names "
+                f"{sorted(column_usage_tables - self.source_tables)} which source_tables does "
+                "not list."
+            )
+        table_usage_tables = {tu.table.lower() for tu in self.table_usage}
+        if table_usage_tables - self.source_tables:
+            raise ValueError(
+                f"{self.identifier}: table_usage names "
+                f"{sorted(table_usage_tables - self.source_tables)} which source_tables does "
+                "not list."
             )
 
     @property
