@@ -231,3 +231,106 @@ async def test_arun_sql_query_refuses_the_same_way(sqlite_engine):
     tools = _guarded_tools(sqlite_engine, "orders")
     result = await tools.arun_sql_query("DELETE FROM orders")
     assert result.startswith("Refused:")
+
+
+# ---------------------------------------------------------------------------
+# Schema resolution -- qualified names, and the search_path bare ones need
+# ---------------------------------------------------------------------------
+
+
+class _CapturingInspector:
+    """Records what `get_columns` was asked for. SQLite has no Postgres-style schemas, so a
+    round trip cannot tell `("crm_deal", schema="silver")` apart from the double-qualified
+    call that was the bug -- both simply find nothing. Capturing the arguments is what
+    actually distinguishes them."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def get_columns(self, table_name, schema=None):
+        self.calls.append((table_name, schema))
+        return [{"name": "id", "type": "INTEGER", "nullable": False, "default": None}]
+
+
+def test_describe_table_does_not_requalify_a_name_that_carries_its_own_schema(sqlite_engine):
+    """The bug this pins: a caller whose instructions name tables `silver.crm_deal` handed
+    that straight to describe_table, which passed it on *with* `schema=self.schema` and asked
+    for `silver.silver.crm_deal`. Every table raised NoSuchTableError, which this tool returns
+    to the model as a string rather than raising -- so the model lost all column knowledge and
+    answered from guesswork, producing confidently wrong numbers instead of an error."""
+    inspector = _CapturingInspector()
+    tools = SQLTools(db_engine=sqlite_engine, schema="silver")
+
+    with patch("egpt.integrations.tools.sql.sql.inspect", return_value=inspector):
+        tools.describe_table("silver.crm_deal")
+
+    assert inspector.calls == [("crm_deal", "silver")]
+
+
+def test_describe_table_still_applies_the_configured_schema_to_a_bare_name(sqlite_engine):
+    """The other half of the same rule: honouring a qualifier must not stop a bare name from
+    resolving against the toolkit's own schema, which is how every existing caller uses it."""
+    inspector = _CapturingInspector()
+    tools = SQLTools(db_engine=sqlite_engine, schema="silver")
+
+    with patch("egpt.integrations.tools.sql.sql.inspect", return_value=inspector):
+        tools.describe_table("crm_deal")
+
+    assert inspector.calls == [("crm_deal", "silver")]
+
+
+class _FakeResult:
+    returns_rows = False
+
+
+def _executed_on_postgres(tools, sql: str) -> list[str]:
+    """The statements `run_sql` sends with the Postgres branch forced on. Same faked-dialect
+    idiom as the statement-timeout tests above."""
+    executed: list[str] = []
+
+    def fake_execute(self, statement, *args, **kwargs):
+        executed.append(str(statement))
+        return _FakeResult()
+
+    with (
+        patch.object(type(tools.db_engine.dialect), "name", "postgresql"),
+        patch.object(Session, "execute", fake_execute),
+    ):
+        tools.run_sql(sql)
+    return executed
+
+
+def test_run_sql_sets_search_path_so_a_bare_table_name_resolves(sqlite_engine):
+    """A model writing ordinary SQL names tables bare (`FROM crm_deal`), and a role need not
+    have a search_path -- the retail warehouse's egpt_reader has none. Without this the
+    statement fails with UndefinedTable even though the table is right there in `silver`."""
+    tools = SQLTools(db_engine=sqlite_engine, schema="silver")
+    assert "SET LOCAL search_path = silver" in _executed_on_postgres(tools, "SELECT 1")
+
+
+def test_run_sql_sets_search_path_even_with_no_guard_attached(sqlite_engine):
+    """Deliberately not nested under the guard check: a schema needs resolving whether or not
+    a guard happens to be attached. Folding the two conditions together would leave an
+    unguarded toolkit with the original broken behaviour, which no other test would catch."""
+    tools = SQLTools(db_engine=sqlite_engine, schema="silver")
+    assert tools.guard is None
+    assert "SET LOCAL search_path = silver" in _executed_on_postgres(tools, "SELECT 1")
+
+
+def test_run_sql_omits_search_path_when_no_schema_is_configured(sqlite_engine):
+    """No schema means nothing to resolve against; emitting `SET LOCAL search_path = None`
+    would be a syntax error on a real server."""
+    tools = SQLTools(db_engine=sqlite_engine)
+    assert not any("search_path" in stmt for stmt in _executed_on_postgres(tools, "SELECT 1"))
+
+
+def test_run_sql_rejects_a_schema_that_is_not_a_plain_identifier(sqlite_engine):
+    """`SET` takes no bind parameter, so the schema is interpolated -- and therefore checked
+    at the point of use rather than trusted. Same reasoning as the statement-timeout guard
+    above: it is a constructor argument today, but an unchecked f-string at a SET site is
+    exactly how that stops being true later."""
+    tools = SQLTools(db_engine=sqlite_engine, schema="silver; DROP TABLE orders")
+
+    with patch.object(type(sqlite_engine.dialect), "name", "postgresql"):
+        with pytest.raises(ValueError):
+            tools.run_sql("SELECT 1")

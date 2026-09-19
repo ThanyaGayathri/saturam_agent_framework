@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from egpt.exceptions import SQLGuardRefusal
@@ -127,7 +128,15 @@ class SQLTools(Toolkit):
         try:
             log_debug(f"Describing table: {table_name}")
             inspector = inspect(self.db_engine)
-            table_schema = inspector.get_columns(table_name, schema=self.schema)
+            # A caller whose instructions name tables qualified (`silver.crm_deal`) hands that
+            # name straight back here, and passing it on *with* `schema=self.schema` asks for
+            # `silver.silver.crm_deal` -- a NoSuchTableError on every table, which this tool
+            # then returns to the model as a string rather than raising. The model is left with
+            # no column knowledge and guesses, so the failure surfaces as a confidently wrong
+            # answer rather than an error. A name that carries its own qualifier is therefore
+            # honoured as given; a bare one still falls back to the configured schema.
+            qualifier, _, bare_name = table_name.rpartition(".")
+            table_schema = inspector.get_columns(bare_name, schema=qualifier or self.schema)
             return json.dumps(
                 [
                     {
@@ -197,7 +206,30 @@ class SQLTools(Toolkit):
             limit = self.guard.effective_limit(limit, sql=sql)
 
         with self.Session() as sess, sess.begin():
-            if self.guard is not None and sess.bind is not None and sess.bind.dialect.name == "postgresql":
+            # Postgres-only, and deliberately not nested under the guard check below: a schema
+            # needs resolving whether or not a guard happens to be attached, and folding the
+            # two together would make an unguarded toolkit silently keep the broken behaviour.
+            is_postgres = sess.bind is not None and sess.bind.dialect.name == "postgresql"
+
+            if is_postgres and self.schema:
+                # A bare `FROM crm_deal` resolves only if the connection's search_path names
+                # this toolkit's schema, and a role need not have one -- egpt_reader in the
+                # retail warehouse has none, which is why that deployment's materialiser
+                # (product/egpt_retail/warehouse/gold.py) issues exactly this statement before
+                # its own work. Without it the tool is caught between two conventions: the
+                # caller's instructions may name tables qualified while a model writing
+                # ordinary SQL names them bare, and only one of the two can ever execute.
+                #
+                # SET LOCAL, so it is scoped to this transaction and never leaks into a pooled
+                # connection's default for the next caller. Interpolated for the same reason
+                # as the timeout below -- SET takes no bind parameter -- and therefore checked
+                # here rather than trusted: `schema` is a constructor argument today, not model
+                # output, but an unchecked f-string at a SET site is how that stops being true.
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.schema):
+                    raise ValueError(f"schema must be a plain SQL identifier, got {self.schema!r}")
+                sess.execute(text(f"SET LOCAL search_path = {self.schema}"))
+
+            if is_postgres and self.guard is not None:
                 # SET LOCAL scopes the timeout to this transaction only -- it resets on
                 # commit/rollback and never leaks into a pooled connection's default for the
                 # next caller. Postgres-only: SQLite (the dev-only backend, per CLAUDE.md) has
