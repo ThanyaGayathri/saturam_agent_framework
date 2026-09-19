@@ -61,6 +61,7 @@ _COLUMNS: Tuple[str, ...] = (
     "ssl_mode",
     "permission_level",
     "auth_method",
+    "username",
     "secret_ref",
     "status",
     "harvest_state",
@@ -90,6 +91,7 @@ def _ddl(schema: str) -> Tuple[str, ...]:
             ssl_mode             text        NOT NULL DEFAULT 'require',
             permission_level     text        NOT NULL DEFAULT 'read_only',
             auth_method          text        NOT NULL,
+            username             text        NOT NULL DEFAULT '',
             secret_ref           text        NOT NULL,
             status               text        NOT NULL DEFAULT 'registered',
             harvest_state        text        NOT NULL DEFAULT 'not_started',
@@ -137,6 +139,7 @@ def _row_to_data_source(row: Sequence[Any]) -> DataSource:
         ssl_mode=values["ssl_mode"],
         permission_level=PermissionLevel(values["permission_level"]),
         auth_method=AuthMethod(values["auth_method"]),
+        username=values["username"],
         secret_ref=values["secret_ref"],
         status=DataSourceStatus(values["status"]),
         harvest_state=HarvestState(values["harvest_state"]),
@@ -196,6 +199,7 @@ class DataSourceStore:
             create.ssl_mode,
             create.permission_level.value,
             create.credential.auth_method.value,
+            create.credential.username or "",
             secret_ref,
             DataSourceStatus.REGISTERED.value,
             HarvestState.NOT_STARTED.value,
@@ -299,6 +303,8 @@ class DataSourceStore:
             new_secret_ref = secret_store.write(existing.name, patch.credential)
             set_clauses.append("auth_method = %s")
             params.append(patch.credential.auth_method.value)
+            set_clauses.append("username = %s")
+            params.append(patch.credential.username or "")
             set_clauses.append("secret_ref = %s")
             params.append(new_secret_ref)
             old_secret_ref = existing.secret_ref

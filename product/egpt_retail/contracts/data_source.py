@@ -285,6 +285,12 @@ class DataSource:
     schema_name: str = ""
     ssl_mode: str = "require"
     permission_level: PermissionLevel = PermissionLevel.READ_ONLY
+    #: Non-secret -- the wire contract's own ``InternalSource.username`` is returned in the
+    #: clear (only ``password``/``api_key`` are ``writeOnly``), so this is stored as a plain
+    #: column rather than requiring every list/get to decrypt a credential just to show it.
+    #: Kept in sync with ``Credential.username`` by ``DataSourceStore.create``/``update``
+    #: whenever a credential is written or rotated; empty for an ``api_key``-only credential.
+    username: str = ""
     last_tested_at: Optional[datetime] = None
     last_test_ok: Optional[bool] = None
     last_test_message: str = ""

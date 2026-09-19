@@ -96,6 +96,7 @@ created = sources.create(
 )
 assert created.ssl_mode == "require"  # the wire contract's own default
 assert created.permission_level is PermissionLevel.READ_ONLY  # ditto
+assert created.username == "reporting_user"  # non-secret, stored in the clear
 print(
     f"created: id={created.id} status={created.status.value} secret_ref={created.secret_ref}"
 )
