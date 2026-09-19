@@ -61,49 +61,139 @@ function asInsight(block, body) {
  * `finding` / `kpi` -> FindingsBlock, whose `items` are `{title, value, change,
  * changeDirection, sentiment, desc}` stat tiles.
  *
- * One backend block becomes one tile. The backend sends prose, not a parsed number, so `value`
- * carries the text and `desc` the source attribution — a tile with a sentence in it reads
- * fine, and inventing a numeric split here would mean parsing the model's prose, which is
- * exactly the kind of guessing the rest of this pipeline refuses to do.
+ * The backend may now send `items` directly (one block, several tiles — the "At a glance"
+ * row). When it does not, one block still becomes one tile carrying the prose, which is what
+ * every pre-structured response produces: `value` takes the text and `desc` the source
+ * attribution. Parsing a number back out of the prose is deliberately not attempted — that is
+ * the guessing the rest of this pipeline refuses to do.
  */
 function asFindings(block, body) {
+  const items = Array.isArray(block.items) && block.items.length
+    ? block.items.map((item) => ({
+        title: item.title ?? "",
+        value: item.value ?? "",
+        desc: item.desc ?? "",
+        change: item.change ?? undefined,
+        changeDirection: item.change_direction ?? item.changeDirection ?? undefined,
+        sentiment: item.sentiment ?? undefined,
+      }))
+    : [{ title: block.title || "", value: body, desc: block.source || "" }];
   return {
     id: block.id,
     type: BLOCK_TYPES.FINDINGS,
     kind: block.kind,
     title: block.title || "",
-    items: [{ title: block.title || "", value: body, desc: block.source || "" }],
+    items,
   };
 }
 
-/** `recommendation` -> RecommendationBlock, whose items are `{text}`. */
+/**
+ * `recommendation` -> RecommendationBlock, whose items are `{text, priority, rationale}`.
+ *
+ * `priority` drives the "Do this first" / "Worth doing" / "Nice to have" badge, so a backend
+ * that sends it gets the graded list; one that does not still gets a single readable item.
+ */
 function asRecommendation(block, body) {
+  const items = Array.isArray(block.items) && block.items.length
+    ? block.items.map((item) =>
+        typeof item === "string"
+          ? { text: item }
+          : { text: item.text ?? "", priority: item.priority ?? undefined, rationale: item.rationale ?? undefined },
+      )
+    : [{ text: body }];
   return {
     id: block.id,
     type: BLOCK_TYPES.RECOMMENDATION,
     kind: block.kind,
     title: block.title || "",
-    items: [{ text: body }],
+    items,
   };
 }
 
 /**
- * `table` / `chart` -> Insight, deliberately.
- *
- * `TableBlock` needs `columns` and `rows`; `ChartBlock` needs `data` and a `chartKind`. The
- * backend's `AnswerBlock` carries none of that — the contract declares only `id` and `kind`,
- * and `playground.md` asks for `title`/`content`/`source`. Rendering the prose in an Insight
- * block shows the answer; emitting an empty TableBlock shows a header and no data, which reads
- * as "there were no rows" rather than "this surface cannot draw it yet". When the backend
- * grows structured table and series payloads, these get their own builders.
+ * A one-line caption, or nothing. Guards against the rare structured-output failure where a
+ * low-priority string field like this one comes back as several hundred characters of
+ * degenerate, self-referential text ("...placeholder_do_not_use_this_key...") ending in a
+ * stray fragment of JSON syntax -- observed directly, not a hypothetical. `data`/`items`/etc.
+ * are validated by the backend's own schema and can't carry this; a free-text field can, so
+ * it is the one place the frontend checks before rendering.
  */
+function sanitizedCaption(text) {
+  if (typeof text !== "string") return "";
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 220 || /[{}[\]]/.test(trimmed)) return "";
+  return trimmed;
+}
+
+/**
+ * `chart` -> ChartBlock when the backend sent series data, prose otherwise.
+ *
+ * `chart_kind` is the model's answer to "draw this as a pie/line/bar", and ChartBlock already
+ * supports `spark|bar|line|funnel|pie|sankey|treemap`; an unknown kind falls back to its own
+ * tabular view rather than vanishing. The snake_case names are the backend's idiom and are
+ * mapped here rather than at the source, so neither side has to speak the other's convention.
+ *
+ * Falling back to Insight when `data` is empty is the same judgement the previous version
+ * made for every chart: an empty ChartBlock reads as "there is no data" rather than "this was
+ * not drawn", and the prose at least carries the answer.
+ */
+function asChart(block, body) {
+  const data = Array.isArray(block.data) ? block.data : [];
+  if (!data.length) return asInsight(block, body);
+  return {
+    id: block.id,
+    type: BLOCK_TYPES.CHART,
+    kind: block.kind,
+    title: block.title || "",
+    description: sanitizedCaption(block.description) || body,
+    chartKind: block.chart_kind ?? block.chartKind ?? "bar",
+    data,
+    config: {
+      xKey: block.x_key ?? block.xKey ?? "label",
+      yKey: block.y_key ?? block.yKey ?? "value",
+      ...(block.config || {}),
+    },
+  };
+}
+
+/**
+ * `table` -> TableBlock when the backend sent `columns` and `rows`, prose otherwise.
+ *
+ * Rows arrive as a matrix — cell values in column order — because the backend's schema runs
+ * under `additionalProperties: false`, which forbids the arbitrary per-row keys an object
+ * would need. They are zipped back against `columns` here, since `TableBlock` reads
+ * `row[column.key]`. A row shorter than the header yields blanks rather than dropping the row.
+ */
+function asTable(block, body) {
+  const columns = Array.isArray(block.columns) ? block.columns : [];
+  const rawRows = Array.isArray(block.rows) ? block.rows : [];
+  if (!columns.length || !rawRows.length) return asInsight(block, body);
+  const rows = rawRows.map((row) =>
+    Array.isArray(row)
+      ? columns.reduce((acc, column, i) => {
+          acc[column.key || `col_${i}`] = row[i] ?? "";
+          return acc;
+        }, {})
+      : row,
+  );
+  return {
+    id: block.id,
+    type: BLOCK_TYPES.TABLE,
+    kind: block.kind,
+    title: block.title || "",
+    columns,
+    rows,
+    ...(block.max_rows ?? block.maxRows ? { maxRows: block.max_rows ?? block.maxRows } : {}),
+  };
+}
+
 const BUILDERS = Object.freeze({
   text: asInsight,
   finding: asFindings,
   kpi: asFindings,
   recommendation: asRecommendation,
-  table: asInsight,
-  chart: asInsight,
+  table: asTable,
+  chart: asChart,
 });
 
 /**
@@ -129,11 +219,19 @@ function toRenderableBlock(block) {
  */
 export function blocksFromAnswer(answer, { lineage = null } = {}) {
   const blocks = Array.isArray(answer?.blocks) ? answer.blocks : [];
+  // `followUps` is meta, not a block: `AnswerBlockRenderer` draws it as chips below the
+  // blocks and only when this is the latest assistant message, so it must not become part of
+  // the block list. Filtered to non-empty strings because a chip with no prompt behind it
+  // still looks clickable.
+  const followUps = (Array.isArray(answer?.follow_ups) ? answer.follow_ups : answer?.followUps || [])
+    .filter((prompt) => typeof prompt === "string" && prompt.trim())
+    .slice(0, 3);
   return {
     variant: "answer-block",
     blocks: blocks.map(toRenderableBlock),
     ...(answer?.notes ? { intro: answer.notes } : {}),
     ...(lineage ? { lineage } : {}),
+    ...(followUps.length ? { followUps } : {}),
   };
 }
 

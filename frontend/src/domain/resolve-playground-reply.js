@@ -55,14 +55,18 @@ function turnContext(profileId, userMeta) {
  */
 export async function resolvePlaygroundReply(userText, profileId, _exploreHub, userMeta) {
   const { mode, scopeId, sessionId } = turnContext(profileId, userMeta);
+  const ask = () => askPlayground({ question: userText, mode, scopeId, sessionId });
   let result;
   try {
-    result = await askPlayground({
-      question: userText,
-      mode,
-      scopeId,
-      sessionId,
-    });
+    result = await ask();
+    // A model occasionally answers with prose that never lands in the schema -- a genuine
+    // grounded answer, just not a parseable one, distinct from a refusal or a backend error.
+    // One silent retry, same question and session: the numbers were already computed once
+    // (a cache the tools underneath may still hold), and a second attempt independently
+    // structuring the same answer is far cheaper than making the user re-ask by hand.
+    if (typeof result.answer === "string" && result.answer.trim() && !result.refused) {
+      result = await ask();
+    }
   } catch (err) {
     // Said plainly rather than papered over with a seeded answer. `ApiError` carries the
     // backend's own `detail`, which names what went wrong far better than anything invented here.
