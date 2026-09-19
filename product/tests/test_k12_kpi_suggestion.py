@@ -8,6 +8,7 @@ reaches the discovery screen is the contract's own type rather than a copy of it
 
 from __future__ import annotations
 
+import json
 from typing import Any, List
 
 import pytest
@@ -338,7 +339,11 @@ def _proposal_drafts(*suggestions):
 
 
 def _proposal_draft(
-    identifier="quoterequest__count", sql="SELECT count(*) FROM crm_deal", source=None
+    identifier="quoterequest__count",
+    sql="SELECT count(*) FROM crm_deal",
+    source=None,
+    column_usage=None,
+    table_usage=None,
 ):
     return k12.KpiSuggestionDraft(
         identifier=identifier,
@@ -354,6 +359,8 @@ def _proposal_draft(
         derived_from_tables=["silver.crm_deal"],
         proposed_sql=sql,
         catalogue_source=source,
+        column_usage=column_usage or [],
+        table_usage=table_usage or [],
     )
 
 
@@ -484,6 +491,33 @@ class TestColumnAndTableUsage:
         report = k12.assemble(_set(draft), available_tables=frozenset({"crm_deal"}))
         assert report.suggestions == []
         assert report.dropped and "quote_request_count" in report.dropped[0]
+
+    def test_a_proposal_carrying_usage_is_json_serializable(self) -> None:
+        """Regression: `as_proposals()` is written straight to jsonb by the proposal store
+        (`egpt_retail.semantic.proposals`), so its payload must survive a real `json.dumps` --
+        not just pydantic's own `model_dump()`, which leaves enum fields (`used_as`, `role`)
+        as `ColumnUsageRole`/`TableRole` instances unless `mode="json"` is passed."""
+        draft = _proposal_draft(
+            column_usage=[
+                k12.ColumnUsageDraft(
+                    table="silver.crm_deal",
+                    column="deal_id",
+                    used_as=k12.ColumnUsageRoleDraft.MEASURE,
+                ),
+            ],
+            table_usage=[
+                k12.TableUsageDraft(
+                    table="silver.crm_deal", role=k12.TableRoleDraft.FACT
+                ),
+            ],
+        )
+        report = k12.assemble(
+            _proposal_drafts(draft), available_tables=frozenset({"crm_deal"})
+        )
+        payload = report.as_proposals()[0].payload
+        json.dumps(payload)  # must not raise TypeError
+        assert payload["column_usage"][0]["used_as"] == "measure"
+        assert payload["table_usage"][0]["role"] == "fact"
 
 
 def test_a_suggestion_with_a_formula_becomes_a_kpi_proposal_the_registry_can_adopt():

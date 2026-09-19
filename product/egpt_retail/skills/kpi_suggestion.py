@@ -420,10 +420,10 @@ class AssemblyReport(BaseModel):
                     else None
                 ),
                 "column_usage": [
-                    cu.model_dump() for cu in (suggestion.column_usage or [])
+                    cu.model_dump(mode="json") for cu in (suggestion.column_usage or [])
                 ],
                 "table_usage": [
-                    tu.model_dump() for tu in (suggestion.table_usage or [])
+                    tu.model_dump(mode="json") for tu in (suggestion.table_usage or [])
                 ],
             }
             proposals.append(
