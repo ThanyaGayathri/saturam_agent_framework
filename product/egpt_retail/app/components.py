@@ -49,6 +49,7 @@ from pydantic import BaseModel
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
 from egpt_retail.executors.areas import detect_business_areas
+from egpt_retail.executors.data_source_harvest import harvest_source
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
@@ -141,6 +142,13 @@ RFQ_WORKFLOW_ID = "rfq-funnel"
 #: seventh step appended to NIGHTLY_REFRESH_WORKFLOW_ID, so an alert-only re-run never
 #: re-triggers a gold rebuild and a gold-only re-run is never blocked on alert delivery.
 ALERT_EVALUATION_WORKFLOW_ID = "alert-evaluation"
+
+#: #306's per-source harvest: a registered data source's own schema, read for real and
+#: written into the shared semantic graph, tagged by which source produced it. Triggered
+#: the way build-plan.md's "Pipeline mechanism" decision already names --
+#: ``POST /workflows/harvest-source/runs`` with ``additional_data={"source_id": "..."}"``,
+#: the framework's own existing endpoint, nothing retail-specific to build there.
+HARVEST_SOURCE_WORKFLOW_ID = "harvest-source"
 
 #: The agents whose memory partitions the consolidator drains. The three static agents: the
 #: lifespan hands each one the memory provider, so each one writes a partition.
@@ -523,6 +531,17 @@ def build_workflows(
             ),
             db=db,
             steps=_chain((evaluate_alerts, record_provenance)),
+        ),
+        Workflow(
+            id=HARVEST_SOURCE_WORKFLOW_ID,
+            name="Harvest source",
+            description=(
+                "A registered data source's own schema (#306), read for real and written "
+                "into the shared semantic graph, tagged by which source produced it. "
+                "additional_data={'source_id': '...'} names which one."
+            ),
+            db=db,
+            steps=_chain((harvest_source,)),
         ),
     ]
 

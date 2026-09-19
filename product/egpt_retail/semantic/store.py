@@ -178,8 +178,19 @@ class SemanticGraphStore:
 
     # --- writes ------------------------------------------------------------------------
 
-    def write_harvest(self, harvest: Harvest, *, snapshot_version: str = "") -> int:
+    def write_harvest(
+        self, harvest: Harvest, *, snapshot_version: str = "", source_id: str = ""
+    ) -> int:
         """Write a K4 harvest into the graph, returning how many tables were written.
+
+        ``source_id`` (#306) tags every written table with which registered data source
+        produced it -- ``""`` (the default) for the operator's own nightly-refresh harvest,
+        unchanged from before this parameter existed. **Additive tagging only, not yet part
+        of a table's identity**: node uniqueness is still ``(schema, name)`` alone (#307 is
+        where that becomes a real multi-source key, with the migration a change like that
+        needs). Until then, two sources sharing one ``schema`` name would silently overwrite
+        each other's tables here -- :meth:`schema_owned_by_other_source` is the guard a
+        caller must run first to refuse that rather than let it happen.
 
         **Upserts and prunes; never wipes.** Tables and columns are merged by identity and
         the ones the harvest no longer has are removed. The first version of this method did
@@ -256,6 +267,7 @@ class SemanticGraphStore:
                 keep_tables,
                 keep_columns,
                 harvest,
+                source_id,
             )
         return len(rows)
 
@@ -267,6 +279,7 @@ class SemanticGraphStore:
         keep_tables: List[str],
         keep_columns: List[str],
         harvest: Harvest,
+        source_id: str = "",
     ) -> None:
         """The whole write in one transaction, so a failure part-way leaves the graph as it
         was rather than upserted-but-not-pruned, and the guard below reads inside the same
@@ -299,6 +312,7 @@ class SemanticGraphStore:
             SET t.row_count = row.row_count,
                 t.comment = row.comment,
                 t.snapshot_version = $version,
+                t.source_id = $source_id,
                 t.status = 'accepted'
             WITH t, row
             UNWIND row.columns AS col
@@ -312,32 +326,50 @@ class SemanticGraphStore:
             """,
             rows=rows,
             version=version,
+            source_id=source_id,
         )
         # Prune what the warehouse no longer has. Columns first, so a column dropped from
         # a surviving table goes; then tables, taking their remaining columns and edges.
+        # ``coalesce(t.source_id, '') = $source_id`` is belt-and-suspenders: every caller is
+        # expected to have already refused via `schema_owned_by_other_source` if `schema` is
+        # claimed by a different source, so this should never actually exclude a row in
+        # practice -- but if a future caller skips that guard, this is what stops a
+        # same-named schema from two different sources pruning each other instead of a
+        # refusal at write time.
         tx.run(
             f"""
             MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL} {{schema: $schema}})
             WHERE NOT (t.schema + '.' + t.name + '.' + c.name) IN $keep
+              AND coalesce(t.source_id, '') = $source_id
             DETACH DELETE c
             """,
             schema=schema,
             keep=keep_columns,
+            source_id=source_id,
         )
         tx.run(
             f"""
             MATCH (t:{TABLE_LABEL} {{schema: $schema}})
             WHERE NOT (t.schema + '.' + t.name) IN $keep
+              AND coalesce(t.source_id, '') = $source_id
             OPTIONAL MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t)
             DETACH DELETE c, t
             """,
             schema=schema,
             keep=keep_tables,
+            source_id=source_id,
         )
         # A column that lost its table some other way has no meaning; do not keep it.
         tx.run(f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c")
         # Any lingering row values from before this rule existed.
         tx.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
+        if source_id:
+            # The singleton Snapshot node is the *deployment's* last-harvest pointer -- the
+            # operator warehouse's, per the empty-string default every caller before #306
+            # used. A self-serve source's harvest must not overwrite it: it is not the
+            # deployment's harvest, and doing so would make GET /semantic/snapshot report a
+            # customer's own database name and timestamp in place of the operator's.
+            return
         tx.run(
             f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
             "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
@@ -373,11 +405,48 @@ class SemanticGraphStore:
         return await asyncio.to_thread(self.drop_schema, schema)
 
     async def awrite_harvest(
-        self, harvest: Harvest, *, snapshot_version: str = ""
+        self, harvest: Harvest, *, snapshot_version: str = "", source_id: str = ""
     ) -> int:
         """Async variant."""
         return await asyncio.to_thread(
-            self.write_harvest, harvest, snapshot_version=snapshot_version
+            self.write_harvest,
+            harvest,
+            snapshot_version=snapshot_version,
+            source_id=source_id,
+        )
+
+    def schema_owned_by_other_source(
+        self, schema: str, source_id: str
+    ) -> Optional[str]:
+        """#306's write-time guard against the collision :meth:`write_harvest`'s own
+        docstring describes: two data sources registered with the same ``schema`` name
+        would otherwise silently overwrite and prune each other's tables, since a table's
+        identity is still ``(schema, name)`` alone. Returns the *other* ``source_id`` already
+        using ``schema`` if one exists, or ``None`` if ``schema`` is unclaimed or already
+        belongs to ``source_id`` itself -- in either of which cases writing is safe. A
+        caller (#306's harvest executor) must check this before calling
+        :meth:`write_harvest` and refuse the harvest on a conflict rather than let the two
+        sources corrupt each other's semantic layer.
+        """
+        with self._driver.session(database=self._database) as session:
+            record = session.run(
+                f"""
+                MATCH (t:{TABLE_LABEL} {{schema: $schema}})
+                WHERE coalesce(t.source_id, '') <> $source_id
+                RETURN DISTINCT coalesce(t.source_id, '') AS other
+                LIMIT 1
+                """,
+                schema=schema,
+                source_id=source_id,
+            ).single()
+        return record["other"] if record else None
+
+    async def aschema_owned_by_other_source(
+        self, schema: str, source_id: str
+    ) -> Optional[str]:
+        """Async variant."""
+        return await asyncio.to_thread(
+            self.schema_owned_by_other_source, schema, source_id
         )
 
     def write_concept(

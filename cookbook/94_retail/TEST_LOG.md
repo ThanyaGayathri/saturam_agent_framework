@@ -5909,3 +5909,57 @@ infrastructure. `test_p1_sources_router.py`'s unsupported-source-type case and
 classification logic the success path would otherwise be the only thing proving.
 
 ---
+
+### P2_harvest_source.py
+
+**Status:** PASS
+
+**Description:** #306 -- the `harvest-source` workflow step: a registered source's own
+schema, read for real and written into the shared Neo4j graph, tagged by `source_id`. Run
+against the real control-plane Postgres, the real `egpt_warehouse` database (a throwaway
+`p2_cookbook` schema created and dropped by the script), and the real Neo4j container:
+`EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product .venv/bin/python
+cookbook/94_retail/P2_harvest_source.py`.
+
+The write path (`write_harvest`) and the new collision guard
+(`schema_owned_by_other_source`) needed real, unmerged data-model changes discovered while
+starting this phase: table identity in the graph is still `(schema, name)` alone (#307 is
+where that becomes a real multi-source key), so two sources sharing one `schema` name would
+otherwise silently prune and overwrite each other's tables the moment a second self-serve
+harvest ran. `source_id` is now tagged on every written table (additive, not yet part of
+identity) and `schema_owned_by_other_source` refuses a harvest whose target schema is
+already claimed by a different source -- checked here for real against `silver`, which the
+operator's own unscoped (`source_id=""`) harvest already occupies from prior K4/K7 cookbook
+runs. Also found and fixed: the singleton `Snapshot` node `write_harvest` maintains is the
+*deployment's* last-harvest pointer (the operator warehouse's) -- a self-serve source's
+harvest must skip writing it, or `GET /semantic/snapshot` would report a customer's database
+name in place of the operator's after the first self-serve harvest ran.
+
+No retail-specific "trigger a harvest" endpoint was built. `docs/plan/build-plan.md`'s own
+"Pipeline mechanism" decision already names `POST /workflows/{id}/runs` (the framework's
+existing endpoint) as how Connect should trigger a run, and `egpt.scheduler.executor.
+ScheduleExecutor` already calls a workflow's run endpoint over real HTTP for the same
+reason -- so `POST /workflows/harvest-source/runs` with
+`additional_data={"source_id": "..."}` is the trigger, registered in `build_workflows()`
+alongside `nightly-refresh`/`rfq-funnel`, with nothing new needed on `sources.py`.
+
+**Result:** All assertions passed against real infrastructure: `harvest_schema` read the
+real throwaway table; `write_harvest` tagged the real node (verified by a direct Neo4j
+read, not just through the store's own API); the collision guard refused a conflicting
+claim on `silver` for real; and the actual `harvest_source(step_input)` entry point refused
+a real, resolvable loopback host end to end, moving the source to `harvest_state=error`.
+Also re-ran `test_semantic_live.py` (`EGPT_INTEGRATION_POSTGRES=1 EGPT_INTEGRATION_NEO4J=1`)
+against real Postgres and Neo4j to check the `write_harvest`/`schema_owned_by_other_source`
+changes did not regress the existing schema-isolation, reharvest-preserves-review, or
+join-identity suites -- 73 passed, 1 pre-existing unrelated failure
+(`TestKpiRegistryLive::test_a_definition_survives_postgres`, an `updated_at` round-trip
+mismatch reproduced identically on the pre-#306 branch, not touched by this phase).
+
+**Not exercised live in this environment:** a genuinely successful harvest through the full
+`harvest_source()` entry point (SSRF-guard included) -- same limitation as #305's
+test-connection, no non-loopback reachable target available here.
+`test_p2_harvest_source.py::test_successful_harvest_writes_the_graph_and_marks_modelled`
+covers that path with the connection step faked; every other real piece it composes is
+proved live by this cookbook instead.
+
+---

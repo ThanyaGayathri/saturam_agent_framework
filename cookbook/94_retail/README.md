@@ -58,6 +58,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R15_golden_sets.py` | R15 | A golden question set for every real agent skill in `product/egpt_retail/skills/` (K8's two proposers, K12, K13, R9's spec extractor, R10's explanation, R11's playground, plus K14's own `synonym_proposer`/`join_path_explainer`), scored live and each recording a rehearsal-review row; `check_golden_gate` blocking an unreviewed score and allowing a reviewed, passing one; then the Verify scenario -- `join_path_explainer`'s prompt deliberately weakened (the exact rule against inventing a join for a null path), republished, the score drop and the gate's block both observed, then the prompt restored and the score confirmed recovered. Live against Azure when configured, otherwise a local Ollama model -- a real model call either way, never a mock. |
 | `P0_data_source_registration.py` | #304 (self-serve data sources, part of #302) | A user-registered data source against a real control-plane Postgres: the returned `DataSource` carries no credential field, the stored ciphertext does not contain the plaintext password, `SecretStore.read()` recovers the exact credential written, rotating a credential deletes the old secret and makes it unreadable, and deleting a source deletes its secret too. |
 | `P1_sources_router.py` | #305 (self-serve data sources, part of #302) | The real `/configure/sources` router (`InternalSource`), against the real store and real Postgres: create/get/list/patch/delete over real HTTP with no credential ever in a response body, and `POST .../test` refusing a real loopback host before attempting a connection -- proving the SSRF guard fires end to end, not just at the unit level. |
+| `P2_harvest_source.py` | #306 (self-serve data sources, part of #302) | The `harvest-source` workflow step against a real warehouse schema and a real Neo4j graph: `harvest_schema` reads real tables, `write_harvest` tags the real node with `source_id` (verified by a direct read), the collision guard refuses a source_id claiming `silver` (already held by the operator's own harvest), and the real `harvest_source()` entry point refuses a real loopback host end to end, moving the source to `harvest_state=error`. |
 
 Run:
 
@@ -91,6 +92,10 @@ EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_ware
 .venv/bin/python cookbook/94_retail/R04_landing_to_silver.py
 .venv/bin/python cookbook/94_retail/R04_conformance_sql.py   # no services
 bash cookbook/94_retail/R04_minio_load.sh                    # needs Docker
+
+# P2 needs the same Postgres plus egpt_warehouse (created just above) and Neo4j:
+EGPT_RETAIL_NEO4J_PASSWORD=password \
+  PYTHONPATH=product .venv/bin/python cookbook/94_retail/P2_harvest_source.py
 
 # R6 needs no services for the classification rules alone:
 .venv/bin/python cookbook/94_retail/R06_sql_guard_parsing.py
