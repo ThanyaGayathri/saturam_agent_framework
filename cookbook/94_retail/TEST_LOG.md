@@ -5875,3 +5875,37 @@ data-source secret being configured, matching `retail_warehouse_db_url`'s own
 "refused at the point of use" posture.
 
 ---
+
+### P1_sources_router.py
+
+**Status:** PASS
+
+**Description:** #305 -- the real router backing `/configure/sources` (`InternalSource`),
+which turned out to already be a stub-only resource in `api/openapi/paths/configure.yaml`
+predating #304 (found while starting this phase; #304 was amended in place to align its
+enums/fields with that existing wire schema exactly -- widened `SourceType`, added
+`PermissionLevel`/`ssl_mode`, and a plain non-secret `username` column, since
+`InternalSource.username` is returned in the clear). Run against the same local Postgres as
+P0: `PYTHONPATH=product .venv/bin/python cookbook/94_retail/P1_sources_router.py`.
+
+Wires the actual `sources.py` router (not a fake) to the actual `DataSourceStore` and
+`LocalEncryptedSecretStore` (not in-memory doubles -- those are what
+`test_p1_sources_router.py`'s 25 DB-free tests use, covering scopes, 404s, 422s, and the
+SSRF-guard/error-classification pure logic), inside a real FastAPI app driven by
+`TestClient`. Create -> get -> list -> patch -> delete over real HTTP, then the security-
+sensitive part: `POST /configure/sources/{id}/test` against `host="localhost"` -- a real
+resolvable loopback address -- refused by `_refused_host_reason` *before* any connection is
+attempted, returned as a 200 with `ok: false` per the contract's own "a failure is a 200"
+rule, and the refusal actually persisted on the row (`status=error`) when read back through
+the real store directly (the wire `InternalSource` has no `status` field, so this is the one
+assertion the HTTP response alone cannot make).
+
+**Result:** All assertions passed, including the live SSRF refusal. Not exercised live in
+this environment: a real *successful* connection test (`ok: true`) -- doing that would need a
+target host that both resolves and isn't loopback/link-local/RFC1918-from-a-container-the-
+host-can't-reach, which this local Docker Desktop setup can't offer without extra
+infrastructure. `test_p1_sources_router.py`'s unsupported-source-type case and
+`test_classify_connection_error`'s unit tests cover the response-shape and message-
+classification logic the success path would otherwise be the only thing proving.
+
+---
