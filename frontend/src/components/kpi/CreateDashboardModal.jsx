@@ -36,11 +36,12 @@ function chartFromSuggestion(chart, index) {
 /**
  * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style
  * metrics-and-purpose step feeding a dashboard-composition run, or straight into the shared
- * review/builder step. One flow for both entry points -- `DashboardsPage.jsx`'s plain "Create
- * dashboard" button and `KpiDiscoveryPage.jsx`'s "create from selection" -- so `rows`, when
- * given non-empty, no longer skips the mode picker (round-1 review comment: this PR had
- * silently reverted #272's fix reintroducing that skip); it only seeds `initialCharts`/
- * `purposeMetrics`, the starting point either path resets back to.
+ * review/builder step. The two entry points diverge on `rows`: `DashboardsPage.jsx`'s plain
+ * "Create dashboard" button passes none, so it lands on the mode picker; `KpiDiscoveryPage.jsx`'s
+ * "create from selection" passes the checked rows, which skips the mode picker entirely and
+ * opens straight into the manual builder, pre-filled one chart per metric (`initialCharts`).
+ * The AI path stays reachable from there -- the builder's "Change mode" link goes back to the
+ * mode picker, carrying the same selection into `purposeMetrics` if AI is then chosen.
  *
  * `onCreate({ name, refresh, charts, filterColumns })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
@@ -67,7 +68,11 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   [initialRows],
  );
 
- const [step, setStep] = useState("mode");
+ // A KPI-page selection (`initialRows` non-empty) skips straight to the manual builder; the
+ // plain "Create dashboard" button on the dashboards page (no rows) lands on the mode picker.
+ // Lazy initializer: `initialRows` is only used for the initial render's decision, never to
+ // redirect a step change already in progress.
+ const [step, setStep] = useState(() => (initialRows.length > 0 ? "builder" : "mode"));
  const [mode, setMode] = useState(null);
 
  const [name, setName] = useState("");
