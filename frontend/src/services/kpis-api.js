@@ -35,14 +35,40 @@ export function fetchKpi(identifier, { signal } = {}) {
  * is nothing to gain by listing every supported area when nothing was actually chosen. `ask`
  * (contract 1.2.3) is what the customer wants to measure, in their own words -- "Add KPI" ->
  * AI generated -- handed to the agents as the request to answer first; blank is the same as
- * none. Nothing is stored beyond the run row - a suggestion becomes a KPI only through
- * `createKpi`. */
-export function startKpiSuggestionRun(businessAreas, { ask, signal } = {}) {
+ * none. A finished run's suggestions are kept (`fetchCurrentKpiSuggestions`) but nothing else is stored -
+ * a suggestion becomes a KPI only through `createKpi`. */
+export function startKpiSuggestionRun(businessAreas, { ask, sourceId, signal } = {}) {
   const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
   const body = areas.length ? { business_areas: areas } : {};
   const request = typeof ask === "string" ? ask.trim() : "";
   if (request) body.ask = request;
+  // Contract 1.2.9: run for one connected source (how a run that failed after its harvest is
+  // started again). Absent is the deployment's own warehouse. 404 unknown, 409 not yet harvested.
+  if (typeof sourceId === "string" && sourceId) body.source_id = sourceId;
   return apiJson("/kpis/suggestions", "POST", body, { signal });
+}
+
+/** `GET /kpis/suggestions/current` - the suggestions to show now, kept between visits (contract
+ * 1.2.9): `{suggestions, notes, generating, failed}`. `suggestions` is the newest successful run
+ * of each connected source (and of the deployment's own warehouse), merged, less what is already
+ * in the registry and what a person dismissed -- so it is still there after a reload and on the
+ * next visit, where a run read by id only lasted as long as the page that started it. A source's
+ * suggestions are proposed automatically when its harvest finishes. `generating` is a run still
+ * working (a `KpiSuggestionRun`, poll it with `fetchKpiSuggestionRun`; its `source_id` says which
+ * source) and `failed` the newest run that failed with no later success for its source (its
+ * `error` is written for the reader); either may be null. `proposed_sql` is present only for a
+ * caller holding `kpis:write`, as everywhere else. */
+export function fetchCurrentKpiSuggestions({ signal } = {}) {
+  return apiGet("/kpis/suggestions/current", { signal });
+}
+
+/** `POST /kpis/suggestions/dismissals` - remove a suggestion for good (`kpis:write`). It leaves
+ * `fetchCurrentKpiSuggestions` and every run read afterwards, including a later run that proposes
+ * the same identifier again -- the agent has no memory of what was declined, so the backend keeps
+ * it. Applies to the whole deployment. Idempotent, so a double click is harmless. Resolves to
+ * `{identifier, dismissed_at}`. Nothing else changes: no KPI is created or removed. */
+export function dismissKpiSuggestion(identifier, { signal } = {}) {
+  return apiJson("/kpis/suggestions/dismissals", "POST", { identifier }, { signal });
 }
 
 /** `GET /kpis/suggestions/{run_id}` - one run, for polling. `result.suggestions[].proposed_sql`

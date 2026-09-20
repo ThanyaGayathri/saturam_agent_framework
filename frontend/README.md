@@ -129,6 +129,27 @@ What was already decided about it, and still applies:
   cloud profile are unchanged (no backend yet). Verified in a headless browser against the
   real API, Postgres and Neo4j -- `cookbook/94_retail/P4_frontend_connect_flow.mjs`, results
   in `cookbook/94_retail/TEST_LOG.md`.
+- **KPI suggestions after a harvest, kept and removable; a connected source's tables in the Data
+  catalog** (part of #302; contract 1.2.9). A source's harvest now ends with one KPI suggestion
+  run for it (the `suggest-kpis` step of the `harvest-source` workflow), and the KPIs page reads
+  what is standing -- `GET /kpis/suggestions/current`, via `fetchCurrentKpiSuggestions` in
+  `src/services/kpis-api.js` -- when it opens, so proposed KPIs are still there after a reload
+  rather than lasting one session. If the run is still working the page attaches to it and shows
+  its progress; if it failed, a banner says which source and why, with "Try again"
+  (`POST /kpis/suggestions` now takes `source_id`). Each suggestion has a trash control (row and
+  detail panel): `dismissKpiSuggestion` -> `POST /kpis/suggestions/dismissals`, remembered by the
+  backend for everyone, so it is neither on the next reload nor in a later run that proposes it
+  again. **A suggestion from a connected source cannot be added to the registry yet**: its
+  tables are in that source's harvest, not the deployment's own semantic snapshot, so the
+  registry would mark the KPI blocked and compute would refuse it. The UI says so instead of
+  offering the button (lifts with #314). The Data catalog (`useDataCatalog`) lists every
+  `modelled` source's tables alongside the deployment's own -- `GET /semantic/tables?source_id=`
+  and, for the columns, `GET /semantic/tables/{name}?source_id=` -- each card marked with its
+  source, and says how many tables a source contributed and when it last synced. Verified in a
+  headless browser against the real API, Postgres and Neo4j --
+  `cookbook/94_retail/P6_kpi_suggestions_after_harvest.mjs` and
+  `P6_kpi_suggestion_failure.mjs`, with the model replaced by the suggestion replay fixture;
+  results in `cookbook/94_retail/TEST_LOG.md`.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

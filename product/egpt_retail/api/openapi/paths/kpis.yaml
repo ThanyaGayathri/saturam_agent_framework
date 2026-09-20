@@ -222,6 +222,9 @@
               value: {business_area: supply_chain}
             every_area:
               value: {}
+            for_a_source:
+              summary: Suggest again for one connected source (1.2.9) -- how a run that failed after its harvest is retried.
+              value: {source_id: src_warehouse}
     responses:
       "202":
         description: Accepted. Poll the run for completion.
@@ -252,6 +255,24 @@
             examples:
               vocabulary:
                 value: {detail: "'logistics' is not a permitted business_area. This deployment permits: inventory, marketing, sales, supply_chain. Add it to the customer overlay if the business genuinely has it -- do not pick the nearest term.", code: invalid_vocabulary_term}
+      "404":
+        description: "`source_id` names no registered data source."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No such source: 'ds_missing'.", code: not_found}
+      "409":
+        description: "`source_id` names a source whose harvest has not finished, so it has no tables to suggest from."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_harvested:
+                value: {detail: "Source 'ds_new' has not been harvested yet (harvest_state is 'building').", code: conflict}
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
   get:
@@ -318,6 +339,111 @@
               timeout:
                 value: {detail: "The suggestion run did not finish within 180s. Use POST /kpis/suggestions and poll the run instead.", code: timeout}
 
+/kpis/suggestions/current:
+  get:
+    tags: [kpis]
+    operationId: getCurrentKpiSuggestions
+    summary: The suggestions to show now -- kept between visits, less what was adopted or dismissed.
+    description: |
+      What the KPIs page reads when it opens, so proposed KPIs are still there after a reload
+      or a return visit rather than lasting one session. A source's suggestions are proposed
+      automatically when its harvest finishes (the `suggest-kpis` step of the `harvest-source`
+      workflow), so a page opened after connecting a source finds them ready, or `generating`
+      while they are on the way.
+
+      The list is the newest successful run of each source, merged: a suggestion already in the
+      registry, or dismissed with `POST /kpis/suggestions/dismissals`, is not in it. Candidate
+      SQL (`proposed_sql` and what is derived from it) is present only for a caller holding
+      `kpis:write`, as on every other read of a suggestion.
+    x-egpt-scopes: [kpis:read]
+    responses:
+      "200":
+        description: The current suggestions, and what is running or has failed behind them.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSuggestionCurrent'
+            examples:
+              default:
+                value:
+                  suggestions:
+                    - identifier: supplier__avg_lead_time_days
+                      name: Average Supplier Lead Time
+                      description: Average days between expected and actual delivery; positive means late.
+                      business_area: supply_chain
+                      concept: Supplier
+                      grain: supplier
+                      result_shape: scalar
+                      rationale: supplier_deliveries carries expected_date and actual_date for every delivery.
+                      business_value: Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.
+                      derived_from_tables: [supplier_deliveries]
+                      confidence: high
+                      proposed_sql: "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL"
+                      feasibility: {kpi_id: supplier__avg_lead_time_days, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                      proposed_by: {identifier: kpi_suggestion, version: "0.1.0"}
+                      source_id: src_warehouse
+                  notes: ""
+                  generating: null
+                  failed: null
+              generating:
+                summary: A source was just connected; its suggestions are on the way.
+                value:
+                  suggestions: []
+                  notes: ""
+                  generating:
+                    id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                    status: running
+                    business_area: null
+                    business_areas: []
+                    source_id: src_warehouse
+                    created_at: "2026-09-14T10:00:00Z"
+                    started_at: "2026-09-14T10:00:01Z"
+                    finished_at: null
+                    result: null
+                    error: null
+                    phase: proposing
+                    typical_duration_seconds: 94.0
+                  failed: null
+              nothing_yet:
+                summary: No run has succeeded, none is running, none has failed.
+                value: {suggestions: [], notes: "", generating: null, failed: null}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+/kpis/suggestions/dismissals:
+  post:
+    tags: [kpis]
+    operationId: dismissKpiSuggestion
+    summary: Remove a suggestion so it is not shown again.
+    description: |
+      Records that a person does not want this suggestion. It is left out of
+      `GET /kpis/suggestions/current` and out of every suggestion run read afterwards --
+      including a later run that proposes the same identifier, since the agent has no memory of
+      what was declined. Idempotent: dismissing an identifier that is already dismissed returns
+      the existing dismissal. Nothing else changes -- no KPI is created or removed -- and it
+      applies to the whole deployment, not just the caller. Needs `kpis:write`: it changes what
+      everyone sees.
+    x-egpt-scopes: [kpis:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiSuggestionDismissalRequest'
+          examples:
+            default:
+              value: {identifier: supplier__avg_lead_time_days}
+    responses:
+      "200":
+        description: The dismissal.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSuggestionDismissal'
+            examples:
+              default:
+                value: {identifier: supplier__avg_lead_time_days, dismissed_at: "2026-09-14T10:05:00Z"}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
 /kpis/suggestions/{run_id}:
   get:
     tags: [kpis]

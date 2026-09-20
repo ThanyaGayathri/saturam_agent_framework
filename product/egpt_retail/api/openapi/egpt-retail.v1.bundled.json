@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.8",
+    "version": "1.2.9",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -2999,6 +2999,84 @@
           },
           "proposed_by": {
             "$ref": "#/components/schemas/SkillRef"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The registered data source (`InternalSource.id`) whose tables this suggestion was proposed from -- the source whose harvest triggered the run that produced it. Null for a suggestion proposed over the deployment's own warehouse (a run started by `POST /kpis/suggestions`)."
+          }
+        }
+      },
+      "KpiSuggestionCurrent": {
+        "type": "object",
+        "description": "The suggestions a person should see now, kept between visits. Unlike a run (which is one\npass of the agent and is read by id), this is the standing answer to \"what has the platform\nproposed that I have not yet adopted or dismissed\": the newest successful run of each\nsource (and of the deployment's own warehouse), merged, less every suggestion already in\nthe registry and every one a person dismissed (`POST /kpis/suggestions/dismissals`). A\nsuggestion appears once even if more than one source proposed it.\n\n`generating` and `failed` are for the screen to say what is happening behind the list: a\nrun still working (a source was just connected, and its suggestions are on the way) and\nthe most recent run that failed with no later success to replace it (so a missing list is\nexplained rather than silent). Both are runs with `result` omitted -- the list is\n`suggestions`.\n",
+        "required": [
+          "suggestions",
+          "notes"
+        ],
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KpiSuggestion"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "What the runs that produced `suggestions` said was missing (the skill template's refusal shape). Empty when nothing was."
+          },
+          "generating": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KpiSuggestionRun"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A run that is `queued` or `running` now, newest first if several are; poll it with `GET /kpis/suggestions/{run_id}` and read this again when it finishes. Null when nothing is running."
+          },
+          "failed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KpiSuggestionRun"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest run that ended `failed` and has not been superseded by a later success for the same source. Null when there is none."
+          }
+        }
+      },
+      "KpiSuggestionDismissal": {
+        "type": "object",
+        "description": "A suggestion a person removed. It stays out of `GET /kpis/suggestions/current` and out of every suggestion run read from then on, including runs that propose it again -- a dismissal is a decision, and the agent has no memory of it.",
+        "required": [
+          "identifier",
+          "dismissed_at"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "dismissed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "KpiSuggestionDismissalRequest": {
+        "type": "object",
+        "required": [
+          "identifier"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The suggestion's `identifier` (`KpiSuggestion.identifier`). Matched case-insensitively."
           }
         }
       },
@@ -3060,6 +3138,13 @@
               "null"
             ],
             "description": "The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none."
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The registered data source (`InternalSource.id`) this run was started for. A run is started for a source automatically when that source's harvest finishes (the `suggest-kpis` step of the `harvest-source` workflow), and reads only that source's tables. Null for a run started by `POST /kpis/suggestions`, which reads the deployment's own warehouse."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp"
@@ -3151,6 +3236,13 @@
             ],
             "maxLength": 2000,
             "description": "What the customer wants to measure, in their own words (\"Add KPI\" -> AI generated).\nHanded to the agents as the request to answer first, after the focus and before the\nstanding ask -- a steer, never a filter: what comes back is still every metric the data\nsupports, judged and stamped exactly as an unprompted run's would be, so a request the\nharvest cannot back produces no invented metric, only the agent's note saying so.\nWhitespace-only reads as absent.\n"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A registered data source (`InternalSource.id`) to suggest for. The run reads only that\nsource's tables and is recorded as that source's run (`KpiSuggestionRun.source_id`), so\nits result replaces the source's earlier suggestions in `GET /kpis/suggestions/current`.\nThis is how a run that failed after a harvest is started again for the same source.\n`404` for an id no source has, `409` for a source whose harvest has not finished\n(`InternalSource.harvest_state` is not `modelled`): there are no tables to read yet.\nAbsent (or null) is the deployment's own warehouse, as before.\n"
           }
         }
       },
@@ -7956,6 +8048,12 @@
                 },
                 "every_area": {
                   "value": {}
+                },
+                "for_a_source": {
+                  "summary": "Suggest again for one connected source (1.2.9) -- how a run that failed after its harvest is retried.",
+                  "value": {
+                    "source_id": "src_warehouse"
+                  }
                 }
               }
             }
@@ -8001,6 +8099,42 @@
                     "value": {
                       "detail": "'logistics' is not a permitted business_area. This deployment permits: inventory, marketing, sales, supply_chain. Add it to the customer overlay if the business genuinely has it -- do not pick the nearest term.",
                       "code": "invalid_vocabulary_term"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`source_id` names no registered data source.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No such source: 'ds_missing'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`source_id` names a source whose harvest has not finished, so it has no tables to suggest from.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_harvested": {
+                    "value": {
+                      "detail": "Source 'ds_new' has not been harvested yet (harvest_state is 'building').",
+                      "code": "conflict"
                     }
                   }
                 }
@@ -8116,6 +8250,187 @@
                     "value": {
                       "detail": "The suggestion run did not finish within 180s. Use POST /kpis/suggestions and poll the run instead.",
                       "code": "timeout"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/suggestions/current": {
+      "get": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "getCurrentKpiSuggestions",
+        "summary": "The suggestions to show now -- kept between visits, less what was adopted or dismissed.",
+        "description": "What the KPIs page reads when it opens, so proposed KPIs are still there after a reload\nor a return visit rather than lasting one session. A source's suggestions are proposed\nautomatically when its harvest finishes (the `suggest-kpis` step of the `harvest-source`\nworkflow), so a page opened after connecting a source finds them ready, or `generating`\nwhile they are on the way.\n\nThe list is the newest successful run of each source, merged: a suggestion already in the\nregistry, or dismissed with `POST /kpis/suggestions/dismissals`, is not in it. Candidate\nSQL (`proposed_sql` and what is derived from it) is present only for a caller holding\n`kpis:write`, as on every other read of a suggestion.\n",
+        "x-egpt-scopes": [
+          "kpis:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "The current suggestions, and what is running or has failed behind them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiSuggestionCurrent"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "suggestions": [
+                        {
+                          "identifier": "supplier__avg_lead_time_days",
+                          "name": "Average Supplier Lead Time",
+                          "description": "Average days between expected and actual delivery; positive means late.",
+                          "business_area": "supply_chain",
+                          "concept": "Supplier",
+                          "grain": "supplier",
+                          "result_shape": "scalar",
+                          "rationale": "supplier_deliveries carries expected_date and actual_date for every delivery.",
+                          "business_value": "Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.",
+                          "derived_from_tables": [
+                            "supplier_deliveries"
+                          ],
+                          "confidence": "high",
+                          "proposed_sql": "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL",
+                          "feasibility": {
+                            "kpi_id": "supplier__avg_lead_time_days",
+                            "verdict": "ready",
+                            "missing_tables": [],
+                            "rationale": "Every source table is present in the semantic snapshot.",
+                            "semantic_snapshot": "r3-contract.1"
+                          },
+                          "proposed_by": {
+                            "identifier": "kpi_suggestion",
+                            "version": "0.1.0"
+                          },
+                          "source_id": "src_warehouse"
+                        }
+                      ],
+                      "notes": "",
+                      "generating": null,
+                      "failed": null
+                    }
+                  },
+                  "generating": {
+                    "summary": "A source was just connected; its suggestions are on the way.",
+                    "value": {
+                      "suggestions": [],
+                      "notes": "",
+                      "generating": {
+                        "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                        "status": "running",
+                        "business_area": null,
+                        "business_areas": [],
+                        "source_id": "src_warehouse",
+                        "created_at": "2026-09-14T10:00:00Z",
+                        "started_at": "2026-09-14T10:00:01Z",
+                        "finished_at": null,
+                        "result": null,
+                        "error": null,
+                        "phase": "proposing",
+                        "typical_duration_seconds": 94.0
+                      },
+                      "failed": null
+                    }
+                  },
+                  "nothing_yet": {
+                    "summary": "No run has succeeded, none is running, none has failed.",
+                    "value": {
+                      "suggestions": [],
+                      "notes": "",
+                      "generating": null,
+                      "failed": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: kpis:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/suggestions/dismissals": {
+      "post": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "dismissKpiSuggestion",
+        "summary": "Remove a suggestion so it is not shown again.",
+        "description": "Records that a person does not want this suggestion. It is left out of\n`GET /kpis/suggestions/current` and out of every suggestion run read afterwards --\nincluding a later run that proposes the same identifier, since the agent has no memory of\nwhat was declined. Idempotent: dismissing an identifier that is already dismissed returns\nthe existing dismissal. Nothing else changes -- no KPI is created or removed -- and it\napplies to the whole deployment, not just the caller. Needs `kpis:write`: it changes what\neveryone sees.\n",
+        "x-egpt-scopes": [
+          "kpis:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KpiSuggestionDismissalRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "identifier": "supplier__avg_lead_time_days"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The dismissal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiSuggestionDismissal"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "identifier": "supplier__avg_lead_time_days",
+                      "dismissed_at": "2026-09-14T10:05:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: kpis:write.",
+                      "code": "insufficient_scope"
                     }
                   }
                 }
@@ -16413,6 +16728,15 @@
               "default": false
             },
             "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A registered data source's id (`InternalSource.id`). Absent means the deployment's own warehouse, as before. With it, the table is looked up among that source's own harvest -- the same scoping `listSemanticTables` applies, so a table listed under a source can be read back under it. `404` when the source is unknown, and `404` (the table's own) when the source holds no table of that name."
           }
         ],
         "responses": {

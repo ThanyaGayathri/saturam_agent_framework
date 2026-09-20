@@ -8,7 +8,7 @@ import { readLocalJson, writeLocalJson } from "../../storage/local-json";
 import { AlertTriangle, Sparkles } from "lucide-react";
 import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
-import SuggestionRunPanel from "./SuggestionRunPanel";
+import SuggestionRunPanel, { SourceRunFailure } from "./SuggestionRunPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
 import AddKpiModal from "./add-kpi/AddKpiModal";
 import { buildDashboardWritePayload } from "../../storage/dashboards";
@@ -21,6 +21,8 @@ import {
  fetchKpi,
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
+ fetchCurrentKpiSuggestions,
+ dismissKpiSuggestion,
  createKpi,
  fetchKpiSeries,
  computeKpi,
@@ -28,6 +30,7 @@ import {
  updateKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
+import { fetchSources } from "../../services/sources-api";
 
 // Polling cadence for a suggestion run (#254): every 2s at first, every 5s once the run has
 // been going for half a minute, and give up at 4 minutes -- the backend's own default bound
@@ -63,6 +66,13 @@ const IDLE_SUGGESTION_STATE = {
  serverFinishedAt: null,
  clientSeconds: null,
  receipt: false,
+ // The suggestions of the run the receipt describes -- kept apart from `suggestions`, which is
+ // the standing list (every source's newest run, merged), so "N KPIs proposed" counts what
+ // that run found rather than everything on the page.
+ receiptSuggestions: [],
+ // The connected source the run is for (contract 1.2.9) -- null for the deployment's own
+ // warehouse. Carried so "Suggest again" / "Try again" repeat the run for the same source.
+ sourceId: null,
 };
 
 /**
@@ -76,11 +86,15 @@ const IDLE_SUGGESTION_STATE = {
  * third is no longer mixed into this grid -- it has no real identifiers, so nothing on it could
  * be adopted or put on a dashboard; it still backs Configure > KPIs and the tours):
  *
- *  1. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
- *     `kpi_suggestion` agent (`POST /kpis/suggestions`, polled until done -- F1, #234 and #254)
- *     when the customer asks for them. Nothing is started until "Suggest KPIs" is clicked:
- *     unlike the registry/real-area fetches below, this is a minutes-long frontier-tier model
- *     run, not something to run unprompted on page load. They
+ *  1. SUGGESTED candidates -- metrics not in the registry yet, proposed by runs of the
+ *     `kpi_suggestion` agent (F1, #234 and #254) and kept between visits (contract 1.2.9): the page
+ *     reads what is standing (`GET /kpis/suggestions/current`) when it opens, so proposals are still
+ *     here after a reload. A connected source's suggestions are proposed automatically when its
+ *     harvest ends -- if that run is still working the page attaches to it -- and a person can
+ *     dismiss one for good (`POST /kpis/suggestions/dismissals`). Nothing *new* is started by
+ *     opening the page: "Suggest KPIs" (`POST /kpis/suggestions`, polled until done) is still how
+ *     the customer asks for a run over the deployment's own warehouse, since it is a minutes-long
+ *     frontier-tier model run, not something to fire on page load. They
  *     are shown as adoptable candidates rather than as results, because a metric that cannot be
  *     edited, governed or reproduced is not something anyone should build a dashboard on --
  *     "adopt" calls `POST /kpis` for real, and only once the suggestion's own feasibility says
@@ -127,8 +141,10 @@ export default function KpiDiscoveryPage() {
  });
  const setFocusAreaIds = (ids) => { setFocusState(ids); writeLocalJson(FOCUS_KEY, ids); };
 
- // The live suggestion run (F1, #234): idle until "Suggest KPIs" is clicked, since each run is
- // two real frontier-tier model calls that take minutes, not something to fire on mount. It is
+ // The live suggestion run (F1, #234): idle until "Suggest KPIs" is clicked (or the page attaches
+ // to a run already working, below), since each run is two real frontier-tier model calls that
+ // take minutes, not something to fire on mount. `suggestions` is the standing list, not one
+ // run's -- see `loadCurrent`. The run is
  // a run to poll, not a response to await (#254): `runId` is the row `POST /kpis/suggestions`
  // returned and `startedAt` when this click started it, so the panel can show elapsed time
  // and the poll loop can give up at a ceiling. `phase` and `typicalDuration` are what the row
@@ -158,6 +174,14 @@ export default function KpiDiscoveryPage() {
  // api's own account (a 409 names the dashboards still using the KPI) and stays with the
  // panel until it is closed or the removal is retried.
  const [removeState, setRemoveState] = useState({ identifier: null, error: null });
+ // Dismissing a suggestion, one at a time like a removal: `identifier` stays set on failure so the
+ // row (and the panel) that failed can show the api's own account of why.
+ const [dismissState, setDismissState] = useState({ identifier: null, error: null });
+ // The newest run that failed with no later success for its source (`GET /kpis/suggestions/
+ // current`'s `failed`), and the connected sources' names to say which one. A failure after a
+ // harvest would otherwise be invisible -- nobody clicked anything to see it fail.
+ const [failedRun, setFailedRun] = useState(null);
+ const [sourceNames, setSourceNames] = useState({});
  // A registry row's description/sql edit (`PATCH /kpis/{id}`), one at a time from whichever
  // panel is open. A suggestion's edit never reaches here -- it is a local patch to
  // `suggestionState.suggestions`, always synchronous, with nothing to load or fail.
@@ -324,6 +348,7 @@ export default function KpiDiscoveryPage() {
  const lastPhaseRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
  const removeAbortRef = useRef(null);
+ const dismissAbortRef = useRef(null);
  const updateAbortRef = useRef(null);
  // The manual "Add KPI" form's `POST /kpis` (`onCreateManual` below) -- one at a time, since
  // the modal refuses to close while it is in flight.
@@ -460,6 +485,11 @@ export default function KpiDiscoveryPage() {
    error: message,
    phase,
    ask: prev.ask,
+   sourceId: prev.sourceId,
+   // A failed run does not take the standing suggestions off the page: they are the answer
+   // of earlier runs, still true.
+   suggestions: prev.suggestions,
+   notes: prev.notes,
   }));
  // What every poll (and the 202 from starting a run) tells the panel: the stage the run is in
  // and the deployment's typical duration. Either may be null on a given read; keep what we had.
@@ -472,6 +502,7 @@ export default function KpiDiscoveryPage() {
   phase: run.phase ?? prev.phase,
   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
   ask: run.ask ?? prev.ask,
+  sourceId: run.source_id ?? prev.sourceId,
  });
 
  // Poll one run to a terminal state (#254). Shared by a fresh click (`runSuggestions`) and a
@@ -534,7 +565,12 @@ export default function KpiDiscoveryPage() {
        serverFinishedAt: run.finished_at || null,
        clientSeconds: (Date.now() - startedAt) / 1000,
        receipt: true,
+       receiptSuggestions: run.result?.suggestions || [],
       }));
+      // What the page keeps is the standing list, not this one run's: a source's new run
+      // replaces that source's earlier suggestions and leaves every other source's in place,
+      // less what was adopted or dismissed. The backend merges them; ask it.
+      loadCurrentRef.current?.({ attach: false });
       return;
      }
      if (run?.status === "failed") {
@@ -580,11 +616,25 @@ export default function KpiDiscoveryPage() {
  // as no request.
  const runSuggestions = (options) => {
   const ask = options && typeof options.ask === "string" && options.ask.trim() ? options.ask.trim() : null;
+  // The source a run is for (contract 1.2.9): "Try again" on a run that failed after a harvest,
+  // or "Suggest again" on one that finished. Null is the deployment's own warehouse.
+  const sourceId = options && typeof options.sourceId === "string" && options.sourceId ? options.sourceId : null;
   const controller = beginWatch();
   const startedAt = Date.now();
-  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt, ask });
+  // The standing suggestions stay on the page while a run works: they are kept between visits
+  // now, and a new run replaces them only when it has something to replace them with.
+  setSuggestionState((prev) => ({
+   ...IDLE_SUGGESTION_STATE,
+   status: "loading",
+   startedAt,
+   ask,
+   sourceId,
+   suggestions: prev.suggestions,
+   notes: prev.notes,
+  }));
+  setFailedRun(null);
 
-  startKpiSuggestionRun(suggestBusinessAreas, { ask, signal: controller.signal })
+  startKpiSuggestionRun(suggestBusinessAreas, { ask, sourceId, signal: controller.signal })
    .then((run) => {
     if (controller.signal.aborted) return;
     if (!run?.id) {
@@ -600,6 +650,84 @@ export default function KpiDiscoveryPage() {
     fail(err?.detail || err?.message || "Something went wrong.");
    });
  };
+
+ // The standing suggestions (contract 1.2.9): what is kept between visits, so proposed KPIs are
+ // still here after a reload and on the next visit -- not only for as long as the page that
+ // started a run. A source's suggestions are proposed automatically when its harvest ends, so
+ // opening this page after connecting one finds them ready, or -- if the run is still working --
+ // attaches to it and shows its progress, then the list once it lands.
+ //
+ // `attach` says whether a run still in flight should be watched: true when the page opens, false
+ // when a run this page was already watching has just landed (there is nothing new to attach to).
+ // Only ever attaches from `idle`: a run the customer started is the one the panel is showing.
+ // Failing to read the list is silent -- it is a convenience layered over the idle bar, which
+ // still works, and an error banner for something nobody asked for would only be noise.
+ const currentAbortRef = useRef(null);
+ const suggestionStatusRef = useRef("idle");
+ suggestionStatusRef.current = suggestionState.status;
+ const loadCurrentRef = useRef(null);
+ const loadCurrent = ({ attach = true } = {}) => {
+  currentAbortRef.current?.abort();
+  const controller = new AbortController();
+  currentAbortRef.current = controller;
+  fetchCurrentKpiSuggestions({ signal: controller.signal })
+   .then((current) => {
+    if (controller.signal.aborted) return;
+    const suggestions = current?.suggestions || [];
+    const notes = current?.notes || "";
+    const generating = current?.generating || null;
+    setFailedRun(current?.failed || null);
+    if (!(attach && generating && suggestionStatusRef.current === "idle")) {
+     setSuggestionState((prev) => ({ ...prev, suggestions, notes }));
+     return;
+    }
+    const watch = beginWatch();
+    const startedAt = Date.parse(generating.started_at || generating.created_at) || Date.now();
+    lastPhaseRef.current = generating.phase ?? null;
+    setSuggestionState((prev) => ({
+     ...prev,
+     status: "loading",
+     suggestions,
+     notes,
+     runId: generating.id,
+     startedAt,
+     phase: generating.phase ?? null,
+     typicalDuration: generating.typical_duration_seconds ?? prev.typicalDuration,
+     ask: generating.ask ?? null,
+     sourceId: generating.source_id ?? null,
+    }));
+    watchRun(generating.id, startedAt, watch, {
+     onLost: () => {
+      setSuggestionState((prev) => ({ ...prev, status: "idle", startedAt: null, phase: null, runId: null }));
+      loadCurrentRef.current?.({ attach: false });
+     },
+    });
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+   });
+ };
+ loadCurrentRef.current = loadCurrent;
+
+ // On mount. A run named in the URL (`?run=`) is resumed by the effect further down instead --
+ // and reads the standing list itself when it lands -- so this leaves it alone.
+ useEffect(() => {
+  if (!params.get(RUN_PARAM)) loadCurrentRef.current?.({ attach: true });
+  return () => currentAbortRef.current?.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, []);
+
+ // The connected sources' names, for saying which source a failed run was for.
+ useEffect(() => {
+  const controller = new AbortController();
+  fetchSources({ signal: controller.signal })
+   .then((list) => {
+    if (controller.signal.aborted) return;
+    setSourceNames(Object.fromEntries((Array.isArray(list) ? list : []).map((src) => [src.id, src.name])));
+   })
+   .catch(() => {});
+  return () => controller.abort();
+ }, []);
 
  // Keeps `?run=` in step with `runId`: set while a run is in flight or holds a succeeded
  // result, gone the moment it doesn't (cancelled, or `fail` resets to `IDLE_SUGGESTION_STATE`,
@@ -641,7 +769,13 @@ export default function KpiDiscoveryPage() {
   // just starts watching the run the state already names, off the already-seeded `startedAt`
   // rather than recomputing (and re-setting) a second, slightly different one.
   const startedAt = suggestionState.startedAt;
-  watchRun(runId, startedAt, controller, { onLost: () => setSuggestionState(IDLE_SUGGESTION_STATE) });
+  watchRun(runId, startedAt, controller, {
+   onLost: () => {
+    setSuggestionState(IDLE_SUGGESTION_STATE);
+    // The run named in the URL is gone, but the standing suggestions are not.
+    loadCurrentRef.current?.({ attach: false });
+   },
+  });
   return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
@@ -821,6 +955,40 @@ export default function KpiDiscoveryPage() {
    })
    .finally(() => {
     if (removeAbortRef.current === controller) removeAbortRef.current = null;
+   });
+ };
+
+ // Remove a suggestion for good (contract 1.2.9): `POST /kpis/suggestions/dismissals`, then off
+ // the page. The backend remembers it, so it is not on the next reload either -- nor in a later
+ // run that proposes the same KPI again, for anyone. Not optimistic: the card stays until the
+ // backend has said yes, so a refused dismissal (a viewer without `kpis:write`) is a visible
+ // error on the row rather than a card that vanishes and comes back on reload.
+ const handleDismissSuggestion = (row) => {
+  const identifier = row?.suggestion?.identifier;
+  if (!identifier) return;
+  dismissAbortRef.current?.abort();
+  const controller = new AbortController();
+  dismissAbortRef.current = controller;
+  setDismissState({ identifier, error: null });
+  dismissKpiSuggestion(identifier, { signal: controller.signal })
+   .then(() => {
+    if (controller.signal.aborted) return;
+    setSuggestionState((prev) => ({
+     ...prev,
+     suggestions: prev.suggestions.filter((sug) => sug.identifier !== identifier),
+    }));
+    setDismissState({ identifier: null, error: null });
+    setDetailRow((prev) => (prev?.suggested && prev?.suggestion?.identifier === identifier ? null : prev));
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setDismissState({
+     identifier,
+     error: err?.detail || err?.message || "Couldn't dismiss this suggestion.",
+    });
+   })
+   .finally(() => {
+    if (dismissAbortRef.current === controller) dismissAbortRef.current = null;
    });
  };
 
@@ -1026,6 +1194,9 @@ export default function KpiDiscoveryPage() {
  // it actually belongs to, not on every registry row's panel.
  const removeError = (row) =>
   row?.kpi?.fromRegistry && removeState.identifier === row.kpi.identifier ? removeState.error : null;
+ // Same reasoning as `removeError`, for a suggestion's dismissal.
+ const dismissError = (row) =>
+  row?.suggested && dismissState.identifier === row.suggestion?.identifier ? dismissState.error : null;
  // Same reasoning as `removeError`, for `handleUpdateKpi`'s save.
  const updateError = (row) =>
   row?.kpi?.fromRegistry && updateState.identifier === row.kpi.identifier ? updateState.error : null;
@@ -1111,6 +1282,17 @@ export default function KpiDiscoveryPage() {
     onDismiss={dismissReceipt}
    />
 
+   {/* A run that failed after a harvest -- nobody clicked anything to watch it fail, so this is
+       where the customer finds out. Not while a run is on screen: that run has its own panel,
+       and starting one clears this. */}
+   {failedRun && suggestionState.status !== "loading" && suggestionState.status !== "error" && (
+    <SourceRunFailure
+     error={failedRun.error}
+     sourceName={failedRun.source_id ? sourceNames[failedRun.source_id] || "a connected source" : null}
+     onRetry={() => runSuggestions({ sourceId: failedRun.source_id })}
+    />
+   )}
+
    {/* A saved focus whose ids are all absent from the real vocabulary (deployment changed,
        or the two vocabularies genuinely disagree) degrades to no focus rather than widening
        to "everything" -- but that degrade should not be silent (review). */}
@@ -1133,6 +1315,8 @@ export default function KpiDiscoveryPage() {
     onAdopt={handleAdopt}
     onRemove={handleRemove}
     removeState={removeState}
+    onDismiss={handleDismissSuggestion}
+    dismissState={dismissState}
     adoptingIds={adoptingIds}
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
@@ -1209,6 +1393,11 @@ export default function KpiDiscoveryPage() {
      onAdopt={handleAdopt}
      adopting={!!detailRow.suggestion && adoptingIds.has(detailRow.suggestion.identifier)}
      adoptError={detailRow.suggestion && adoptErrors[detailRow.suggestion.identifier]}
+     onDismiss={detailRow.suggested ? handleDismissSuggestion : undefined}
+     dismissing={
+      !!detailRow.suggestion && dismissState.identifier === detailRow.suggestion.identifier && !dismissState.error
+     }
+     dismissError={dismissError(detailRow)}
      onSaveEdit={(patch) =>
       detailRow.suggested ? handleEditSuggestionDraft(detailRow, patch) : handleUpdateKpi(detailRow, patch)
      }

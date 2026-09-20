@@ -109,6 +109,37 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.9 — 2026-09-21 — kpis: persistent suggestions (`getCurrentKpiSuggestions`, `dismissKpiSuggestion`); semantic: `getSemanticTable` `source_id` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of
+#302: what a connected source gives the customer once its harvest is over.
+
+- **`GET /kpis/suggestions/current`** (`getCurrentKpiSuggestions`, `KpiSuggestionCurrent`). A
+  suggestion run is a job and its result was read by id, so proposed KPIs lasted as long as
+  the page that started the run: reload, or come back tomorrow, and they were gone. This is
+  the standing answer instead -- the newest successful run of each source, merged, less what
+  is already in the registry and what a person dismissed. The KPIs page reads it on open.
+  `generating` names a run still working (a source was just connected, its suggestions are on
+  the way) and `failed` the newest run that failed with no later success, so an empty list is
+  explained rather than silent.
+- **`POST /kpis/suggestions/dismissals`** (`dismissKpiSuggestion`, `kpis:write`). Removes a
+  suggestion for good: it stays out of `current` and out of every run read afterwards,
+  including a later run that proposes the same identifier (the agent has no memory of what was
+  declined -- `ProposalStore` makes the same rule for proposals, "re-proposing a rejected thing
+  is the failure mode"). Idempotent. Deployment-wide, like the registry it feeds.
+- **`KpiSuggestionRun.source_id`** and **`KpiSuggestion.source_id`** (nullable). A run is now
+  also started for a source automatically when its harvest finishes (the `suggest-kpis` step
+  of the `harvest-source` workflow) and reads only that source's tables; the field says which.
+  Null for a run started by `POST /kpis/suggestions`, which reads the deployment's own
+  warehouse, as before.
+- **`KpiSuggestionRunRequest.source_id`** (optional). Starts a run for one connected source, so
+  the run that failed after a harvest (no model configured, a quota) can be started again for
+  that source rather than only for the deployment's own warehouse. `404` for an unknown source,
+  `409` while its harvest has not finished.
+- **`getSemanticTable` `source_id`** (query, optional). `listSemanticTables` gained it in
+  1.2.7, so a source's tables could be listed but not read back: the Data catalog listed them
+  and found no columns. Absent still means the deployment's own warehouse.
+
 ## 1.2.8 — 2026-09-20 — configure: `InternalSource.harvest_state`, `last_harvest_at` (additive)
 
 Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of

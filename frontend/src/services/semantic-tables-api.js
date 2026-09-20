@@ -22,7 +22,13 @@ export function fetchSemanticTables({ sourceId, signal } = {}) {
 
 /** `GET /semantic/tables/{name}` - one table with its columns: `{ref, description, concepts,
  * columns: [{name, data_type, description, meaning, is_personal_data, joinable, ...}]}`.
- * Throws `ApiError` (404) for a table the layer does not expose. */
-export function fetchSemanticTable(name, { signal } = {}) {
-  return apiGet(`/semantic/tables/${encodeURIComponent(name)}`, { signal });
+ * Throws `ApiError` (404) for a table the layer does not expose.
+ *
+ * With `sourceId` (contract 1.2.9) the table is looked up among that registered source's own
+ * harvest -- the same scoping `fetchSemanticTables({sourceId})` lists it under, so a table the
+ * listing shows for a source can be read back for its columns. Without it, the operator's, as
+ * before: a source's tables never answer there. */
+export function fetchSemanticTable(name, { sourceId, signal } = {}) {
+  const query = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : "";
+  return apiGet(`/semantic/tables/${encodeURIComponent(name)}${query}`, { signal });
 }

@@ -50,7 +50,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_eight_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_nine_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -87,6 +87,9 @@ def test_ensure_control_plane_schemas_provisions_all_eight_stores(monkeypatch):
         _fake_store("dashboard_suggestion_run"),
     )
     monkeypatch.setattr(factory_module, "DataSourceStore", _fake_store("data_source"))
+    monkeypatch.setattr(
+        factory_module, "SuggestionDismissalStore", _fake_store("suggestion_dismissal")
+    )
 
     # The secret-store settings are pinned, not left to the environment: a developer who has
     # EGPT_RETAIL_SECRET_ENCRYPTION_KEY set (to try registering a source locally) would
@@ -106,6 +109,7 @@ def test_ensure_control_plane_schemas_provisions_all_eight_stores(monkeypatch):
         "kpi",
         "proposal",
         "suggestion_run",
+        "suggestion_dismissal",
         "dashboard_suggestion_run",
         "data_source",
     ]
@@ -135,6 +139,7 @@ def test_ensure_control_plane_schemas_skips_local_secret_store_without_a_key(
         "SuggestionRunStore",
         "DashboardSuggestionRunStore",
         "DataSourceStore",
+        "SuggestionDismissalStore",
     ):
 
         class _NoopStore:
@@ -196,6 +201,7 @@ def test_ensure_control_plane_schemas_provisions_the_local_secret_table_only_whe
         "SuggestionRunStore",
         "DashboardSuggestionRunStore",
         "DataSourceStore",
+        "SuggestionDismissalStore",
     ):
 
         class _NoopStore:

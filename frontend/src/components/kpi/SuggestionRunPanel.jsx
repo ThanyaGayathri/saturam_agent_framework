@@ -234,7 +234,7 @@ function RunningPanel({ phase, elapsed, typicalDuration, ask, onCancel }) {
  );
 }
 
-function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask, onDismiss, onStart }) {
+function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask, sourceId, onDismiss, onStart }) {
  const total = suggestions.length;
  const ready = suggestions.filter((s) => s?.feasibility?.verdict === "ready").length;
  const notReady = total - ready;
@@ -281,13 +281,13 @@ function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask
    </div>
    <div className="flex items-center gap-2.5">
     <QuietButton onClick={onDismiss}>Dismiss</QuietButton>
-    <StartButton onClick={() => onStart({ ask })} label="Suggest again" />
+    <StartButton onClick={() => onStart({ ask, sourceId })} label="Suggest again" />
    </div>
   </div>
  );
 }
 
-function Failure({ error, phase, ask, onStart }) {
+function Failure({ error, phase, ask, sourceId, onStart }) {
  // The backend keeps `phase` on a failed row so it can say where the run got to (see
  // `mark_phase`'s only-from-`running` guard) -- surface it when we have it rather than
  // leaving that guarantee unread on the frontend. `ask` is kept across the failure for the
@@ -306,7 +306,29 @@ function Failure({ error, phase, ask, onStart }) {
     </span>
     <AskLine ask={ask} className="pl-[23px] text-xs text-text-secondary" />
    </span>
-   <StartButton onClick={() => onStart({ ask })} label="Try again" />
+   <StartButton onClick={() => onStart({ ask, sourceId })} label="Try again" />
+  </div>
+ );
+}
+
+/** A suggestion run that failed on its own -- after a source's harvest, with nobody watching --
+ * and has not been replaced by a later success (`GET /kpis/suggestions/current`'s `failed`). Shown
+ * on open so the customer learns that a connected source's suggestions did not arrive, and why,
+ * instead of finding a page that is silently empty. `sourceName` is null for a run over the
+ * deployment's own warehouse. */
+export function SourceRunFailure({ error, sourceName, onRetry }) {
+ const reason = error || "The run failed without saying why.";
+ return (
+  <div
+   className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-2.5 text-sm text-status-critical"
+   role="alert"
+   data-testid="suggestion-run-failure"
+  >
+   <span className="flex items-center gap-2">
+    <AlertTriangle size={15} className="shrink-0" />
+    {sourceName ? `Couldn't suggest KPIs for ${sourceName}: ${reason}` : `Couldn't suggest KPIs: ${reason}`}
+   </span>
+   <StartButton onClick={onRetry} label="Try again" />
   </div>
  );
 }
@@ -324,17 +346,18 @@ export default function SuggestionRunPanel({ run, elapsed, onStart, onCancel, on
   );
  }
  if (run.status === "error") {
-  return <Failure error={run.error} phase={run.phase} ask={run.ask} onStart={onStart} />;
+  return <Failure error={run.error} phase={run.phase} ask={run.ask} sourceId={run.sourceId} onStart={onStart} />;
  }
  if (run.status === "ready" && run.receipt) {
   return (
    <Receipt
-    suggestions={run.suggestions}
+    suggestions={run.receiptSuggestions || []}
     runId={run.runId}
     startedAt={run.serverStartedAt}
     finishedAt={run.serverFinishedAt}
     clientSeconds={run.clientSeconds}
     ask={run.ask}
+    sourceId={run.sourceId}
     onDismiss={onDismiss}
     onStart={onStart}
    />

@@ -14,6 +14,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException, Request
@@ -1749,7 +1750,7 @@ class _FakeRunStore:
         #: What `typical_duration()` answers; a test sets it to stand for history.
         self.typical = None
 
-    def create(self, business_area, business_areas=(), ask=None):
+    def create(self, business_area, business_areas=(), ask=None, source_id=None):
         record = SuggestionRunRecord(
             identifier=f"sr_{len(self.rows) + 1}",
             status=SuggestionRunStatus.QUEUED,
@@ -1757,6 +1758,7 @@ class _FakeRunStore:
             created_at=datetime.now(timezone.utc),
             business_areas=tuple(business_areas),
             ask=ask,
+            source_id=source_id,
         )
         self.rows[record.identifier] = record
         return record
@@ -1810,12 +1812,45 @@ class _FakeRunStore:
         return self.typical
 
 
-def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
+class _FakeDismissalStore:
+    """``SuggestionDismissalStore`` without Postgres."""
+
+    def __init__(self):
+        self.dismissed: dict = {}
+
+    def dismiss(self, identifier, dismissed_by=""):
+        from egpt_retail.suggestions.dismissals import (
+            SuggestionDismissal,
+            normalise_identifier,
+        )
+
+        key = normalise_identifier(identifier)
+        if key not in self.dismissed:
+            self.dismissed[key] = SuggestionDismissal(
+                identifier=key,
+                dismissed_at=datetime.now(timezone.utc),
+                dismissed_by=dismissed_by,
+            )
+        return self.dismissed[key]
+
+    def identifiers(self):
+        return frozenset(self.dismissed)
+
+
+def _run_client(monkeypatch, store, *, authorization=False, scopes=(), dismissals=None):
     @contextmanager
     def _fake_open_run_store(settings):
         yield store
 
     monkeypatch.setattr(kpis_module, "_open_run_store", _fake_open_run_store)
+    fake_dismissals = dismissals if dismissals is not None else _FakeDismissalStore()
+
+    def _fake_with_suggestion_stores(settings, action):
+        return action(store, fake_dismissals)
+
+    monkeypatch.setattr(
+        kpis_module, "_with_suggestion_stores", _fake_with_suggestion_stores
+    )
 
     app = FastAPI()
 
@@ -2436,3 +2471,472 @@ def test_a_phase_write_that_fails_does_not_fail_the_run(monkeypatch):
     assert polled["status"] == "succeeded"
     assert polled["phase"] is None
     assert any("not recorded" in entry for entry in warned)
+
+
+# ---------------------------------------------------------------------------
+# Persistent suggestions (contract 1.2.9): `GET /kpis/suggestions/current` and
+# `POST /kpis/suggestions/dismissals`. The SQL that picks each source's newest run is proved
+# against real Postgres (`test_kpi_suggestions_live.py`); here the run store hands the route a
+# prepared `CurrentRuns`, so what is under test is the route's own merge, filters and gates.
+# ---------------------------------------------------------------------------
+
+
+def _succeeded_run(
+    identifier, suggestions, *, source_id=None, notes="", minutes_ago=0
+) -> SuggestionRunRecord:
+    finished = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return SuggestionRunRecord(
+        identifier=identifier,
+        status=SuggestionRunStatus.SUCCEEDED,
+        business_area=None,
+        created_at=finished - timedelta(minutes=2),
+        started_at=finished - timedelta(minutes=2),
+        finished_at=finished,
+        result=wire_models.KpiSuggestionList(
+            suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.1"
+        ).model_dump(mode="json"),
+        source_id=source_id,
+    )
+
+
+class _CurrentRunStore(_FakeRunStore):
+    """A run store whose ``current()`` answers what a test set."""
+
+    def __init__(self):
+        super().__init__()
+        from egpt_retail.suggestions.runs import CurrentRuns
+
+        self.current_runs = CurrentRuns()
+        self.stale_after_seen = "unset"
+
+    def current(self, *, stale_after=None):
+        self.stale_after_seen = stale_after
+        return self.current_runs
+
+
+def _current_client(monkeypatch, store, *, definitions=(), **kwargs):
+    client = _run_client(monkeypatch, store, **kwargs)
+    client.app.dependency_overrides[kpis_module._suggestion_registry_snapshot] = (
+        lambda: _SuggestionRegistrySnapshot(
+            definitions=tuple(definitions), vocabularies=_VOCABULARIES
+        )
+    )
+    return client
+
+
+def _ids(body):
+    return [s["identifier"] for s in body["suggestions"]]
+
+
+def test_current_is_empty_when_nothing_has_run(monkeypatch):
+    with _current_client(monkeypatch, _CurrentRunStore()) as client:
+        body = client.get("/kpis/suggestions/current").json()
+    assert body == {"suggestions": [], "notes": "", "generating": None, "failed": None}
+
+
+def test_current_is_not_mistaken_for_a_run_id(monkeypatch):
+    """`/kpis/suggestions/{run_id}` would otherwise read `current` as an id and 404."""
+    with _current_client(monkeypatch, _CurrentRunStore()) as client:
+        assert client.get("/kpis/suggestions/current").status_code == 200
+
+
+def test_current_merges_each_sources_newest_run_and_says_where_each_came_from(
+    monkeypatch,
+):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    store = _CurrentRunStore()
+    store.current_runs = CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_b",
+                [_suggestion(identifier="b__one"), _suggestion(identifier="b__two")],
+                source_id="ds_b",
+            ),
+            _succeeded_run(
+                "sr_a", [_suggestion(identifier="a__one")], source_id="ds_a"
+            ),
+            _succeeded_run("sr_own", [_suggestion(identifier="own__one")]),
+        )
+    )
+    with _current_client(monkeypatch, store) as client:
+        body = client.get("/kpis/suggestions/current").json()
+
+    assert _ids(body) == ["b__one", "b__two", "a__one", "own__one"]  # newest run first
+    assert [s["source_id"] for s in body["suggestions"]] == [
+        "ds_b",
+        "ds_b",
+        "ds_a",
+        None,
+    ]
+
+
+def test_current_lists_a_suggestion_once_and_keeps_the_newer_proposal(monkeypatch):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    store = _CurrentRunStore()
+    store.current_runs = CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_new",
+                [_suggestion(identifier="Shared__KPI", name="From the newer run")],
+                source_id="ds_new",
+            ),
+            _succeeded_run(
+                "sr_old",
+                [_suggestion(identifier="shared__kpi", name="From the older run")],
+                source_id="ds_old",
+            ),
+        )
+    )
+    with _current_client(monkeypatch, store) as client:
+        body = client.get("/kpis/suggestions/current").json()
+
+    assert [s["name"] for s in body["suggestions"]] == ["From the newer run"]
+
+
+def test_current_leaves_out_what_is_already_in_the_registry(monkeypatch):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    store = _CurrentRunStore()
+    store.current_runs = CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_1",
+                [
+                    _suggestion(identifier="already__adopted"),
+                    _suggestion(identifier="still__open"),
+                ],
+            ),
+        )
+    )
+    adopted = replace(_kpi(), identifier="Already__Adopted")  # case-insensitively
+    with _current_client(monkeypatch, store, definitions=[adopted]) as client:
+        body = client.get("/kpis/suggestions/current").json()
+
+    assert _ids(body) == ["still__open"]
+
+
+def test_current_leaves_out_what_a_person_dismissed_and_does_not_bring_it_back(
+    monkeypatch,
+):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    store = _CurrentRunStore()
+    store.current_runs = CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_1",
+                [
+                    _suggestion(identifier="keep__me"),
+                    _suggestion(identifier="drop__me"),
+                ],
+            ),
+        )
+    )
+    with _current_client(monkeypatch, store, scopes=(), authorization=False) as client:
+        assert _ids(client.get("/kpis/suggestions/current").json()) == [
+            "keep__me",
+            "drop__me",
+        ]
+        dismissed = client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": "drop__me"}
+        )
+        assert dismissed.status_code == 200
+        assert _ids(client.get("/kpis/suggestions/current").json()) == ["keep__me"]
+
+        # A later run proposes it again (the agent has no memory of the refusal): still gone.
+        store.current_runs = CurrentRuns(
+            succeeded=(
+                _succeeded_run(
+                    "sr_2",
+                    [
+                        _suggestion(identifier="drop__me"),
+                        _suggestion(identifier="brand__new"),
+                    ],
+                ),
+            )
+        )
+        assert _ids(client.get("/kpis/suggestions/current").json()) == ["brand__new"]
+
+
+def test_current_carries_the_run_still_generating_and_the_failure_without_a_result(
+    monkeypatch,
+):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    generating = SuggestionRunRecord(
+        identifier="sr_live",
+        status=SuggestionRunStatus.RUNNING,
+        business_area=None,
+        created_at=datetime.now(timezone.utc),
+        started_at=datetime.now(timezone.utc),
+        phase=SuggestionRunPhase.PROPOSING,
+        source_id="ds_new",
+    )
+    failed = SuggestionRunRecord(
+        identifier="sr_bad",
+        status=SuggestionRunStatus.FAILED,
+        business_area=None,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        finished_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        error="The suggestion run failed (RuntimeError); the api log has the traceback.",
+        source_id="ds_old",
+    )
+    store = _CurrentRunStore()
+    store.typical = 90.0
+    store.current_runs = CurrentRuns(generating=generating, failed=failed)
+    with _current_client(monkeypatch, store) as client:
+        body = client.get("/kpis/suggestions/current").json()
+
+    assert body["suggestions"] == []
+    assert body["generating"]["id"] == "sr_live"
+    assert body["generating"]["status"] == "running"
+    assert body["generating"]["phase"] == "proposing"
+    assert body["generating"]["source_id"] == "ds_new"
+    assert body["generating"]["typical_duration_seconds"] == 90.0
+    assert body["generating"]["result"] is None
+    assert body["failed"]["id"] == "sr_bad"
+    assert body["failed"]["error"].startswith("The suggestion run failed")
+    assert body["failed"]["source_id"] == "ds_old"
+
+
+def test_current_applies_the_lost_run_guard(monkeypatch):
+    store = _CurrentRunStore()
+    with _current_client(monkeypatch, store) as client:
+        client.get("/kpis/suggestions/current")
+    assert isinstance(
+        store.stale_after_seen, timedelta
+    )  # so a lost run cannot be "generating" forever
+
+
+def test_current_gates_candidate_sql_like_every_other_read(monkeypatch):
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    store = _CurrentRunStore()
+    store.current_runs = CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_1", [_suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")]
+            ),
+        )
+    )
+    with _current_client(
+        monkeypatch, store, authorization=True, scopes=["kpis:read"]
+    ) as viewer:
+        as_viewer = viewer.get("/kpis/suggestions/current").json()
+    with _current_client(
+        monkeypatch, store, authorization=True, scopes=["kpis:read", "kpis:write"]
+    ) as editor:
+        as_editor = editor.get("/kpis/suggestions/current").json()
+
+    assert as_viewer["suggestions"][0]["proposed_sql"] is None
+    assert (
+        as_editor["suggestions"][0]["proposed_sql"]
+        == "SELECT 1 FROM supplier_deliveries"
+    )
+
+
+def test_current_needs_kpis_read(monkeypatch):
+    with _current_client(
+        monkeypatch, _CurrentRunStore(), authorization=True, scopes=[]
+    ) as client:
+        assert client.get("/kpis/suggestions/current").status_code == 403
+
+
+def test_dismissing_needs_kpis_write(monkeypatch):
+    with _current_client(
+        monkeypatch, _CurrentRunStore(), authorization=True, scopes=["kpis:read"]
+    ) as client:
+        response = client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": "any__thing"}
+        )
+    assert response.status_code == 403
+
+
+def test_dismissing_twice_returns_the_first_dismissal(monkeypatch):
+    with _current_client(monkeypatch, _CurrentRunStore()) as client:
+        first = client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": "Some__Kpi"}
+        ).json()
+        second = client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": "some__kpi"}
+        ).json()
+    assert first == second
+    assert first["identifier"] == "some__kpi"
+
+
+@pytest.mark.parametrize("identifier", ["", "   ", "\t\n"])
+def test_dismissing_a_blank_identifier_is_a_422(monkeypatch, identifier):
+    with _current_client(monkeypatch, _CurrentRunStore()) as client:
+        response = client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": identifier}
+        )
+    assert response.status_code == 422
+
+
+def test_a_dismissed_suggestion_is_also_left_out_of_a_run_read_by_id(monkeypatch):
+    """The manual "Suggest KPIs" flow reads its run by id: a dismissal has to hold there too,
+    or a reload that restores `?run=` would show the suggestion again."""
+    suggestions = [
+        _suggestion(identifier="keep__me"),
+        _suggestion(identifier="drop__me"),
+    ]
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting(suggestions))
+    store = _FakeRunStore()
+    with _current_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        client.post("/kpis/suggestions/dismissals", json={"identifier": "drop__me"})
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert _ids(polled["result"]) == ["keep__me"]
+    # the stored row is never edited -- the dismissal applies on the way out
+    assert len(store.rows[run_id].result["suggestions"]) == 2
+
+
+def test_a_run_read_by_id_says_which_source_it_was_for(monkeypatch):
+    store = _FakeRunStore()
+    record = store.create(None, source_id="ds_warehouse")
+    store.mark_running(record.identifier)
+    store.mark_succeeded(
+        record.identifier,
+        wire_models.KpiSuggestionList(
+            suggestions=[_suggestion()], notes="", semantic_snapshot="s"
+        ).model_dump(mode="json"),
+    )
+    with _current_client(monkeypatch, store) as client:
+        polled = client.get(f"/kpis/suggestions/{record.identifier}").json()
+
+    assert polled["source_id"] == "ds_warehouse"
+    assert polled["result"]["suggestions"][0]["source_id"] == "ds_warehouse"
+
+
+def test_a_source_scoped_run_reaches_the_pipeline_scoped_to_that_source(monkeypatch):
+    captured: dict = {}
+
+    def _helper(settings, **kwargs):
+        captured.update(kwargs)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="s"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _helper)
+    store = _FakeRunStore()
+    record = store.create(None, source_id="ds_warehouse")
+    snapshot = _SuggestionRegistrySnapshot(definitions=(), vocabularies=_VOCABULARIES)
+    with _current_client(monkeypatch, store):
+        asyncio.run(
+            kpis_module._execute_suggestion_run(
+                record.identifier,
+                RetailSettings(),
+                snapshot,
+                None,
+                source_id="ds_warehouse",
+            )
+        )
+
+    assert captured["source_id"] == "ds_warehouse"
+    assert store.rows[record.identifier].status is SuggestionRunStatus.SUCCEEDED
+
+
+# --- POST /kpis/suggestions with source_id (contract 1.2.9) -------------------------------
+
+
+def _sources(monkeypatch, registered):
+    """``DataSourceStore`` faked: ``registered`` maps a source id to its ``harvest_state``."""
+    from egpt_retail.contracts.data_source import HarvestState
+
+    class _Conn:
+        def close(self):
+            pass
+
+    class _Store:
+        def __init__(self, connection):
+            pass
+
+        def get(self, source_id):
+            if source_id not in registered:
+                return None
+            return SimpleNamespace(harvest_state=HarvestState(registered[source_id]))
+
+    monkeypatch.setattr(kpis_module, "DataSourceStore", _Store)
+    monkeypatch.setattr(
+        kpis_module, "pooled_control_plane_connection", lambda settings: _Conn()
+    )
+
+
+def test_a_run_started_for_a_modelled_source_is_recorded_and_executed_for_it(
+    monkeypatch,
+):
+    captured: dict = {}
+
+    def _helper(settings, **kwargs):
+        captured.update(kwargs)
+        return wire_models.KpiSuggestionList(
+            suggestions=[_suggestion()], notes="", semantic_snapshot="s"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _helper)
+    _sources(monkeypatch, {"ds_1": "modelled"})
+    store = _FakeRunStore()
+    with _current_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions", json={"source_id": "ds_1"})
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{started.json()['id']}").json()
+
+    assert started.status_code == 202
+    assert started.json()["source_id"] == "ds_1"
+    assert captured["source_id"] == "ds_1"
+    assert polled["status"] == "succeeded"
+    assert polled["source_id"] == "ds_1"
+
+
+def test_a_run_started_without_a_source_is_the_deployments_own_as_before(monkeypatch):
+    captured: dict = {}
+
+    def _helper(settings, **kwargs):
+        captured.update(kwargs)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="s"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _helper)
+    with _current_client(monkeypatch, _FakeRunStore()) as client:
+        started = client.post("/kpis/suggestions", json={})
+        _drain(client)
+
+    assert started.json()["source_id"] is None
+    assert "source_id" not in captured  # the helper is called exactly as it always was
+
+
+def test_a_run_for_an_unknown_source_is_a_404_and_leaves_no_row(monkeypatch):
+    _sources(monkeypatch, {"ds_1": "modelled"})
+    store = _FakeRunStore()
+    with _current_client(monkeypatch, store) as client:
+        response = client.post("/kpis/suggestions", json={"source_id": "ds_missing"})
+    assert response.status_code == 404
+    assert "ds_missing" in response.json()["detail"]
+    assert store.rows == {}
+
+
+def test_an_empty_source_id_is_an_unknown_source_not_the_deployments_own(monkeypatch):
+    _sources(monkeypatch, {"ds_1": "modelled"})
+    store = _FakeRunStore()
+    with _current_client(monkeypatch, store) as client:
+        response = client.post("/kpis/suggestions", json={"source_id": ""})
+    assert response.status_code == 404
+    assert store.rows == {}
+
+
+@pytest.mark.parametrize("state", ["not_started", "building", "needs_review", "error"])
+def test_a_run_for_a_source_that_is_not_modelled_is_a_409_and_leaves_no_row(
+    monkeypatch, state
+):
+    _sources(monkeypatch, {"ds_1": state})
+    store = _FakeRunStore()
+    with _current_client(monkeypatch, store) as client:
+        response = client.post("/kpis/suggestions", json={"source_id": "ds_1"})
+    assert response.status_code == 409
+    assert state in response.json()["detail"]
+    assert store.rows == {}

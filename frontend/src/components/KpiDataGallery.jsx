@@ -109,9 +109,20 @@ function DatasetCard({ dataset, highlight }) {
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary p-2">
           <Database size={22} className="text-primary" aria-hidden />
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-secondary px-2.5 py-1 text-xs font-medium text-text-secondary">
-          {schemaLabel(dataset.schema)}
-        </span>
+        <div className="flex min-w-0 flex-col items-end gap-1">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-secondary px-2.5 py-1 text-xs font-medium text-text-secondary">
+            {schemaLabel(dataset.schema)}
+          </span>
+          {dataset.sourceName ? (
+            <span
+              className="max-w-full truncate rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-medium text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30"
+              title={`From the connected source "${dataset.sourceName}"`}
+              data-testid="dataset-source"
+            >
+              {dataset.sourceName}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <h3
@@ -191,7 +202,7 @@ export default function KpiDataGallery() {
   const [businessArea, setBusinessArea] = useState("");
   const [sort, setSort] = useState("kpis");
 
-  const { status, datasets, snapshot, error, reload } = useDataCatalog();
+  const { status, datasets, snapshot, sources, error, reload } = useDataCatalog();
 
   const schemaOptions = useMemo(() => {
     const schemas = [...new Set(datasets.map((d) => d.schema).filter(Boolean))].sort();
@@ -285,6 +296,19 @@ export default function KpiDataGallery() {
           {snapshot?.version ? ` · semantic snapshot ${snapshot.version}` : ""}.
         </p>
       ) : null}
+      {(sources || []).map((source) =>
+        source.error ? (
+          <p key={source.id} className="mb-2 flex items-center gap-1.5 text-xs text-status-warning" data-testid="source-error">
+            <AlertTriangle size={13} className="shrink-0" aria-hidden />
+            Couldn't load the tables of {source.name}: {source.error}
+          </p>
+        ) : (
+          <p key={source.id} className="mb-2 text-xs text-text-muted" data-testid="source-sync">
+            {source.name}: {source.tableCount} table{source.tableCount === 1 ? "" : "s"}
+            {formatHarvestedAt(source.harvestedAt) ? `, synced ${formatHarvestedAt(source.harvestedAt)}` : ""}.
+          </p>
+        )
+      )}
 
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center" data-tour-kpi-gal="filters">
         <div className="relative min-w-0 flex-1">
