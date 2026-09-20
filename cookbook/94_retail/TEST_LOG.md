@@ -6102,18 +6102,26 @@ listing turns 404. Throwaway schema and graph nodes removed afterwards.
 path further needs `EGPT_INTEGRATION_SOURCE_HOST` (skipped, not faked, without it). Locally:
 3 passed with the host set; 2 passed / 1 skipped without.
 
-**DB-free consolidation:** `product/tests/test_p5_self_serve_pipeline.py` (18 tests) pins the
+**DB-free consolidation:** `product/tests/test_p5_self_serve_pipeline.py` (25 tests) pins the
 seams the per-phase suites could not: the registered `harvest-source` workflow's only step *is*
 `harvest_source` and it has a `db` (background runs need one); the workflow id is the one
 `frontend/src/services/sources-api.js` posts to; `egpt-retail harvest --source-id` dispatches to
-the executor and maps `StepOutput` to exit 0/1, refuses the warehouse flags, and leaves the
-plain warehouse harvest unchanged; and the vocabularies agree -- contract enums vs wire enums
-(`SourceType`, `AuthMethod`, `PermissionLevel`, `HarvestState`), every `HarvestState`/
-`DataSourceStatus` member vs the table's CHECK constraints, the frontend's `MODEL_STATES` keys
+the executor and maps `StepOutput` to exit 0/1, refuses the warehouse flags (through the
+`egpt-retail` console entry point, `cli.main`, as well as `harvest.main` -- the dispatcher once
+forwarded only `--source-id` and dropped them), and leaves the plain warehouse harvest
+unchanged; and the vocabularies agree -- contract enums vs wire enums (`SourceType`,
+`AuthMethod`, `PermissionLevel`, `HarvestState`), the table's hand-written CHECK sets for
+`harvest_state`, `status` and `permission_level` parsed out of the DDL and compared for
+*equality* with their enums (a stray extra value fails, not just a missing one), the
+frontend's `MODEL_STATES` keys
 vs `HarvestState`, and the frontend's `HARVESTABLE_SOURCE_TYPES`/`API_SOURCE_TYPES` vs the
 backend's sets (read from the JS source; skipped when the frontend is not checked out).
 
-**Result:** cookbook PASS on both paths; `product/tests` 1569 passed / 114 skipped;
+**Result:** cookbook PASS on both paths; `product/tests` 1611 passed / 146 skipped (a fresh
+`.venv` from `./scripts/dev_setup.sh`, no `EGPT_INTEGRATION_*` set, so the live modules skip; the
+skip count moves with the installed drivers and those variables, and earlier figures of 1569
+passed with 114 or 116 skipped came from two unreconciled runs before the review fixes and are
+superseded by this one);
 `./scripts/validate.sh` clean (ruff, mypy for egpt/egptctl/product, API contract check).
 `./scripts/format.sh` on a clean checkout reformats 132 files this stack never touched
 (cookbook/, libs/), so formatting was applied to this PR's files only (`ruff format` per file)

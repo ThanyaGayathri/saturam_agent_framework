@@ -217,19 +217,21 @@ try:
         )
     else:
         warehouse = psycopg.connect(WAREHOUSE)
-        warehouse.autocommit = True
-        with warehouse.cursor() as cursor:
-            cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
-            cursor.execute(f"CREATE SCHEMA {SCHEMA}")
-            cursor.execute(
-                f"CREATE TABLE {SCHEMA}.store (code text PRIMARY KEY, region text NOT NULL)"
-            )
-            cursor.execute(
-                f"CREATE TABLE {SCHEMA}.store_visit (id integer PRIMARY KEY, code text NOT NULL, basket numeric(10,2))"
-            )
-            cursor.execute(f"INSERT INTO {SCHEMA}.store VALUES ('S1', 'north')")
-            cursor.execute(f"INSERT INTO {SCHEMA}.store_visit VALUES (1, 'S1', 42.10)")
         try:
+            warehouse.autocommit = True
+            with warehouse.cursor() as cursor:
+                cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
+                cursor.execute(f"CREATE SCHEMA {SCHEMA}")
+                cursor.execute(
+                    f"CREATE TABLE {SCHEMA}.store (code text PRIMARY KEY, region text NOT NULL)"
+                )
+                cursor.execute(
+                    f"CREATE TABLE {SCHEMA}.store_visit (id integer PRIMARY KEY, code text NOT NULL, basket numeric(10,2))"
+                )
+                cursor.execute(f"INSERT INTO {SCHEMA}.store VALUES ('S1', 'north')")
+                cursor.execute(
+                    f"INSERT INTO {SCHEMA}.store_visit VALUES (1, 'S1', 42.10)"
+                )
             source = register("P5 cookbook warehouse", host)
             print(f"PASS: registered {source['id']}")
 
@@ -288,9 +290,11 @@ try:
             )
             print("PASS: removed (204); its listing is now a 404")
         finally:
-            with warehouse.cursor() as cursor:
-                cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
-            warehouse.close()
+            try:
+                with warehouse.cursor() as cursor:
+                    cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
+            finally:
+                warehouse.close()
 finally:
     for row in client.get("/configure/sources").json():
         if row["name"].startswith("P5 "):

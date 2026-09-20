@@ -131,15 +131,53 @@ class TestOneExecutorThreeEntryPoints:
     def test_egpt_retail_harvest_dispatches_source_id_to_the_harvest_entrypoint(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        seen = {}
+        # Through the real harvest parser, so this pins what the operator's console script
+        # does, not the shape of the argv the dispatcher happens to build.
+        seen = []
 
-        def fake_main(argv):  # type: ignore[no-untyped-def]
-            seen["argv"] = list(argv)
+        def fake_harvest_registered_source(source_id):  # type: ignore[no-untyped-def]
+            seen.append(source_id)
             return 0
 
-        monkeypatch.setattr(harvest_cli, "main", fake_main)
+        monkeypatch.setattr(
+            harvest_cli, "_harvest_registered_source", fake_harvest_registered_source
+        )
         assert cli.main(["harvest", "--source-id", "ds_x"]) == 0
-        assert seen["argv"] == ["--source-id", "ds_x"]
+        assert seen == ["ds_x"]
+
+    @pytest.mark.parametrize(
+        "extra", [["--suggest"], ["--version", "v1"], ["--schema", "gold"]]
+    )
+    def test_egpt_retail_harvest_source_id_refuses_the_warehouse_flags(
+        self, extra: list, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # ``egpt-retail`` is ``cli.main``, not ``harvest_cli.main``: the usage error has to
+        # survive the dispatcher, which once forwarded only ``--source-id`` and so ran the
+        # harvest with the other flags silently dropped.
+        def must_not_run(source_id):  # type: ignore[no-untyped-def]
+            raise AssertionError(f"harvested {source_id} despite the conflicting flags")
+
+        monkeypatch.setattr(harvest_cli, "_harvest_registered_source", must_not_run)
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["harvest", "--source-id", "ds_x", *extra])
+        assert exc.value.code == 2
+
+    def test_egpt_retail_harvest_without_source_id_forwards_the_warehouse_flags(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = {}
+
+        class _Report:
+            def lines(self):  # type: ignore[no-untyped-def]
+                return []
+
+        def fake_refresh(*, schema, version):  # type: ignore[no-untyped-def]
+            calls["args"] = (schema, version)
+            return _Report()
+
+        monkeypatch.setattr(harvest_cli, "refresh_semantic_layer", fake_refresh)
+        assert cli.main(["harvest", "--schema", "gold", "--version", "v9"]) == 0
+        assert calls["args"] == ("gold", "v9")
 
 
 # --- four vocabularies, one set of words --------------------------------------------------
@@ -162,14 +200,27 @@ class TestVocabulariesAgree:
     def test_harvest_state_contract_equals_wire(self) -> None:
         assert _wire_values(wire.HarvestState) == _wire_values(HarvestState)
 
-    def test_harvest_state_and_status_are_what_the_table_checks(self) -> None:
-        # The store's CHECK constraints are the last line; a new enum member that the table
-        # refuses would fail at the first UPDATE, deep inside a workflow run.
+    @pytest.mark.parametrize(
+        ("column", "enum_cls"),
+        [
+            ("harvest_state", HarvestState),
+            ("status", DataSourceStatus),
+            ("permission_level", PermissionLevel),
+        ],
+    )
+    def test_the_table_checks_exactly_the_enum(
+        self, column: str, enum_cls: type
+    ) -> None:
+        # The store's CHECK constraints are the last line, and these three are hand-written
+        # in the DDL (the rest are generated from their enum). Equality, not membership: a
+        # member the table refuses would fail at the first UPDATE, deep inside a workflow
+        # run, and a value the table accepts but the enum lacks is a state the code cannot
+        # name.
         ddl = "\n".join(store_module._ddl("configure"))
-        for member in HarvestState:
-            assert f"'{member.value}'" in ddl, member
-        for member in DataSourceStatus:
-            assert f"'{member.value}'" in ddl, member
+        clauses = re.findall(rf"CHECK\s*\(\s*{column}\s+IN\s*\(([^)]*)\)\s*\)", ddl)
+        assert len(clauses) == 1, f"expected one CHECK on {column}, found {clauses}"
+        allowed = set(re.findall(r"'([^']+)'", clauses[0]))
+        assert allowed == _wire_values(enum_cls)
 
     def test_harvestable_types_are_registrable_types(self) -> None:
         assert HARVESTABLE_SOURCE_TYPES <= set(DataSourceType)
