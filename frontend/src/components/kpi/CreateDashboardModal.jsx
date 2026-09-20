@@ -17,7 +17,9 @@ function metricFromKpi(kpi) {
   identifier: kpi.identifier,
   name: kpi.name || "",
   unit: kpi.unit || "",
-  description: kpi.description || "",
+  // `desc` is the row's own spelling (`rowFromRegistryKpi` in `KpiDiscoveryPage.jsx` maps the
+  // wire's `description` to `desc`); `description` is the raw `fetchKpiList()` one.
+  description: kpi.description || kpi.desc || "",
   businessArea: kpi.businessAreaId || kpi.business_area || "",
   sourceTables: kpi.source_tables || kpi.sourceTables || [],
   // Threaded through so `DashboardBuilderStep.jsx` can flag an accepted AI-suggested chart
@@ -65,7 +67,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
     chart: "number",
     source: "kpi",
     kpi_identifier: r.kpi.identifier,
-    description: r.kpi.description || "",
+    description: r.kpi.description || r.kpi.desc || "",
     guard: { status: "ok", detail: "" },
    })),
   [initialRows],
