@@ -784,7 +784,7 @@ export default function KpiDetailPanel({
       </div>
      </div>
     ) : (
-     <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-surface-default p-3 font-mono text-xs text-text-primary">
+     <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-default p-3 font-mono text-xs text-text-primary">
       {detailRow.kpi.sql || "-"}
      </pre>
     )}
@@ -881,11 +881,6 @@ export default function KpiDetailPanel({
  </p>
  )}
  </section>
-
- {/* The description/SQL edit controls and remove flow for a registry row -- see
-     `registryEditBlock` above; not shown for a suggestion or tree/template row, which have
-     their own edit affordances further down. */}
- {fromRegistry && registryEditBlock}
 
  {/* The value, first: for a registry KPI it is the reason to open this panel after "Add to my
      metrics". Every point is gold's own nightly row for this formula (or today's, computed on
@@ -1070,6 +1065,13 @@ export default function KpiDetailPanel({
  )}
  </ul>
  </section>
+
+ {/* The description/SQL edit controls and remove flow for a registry row -- see
+     `registryEditBlock` above. Last on Overview, after the value, feasibility and links, so
+     the trend stays the first thing a customer sees and "Remove from my metrics" is not near
+     the top of the panel. Not shown for a suggestion or tree/template row, which have their
+     own edit affordances (the adopt button, the "Edit KPI" link). */}
+ {fromRegistry && registryEditBlock}
 
  {suggested && (
  <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">

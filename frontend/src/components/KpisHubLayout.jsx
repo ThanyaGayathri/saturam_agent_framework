@@ -39,8 +39,12 @@ const TAB_COPY = {
     title: "Dashboards",
     description:
       "Dashboards you have built from selected metrics. Every figure is computed against the definition in Configure — change it there and every dashboard follows.",
-    tourId: "kpi-dashboard",
-    tourLabel: "Take a quick tour",
+    // No tour here on purpose: the only tour that used to launch from this tab was the KPI health
+    // tour, which walks `/kpis/dashboard` -- a page that is no longer a tab, so it would drop the
+    // customer on a screen they cannot navigate back to. `TourLaunchButton` renders nothing
+    // without a `tourId`.
+    tourId: null,
+    tourLabel: null,
   },
   dashboard: {
     title: "KPI health",
