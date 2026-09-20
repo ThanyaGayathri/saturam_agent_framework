@@ -18,10 +18,15 @@ PermissionLevel:
   enum: [read_only, read_write]
   description: The database role the source is connected with. `read_only` is the floor R6's guard sits on; a `read_write` source is never exposed to a model.
 
+HarvestState:
+  type: string
+  enum: [not_started, building, modelled, needs_review, error]
+  description: "Where the source stands in the semantic-layer pipeline. `not_started` means nothing has read its schema yet; `building` means the `harvest-source` workflow is running; `modelled` means its tables are in the graph and answer questions; `needs_review` means the harvest stopped on something a person must settle (today: its schema name is already claimed by another connected source); `error` means the last harvest failed -- test the connection and retry. Same vocabulary as the frontend's `MODEL_STATES`."
+
 InternalSource:
   type: object
   description: A warehouse or system-of-record connection. Under D4 connectors land raw files in storage and the warehouse is loaded from there, so most deployments have exactly one `postgres` source pointed at the warehouse.
-  required: [id, source_type, name, host, database_name, auth_method, permission_level, has_credentials]
+  required: [id, source_type, name, host, database_name, auth_method, permission_level, has_credentials, harvest_state]
   properties:
     id: {type: string}
     source_type:
@@ -38,7 +43,14 @@ InternalSource:
     permission_level:
       $ref: './configure.yaml#/PermissionLevel'
     has_credentials: {type: boolean}
+    harvest_state:
+      $ref: './configure.yaml#/HarvestState'
     last_harvest_id: {type: [string, "null"]}
+    last_harvest_at:
+      description: When the last harvest reached a terminal state; `null` until one has. The Configure card's "Last sync".
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
     created_at:
       $ref: './common.yaml#/Timestamp'
 

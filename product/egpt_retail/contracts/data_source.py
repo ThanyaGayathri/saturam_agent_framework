@@ -51,6 +51,7 @@ __all__ = [
     "DataSourceUpdate",
     "DataSourceValidationError",
     "HARVESTABLE_SOURCE_TYPES",
+    "HARVEST_DRIVER_SOURCE_TYPES",
     "HarvestState",
     "PermissionLevel",
     "SSL_MODES",
@@ -135,6 +136,13 @@ class HarvestState(str, Enum):
 HARVESTABLE_SOURCE_TYPES = frozenset(
     {DataSourceType.POSTGRES, DataSourceType.SNOWFLAKE}
 )
+
+#: The subset of :data:`HARVESTABLE_SOURCE_TYPES` this product has a connection driver for
+#: today -- Postgres only; Snowflake has no ``snowflake-connector-python`` dependency yet.
+#: :attr:`DataSource.harvestable` and the harvest executor both read this, so a UI gating a
+#: "Harvest" button on the property can never offer a run the executor is certain to refuse.
+#: Add a type here in the same change that adds its driver.
+HARVEST_DRIVER_SOURCE_TYPES = frozenset({DataSourceType.POSTGRES})
 
 #: The ``sslmode`` values libpq accepts, spelled the way libpq spells them (hyphenated
 #: ``verify-ca``/``verify-full``). ``ssl_mode`` is handed to the driver as ``sslmode=`` when a
@@ -368,10 +376,15 @@ class DataSource:
 
     @property
     def harvestable(self) -> bool:
-        """Whether #306's harvest workflow can be run against this source at all -- SAP and
-        Salesforce register today (the form exists) but have no connector yet, and the API
-        should refuse a harvest request rather than let it fail deep inside a workflow run."""
-        return self.source_type in HARVESTABLE_SOURCE_TYPES
+        """Whether #306's harvest workflow can actually be run against this source today --
+        SAP and Salesforce register (the form exists) but have no connector yet, and
+        Snowflake is harvestable by design but has no driver yet
+        (:data:`HARVEST_DRIVER_SOURCE_TYPES`). The API should refuse a harvest request rather
+        than let it fail deep inside a workflow run."""
+        return (
+            self.source_type in HARVESTABLE_SOURCE_TYPES
+            and self.source_type in HARVEST_DRIVER_SOURCE_TYPES
+        )
 
 
 def validate_update(existing: DataSource, patch: DataSourceUpdate) -> None:

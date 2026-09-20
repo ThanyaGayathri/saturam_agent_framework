@@ -122,6 +122,24 @@ export function apiGet(path, { signal } = {}) {
   return request(path, { method: "GET", signal });
 }
 
+/** POST `path` as an `application/x-www-form-urlencoded` body -- the shape the framework's own
+ * run endpoints take (`POST /workflows/{id}/runs` declares every input as a `Form(...)` field,
+ * not a JSON body), as opposed to the retail contract's JSON routes `apiJson` serves. `fields`
+ * is a flat object; every value is stringified, so a nested `additional_data` payload is passed
+ * pre-encoded (`JSON.stringify(...)`) the way the backend's `get_request_kwargs` expects to
+ * parse it. Throws `ApiError` on failure; throws the underlying `AbortError` as-is when `signal`
+ * is passed and fires. */
+export function apiForm(path, fields, { signal } = {}) {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) continue;
+    body.set(key, typeof value === "string" ? value : String(value));
+  }
+  // `fetch` sets the urlencoded Content-Type itself for a URLSearchParams body; `request()`
+  // only adds a JSON Content-Type for string bodies, so nothing here fights it.
+  return request(path, { method: "POST", body, signal });
+}
+
 /** POST/PUT/DELETE `path` with a JSON `body`. Throws `ApiError` on failure; throws the
  * underlying `AbortError` as-is when `signal` is passed and fires. `async` so a synchronous
  * serialization failure (a circular reference, a `BigInt`) rejects the returned promise

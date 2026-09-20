@@ -5887,3 +5887,304 @@ data-source secret being configured, matching `retail_warehouse_db_url`'s own
 "refused at the point of use" posture.
 
 ---
+
+### P1_sources_router.py
+
+**Status:** PASS
+
+**Description:** #305 -- the real router backing `/configure/sources` (`InternalSource`),
+which turned out to already be a stub-only resource in `api/openapi/paths/configure.yaml`
+predating #304 (found while starting this phase; #304 was amended in place to align its
+enums/fields with that existing wire schema exactly -- widened `SourceType`, added
+`PermissionLevel`/`ssl_mode`, and a plain non-secret `username` column, since
+`InternalSource.username` is returned in the clear). Run against the same local Postgres as
+P0: `PYTHONPATH=product .venv/bin/python cookbook/94_retail/P1_sources_router.py`.
+
+Wires the actual `sources.py` router (not a fake) to the actual `DataSourceStore` and
+`LocalEncryptedSecretStore` (not in-memory doubles -- those are what
+`test_p1_sources_router.py`'s 25 DB-free tests use, covering scopes, 404s, 422s, and the
+SSRF-guard/error-classification pure logic), inside a real FastAPI app driven by
+`TestClient`. Create -> get -> list -> patch -> delete over real HTTP, then the security-
+sensitive part: `POST /configure/sources/{id}/test` against `host="localhost"` -- a real
+resolvable loopback address -- refused by the host guard (`check_host`) *before* any connection is
+attempted, returned as a 200 with `ok: false` per the contract's own "a failure is a 200"
+rule, and the refusal actually persisted on the row (`status=error`) when read back through
+the real store directly (the wire `InternalSource` has no `status` field, so this is the one
+assertion the HTTP response alone cannot make).
+
+**Result:** All assertions passed, including the live SSRF refusal.
+
+**Review round (#311):** the guard now lives in `configure/host_guard.py`, resolves the host
+once and connects to the address it checked (`hostaddr`), so a name cannot rebind between the
+check and the connection; resolution and the whole probe are time-bounded; and a probe failure
+at any stage is a recorded `ok: false` result, never a 500. Re-run with the additions below, all
+PASS: a username-only `PATCH` (username changed, password carried over from the stored secret,
+old secret replaced -- read back through the real `LocalEncryptedSecretStore`); an unresolvable
+host and a 300-character host each returning a 200 with `ok: false`; and, with
+`P1_SOURCE_HOST=$(ipconfig getifaddr en0)`, a real *successful* test-connection to the local
+Postgres through the pinned address (`Connected as ai; ...`, row `status=connected`) -- the
+`ok: true` path this entry previously said it could not exercise. Without `P1_SOURCE_HOST` the
+script skips that one step and says so.
+
+---
+
+### P2_harvest_source.py
+
+**Status:** PASS
+
+**Description:** #306 -- the `harvest-source` workflow step: a registered source's own
+schema, read for real and written into the shared Neo4j graph, tagged by `source_id`. Run
+against the real control-plane Postgres, the real `egpt_warehouse` database (a throwaway
+`p2_cookbook` schema created and dropped by the script), and the real Neo4j container:
+`EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product .venv/bin/python
+cookbook/94_retail/P2_harvest_source.py`.
+
+The write path (`write_harvest`) and the new collision guard
+(`schema_owned_by_other_source`) needed real, unmerged data-model changes discovered while
+starting this phase: table identity in the graph is still `(schema, name)` alone (#307
+scopes reads by `source_id` rather than rekeying it), so two sources sharing one `schema` name would
+otherwise silently prune and overwrite each other's tables the moment a second self-serve
+harvest ran. `source_id` is now tagged on every written table (additive, not yet part of
+identity) and `schema_owned_by_other_source` refuses a harvest whose target schema is
+already claimed by a different source -- checked here for real against `silver`, which the
+operator's own unscoped (`source_id=""`) harvest already occupies from prior K4/K7 cookbook
+runs. Also found and fixed: the singleton `Snapshot` node `write_harvest` maintains is the
+*deployment's* last-harvest pointer (the operator warehouse's) -- a self-serve source's
+harvest must skip writing it, or `GET /semantic/snapshot` would report a customer's database
+name in place of the operator's after the first self-serve harvest ran.
+
+No retail-specific "trigger a harvest" endpoint was built. `docs/plan/build-plan.md`'s own
+"Pipeline mechanism" decision already names `POST /workflows/{id}/runs` (the framework's
+existing endpoint) as how Connect should trigger a run, and `egpt.scheduler.executor.
+ScheduleExecutor` already calls a workflow's run endpoint over real HTTP for the same
+reason -- so `POST /workflows/harvest-source/runs` with
+`additional_data={"source_id": "..."}` is the trigger, registered in `build_workflows()`
+alongside `nightly-refresh`/`rfq-funnel`, with nothing new needed on `sources.py`.
+
+**Result:** All assertions passed against real infrastructure: `harvest_schema` read the
+real throwaway table; `write_harvest` tagged the real node (verified by a direct Neo4j
+read, not just through the store's own API); the collision guard refused a conflicting
+claim on `silver` for real; and the actual `harvest_source(step_input)` entry point refused
+a real, resolvable loopback host end to end, moving the source to `harvest_state=error`.
+Also re-ran `test_semantic_live.py` (`EGPT_INTEGRATION_POSTGRES=1 EGPT_INTEGRATION_NEO4J=1`)
+against real Postgres and Neo4j to check the `write_harvest`/`schema_owned_by_other_source`
+changes did not regress the existing schema-isolation, reharvest-preserves-review, or
+join-identity suites -- 73 passed, 1 pre-existing unrelated failure
+(`TestKpiRegistryLive::test_a_definition_survives_postgres`, an `updated_at` round-trip
+mismatch reproduced identically on the pre-#306 branch, not touched by this phase).
+
+**Not exercised live in this environment:** a genuinely successful harvest through the full
+`harvest_source()` entry point (SSRF-guard included) -- same limitation as #305's
+test-connection, no non-loopback reachable target available here.
+`test_p2_harvest_source.py::test_successful_harvest_writes_the_graph_and_marks_modelled`
+covers that path with the connection step faked; every other real piece it composes is
+proved live by this cookbook instead.
+
+**Review round 2 (PR #312), re-run against real infrastructure.** The collision guard moved
+from a separate read the executor made beforehand into `write_harvest`'s own transaction
+(raising `SchemaOwnedByOtherSource`), the upsert no longer re-stamps a table another source
+owns, the harvest read and the whole Neo4j phase now end in a terminal `harvest_state` instead
+of an unhandled exception, the two whole-graph column sweeps run only for the operator's
+refresh, `DataSource.harvestable` now reads the same driver set as the executor, and the
+source host is resolved once and connected to by address (`hostaddr=`). This cookbook now also
+proves `write_harvest()` itself refuses a claim on `silver` and that the refused write rolled
+back (no probe table left behind) -- all `PASS`, against real Postgres and a throwaway Neo4j.
+
+Also driven through the real `harvest_source()` entry point, over the machine's LAN address
+(non-loopback, so the SSRF guard passes and the pinned connection is really used) into a
+throwaway Neo4j: a **genuinely successful harvest** (2 tables tagged with the source, the
+operator's `Snapshot` pointer untouched) -- the case the note above could not reach; a second
+source claiming the same schema -> `needs_review`, first source's tables unchanged; Neo4j
+unreachable -> `error` with the cause, not stranded at `building`; a wrong password -> `error`;
+a missing schema -> `error`. No source was left in `building`.
+
+`test_semantic_live.py` gained `TestSourceScopedHarvest` (9 tests: tagging, the Snapshot
+pointer, refusal and rollback for source-vs-source, operator-vs-source and pre-#306 rows, a
+source re-harvesting its own schema, the column sweeps, and two harvests racing for one
+unclaimed schema -- exactly one wins every round). Each safeguard was removed in turn to
+confirm the suite goes red: the MERGE guard (4 tests fail), the in-transaction check (5
+fail), the self-serve early return (2 fail). Full file against a throwaway Neo4j: 50 passed,
+1 failed -- the same pre-existing `TestKpiRegistryLive::test_a_definition_survives_postgres`,
+which fails identically on the PR head without these changes (41 passed there).
+
+---
+
+### P3_source_scoping.py
+
+**Status:** PASS
+
+**Description:** #307 -- source-scoped semantic reads. Run against the real control-plane
+Postgres and the real Neo4j (already holding the real `silver` harvest):
+`EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product .venv/bin/python
+cookbook/94_retail/P3_source_scoping.py`.
+
+**Design call, and why it is narrower than the issue's "make source_id part of identity".**
+Table identity in the graph stays `(schema, name)`; #307 scopes *reads* by the `source_id`
+tag #306 already writes, via a `source_id` on `SemanticGraphStore` (default `""`, the
+operator). Rekeying identity means rewriting every `MERGE`, edge lookup, KPI mirror and
+proposal-apply in a ~1,600-line store for a benefit the #306 collision guard already
+delivers (schema names are unique across sources). Scoped reads: `_resolve_table`,
+`list_tables`, `mapped_concepts`, `column_index`, `unjoinable_oracle`,
+`business_area_evidence`, `find_join_path`. **No backfill migration**: rows written before
+#306 carry no `source_id`, and every scoped read treats that as the operator via
+`coalesce`, so nothing needed retagging.
+
+**What scoping fixes, concretely.** Without it, a customer harvesting a table named
+`crm_contact` turned every bare `crm_contact` lookup ambiguous ("names a table in more than
+one schema"), and any customer table name became an "available table" for operator KPI
+feasibility and the operator SQL guard's allow-list.
+
+**Result:** All assertions passed over HTTP: `GET /semantic/tables` lists 5 operator tables
+and none of the source's; a bare `crm_contact` resolves to silver; `?source_id=` lists only
+the source's table with its own snapshot (`source_snapshot_version`, the source's
+`last_harvest_at` and name); an unregistered id is 404; the operator's `SemanticSnapshot`
+pointer is not overwritten; `build_source_read_guard` allows the source's table and refuses
+`silver.crm_contact`. `test_semantic_live.py` (real Postgres and Neo4j): 81 passed including
+8 new `TestSourceScoping` cases (shared bare name unambiguous in both scopes, column index
+and list never cross, operator table unknown to a source scope, snapshot pointer untouched),
+plus the same one pre-existing unrelated failure (`TestKpiRegistryLive::
+test_a_definition_survives_postgres`, `updated_at`).
+
+**Not done, on purpose:** routing a KPI or dashboard tile to a customer's connection.
+`build_source_read_guard` is the building block (allow-list = the source's tables, schema
+pinned), but a KPI's `source_tables` still resolve against the operator warehouse only.
+Running customer SQL needs its own design -- whose credential, through which read-only role,
+whether `permission_level=read_only` is enforced at connect time -- and is filed as a
+follow-up rather than half-built here.
+
+---
+
+### P4_frontend_connect_flow.mjs
+
+**Status:** PASS
+
+**Description:** #308 -- the Configure > Data sources screens wired to the real backend built in
+#304-#307, exercised in a headless Chromium (Playwright 1.63) against the real API
+(`.venv/bin/egpt-retail api` on :7777, local Postgres on :5532 and Neo4j on :7687 via Docker),
+with Vite serving the frontend on :3000. The harvest target is a throwaway `p4_ui` schema
+(`store`, `store_visit`) in `egpt_warehouse`, reached through the machine's LAN address
+(`192.168.0.114`) because the SSRF guard correctly refuses `localhost` -- which makes this the
+first fully *successful* end-to-end harvest through the product's own entry points in this
+environment (P2/P3 could only prove the refusal path and the pieces individually).
+
+**What the browser did, and what the API answered:**
+1. Empty list: `GET /configure/sources` -> `[]`, "No sources connected".
+2. "Add database", form filled (Postgres, LAN host, `egpt_warehouse`, schema `p4_ui`, `ai`/`ai`,
+   SSL mode Prefer).
+3. "Test Connection" on the new form: `POST /configure/sources` -> 201, form switched to
+   `/edit/<id>` with the notice that it saved first, `POST .../test` -> 200
+   `{ok: true, detail: "Connected as ai; 2 table(s) visible in schema p4_ui."}`, shown green.
+4. "Save Changes": `POST /workflows/harvest-source/runs` -> 202 `{run_id, session_id,
+   status: PENDING}`; back on the list the card read "Building model" with an indeterminate bar
+   and the readiness line "1 still building".
+5. Polling `GET /configure/sources` turned the card "Modelled", "Last sync: Just now", and the
+   completion banner "P4 UI warehouse is modelled -- its tables and columns are in the semantic
+   layer" appeared (the transition, not the state, triggers it).
+6. "View semantic layer": `GET /semantic/tables?source_id=` -> both tables with row counts and
+   the source's own snapshot (`20260920.134927`); the screen says the join/measure review and
+   personal-data scan are not run for connected sources.
+7. A second source on `127.0.0.1`: Test Connection shows the guard's own sentence ("refused:
+   this host resolves to a loopback or link-local address ...") in red.
+8. Saving it: the harvest run refuses the same host, the card reads "Failed" with "Modelling
+   failed. Test the connection, then retry." and a "Retry modelling" button.
+9. A `username_password` source with no password: `POST` -> 422, the backend's
+   `credential: username_password requires both username and password` shown as the form's alert.
+10. Remove from the card menu: `DELETE` -> 204, card gone.
+Then (`p4_demo_check.mjs`, same session): "Show 7 demo sources" renders every fixture state
+(Modelled, Needs review, Building model, Not modelled), the SAP fixture's "Review 4 items"
+opens the catalogue-derived review (tabs Needs review 8 / Entities 4 / Metrics unlocked 8), and
+`?source=ds_does_not_exist` shows "not connected any more" rather than crashing. No page errors;
+the only console error is the browser's own log line for the intentional 422.
+
+**Found and fixed along the way:** the first run's Test Connection returned `ok: false, "Could
+not connect."` -- the form defaults `ssl_mode` to `require` and the Docker Postgres has no SSL,
+and the router's classifier collapsed "server does not support SSL, but SSL was required" into
+its generic bucket. `_classify_connection_error` now names it ("The server does not support
+SSL. Set this source's SSL mode to prefer or disable."), with a unit test. Contract 1.2.8 adds
+`InternalSource.harvest_state` (required) and `last_harvest_at` so the card has something real
+to poll; `_source_out` returns them; `test_p1_sources_router.py` asserts the defaults.
+
+**Result:** 10/10 browser steps passed twice (the second after the SSL fix), demo smoke passed;
+`npx vite build` clean; `product/tests` 1551 passed / 113 skipped; mypy clean (155 files); ruff
+clean; API contract check valid (118 operations, 200 schemas).
+
+**Review follow-up (#315):** the script's pass/fail was tightened and one step added, then re-run
+against an isolated stack (a scratch control-plane database and Neo4j, a second API and Vite on
+other ports; removed afterwards). Steps 04/05 now hard-assert the "Building model" card and the
+completion banner (both were `.catch()`-and-log). `console errors` and API responses >= 400 now
+gate the exit code; the only response a step provokes on purpose (step 09's 422) is declared
+with `expectFailure` and must actually occur. Step 01 arms its `waitForResponse` before
+`goto` (on a warm server the list response landed first and the wait timed out). New step
+`11-edit-existing` covers "Save Changes" on a saved source: a rename with no secret (`PATCH` 200,
+persists across a re-fetch); a username-only edit, which the form refuses with "Changing the
+username or authentication method replaces the stored credential. Enter the password again to
+save it." and sends no `PATCH` (the API keeps the username inside the credential, so it cannot be
+patched alone); and username + password, which persists. Result: 11/11 steps, exit 0, no console
+errors, no unexpected >= 400 -- twice, the second on reset state. Mutation check: with step 09's
+`expectFailure` removed the run exits 1 and lists `422 POST /configure/sources`.
+
+**Not done, on purpose:** external integrations (`ConfigureExternalForm.jsx`) still use their
+demo path -- the contract has `/configure/integrations` as a stub only and no store behind it,
+so wiring the form would have nowhere real to go. A real source's semantic-layer review queue
+(join paths, measures, personal data) is stated as not built rather than derived from demo
+data; that and routing KPI SQL to the source's connection are #314's.
+
+---
+
+### P5_self_serve_source_end_to_end.py
+
+**Status:** PASS
+
+**Description:** #309 -- the self-serve data-source pipeline (#302) as one thing, through the
+product's own entry points, against the real control-plane Postgres, the real `egpt_warehouse`
+and the real Neo4j: `EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product
+.venv/bin/python cookbook/94_retail/P5_self_serve_source_end_to_end.py`. Both routers
+(`/configure/sources`, `/semantic`) on one FastAPI app backed by the real stores;
+`harvest_source` (the `harvest-source` workflow's step) run directly; the new
+`egpt-retail harvest --source-id` run through `entrypoints.harvest.main`.
+
+**Refusal path (always):** a source on `127.0.0.1` registers (201, no credential in the body,
+`harvest_state=not_started`); `POST .../test` -> `ok: false` with the SSRF guard's sentence;
+the harvest is refused and the row moves to `harvest_state=error`; its listing is empty with
+`snapshot.version="unharvested"`; `harvest --source-id` exits 1; an unregistered id is a 404.
+
+**Success path (a Postgres on the LAN address, auto-detected as `192.168.0.114`):** register ->
+test `ok: true, "Connected as ai; 2 table(s) visible in schema p5_cookbook."` -> harvest writes
+2 tables / 5 columns, `harvest_state=modelled`, `last_harvest_at` set -> `GET
+/semantic/tables?source_id=` lists `store`, `store_visit` under the harvest's own snapshot
+version and the source's name -> the operator's listing never sees `p5_cookbook` (#307) ->
+`harvest --source-id` re-harvests, exit 0, still 2 tables -> a rival source claiming the same
+schema stops at `needs_review` with the collision guard's message -> `DELETE` 204 and the
+listing turns 404. Throwaway schema and graph nodes removed afterwards.
+
+**Gated twin, for CI:** `product/tests/test_data_sources_live.py`, gated like
+`test_semantic_live.py` on `EGPT_INTEGRATION_POSTGRES`/`EGPT_INTEGRATION_NEO4J`; the success
+path further needs `EGPT_INTEGRATION_SOURCE_HOST` (skipped, not faked, without it). Locally:
+3 passed with the host set; 2 passed / 1 skipped without.
+
+**DB-free consolidation:** `product/tests/test_p5_self_serve_pipeline.py` (25 tests) pins the
+seams the per-phase suites could not: the registered `harvest-source` workflow's only step *is*
+`harvest_source` and it has a `db` (background runs need one); the workflow id is the one
+`frontend/src/services/sources-api.js` posts to; `egpt-retail harvest --source-id` dispatches to
+the executor and maps `StepOutput` to exit 0/1, refuses the warehouse flags (through the
+`egpt-retail` console entry point, `cli.main`, as well as `harvest.main` -- the dispatcher once
+forwarded only `--source-id` and dropped them), and leaves the plain warehouse harvest
+unchanged; and the vocabularies agree -- contract enums vs wire enums (`SourceType`,
+`AuthMethod`, `PermissionLevel`, `HarvestState`), the table's hand-written CHECK sets for
+`harvest_state`, `status` and `permission_level` parsed out of the DDL and compared for
+*equality* with their enums (a stray extra value fails, not just a missing one), the
+frontend's `MODEL_STATES` keys
+vs `HarvestState`, and the frontend's `HARVESTABLE_SOURCE_TYPES`/`API_SOURCE_TYPES` vs the
+backend's sets (read from the JS source; skipped when the frontend is not checked out).
+
+**Result:** cookbook PASS on both paths; `product/tests` 1611 passed / 146 skipped (a fresh
+`.venv` from `./scripts/dev_setup.sh`, no `EGPT_INTEGRATION_*` set, so the live modules skip; the
+skip count moves with the installed drivers and those variables, and earlier figures of 1569
+passed with 114 or 116 skipped came from two unreconciled runs before the review fixes and are
+superseded by this one);
+`./scripts/validate.sh` clean (ruff, mypy for egpt/egptctl/product, API contract check).
+`./scripts/format.sh` on a clean checkout reformats 132 files this stack never touched
+(cookbook/, libs/), so formatting was applied to this PR's files only (`ruff format` per file)
+rather than committing an unrelated repo-wide reformat.
+
+---
