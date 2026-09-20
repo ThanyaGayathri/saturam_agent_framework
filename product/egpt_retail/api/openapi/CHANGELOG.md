@@ -109,6 +109,29 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.8 — 2026-09-20 — configure: `InternalSource.harvest_state`, `last_harvest_at` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of
+#302 (phase 4, #308).
+
+- **`HarvestState`** (enum: `not_started`, `building`, `modelled`, `needs_review`, `error`)
+  and **`InternalSource.harvest_state`** (required). The Configure card reports semantic-layer
+  readiness, not reachability -- and until now the only readiness it could show came from a
+  hardcoded per-seed lookup in the frontend (`source-model-state.js`'s `BY_ID`). #306's
+  `harvest-source` workflow already records exactly this state on the row
+  (`configure.data_source.harvest_state`, the same five words); the wire just never carried
+  it, so a screen polling `GET /configure/sources` after starting a harvest had nothing to
+  read. `required` rather than optional because every row has one (the column defaults to
+  `not_started`); a client is never left guessing what an absent field means.
+- **`InternalSource.last_harvest_at`** (Timestamp, nullable). The card's "Last sync". `null`
+  until a harvest reaches a terminal state -- the card says "Never" rather than fabricating a
+  time, which is the bug the redesign fixed and this field keeps fixed.
+
+`last_harvest_id` is unchanged. The run id alone was never enough to draw the card: reading a
+run's status needs the framework's `GET /workflows/{id}/runs/{run_id}` plus the `session_id`
+the 202 returned, and says nothing about `needs_review`, which is a decision recorded on the
+source, not a run outcome.
+
 ## 1.2.7 — 2026-09-20 — semantic: `listSemanticTables` `source_id` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new optional query parameter and one new

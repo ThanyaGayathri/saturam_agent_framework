@@ -108,6 +108,27 @@ What was already decided about it, and still applies:
   KPI gold has never computed. Every proposed formula is a snapshot over the current silver
   rows, so the line grows one real point per night; there is no backfill and no synthetic
   history.
+- **Configure > Data sources is real** (#308, part of #302; contract 1.2.8):
+  `src/services/sources-api.js` calls `GET/POST/PATCH/DELETE /configure/sources` and
+  `POST /configure/sources/{id}/test` (#305), and starts #306's harvest with the framework's
+  own `POST /workflows/harvest-source/runs` (`background=true`, `additional_data={source_id}`,
+  a form body -- `apiForm` in `src/lib/api.js`). `ConfigureWorkspaceContext.jsx` reads the list
+  from the API and, while any source is `building`, re-reads it on the KPI-suggestion cadence
+  (2s, 5s after half a minute, giving up at four minutes with a "check now" notice); the card's
+  state is the row's own `harvest_state`, not a lookup. "Test Connection" on the form shows
+  the API's verdict sentence -- the contract tests only a *stored* source, so a new form is
+  saved first and the form says so. Save on a Postgres/Snowflake source also starts the
+  harvest ("Connect"); other types register and show "Not modelled" with the reason. A real
+  source's semantic-layer screen shows what the harvest read (`GET /semantic/tables?source_id=`,
+  #307) and its own snapshot; it says outright that join/measure review and the personal-data
+  scan are not built for connected sources rather than deriving them from demo data. **Demo
+  seeds stay as UI fixtures**: the six seeded databases are marked "Demo", hidden behind
+  "Show N demo sources", keep their fixture states (`source-model-state.js`), and editing one
+  with real values registers a real source through the API. A localStorage-added internal
+  source from before this wiring is no longer shown; LLM models, external integrations and the
+  cloud profile are unchanged (no backend yet). Verified in a headless browser against the
+  real API, Postgres and Neo4j -- `cookbook/94_retail/P4_frontend_connect_flow.mjs`, results
+  in `cookbook/94_retail/TEST_LOG.md`.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

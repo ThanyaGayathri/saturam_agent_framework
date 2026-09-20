@@ -1,6 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CircleHelp, Database, Server, Mail, Lock, Unplug, CheckCircle } from "lucide-react";
+import {
+ ArrowLeft,
+ CircleHelp,
+ Database,
+ Server,
+ Mail,
+ Lock,
+ Unplug,
+ CheckCircle,
+ CircleCheck,
+ CircleX,
+ Loader2,
+} from "lucide-react";
 import { Modal } from "../ui";
 import { useConfigureWorkspace } from "../../context/ConfigureWorkspaceContext";
 import {
@@ -8,6 +20,7 @@ import {
  SSL_MODES,
 } from "../../domain/configure-catalogs";
 import { normalizeInternal } from "../../storage/configure-workspace";
+import { API_SOURCE_TYPES, HARVESTABLE_SOURCE_TYPES } from "../../services/sources-api";
 import postgresSvg from "../../assets/postgres.svg";
 import snowflakeSvg from "../../assets/snowflake.svg";
 import sapSvg from "../../assets/sap.svg";
@@ -16,6 +29,21 @@ import airflowSvg from "../../assets/airflow.svg";
 import awsGlueSvg from "../../assets/aws-glue.svg";
 import azureAdfSvg from "../../assets/azure-data-factory.svg";
 import netSuiteSvg from "../../assets/netsuite.svg";
+
+/**
+ * Register, test and connect one database (#308).
+ *
+ * Everything here is a real call: Save is `POST /configure/sources` (or a PATCH of an existing
+ * one), Test Connection is `POST /configure/sources/{id}/test` with the credentials the API
+ * stored, and a saved Postgres/Snowflake source is handed to #306's harvest workflow on the way
+ * out so the Data sources card shows it building. The API tests only a *saved* source -- there
+ * is no "try these fields" route by contract, because a credential the product will act on
+ * should be one it holds -- so testing from a new form saves first and says so.
+ *
+ * Errors are the backend's own `detail`, shown as written. A 422 from an incomplete credential
+ * or a classified connection failure ("Authentication failed for user x") is more useful than
+ * anything this form could invent.
+ */
 
 const SOURCE_ICON = {
  postgres: postgresSvg,
@@ -50,6 +78,13 @@ const AUTH_OPTIONS = [
  { value: "oauth", label: "OAuth" },
 ];
 
+/** The picker offers what the API can register (`SourceType`), in the catalogue's own labels
+ * and order, plus a plain "Other" for anything the catalogue does not name. */
+const TYPE_OPTIONS = [
+ ...INTERNAL_SOURCE_TYPES.filter((t) => API_SOURCE_TYPES.includes(t.id)),
+ { id: "other", label: "Other" },
+];
+
 /* Styled label for form sections */
 function SectionLabel({ label, required }) {
  return (
@@ -62,7 +97,7 @@ function SectionLabel({ label, required }) {
 }
 
 /* Input with left icon */
-function IconInput({ icon: Icon, label, required, type = "text", value, onChange, placeholder }) {
+function IconInput({ icon: Icon, label, required, type = "text", value, onChange, placeholder, autoComplete }) {
  return (
  <div>
  {label && (
@@ -78,6 +113,7 @@ function IconInput({ icon: Icon, label, required, type = "text", value, onChange
  value={value}
  onChange={onChange}
  placeholder={placeholder}
+ autoComplete={autoComplete}
  className="w-full rounded-lg border border-border-light py-2.5 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-[#6941c6]"
  />
  </div>
@@ -106,38 +142,66 @@ function StyledSelect({ label, required, value, onChange, children }) {
  );
 }
 
+function formFromSource(source) {
+ return {
+ sourceType: source.sourceType,
+ name: source.name,
+ host: source.host,
+ port: source.port,
+ databaseName: source.databaseName,
+ schema: source.schema,
+ authMethod: source.authMethod,
+ username: source.username,
+ // Stored secrets never come back from the API; a demo row's are blank anyway.
+ password: "",
+ apiKey: "",
+ sslMode: source.sslMode,
+ permissionLevel: source.permissionLevel,
+ };
+}
+
+const errorText = (err, fallback) => err?.detail || err?.message || fallback;
+
 export default function ConfigureInternalSourceForm() {
  const { id } = useParams();
  const navigate = useNavigate();
  const isNew = !id || id === "new";
- const { data, hydrated, upsertInternal } = useConfigureWorkspace();
+ const { data, hydrated, upsertInternal, testInternalConnection, startInternalHarvest } = useConfigureWorkspace();
 
  const [form, setForm] = useState(EMPTY);
  const [rwModalOpen, setRwModalOpen] = useState(false);
+ // One thing at a time: "saving" or "testing", else null.
+ const [busy, setBusy] = useState(null);
+ const [error, setError] = useState(null);
+ const [notice, setNotice] = useState(null);
+ // The last connection test: idle | testing | ok | failed, with the backend's own sentence.
+ const [test, setTest] = useState({ state: "idle", detail: "", testedAt: null });
 
  const existing = useMemo(() => {
  if (isNew) return null;
  return (data.internalSources || []).find((x) => x.id === decodeURIComponent(id));
  }, [data.internalSources, id, isNew]);
 
+ // A real source (the API's) vs a seeded demo row. Editing a demo row and saving registers a
+ // real source; the demo row itself stays a fixture.
+ const isLive = !!existing?.remote;
+
+ // Load the form once per source id -- not on every context refresh. The harvest poll
+ // re-reads the list every few seconds while something builds, and resetting the fields on
+ // each tick would wipe whatever the person is typing.
+ const loadedFor = useRef(null);
  useEffect(() => {
  if (!hydrated) return;
- if (isNew) { setForm(EMPTY); return; }
- if (existing) {
- setForm({
- sourceType: existing.sourceType,
- name: existing.name,
- host: existing.host,
- port: existing.port,
- databaseName: existing.databaseName,
- schema: existing.schema,
- authMethod: existing.authMethod,
- username: existing.username,
- password: existing.password,
- apiKey: existing.apiKey,
- sslMode: existing.sslMode,
- permissionLevel: existing.permissionLevel,
- });
+ if (isNew) {
+ if (loadedFor.current !== "new") {
+ loadedFor.current = "new";
+ setForm(EMPTY);
+ }
+ return;
+ }
+ if (existing && loadedFor.current !== existing.id) {
+ loadedFor.current = existing.id;
+ setForm(formFromSource(existing));
  }
  }, [hydrated, isNew, existing]);
 
@@ -159,19 +223,80 @@ export default function ConfigureInternalSourceForm() {
 
  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
- const onSave = () => {
- // Saving an edit -- even to a seeded placeholder -- means someone has taken ownership of
- // this row with real values, so it stops being a "seed" the Data Sources grid hides.
- // Without this, a seeded row edited with real credentials would stay permanently excluded
- // from its own listing page with no way back through the UI.
- const base = isNew ? { seed: false } : { id: existing.id, seed: false };
- const record = normalizeInternal({ ...base, ...form });
- upsertInternal(record);
+ /** POST for a new form or a demo row; PATCH for a real source. Returns the saved source. */
+ const save = async () => {
+ const base = isLive ? { id: existing.id } : {};
+ const record = { ...normalizeInternal({ ...base, ...form, seed: false }), remote: isLive };
+ return upsertInternal(record);
+ };
+
+ const onSave = async () => {
+ setBusy("saving");
+ setError(null);
+ setNotice(null);
+ let saved;
+ try {
+ saved = await save();
+ } catch (err) {
+ setError(errorText(err, "Could not save the source."));
+ setBusy(null);
+ return;
+ }
+ // Connect = register, then model. Only for types #306's workflow has a connector for, and
+ // only when there is something to (re)build -- a modelled source keeps its model on a
+ // rename. A failure to *start* the run is shown here, on the saved source, not swallowed.
+ const wantsHarvest =
+ HARVESTABLE_SOURCE_TYPES.has(saved.sourceType) &&
+ (!isLive || ["not_started", "error"].includes(saved.harvestState));
+ if (wantsHarvest) {
+ try {
+ await startInternalHarvest(saved.id);
+ } catch (err) {
+ setBusy(null);
+ setError(`Saved, but modelling could not start: ${errorText(err, "unknown error")}`);
+ if (!isLive) navigate(`/configure/internal-sources/edit/${encodeURIComponent(saved.id)}`, { replace: true });
+ return;
+ }
+ }
+ setBusy(null);
  navigate("/configure/internal-sources");
  };
 
- const onTestConnection = () => {
- window.alert("Demo only: connection test would run here. Marked as connected for this session.");
+ /** Test uses the *stored* credentials, so a new form (or a demo row) is saved first and the
+ * form switches to editing the saved source. Unsaved edits on a real source are saved too,
+ * so what is tested is what is on screen. */
+ const onTestConnection = async () => {
+ setBusy("testing");
+ setError(null);
+ setNotice(null);
+ setTest({ state: "testing", detail: "", testedAt: null });
+ let sourceId = isLive ? existing.id : null;
+ try {
+ const saved = await save();
+ if (!isLive) {
+ sourceId = saved.id;
+ setNotice("Saved first — the API tests the credentials it stores, not the ones on screen.");
+ loadedFor.current = saved.id; // keep the typed values; do not reload the form from the API
+ navigate(`/configure/internal-sources/edit/${encodeURIComponent(saved.id)}`, { replace: true });
+ }
+ // The secret is stored now; clear it from the screen so a later Save does not rotate it
+ // to the same value and a stale field never lingers in the DOM.
+ setForm((f) => ({ ...f, password: "", apiKey: "" }));
+ } catch (err) {
+ setTest({ state: "idle", detail: "", testedAt: null });
+ setError(errorText(err, "Could not save the source before testing."));
+ setBusy(null);
+ return;
+ }
+ try {
+ const result = await testInternalConnection(sourceId);
+ setTest({ state: result?.ok ? "ok" : "failed", detail: result?.detail || "", testedAt: result?.tested_at || null });
+ } catch (err) {
+ setTest({ state: "idle", detail: "", testedAt: null });
+ setError(errorText(err, "The connection test could not run."));
+ } finally {
+ setBusy(null);
+ }
  };
 
  const permissionToggle = (nextRw) => {
@@ -185,7 +310,8 @@ export default function ConfigureInternalSourceForm() {
  };
 
  const typeIcon = SOURCE_ICON[form.sourceType];
- const canSave = form.name.trim() && form.host.trim();
+ const canSave = form.name.trim() && form.host.trim() && !busy;
+ const harvestable = HARVESTABLE_SOURCE_TYPES.has(form.sourceType);
 
  return (
  <div className="space-y-5">
@@ -210,6 +336,21 @@ export default function ConfigureInternalSourceForm() {
  Configure connection details, authentication, and schema settings.
  </p>
  </div>
+
+ {(error || notice) && (
+ <div className="px-8 pb-4">
+ {error && (
+ <div role="alert" className="rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+ {error}
+ </div>
+ )}
+ {notice && !error && (
+ <div className="rounded-xl border border-status-info-border bg-status-info-light px-4 py-3 text-sm text-status-info">
+ {notice}
+ </div>
+ )}
+ </div>
+ )}
 
  <div className="border-t border-border" />
 
@@ -236,13 +377,18 @@ export default function ConfigureInternalSourceForm() {
  onChange={(e) => setField("sourceType", e.target.value)}
  className="w-full appearance-none rounded-lg border border-border-light py-2.5 pl-3 pr-8 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-[#6941c6]"
  >
- {INTERNAL_SOURCE_TYPES.map((t) => (
+ {TYPE_OPTIONS.map((t) => (
  <option key={t.id} value={t.id}>{t.label}</option>
  ))}
  </select>
  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-muted">▾</span>
  </div>
  </div>
+ {!harvestable && (
+ <p className="mt-1.5 text-xs text-text-muted">
+ Registers and can be tested, but no connector models this type yet — it will show as "Not modelled".
+ </p>
+ )}
  </div>
 
  <IconInput
@@ -257,7 +403,7 @@ export default function ConfigureInternalSourceForm() {
  icon={Server}
  label="Host"
  required
- placeholder="localhost"
+ placeholder="warehouse.internal"
  value={form.host}
  onChange={(e) => setField("host", e.target.value)}
  />
@@ -276,6 +422,7 @@ export default function ConfigureInternalSourceForm() {
  <label className="mb-1.5 block text-sm font-medium text-text-primary">Port</label>
  <input
  type="text"
+ inputMode="numeric"
  placeholder="5432"
  value={form.port}
  onChange={(e) => setField("port", e.target.value)}
@@ -334,16 +481,18 @@ export default function ConfigureInternalSourceForm() {
  icon={Mail}
  label="Username"
  required
- placeholder="Enter your email"
+ placeholder="egpt_reader"
+ autoComplete="off"
  value={form.username}
  onChange={(e) => setField("username", e.target.value)}
  />
  <IconInput
  icon={Lock}
  label="Password"
- required
+ required={!isLive}
  type="password"
- placeholder="••••••••"
+ autoComplete="new-password"
+ placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "••••••••"}
  value={form.password}
  onChange={(e) => setField("password", e.target.value)}
  />
@@ -353,17 +502,31 @@ export default function ConfigureInternalSourceForm() {
  <IconInput
  icon={Lock}
  label="API Key / Private Key"
- required
+ required={!isLive}
  type="password"
- placeholder="sk-…"
+ autoComplete="new-password"
+ placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "sk-…"}
  value={form.apiKey}
  onChange={(e) => setField("apiKey", e.target.value)}
  />
  )}
  {form.authMethod === "oauth" && (
+ <div className="space-y-3">
  <p className="text-sm text-text-secondary">
- Use API key or username and password if connecting outside your organisation's OAuth flow.
+ Paste the access token your organisation's OAuth flow issued. The API stores it like any other
+ secret; there is no browser redirect flow here.
  </p>
+ <IconInput
+ icon={Lock}
+ label="Access token"
+ required={!isLive}
+ type="password"
+ autoComplete="new-password"
+ placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "token"}
+ value={form.apiKey}
+ onChange={(e) => setField("apiKey", e.target.value)}
+ />
+ </div>
  )}
 
  {/* Permission level */}
@@ -393,26 +556,55 @@ export default function ConfigureInternalSourceForm() {
  Read-Write
  </button>
  </div>
+ {form.permissionLevel === "read_write" && (
+ <p className="mt-2 text-xs text-status-warning">
+ A read-write source is registered but never modelled or exposed to a model; the harvest refuses it.
+ </p>
+ )}
  </div>
  </div>
  </div>
 
  {/* Test connection panel */}
- <div className="mx-6 mb-6 flex items-center justify-between gap-4 rounded-xl bg-surface-tertiary px-5 py-4">
+ <div className="mx-6 mb-6 rounded-xl bg-surface-tertiary px-5 py-4">
+ <div className="flex items-center justify-between gap-4">
  <div className="flex items-center gap-3">
  <Unplug size={22} className="shrink-0 text-text-secondary" />
  <div>
  <p className="font-semibold text-text-primary">Test your connection</p>
- <p className="text-xs text-text-secondary">Verify your credentials are correct</p>
+ <p className="text-xs text-text-secondary">
+ {isLive
+ ? "Tries the connection with the credentials the API has stored."
+ : "Saves the source, then tries the connection with the stored credentials."}
+ </p>
  </div>
  </div>
  <button
  type="button"
  onClick={onTestConnection}
- className="shrink-0 rounded-lg border border-border-light bg-surface px-4 py-2 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
+ disabled={!!busy || !form.name.trim() || !form.host.trim()}
+ className="flex shrink-0 items-center gap-2 rounded-lg border border-border-light bg-surface px-4 py-2 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary disabled:cursor-default disabled:opacity-60"
  >
- Test Connection
+ {busy === "testing" && <Loader2 size={14} className="animate-spin" />}
+ {busy === "testing" ? "Testing…" : "Test Connection"}
  </button>
+ </div>
+ {test.state !== "idle" && test.state !== "testing" && (
+ <div
+ role="status"
+ className={`mt-3 flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm ${
+ test.state === "ok"
+ ? "bg-status-success-light text-status-success"
+ : "bg-status-critical-light text-status-critical"
+ }`}
+ >
+ {test.state === "ok" ? <CircleCheck size={16} className="mt-0.5 shrink-0" /> : <CircleX size={16} className="mt-0.5 shrink-0" />}
+ <div>
+ <p className="font-semibold">{test.state === "ok" ? "Connected" : "Connection failed"}</p>
+ {test.detail && <p className="mt-0.5">{test.detail}</p>}
+ </div>
+ </div>
+ )}
  </div>
  </div>
 
@@ -420,7 +612,7 @@ export default function ConfigureInternalSourceForm() {
  <div className="flex items-center justify-between py-2">
  <button
  type="button"
- onClick={() => setForm(EMPTY)}
+ onClick={() => setForm(isLive ? formFromSource(existing) : EMPTY)}
  className="text-sm font-medium text-text-secondary hover:text-text-primary"
  >
  Reset to default
@@ -443,8 +635,8 @@ export default function ConfigureInternalSourceForm() {
  : "cursor-default bg-surface-tertiary text-text-muted"
  }`}
  >
- <CheckCircle size={15} />
- {isNew ? "Create Datasource" : "Save Changes"}
+ {busy === "saving" ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+ {busy === "saving" ? "Connecting…" : isLive ? "Save Changes" : "Create Datasource"}
  </button>
  </div>
  </div>

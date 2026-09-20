@@ -6008,3 +6008,65 @@ whether `permission_level=read_only` is enforced at connect time -- and is filed
 follow-up rather than half-built here.
 
 ---
+
+### P4_frontend_connect_flow.mjs
+
+**Status:** PASS
+
+**Description:** #308 -- the Configure > Data sources screens wired to the real backend built in
+#304-#307, exercised in a headless Chromium (Playwright 1.63) against the real API
+(`.venv/bin/egpt-retail api` on :7777, local Postgres on :5532 and Neo4j on :7687 via Docker),
+with Vite serving the frontend on :3000. The harvest target is a throwaway `p4_ui` schema
+(`store`, `store_visit`) in `egpt_warehouse`, reached through the machine's LAN address
+(`192.168.0.114`) because the SSRF guard correctly refuses `localhost` -- which makes this the
+first fully *successful* end-to-end harvest through the product's own entry points in this
+environment (P2/P3 could only prove the refusal path and the pieces individually).
+
+**What the browser did, and what the API answered:**
+1. Empty list: `GET /configure/sources` -> `[]`, "No sources connected".
+2. "Add database", form filled (Postgres, LAN host, `egpt_warehouse`, schema `p4_ui`, `ai`/`ai`,
+   SSL mode Prefer).
+3. "Test Connection" on the new form: `POST /configure/sources` -> 201, form switched to
+   `/edit/<id>` with the notice that it saved first, `POST .../test` -> 200
+   `{ok: true, detail: "Connected as ai; 2 table(s) visible in schema p4_ui."}`, shown green.
+4. "Save Changes": `POST /workflows/harvest-source/runs` -> 202 `{run_id, session_id,
+   status: PENDING}`; back on the list the card read "Building model" with an indeterminate bar
+   and the readiness line "1 still building".
+5. Polling `GET /configure/sources` turned the card "Modelled", "Last sync: Just now", and the
+   completion banner "P4 UI warehouse is modelled -- its tables and columns are in the semantic
+   layer" appeared (the transition, not the state, triggers it).
+6. "View semantic layer": `GET /semantic/tables?source_id=` -> both tables with row counts and
+   the source's own snapshot (`20260920.134927`); the screen says the join/measure review and
+   personal-data scan are not run for connected sources.
+7. A second source on `127.0.0.1`: Test Connection shows the guard's own sentence ("refused:
+   this host resolves to a loopback or link-local address ...") in red.
+8. Saving it: the harvest run refuses the same host, the card reads "Failed" with "Modelling
+   failed. Test the connection, then retry." and a "Retry modelling" button.
+9. A `username_password` source with no password: `POST` -> 422, the backend's
+   `credential: username_password requires both username and password` shown as the form's alert.
+10. Remove from the card menu: `DELETE` -> 204, card gone.
+Then (`p4_demo_check.mjs`, same session): "Show 7 demo sources" renders every fixture state
+(Modelled, Needs review, Building model, Not modelled), the SAP fixture's "Review 4 items"
+opens the catalogue-derived review (tabs Needs review 8 / Entities 4 / Metrics unlocked 8), and
+`?source=ds_does_not_exist` shows "not connected any more" rather than crashing. No page errors;
+the only console error is the browser's own log line for the intentional 422.
+
+**Found and fixed along the way:** the first run's Test Connection returned `ok: false, "Could
+not connect."` -- the form defaults `ssl_mode` to `require` and the Docker Postgres has no SSL,
+and the router's classifier collapsed "server does not support SSL, but SSL was required" into
+its generic bucket. `_classify_connection_error` now names it ("The server does not support
+SSL. Set this source's SSL mode to prefer or disable."), with a unit test. Contract 1.2.8 adds
+`InternalSource.harvest_state` (required) and `last_harvest_at` so the card has something real
+to poll; `_source_out` returns them; `test_p1_sources_router.py` asserts the defaults.
+
+**Result:** 10/10 browser steps passed twice (the second after the SSL fix), demo smoke passed;
+`npx vite build` clean; `product/tests` 1551 passed / 113 skipped; mypy clean (155 files); ruff
+clean; API contract check valid (118 operations, 200 schemas).
+
+**Not done, on purpose:** external integrations (`ConfigureExternalForm.jsx`) still use their
+demo path -- the contract has `/configure/integrations` as a stub only and no store behind it,
+so wiring the form would have nowhere real to go. A real source's semantic-layer review queue
+(join paths, measures, personal data) is stated as not built rather than derived from demo
+data; that and routing KPI SQL to the source's connection are #314's.
+
+---
