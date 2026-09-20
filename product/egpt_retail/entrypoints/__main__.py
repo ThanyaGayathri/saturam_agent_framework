@@ -96,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After the refresh, run the KPI and use case suggestion pass and file proposals.",
     )
+    harvest.add_argument(
+        "--source-id",
+        default="",
+        help=(
+            "Harvest one self-serve source (its /configure/sources id) with its stored "
+            "credential, the same executor the harvest-source workflow runs."
+        ),
+    )
 
     # The "then immediately suggest" half of connect -> build the layer -> suggest. Separate
     # from `harvest` so a deployment can re-suggest without re-harvesting, e.g. after a KPI
@@ -158,6 +166,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "harvest":
         from egpt_retail.entrypoints.harvest import main as run_harvest
 
+        if args.source_id:
+            return run_harvest(["--source-id", args.source_id])
         argv_harvest = ["--schema", args.schema, "--version", args.version]
         if args.suggest:
             argv_harvest.append("--suggest")

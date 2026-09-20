@@ -6070,3 +6070,53 @@ so wiring the form would have nowhere real to go. A real source's semantic-layer
 data; that and routing KPI SQL to the source's connection are #314's.
 
 ---
+
+### P5_self_serve_source_end_to_end.py
+
+**Status:** PASS
+
+**Description:** #309 -- the self-serve data-source pipeline (#302) as one thing, through the
+product's own entry points, against the real control-plane Postgres, the real `egpt_warehouse`
+and the real Neo4j: `EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product
+.venv/bin/python cookbook/94_retail/P5_self_serve_source_end_to_end.py`. Both routers
+(`/configure/sources`, `/semantic`) on one FastAPI app backed by the real stores;
+`harvest_source` (the `harvest-source` workflow's step) run directly; the new
+`egpt-retail harvest --source-id` run through `entrypoints.harvest.main`.
+
+**Refusal path (always):** a source on `127.0.0.1` registers (201, no credential in the body,
+`harvest_state=not_started`); `POST .../test` -> `ok: false` with the SSRF guard's sentence;
+the harvest is refused and the row moves to `harvest_state=error`; its listing is empty with
+`snapshot.version="unharvested"`; `harvest --source-id` exits 1; an unregistered id is a 404.
+
+**Success path (a Postgres on the LAN address, auto-detected as `192.168.0.114`):** register ->
+test `ok: true, "Connected as ai; 2 table(s) visible in schema p5_cookbook."` -> harvest writes
+2 tables / 5 columns, `harvest_state=modelled`, `last_harvest_at` set -> `GET
+/semantic/tables?source_id=` lists `store`, `store_visit` under the harvest's own snapshot
+version and the source's name -> the operator's listing never sees `p5_cookbook` (#307) ->
+`harvest --source-id` re-harvests, exit 0, still 2 tables -> a rival source claiming the same
+schema stops at `needs_review` with the collision guard's message -> `DELETE` 204 and the
+listing turns 404. Throwaway schema and graph nodes removed afterwards.
+
+**Gated twin, for CI:** `product/tests/test_data_sources_live.py`, gated like
+`test_semantic_live.py` on `EGPT_INTEGRATION_POSTGRES`/`EGPT_INTEGRATION_NEO4J`; the success
+path further needs `EGPT_INTEGRATION_SOURCE_HOST` (skipped, not faked, without it). Locally:
+3 passed with the host set; 2 passed / 1 skipped without.
+
+**DB-free consolidation:** `product/tests/test_p5_self_serve_pipeline.py` (18 tests) pins the
+seams the per-phase suites could not: the registered `harvest-source` workflow's only step *is*
+`harvest_source` and it has a `db` (background runs need one); the workflow id is the one
+`frontend/src/services/sources-api.js` posts to; `egpt-retail harvest --source-id` dispatches to
+the executor and maps `StepOutput` to exit 0/1, refuses the warehouse flags, and leaves the
+plain warehouse harvest unchanged; and the vocabularies agree -- contract enums vs wire enums
+(`SourceType`, `AuthMethod`, `PermissionLevel`, `HarvestState`), every `HarvestState`/
+`DataSourceStatus` member vs the table's CHECK constraints, the frontend's `MODEL_STATES` keys
+vs `HarvestState`, and the frontend's `HARVESTABLE_SOURCE_TYPES`/`API_SOURCE_TYPES` vs the
+backend's sets (read from the JS source; skipped when the frontend is not checked out).
+
+**Result:** cookbook PASS on both paths; `product/tests` 1569 passed / 114 skipped;
+`./scripts/validate.sh` clean (ruff, mypy for egpt/egptctl/product, API contract check).
+`./scripts/format.sh` on a clean checkout reformats 132 files this stack never touched
+(cookbook/, libs/), so formatting was applied to this PR's files only (`ruff format` per file)
+rather than committing an unrelated repo-wide reformat.
+
+---
