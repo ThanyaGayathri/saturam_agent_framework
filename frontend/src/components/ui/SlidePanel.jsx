@@ -47,6 +47,7 @@ export default function SlidePanel({
             <div className="flex shrink-0 items-center gap-2">{headerActions}</div>
           ) : (
             <button
+              type="button"
               onClick={onClose}
               className="rounded p-1 text-text-muted hover:bg-surface-secondary"
               aria-label="Close"
