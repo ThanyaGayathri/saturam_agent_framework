@@ -161,22 +161,6 @@ export default function KpisHubLayout() {
               </>
             )}
           </NavLink>
-          <NavLink
-            to="/kpis/dashboard"
-            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
-          >
-            {({ isActive }) => (
-              <>
-                KPI health
-                <span
-                  aria-hidden
-                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
-                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
-                  }`}
-                />
-              </>
-            )}
-          </NavLink>
         </div>
 
         <div className={catalogSectionBelowNav}>
