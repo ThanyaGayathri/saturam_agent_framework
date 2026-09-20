@@ -5863,6 +5863,18 @@ source deletes its secret too.
 plaintext password is never present in what gets stored -- `plaintext_password.encode() not
 in ciphertext`, checked against the raw bytea column.
 
+**Review rounds (#310):** the same guarantees now also run in CI as
+`product/tests/test_p0_data_sources_live.py` (gated by `EGPT_INTEGRATION_POSTGRES`, wired into
+`integration.yml`), which adds update validation, the concurrent-rotation race, delete and
+failed-create cleanup, whitespace normalisation, the async twins and the enum constraints;
+`test_p0_secret_stores.py` covers backend selection and the Key Vault store against a fake
+client. This script was hardened in the second round: its clean slate now deletes leftovers
+*through the store* (a bare `DELETE FROM configure.data_source` orphaned their ciphertext in
+`configure.local_secret`), and the walkthrough runs under `try/finally` so an assertion that
+stops it leaves no row, secret or open connection behind. Re-run and PASS; also checked that a
+source left behind by an earlier, stopped run (created under a different encryption key) is
+removed along with its secret.
+
 **Also found while wiring this up:** `product/tests/test_k1_memory_wiring.py`'s
 `test_ensure_control_plane_schemas_provisions_all_seven_stores` enumerates every store
 `_ensure_control_plane_schemas` provisions at boot by name; adding `DataSourceStore` there

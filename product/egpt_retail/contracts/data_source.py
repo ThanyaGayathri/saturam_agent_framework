@@ -34,7 +34,7 @@ apply (see the construction exemption in ``CLAUDE.md``); ``configure/store.py`` 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from typing import Mapping, Optional
@@ -54,6 +54,8 @@ __all__ = [
     "HarvestState",
     "PermissionLevel",
     "SSL_MODES",
+    "normalize_create",
+    "normalize_update",
     "validate_create",
     "validate_credential",
     "validate_update",
@@ -188,9 +190,7 @@ class Credential:
     oauth_client_id: Optional[str] = None
     oauth_client_secret: Optional[str] = field(default=None, repr=False)
 
-    def __repr__(
-        self,
-    ) -> str:  # pragma: no cover -- exercised by test_no_secret_in_repr
+    def __repr__(self) -> str:
         return f"Credential(auth_method={self.auth_method!r}, <redacted>)"
 
 
@@ -259,6 +259,40 @@ class DataSourceUpdate:
     ssl_mode: Optional[str] = None
     permission_level: Optional[PermissionLevel] = None
     credential: Optional[Credential] = None
+
+
+def normalize_create(create: DataSourceCreate) -> DataSourceCreate:
+    """``create`` with the free-text connection fields stripped of surrounding whitespace.
+
+    :func:`validate_create` judges ``name``/``host``/``database_name`` stripped, so what is
+    stored has to be stripped too -- otherwise ``" db.internal "`` registers cleanly and only
+    fails later, at name resolution, with nothing pointing at the padding (the same "registers,
+    then fails much later" class the ``ssl_mode`` check exists for). Copy-pasted hosts are the
+    usual source. The store applies this before validating and writing; the credential is
+    never touched, since whitespace in a password is significant."""
+    return replace(
+        create,
+        name=create.name.strip(),
+        host=create.host.strip(),
+        database_name=create.database_name.strip(),
+        schema_name=create.schema_name.strip(),
+    )
+
+
+def normalize_update(patch: DataSourceUpdate) -> DataSourceUpdate:
+    """:func:`normalize_create` for a patch: strips the fields it carries, leaves the rest
+    (and the credential) as they are."""
+
+    def strip(value: Optional[str]) -> Optional[str]:
+        return value.strip() if value is not None else None
+
+    return replace(
+        patch,
+        name=strip(patch.name),
+        host=strip(patch.host),
+        database_name=strip(patch.database_name),
+        schema_name=strip(patch.schema_name),
+    )
 
 
 def _check_connection_fields(

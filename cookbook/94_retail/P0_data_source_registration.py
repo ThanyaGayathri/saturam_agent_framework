@@ -66,131 +66,150 @@ print("P0 -- data source registration, credential storage, rotation and deletion
 print("=" * 78)
 
 connection = psycopg.connect(CONTROL_PLANE)
-
 secrets = LocalEncryptedSecretStore(connection, Fernet.generate_key().decode("utf-8"))
-secrets.ensure_schema()
 sources = DataSourceStore(connection)
-sources.ensure_schema()
 
-# A clean slate for this cookbook only -- never the whole table, which may hold other work.
-with connection.cursor() as cursor:
-    cursor.execute(
-        "DELETE FROM configure.data_source WHERE created_by = %s", (CREATED_BY,)
+
+def _remove_this_cookbooks_sources() -> None:
+    """Deletes every source this cookbook created, *through the store*, so each one's secret
+    goes with it. A bare ``DELETE FROM configure.data_source`` would leave the ciphertext in
+    ``configure.local_secret`` unreferenced -- the very orphan this feature exists to prevent.
+    ``delete`` works by ``secret_ref``, so this run's throwaway encryption key does not matter
+    for rows an earlier run left behind."""
+    for leftover in sources.list(created_by=CREATED_BY):
+        sources.delete(leftover.id, secrets)
+
+
+try:
+    secrets.ensure_schema()
+    sources.ensure_schema()
+
+    # A clean slate for this cookbook only -- never the whole table, which may hold other work.
+    _remove_this_cookbooks_sources()
+
+    # --- register ------------------------------------------------------------------------------
+
+    plaintext_password = "s3cr3t-p0-cookbook-password"
+    credential = Credential(
+        auth_method=AuthMethod.USERNAME_PASSWORD,
+        username="reporting_user",
+        password=plaintext_password,
     )
-connection.commit()
-
-# --- register ------------------------------------------------------------------------------
-
-plaintext_password = "s3cr3t-p0-cookbook-password"
-credential = Credential(
-    auth_method=AuthMethod.USERNAME_PASSWORD,
-    username="reporting_user",
-    password=plaintext_password,
-)
-created = sources.create(
-    DataSourceCreate(
-        name="P0 cookbook Postgres",
-        source_type=DataSourceType.POSTGRES,
-        host="warehouse.internal",
-        database_name="analytics",
-        schema_name="public",
-        credential=credential,
-        created_by=CREATED_BY,
-    ),
-    secrets,
-)
-assert created.ssl_mode == "require"  # the wire contract's own default
-assert created.permission_level is PermissionLevel.READ_ONLY  # ditto
-assert created.username == "reporting_user"  # non-secret, stored in the clear
-print(
-    f"created: id={created.id} status={created.status.value} secret_ref={created.secret_ref}"
-)
-assert created.status is DataSourceStatus.REGISTERED
-assert created.harvest_state is HarvestState.NOT_STARTED
-assert not hasattr(created, "password")  # no such attribute exists on DataSource at all
-print("PASS: no credential attribute exists on the returned DataSource")
-
-with connection.cursor() as cursor:
-    cursor.execute(
-        "SELECT ciphertext FROM configure.local_secret WHERE ref = %s",
-        (created.secret_ref,),
+    created = sources.create(
+        DataSourceCreate(
+            name="P0 cookbook Postgres",
+            source_type=DataSourceType.POSTGRES,
+            host="warehouse.internal",
+            database_name="analytics",
+            schema_name="public",
+            credential=credential,
+            created_by=CREATED_BY,
+        ),
+        secrets,
     )
-    (ciphertext,) = cursor.fetchone()
-assert plaintext_password.encode("utf-8") not in ciphertext
-print("PASS: the stored ciphertext does not contain the plaintext password")
+    assert created.ssl_mode == "require"  # the wire contract's own default
+    assert created.permission_level is PermissionLevel.READ_ONLY  # ditto
+    assert created.username == "reporting_user"  # non-secret, stored in the clear
+    print(
+        f"created: id={created.id} status={created.status.value} secret_ref={created.secret_ref}"
+    )
+    assert created.status is DataSourceStatus.REGISTERED
+    assert created.harvest_state is HarvestState.NOT_STARTED
+    assert not hasattr(
+        created, "password"
+    )  # no such attribute exists on DataSource at all
+    print("PASS: no credential attribute exists on the returned DataSource")
 
-recovered = secrets.read(created.secret_ref)
-assert recovered.username == "reporting_user"
-assert recovered.password == plaintext_password
-print("PASS: secret_store.read() recovers the exact credential that was written")
-
-# --- read back -----------------------------------------------------------------------------
-
-fetched = sources.get(created.id)
-assert fetched == created
-listed = sources.list(created_by=CREATED_BY)
-assert created.id in {row.id for row in listed}
-print(
-    f"PASS: get() and list() agree with what create() returned ({len(listed)} row(s))"
-)
-
-# --- test-connection and harvest-state bookkeeping ------------------------------------------
-
-tested = sources.record_test_result(
-    created.id,
-    ConnectionTestResult(
-        ok=True, message="reachable", tested_at=datetime.now(timezone.utc)
-    ),
-)
-assert tested.status is DataSourceStatus.CONNECTED
-assert tested.last_test_ok is True
-print("PASS: record_test_result() moves status to connected")
-
-harvested = sources.set_harvest_state(
-    created.id, HarvestState.BUILDING, run_id="run_p0_demo"
-)
-assert harvested.harvest_state is HarvestState.BUILDING
-assert harvested.last_harvest_run_id == "run_p0_demo"
-print("PASS: set_harvest_state() records the workflow run id #306 will trigger")
-
-# --- rotate the credential -------------------------------------------------------------------
-
-old_secret_ref = created.secret_ref
-rotated = sources.update(
-    created.id,
-    DataSourceUpdate(
-        credential=Credential(
-            auth_method=AuthMethod.USERNAME_PASSWORD,
-            username="reporting_user",
-            password="a-rotated-password",
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT ciphertext FROM configure.local_secret WHERE ref = %s",
+            (created.secret_ref,),
         )
-    ),
-    secrets,
-)
-assert rotated.secret_ref != old_secret_ref
-try:
-    secrets.read(old_secret_ref)
-    raise AssertionError("the old secret should have been deleted on rotation")
-except SecretNotFoundError:
-    print("PASS: rotating a credential changes secret_ref and deletes the old secret")
+        (ciphertext,) = cursor.fetchone()
+    assert plaintext_password.encode("utf-8") not in ciphertext
+    print("PASS: the stored ciphertext does not contain the plaintext password")
 
-rotated_credential = secrets.read(rotated.secret_ref)
-assert rotated_credential.password == "a-rotated-password"
-print("PASS: the new secret_ref resolves to the rotated credential")
+    recovered = secrets.read(created.secret_ref)
+    assert recovered.username == "reporting_user"
+    assert recovered.password == plaintext_password
+    print("PASS: secret_store.read() recovers the exact credential that was written")
 
-# --- delete ------------------------------------------------------------------------------
+    # --- read back -----------------------------------------------------------------------------
 
-deleted = sources.delete(created.id, secrets)
-assert deleted is True
-assert sources.get(created.id) is None
-try:
-    secrets.read(rotated.secret_ref)
-    raise AssertionError(
-        "the secret should have been deleted along with its data source"
+    fetched = sources.get(created.id)
+    assert fetched == created
+    listed = sources.list(created_by=CREATED_BY)
+    assert created.id in {row.id for row in listed}
+    print(
+        f"PASS: get() and list() agree with what create() returned ({len(listed)} row(s))"
     )
-except SecretNotFoundError:
-    print("PASS: deleting a data source deletes its secret too")
 
-connection.close()
-print("=" * 78)
-print("P0 evidence complete.")
+    # --- test-connection and harvest-state bookkeeping ------------------------------------------
+
+    tested = sources.record_test_result(
+        created.id,
+        ConnectionTestResult(
+            ok=True, message="reachable", tested_at=datetime.now(timezone.utc)
+        ),
+    )
+    assert tested.status is DataSourceStatus.CONNECTED
+    assert tested.last_test_ok is True
+    print("PASS: record_test_result() moves status to connected")
+
+    harvested = sources.set_harvest_state(
+        created.id, HarvestState.BUILDING, run_id="run_p0_demo"
+    )
+    assert harvested.harvest_state is HarvestState.BUILDING
+    assert harvested.last_harvest_run_id == "run_p0_demo"
+    print("PASS: set_harvest_state() records the workflow run id #306 will trigger")
+
+    # --- rotate the credential -------------------------------------------------------------------
+
+    old_secret_ref = created.secret_ref
+    rotated = sources.update(
+        created.id,
+        DataSourceUpdate(
+            credential=Credential(
+                auth_method=AuthMethod.USERNAME_PASSWORD,
+                username="reporting_user",
+                password="a-rotated-password",
+            )
+        ),
+        secrets,
+    )
+    assert rotated.secret_ref != old_secret_ref
+    try:
+        secrets.read(old_secret_ref)
+        raise AssertionError("the old secret should have been deleted on rotation")
+    except SecretNotFoundError:
+        print(
+            "PASS: rotating a credential changes secret_ref and deletes the old secret"
+        )
+
+    rotated_credential = secrets.read(rotated.secret_ref)
+    assert rotated_credential.password == "a-rotated-password"
+    print("PASS: the new secret_ref resolves to the rotated credential")
+
+    # --- delete ------------------------------------------------------------------------------
+
+    deleted = sources.delete(created.id, secrets)
+    assert deleted is True
+    assert sources.get(created.id) is None
+    try:
+        secrets.read(rotated.secret_ref)
+        raise AssertionError(
+            "the secret should have been deleted along with its data source"
+        )
+    except SecretNotFoundError:
+        print("PASS: deleting a data source deletes its secret too")
+
+    print("=" * 78)
+    print("P0 evidence complete.")
+finally:
+    # Whether the walkthrough finished or an assertion stopped it, leave no row, no secret and
+    # no open connection behind.
+    try:
+        connection.rollback()
+        _remove_this_cookbooks_sources()
+    finally:
+        connection.close()

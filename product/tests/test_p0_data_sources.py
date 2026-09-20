@@ -32,6 +32,8 @@ from egpt_retail.contracts.data_source import (
     DataSourceValidationError,
     HarvestState,
     PermissionLevel,
+    normalize_create,
+    normalize_update,
     validate_create,
     validate_credential,
     validate_update,
@@ -323,18 +325,31 @@ class TestNoCredentialShapeIsStoredOrReturned:
 
 
 class TestDdlEnumConstraints:
-    """Every closed enum column has a ``CHECK`` -- ``auth_method`` and ``source_type`` used to
-    have none, so a direct SQL write could put a value there that ``_row_to_data_source`` then
-    fails to construct."""
+    """Every closed enum column has a ``CHECK`` generated from its enum, so none can drift
+    from the Python vocabulary -- three were once hand-copied string lists, and adding a
+    ``HarvestState`` member without touching the DDL would have been a ``CheckViolation`` on
+    the first write of it."""
+
+    _ENUMS = [
+        ("source_type", DataSourceType),
+        ("permission_level", PermissionLevel),
+        ("auth_method", AuthMethod),
+        ("status", DataSourceStatus),
+        ("harvest_state", HarvestState),
+    ]
 
     @staticmethod
     def _ddl_text() -> str:
         return "\n".join(store_module._ddl("configure"))
 
-    @pytest.mark.parametrize(
-        ("column", "enum"),
-        [("source_type", DataSourceType), ("auth_method", AuthMethod)],
-    )
+    def test_every_closed_enum_column_is_covered(self) -> None:
+        """The table of (column, enum) the constraints are generated from names every column
+        that has a Python enum -- so adding an enum column without a CHECK fails here."""
+        assert {column for column, _ in store_module._ENUM_COLUMNS} == {
+            column for column, _ in self._ENUMS
+        }
+
+    @pytest.mark.parametrize(("column", "enum"), _ENUMS)
     def test_the_check_lists_exactly_the_enums_members(
         self, column: str, enum: type
     ) -> None:
@@ -343,16 +358,78 @@ class TestDdlEnumConstraints:
         expected = ", ".join(f"'{member.value}'" for member in enum)
         assert f"CHECK ({column} IN ({expected}))" in text
 
-    def test_an_already_provisioned_table_gets_the_constraints_too(self) -> None:
-        """``CREATE TABLE IF NOT EXISTS`` skips an existing table, so the two added
-        constraints also ship as guarded ``ALTER TABLE`` statements."""
-        alters = [
+    @pytest.mark.parametrize(("column", "enum"), _ENUMS)
+    def test_the_check_is_declared_inline_for_a_fresh_table(
+        self, column: str, enum: type
+    ) -> None:
+        create_table = next(
             statement
             for statement in store_module._ddl("configure")
-            if "ADD CONSTRAINT" in statement
+            if statement.lstrip().startswith("CREATE TABLE")
+        )
+        assert f"CONSTRAINT data_source_{column}_valid" in create_table
+
+    def test_an_already_provisioned_table_gets_a_refresh_for_every_constraint(
+        self,
+    ) -> None:
+        """``CREATE TABLE IF NOT EXISTS`` skips an existing table, so each constraint also
+        ships as a guarded statement that adds it, or replaces it if it is missing a member."""
+        refreshes = [
+            statement
+            for statement in store_module._ddl("configure")
+            if statement.lstrip().startswith("DO $$")
         ]
-        assert len(alters) == 2
-        assert all("pg_constraint" in statement for statement in alters)
+        assert len(refreshes) == len(self._ENUMS)
+        for (column, _), statement in zip(store_module._ENUM_COLUMNS, refreshes):
+            assert "pg_constraint" in statement
+            assert f"data_source_{column}_valid" in statement
+            assert "ADD CONSTRAINT" in statement
+
+
+class TestNormalisation:
+    """``validate_create`` judges ``name``/``host``/``database_name`` stripped, so what is
+    stored must be stripped too -- ``" db.internal "`` used to register cleanly and fail
+    later, at name resolution, with nothing pointing at the padding."""
+
+    def test_create_strips_the_free_text_fields(self) -> None:
+        create = normalize_create(
+            _create(
+                name="  Warehouse ",
+                host=" db.internal ",
+                database_name="\tanalytics\n",
+                schema_name=" silver ",
+            )
+        )
+        assert (create.name, create.host, create.database_name, create.schema_name) == (
+            "Warehouse",
+            "db.internal",
+            "analytics",
+            "silver",
+        )
+
+    def test_the_credential_is_never_touched(self) -> None:
+        """Whitespace in a password is significant."""
+        credential = _postgres_credential(password="  padded  ", username=" u ")
+        assert normalize_create(_create(credential=credential)).credential is credential
+
+    def test_a_value_that_is_only_whitespace_still_fails_validation(self) -> None:
+        with pytest.raises(DataSourceValidationError):
+            validate_create(normalize_create(_create(host="   ")))
+
+    def test_update_strips_only_the_fields_it_carries(self) -> None:
+        patch = normalize_update(DataSourceUpdate(host=" db2 ", port=5433))
+        assert patch.host == "db2"
+        assert patch.name is None  # absent stays absent: "leave unchanged"
+        assert patch.port == 5433
+
+    def test_update_does_not_touch_the_credential(self) -> None:
+        credential = _postgres_credential(password=" spaced ")
+        patch = normalize_update(DataSourceUpdate(credential=credential))
+        assert patch.credential is credential
+
+    def test_an_already_clean_value_is_unchanged(self) -> None:
+        create = _create()
+        assert normalize_create(create) == create
 
 
 class TestCredentialDictRoundTrip:

@@ -13,8 +13,11 @@ in a suite ``integration.yml`` runs, rather than only in the manually-run
 - a patch ``create`` would have refused is refused, and writes nothing;
 - concurrent rotations never leave an orphaned secret behind;
 - the async twins of every public method behave like the sync ones;
+- deleting a source never orphans a secret, even when a rotation lands mid-delete;
+- a failed insert leaves no secret behind and the connection usable;
+- padded free-text fields are stored stripped;
 - the ``CHECK`` constraints on the closed enum columns are enforced, including on a table
-  that was provisioned before they existed.
+  that was provisioned before they existed, and are refreshed when an enum gains a member.
 
 Gated the way ``test_r15_rehearsal_live.py`` is: ``EGPT_INTEGRATION_POSTGRES``, skipped
 otherwise so the unit run stays database-free. Locally, against the compose stack's Postgres:
@@ -41,6 +44,7 @@ from egpt_retail.configure.secrets import (
     LocalEncryptedSecretStore,
     SecretNotFoundError,
 )
+from egpt_retail.configure import store as store_module
 from egpt_retail.configure.store import DataSourceConflictError, DataSourceStore
 from egpt_retail.contracts.data_source import (
     AuthMethod,
@@ -457,6 +461,192 @@ class TestConcurrentRotation:
         assert _refs(env.connection) - before == set()
 
 
+class _RotateAfterGet(DataSourceStore):
+    """A store whose ``get`` runs ``rotate`` right after reading -- the window a
+    read-then-delete would be exposed in, where a rotation commits between the read of
+    ``secret_ref`` and the ``DELETE``."""
+
+    def __init__(self, connection: Any, rotate: Callable[[], None]) -> None:
+        super().__init__(connection)
+        self._rotate = rotate
+        self.reads = 0
+
+    def get(self, source_id: str) -> Any:
+        found = super().get(source_id)
+        self.reads += 1
+        if self.reads == 1:
+            self._rotate()
+        return found
+
+
+class TestDeleteNeverOrphansASecret:
+    """``delete()`` used to delete the ``secret_ref`` it had read before an unconditional
+    ``DELETE``: a rotation that committed in between left its new secret unreferenced and
+    never deleted -- the same leak the compare-and-swap in ``update()`` closes for rotation."""
+
+    def test_a_rotation_landing_mid_delete_leaves_no_orphan(
+        self, env: SimpleNamespace
+    ) -> None:
+        created = env.create()
+        other = env.open_second()
+        before = _refs(env.connection)
+
+        def rotate() -> None:
+            other.sources.update(
+                created.id,
+                DataSourceUpdate(credential=_credential("rotated-mid-delete")),
+                other.secrets,
+            )
+
+        racing = _RotateAfterGet(env.connection, rotate)
+        assert racing.delete(created.id, env.secrets) is True
+
+        assert env.sources.get(created.id) is None
+        # Whatever the rotation did, no secret it wrote is left behind.
+        assert _refs(env.connection) - before == set()
+        assert created.secret_ref not in _refs(env.connection)
+
+    def test_the_secret_deleted_is_the_current_one_after_a_rotation(
+        self, env: SimpleNamespace
+    ) -> None:
+        created = env.create()
+        rotated = env.sources.update(
+            created.id, DataSourceUpdate(credential=_credential("second")), env.secrets
+        )
+        assert env.sources.delete(created.id, env.secrets) is True
+        with pytest.raises(SecretNotFoundError):
+            env.secrets.read(rotated.secret_ref)
+
+    def test_a_second_delete_reports_that_nothing_was_deleted(
+        self, env: SimpleNamespace
+    ) -> None:
+        """Including a concurrent delete that got there first: only the caller whose
+        ``DELETE`` removed the row reports ``True`` and cleans up its secret."""
+        created = env.create()
+        assert env.sources.delete(created.id, env.secrets) is True
+        assert env.sources.delete(created.id, env.secrets) is False
+
+
+class TestFailedCreateLeavesNothingBehind:
+    """``create()`` writes the secret before the row, so a failed insert used to leave a live
+    credential with no row pointing at it -- and the connection in an aborted transaction."""
+
+    def test_a_failed_insert_deletes_the_secret_and_leaves_the_connection_usable(
+        self, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        psycopg = pytest.importorskip("psycopg")
+        existing = env.create()
+        before = _refs(env.connection)
+        monkeypatch.setattr(
+            store_module, "_new_id", lambda: existing.id
+        )  # id collision
+
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            env.create(name="Collides")
+
+        assert _refs(env.connection) == before  # the secret it wrote was deleted again
+        # Not left in an aborted transaction: the next statement on it works.
+        assert env.sources.get(existing.id) == existing
+
+    def test_a_check_violation_is_cleaned_up_the_same_way(
+        self, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        psycopg = pytest.importorskip("psycopg")
+        before = _refs(env.connection)
+        # A harvest state the CHECK refuses, so the INSERT fails after the secret was written.
+        monkeypatch.setattr(
+            store_module,
+            "HarvestState",
+            SimpleNamespace(NOT_STARTED=_BadValue("not_a_state")),
+        )
+
+        with pytest.raises(psycopg.errors.CheckViolation):
+            env.create()
+
+        assert _refs(env.connection) == before
+        assert env.sources.list(created_by=env.marker) == ()
+
+
+class _BadValue:
+    """Stands in for an enum member whose ``.value`` the ``CHECK`` refuses."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+class TestWhitespaceIsNormalised:
+    def test_padded_fields_are_stored_stripped(self, env: SimpleNamespace) -> None:
+        created = env.create(
+            name="  Padded  ",
+            host=" warehouse.internal ",
+            database_name=" analytics\n",
+            schema_name=" public ",
+        )
+        stored = env.sources.get(created.id)
+        assert (stored.name, stored.host, stored.database_name, stored.schema_name) == (
+            "Padded",
+            "warehouse.internal",
+            "analytics",
+            "public",
+        )
+
+    def test_a_padded_update_is_stored_stripped(self, env: SimpleNamespace) -> None:
+        created = env.create()
+        patched = env.sources.update(
+            created.id, DataSourceUpdate(host="  db2.internal "), env.secrets
+        )
+        assert patched.host == "db2.internal"
+
+    def test_whitespace_only_is_still_refused_after_stripping(
+        self, env: SimpleNamespace
+    ) -> None:
+        with pytest.raises(DataSourceValidationError):
+            env.create(host="   ")
+
+    def test_a_password_with_surrounding_whitespace_is_kept_exactly(
+        self, env: SimpleNamespace
+    ) -> None:
+        created = env.create(password="  spaced password  ")
+        assert env.secrets.read(created.secret_ref).password == "  spaced password  "
+
+
+class _RecordingSecretStore(LocalEncryptedSecretStore):
+    def __init__(self, connection: Any, key: str) -> None:
+        super().__init__(connection, key)
+        self.hints: list = []
+
+    def write(self, name_hint: str, credential: Credential) -> str:
+        self.hints.append(name_hint)
+        return super().write(name_hint, credential)
+
+
+class TestSecretNameHint:
+    """The hint exists so a person looking at Key Vault can tell which source a secret
+    belongs to -- a PATCH that renames and rotates must label it with the *new* name."""
+
+    def test_a_rename_and_rotate_labels_the_secret_with_the_new_name(
+        self, env: SimpleNamespace
+    ) -> None:
+        created = env.create()
+        recording = _RecordingSecretStore(env.connection, env.key)
+        env.sources.update(
+            created.id,
+            DataSourceUpdate(name="New name", credential=_credential("rotated")),
+            recording,
+        )
+        assert recording.hints == ["New name"]
+
+    def test_a_rotation_without_a_rename_uses_the_existing_name(
+        self, env: SimpleNamespace
+    ) -> None:
+        created = env.create()
+        recording = _RecordingSecretStore(env.connection, env.key)
+        env.sources.update(
+            created.id, DataSourceUpdate(credential=_credential("rotated")), recording
+        )
+        assert recording.hints == [created.name]
+
+
 class TestEnumConstraints:
     _INSERT = """INSERT INTO configure.data_source
         (id, name, source_type, host, database_name, auth_method, secret_ref, created_by)
@@ -485,22 +675,53 @@ class TestEnumConstraints:
     def test_a_valid_direct_insert_is_accepted(self, env: SimpleNamespace) -> None:
         self._insert(env, "postgres", "api_key")
 
-    def test_ensure_schema_adds_the_constraints_to_an_existing_table(
-        self, env: SimpleNamespace
+    @staticmethod
+    def _constraint(env: SimpleNamespace, column: str) -> Any:
+        """``(oid, definition)`` of the column's CHECK, or ``None`` if it has none."""
+        with env.connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT c.oid, pg_get_constraintdef(c.oid) FROM pg_constraint c
+                   WHERE c.conrelid = 'configure.data_source'::regclass AND c.conname = %s""",
+                (f"data_source_{column}_valid",),
+            )
+            row = cursor.fetchone()
+        env.connection.rollback()
+        return row
+
+    @pytest.mark.parametrize("column", [c for c, _ in store_module._ENUM_COLUMNS])
+    def test_ensure_schema_adds_a_missing_constraint_to_an_existing_table(
+        self, env: SimpleNamespace, column: str
     ) -> None:
-        """A table provisioned before the constraints existed keeps its old shape through
-        ``CREATE TABLE IF NOT EXISTS``; the guarded ``ALTER`` in ``_ddl`` is what closes it."""
-        psycopg = pytest.importorskip("psycopg")
-        names = ("data_source_source_type_valid", "data_source_auth_method_valid")
+        """A table provisioned before a constraint existed keeps its old shape through
+        ``CREATE TABLE IF NOT EXISTS``; the guarded refresh in ``_ddl`` is what closes it."""
         try:
             with env.connection.cursor() as cursor:
-                for name in names:
-                    cursor.execute(
-                        f"ALTER TABLE configure.data_source DROP CONSTRAINT {name}"
-                    )
+                cursor.execute(
+                    f"ALTER TABLE configure.data_source "
+                    f"DROP CONSTRAINT data_source_{column}_valid"
+                )
             env.connection.commit()
-            # Constraint gone: the bad value is (wrongly) accepted, as on an old table.
-            self._insert(env, "oracle", "kerberos")
+            assert self._constraint(env, column) is None
+
+            env.sources.ensure_schema()
+
+            assert self._constraint(env, column) is not None
+        finally:
+            env.connection.rollback()
+            env.sources.ensure_schema()
+
+    def test_a_dropped_source_type_constraint_admits_a_bad_value_until_restored(
+        self, env: SimpleNamespace
+    ) -> None:
+        psycopg = pytest.importorskip("psycopg")
+        try:
+            with env.connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER TABLE configure.data_source "
+                    "DROP CONSTRAINT data_source_source_type_valid"
+                )
+            env.connection.commit()
+            self._insert(env, "oracle", "api_key")  # accepted: the constraint is gone
             with env.connection.cursor() as cursor:
                 cursor.execute(
                     "DELETE FROM configure.data_source WHERE created_by = %s",
@@ -511,11 +732,96 @@ class TestEnumConstraints:
             env.sources.ensure_schema()
 
             with pytest.raises(psycopg.errors.CheckViolation):
-                self._insert(env, "oracle", "postgres")
+                self._insert(env, "oracle", "api_key")
             env.connection.rollback()
         finally:
             env.connection.rollback()
             env.sources.ensure_schema()
+
+    def test_a_constraint_missing_a_member_the_enum_gained_is_refreshed(
+        self, env: SimpleNamespace
+    ) -> None:
+        """A database provisioned before ``needs_review`` (or any later member) existed would
+        refuse it with a ``CheckViolation`` on first use. Boot replaces the constraint."""
+        created = env.create()
+        try:
+            with env.connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER TABLE configure.data_source "
+                    "DROP CONSTRAINT data_source_harvest_state_valid"
+                )
+                cursor.execute(
+                    "ALTER TABLE configure.data_source "
+                    "ADD CONSTRAINT data_source_harvest_state_valid "
+                    "CHECK (harvest_state IN ('not_started', 'building')) NOT VALID"
+                )
+            env.connection.commit()
+            assert "needs_review" not in self._constraint(env, "harvest_state")[1]
+
+            env.sources.ensure_schema()
+
+            assert "needs_review" in self._constraint(env, "harvest_state")[1]
+            updated = env.sources.set_harvest_state(
+                created.id, HarvestState.NEEDS_REVIEW
+            )
+            assert updated.harvest_state is HarvestState.NEEDS_REVIEW
+        finally:
+            env.connection.rollback()
+            env.sources.ensure_schema()
+
+    def test_a_legacy_row_can_never_make_boot_fail(self, env: SimpleNamespace) -> None:
+        """The refreshed constraint is ``NOT VALID``: a row written under an older vocabulary
+        (here a state the enum no longer has) is not re-checked, so provisioning succeeds."""
+        psycopg = pytest.importorskip("psycopg")
+        try:
+            with env.connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER TABLE configure.data_source "
+                    "DROP CONSTRAINT data_source_harvest_state_valid"
+                )
+                cursor.execute(
+                    """INSERT INTO configure.data_source
+                       (id, name, source_type, host, database_name, auth_method,
+                        secret_ref, created_by, harvest_state)
+                       VALUES (%s, 'legacy', 'postgres', 'h', 'd', 'api_key',
+                               'local:none', %s, 'legacy_state')""",
+                    (f"ds_{uuid.uuid4().hex[:12]}", env.marker),
+                )
+            env.connection.commit()
+
+            env.sources.ensure_schema()  # must not raise on the legacy row
+
+            assert self._constraint(env, "harvest_state") is not None
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with env.connection.cursor() as cursor:
+                    cursor.execute(
+                        """INSERT INTO configure.data_source
+                           (id, name, source_type, host, database_name, auth_method,
+                            secret_ref, created_by, harvest_state)
+                           VALUES (%s, 'new', 'postgres', 'h', 'd', 'api_key',
+                                   'local:none', %s, 'another_bad_state')""",
+                        (f"ds_{uuid.uuid4().hex[:12]}", env.marker),
+                    )
+            env.connection.rollback()
+        finally:
+            env.connection.rollback()
+            with env.connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM configure.data_source WHERE created_by = %s",
+                    (env.marker,),
+                )
+            env.connection.commit()
+            env.sources.ensure_schema()
+
+    def test_a_current_constraint_is_left_alone_at_boot(
+        self, env: SimpleNamespace
+    ) -> None:
+        """The refresh runs at every boot and must not rewrite a constraint that is already
+        right -- a rewrite takes a lock on the table and rescans it, for nothing."""
+        before = {c: self._constraint(env, c) for c, _ in store_module._ENUM_COLUMNS}
+        env.sources.ensure_schema()
+        after = {c: self._constraint(env, c) for c, _ in store_module._ENUM_COLUMNS}
+        assert before == after  # same oid and definition: not dropped and re-added
 
     def test_ensure_schema_is_idempotent(self, env: SimpleNamespace) -> None:
         env.sources.ensure_schema()

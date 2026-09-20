@@ -34,6 +34,8 @@ from egpt_retail.contracts.data_source import (
     DataSourceUpdate,
     HarvestState,
     PermissionLevel,
+    normalize_create,
+    normalize_update,
     validate_create,
     validate_update,
 )
@@ -94,7 +96,63 @@ def _sql_values(enum: Any) -> str:
     return ", ".join(f"'{member.value}'" for member in enum)
 
 
+#: Every closed enum column and the enum that defines it. The ``CHECK`` constraints below are
+#: generated from this, so none can drift from the Python vocabulary.
+_ENUM_COLUMNS: Tuple[Tuple[str, Any], ...] = (
+    ("source_type", DataSourceType),
+    ("permission_level", PermissionLevel),
+    ("auth_method", AuthMethod),
+    ("status", DataSourceStatus),
+    ("harvest_state", HarvestState),
+)
+
+
+def _constraint_name(column: str) -> str:
+    return f"data_source_{column}_valid"
+
+
+def _check_sql(column: str, enum: Any) -> str:
+    return f"CHECK ({column} IN ({_sql_values(enum)}))"
+
+
+def _refresh_check_statement(schema: str, column: str, enum: Any) -> str:
+    """Makes an already-provisioned table's ``CHECK`` on ``column`` match ``enum`` again.
+
+    ``CREATE TABLE IF NOT EXISTS`` never touches a table that exists, so without this a
+    database provisioned before a constraint existed would never get it, and one provisioned
+    before an enum gained a member would refuse that member with a ``CheckViolation`` on first
+    use. Postgres has no ``ADD CONSTRAINT IF NOT EXISTS``, so the guard is a catalog lookup:
+    the constraint is dropped and re-added unless it exists and already names every member.
+    The replacement is added ``NOT VALID``: it is enforced on every write from then on, but
+    existing rows are not re-checked, so a row written under an older vocabulary can never
+    make a boot fail. Runs at every boot (under ``ensure_schema``'s advisory lock) and does
+    nothing when the constraint is current. A member *removed* from an enum does not tighten an existing
+    constraint -- a stale extra value is harmless, and the alternative is rewriting a
+    constraint on a live table for no behavioural gain."""
+    members = ", ".join(f"'{member.value}'" for member in enum)
+    name = _constraint_name(column)
+    return f"""DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint c
+                WHERE c.conrelid = '{schema}.data_source'::regclass
+                  AND c.conname = '{name}'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM unnest(ARRAY[{members}]) AS member
+                      WHERE position(quote_literal(member) IN pg_get_constraintdef(c.oid)) = 0
+                  )
+            ) THEN
+                ALTER TABLE {schema}.data_source DROP CONSTRAINT IF EXISTS {name};
+                ALTER TABLE {schema}.data_source ADD CONSTRAINT {name}
+                    {_check_sql(column, enum)} NOT VALID;
+            END IF;
+        END $$"""
+
+
 def _ddl(schema: str) -> Tuple[str, ...]:
+    inline_checks = ",\n            ".join(
+        f"CONSTRAINT {_constraint_name(column)}\n                {_check_sql(column, enum)}"
+        for column, enum in _ENUM_COLUMNS
+    )
     return (
         f"CREATE SCHEMA IF NOT EXISTS {schema}",
         f"""CREATE TABLE IF NOT EXISTS {schema}.data_source (
@@ -120,37 +178,11 @@ def _ddl(schema: str) -> Tuple[str, ...]:
             last_test_message    text        NOT NULL DEFAULT '',
             last_harvest_run_id  text,
             last_harvest_at      timestamptz,
-            CONSTRAINT data_source_permission_level_valid
-                CHECK (permission_level IN ('read_only', 'read_write')),
-            CONSTRAINT data_source_source_type_valid
-                CHECK (source_type IN ({_sql_values(DataSourceType)})),
-            CONSTRAINT data_source_auth_method_valid
-                CHECK (auth_method IN ({_sql_values(AuthMethod)})),
-            CONSTRAINT data_source_status_valid
-                CHECK (status IN ('registered', 'testing', 'connected', 'error')),
-            CONSTRAINT data_source_harvest_state_valid
-                CHECK (harvest_state IN
-                    ('not_started', 'building', 'modelled', 'needs_review', 'error'))
+            {inline_checks}
         )""",
-        # ``CREATE TABLE IF NOT EXISTS`` does not touch a table that already exists, so a
-        # database provisioned before these two constraints existed would never get them.
-        # Postgres has no ``ADD CONSTRAINT IF NOT EXISTS``; the guard is the catalog lookup.
         *(
-            f"""DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conrelid = '{schema}.data_source'::regclass
-                      AND conname = 'data_source_{column}_valid'
-                ) THEN
-                    ALTER TABLE {schema}.data_source
-                        ADD CONSTRAINT data_source_{column}_valid
-                        CHECK ({column} IN ({_sql_values(enum)}));
-                END IF;
-            END $$"""
-            for column, enum in (
-                ("source_type", DataSourceType),
-                ("auth_method", AuthMethod),
-            )
+            _refresh_check_statement(schema, column, enum)
+            for column, enum in _ENUM_COLUMNS
         ),
         f"""CREATE INDEX IF NOT EXISTS data_source_created_by_idx
             ON {schema}.data_source (created_by, created_at DESC)""",
@@ -222,14 +254,19 @@ class DataSourceStore:
     def create(
         self, create: DataSourceCreate, secret_store: "SecretStore"
     ) -> DataSource:
-        """Validates, writes the credential to ``secret_store``, then inserts the row.
+        """Normalises and validates ``create`` (surrounding whitespace on the free-text
+        fields is stripped -- see :func:`~egpt_retail.contracts.data_source.normalize_create`),
+        writes the credential to ``secret_store``, then inserts the row.
 
-        The secret is written first and the row second -- an orphaned secret with no row
-        pointing at it (if the insert somehow failed) is inert and cleaned up by nothing
-        today, but harmless; a row that names a ``secret_ref`` nothing backs would instead
-        be a source that looks registered and fails every read, silently, the first time it
-        is used. The safer failure mode is the one this ordering produces.
+        The secret is written first and the row second: a row that names a ``secret_ref``
+        nothing backs would be a source that looks registered and fails every read, silently,
+        the first time it is used, so the row must never exist without its secret. The price is
+        that a failed insert (an id collision, a ``CHECK`` violation, a dropped connection)
+        would leave a live credential with no row pointing at it -- so that failure is cleaned
+        up here: the transaction is rolled back (leaving the connection usable) and the secret
+        just written is deleted, best-effort, before the error is re-raised.
         """
+        create = normalize_create(create)
         validate_create(create)
         secret_ref = secret_store.write(create.name, create.credential)
         now = datetime.now(timezone.utc)
@@ -257,15 +294,20 @@ class DataSourceStore:
             None,
             None,
         )
-        with self._connection.cursor() as cursor:
-            cursor.execute(
-                f"""INSERT INTO {self._schema}.data_source ({_COLUMN_LIST})
-                    VALUES ({", ".join(["%s"] * len(_COLUMNS))})
-                    RETURNING {_COLUMN_LIST}""",
-                row,
-            )
-            inserted = cursor.fetchone()
-        self._connection.commit()
+        try:
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"""INSERT INTO {self._schema}.data_source ({_COLUMN_LIST})
+                        VALUES ({", ".join(["%s"] * len(_COLUMNS))})
+                        RETURNING {_COLUMN_LIST}""",
+                    row,
+                )
+                inserted = cursor.fetchone()
+            self._connection.commit()
+        except Exception:
+            self._rollback_quietly()
+            self._best_effort_delete_secret(secret_store, secret_ref)
+            raise
         return _row_to_data_source(inserted)
 
     async def acreate(
@@ -314,7 +356,8 @@ class DataSourceStore:
         that matters for ``credential`` specifically. Returns ``None`` if ``source_id``
         does not exist, the same "absent means not found" shape :meth:`get` uses.
 
-        The patch is validated (:func:`~egpt_retail.contracts.data_source.validate_update`)
+        The patch is normalised (surrounding whitespace stripped from the free-text fields it
+        carries) and validated (:func:`~egpt_retail.contracts.data_source.validate_update`)
         before anything is written, so a bad patch never leaves a stray secret behind and a
         row ``create`` would have refused cannot be reached by patching a good one.
 
@@ -329,6 +372,7 @@ class DataSourceStore:
         write is a network call to Key Vault, or on the local store a commit on the very
         connection that would be holding the lock, and neither belongs inside a row lock.
         """
+        patch = normalize_update(patch)
         existing = self.get(source_id)
         if existing is None:
             return None
@@ -381,7 +425,12 @@ class DataSourceStore:
             set_clauses.append("permission_level = %s")
             params.append(patch.permission_level.value)
         if patch.credential is not None:
-            new_secret_ref = secret_store.write(existing.name, patch.credential)
+            # Labelled with the name the row will have once this patch lands: a PATCH that
+            # renames and rotates in one call must not label the new secret with the old name.
+            new_secret_ref = secret_store.write(
+                patch.name if patch.name is not None else existing.name,
+                patch.credential,
+            )
             set_clauses.append("auth_method = %s")
             params.append(patch.credential.auth_method.value)
             set_clauses.append("username = %s")
@@ -406,7 +455,7 @@ class DataSourceStore:
                 row = cursor.fetchone()
             self._connection.commit()
         except Exception:
-            self._connection.rollback()
+            self._rollback_quietly()
             if new_secret_ref is not None:
                 self._best_effort_delete_secret(secret_store, new_secret_ref)
             raise
@@ -535,26 +584,51 @@ class DataSourceStore:
     # --- delete ------------------------------------------------------------------------
 
     def delete(self, source_id: str, secret_store: "SecretStore") -> bool:
-        """Deletes the row, then best-effort deletes its secret. In that order deliberately:
-        the row is the thing an API caller can see and reason about, so it stops existing
-        first; a secret that outlives its row for a moment is inert (nothing can resolve it
-        without a ``secret_ref``, and nothing keeps one around once the row is gone), while
-        the reverse order would leave a row referencing a secret that is already gone if the
-        row delete then failed.
+        """Deletes the row, then best-effort deletes *its* secret. Returns ``False`` if no such
+        row existed -- including when a concurrent ``delete`` got there first.
+
+        The secret to delete is the ``secret_ref`` of the row that was actually removed
+        (``DELETE ... RETURNING secret_ref``), not one read beforehand: a credential rotation
+        that committed between a read and the delete would otherwise have its new secret
+        orphaned -- the row gone, the old secret deleted, the new one never referenced again.
+        Reading and deleting in one statement leaves no such window, and is one round trip
+        instead of two.
+
+        Row first, secret second, deliberately: the row is the thing an API caller can see and
+        reason about, so it stops existing first; a secret that outlives its row for a moment
+        is inert (nothing can resolve it without a ``secret_ref``, and nothing keeps one
+        around once the row is gone), while the reverse order would leave a row referencing a
+        secret that is already gone if the row delete then failed.
         """
-        existing = self.get(source_id)
-        if existing is None:
+        try:
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"DELETE FROM {self._schema}.data_source WHERE id = %s "
+                    "RETURNING secret_ref",
+                    (source_id,),
+                )
+                deleted = cursor.fetchone()
+            self._connection.commit()
+        except Exception:
+            self._rollback_quietly()
+            raise
+        if deleted is None:
             return False
-        with self._connection.cursor() as cursor:
-            cursor.execute(
-                f"DELETE FROM {self._schema}.data_source WHERE id = %s", (source_id,)
-            )
-        self._connection.commit()
-        self._best_effort_delete_secret(secret_store, existing.secret_ref)
+        self._best_effort_delete_secret(secret_store, deleted[0])
         return True
 
     async def adelete(self, source_id: str, secret_store: "SecretStore") -> bool:
         return await asyncio.to_thread(self.delete, source_id, secret_store)
+
+    def _rollback_quietly(self) -> None:
+        """Ends a failed transaction so the connection stays usable, without letting a
+        rollback that itself fails (a dropped connection) mask the error being handled."""
+        try:
+            self._connection.rollback()
+        except Exception:
+            log.warning(
+                "Rollback failed while handling a data source error.", exc_info=True
+            )
 
     @staticmethod
     def _best_effort_delete_secret(
