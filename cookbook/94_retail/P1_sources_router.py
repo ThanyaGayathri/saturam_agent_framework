@@ -9,6 +9,14 @@ Needs the control-plane Postgres from ``deploy/compose.yaml`` (or the
 ``egpt-retail-postgres-1`` container already running locally on 5532):
 
     PYTHONPATH=product .venvs/demo/bin/python cookbook/94_retail/P1_sources_router.py
+
+Set ``P1_SOURCE_HOST`` to an address of that same Postgres the SSRF guard allows (locally,
+the machine's LAN IP -- ``localhost`` is refused by design) to also run a real, successful
+test-connection, which proves the connection is made to the address the guard checked
+(``hostaddr``) and still completes against a real libpq:
+
+    P1_SOURCE_HOST=$(ipconfig getifaddr en0) PYTHONPATH=product \\
+      .venvs/demo/bin/python cookbook/94_retail/P1_sources_router.py
 """
 
 import os
@@ -126,6 +134,66 @@ assert after_test.last_test_ok is False
 print(
     "Test result actually persisted on the row (status=error, last_test_ok=False). PASS"
 )
+
+# --- PATCH with only a username: the password is carried over from the stored secret ---------
+#
+# InternalSourcePatch says omitted fields are unchanged; a username-only patch used to be a
+# silent no-op. Read the secret back through the real SecretStore to prove what was stored.
+
+before_ref = store.get(created["id"]).secret_ref
+renamed_user = client.patch(
+    f"/configure/sources/{created['id']}", json={"username": "reporting_user_2"}
+).json()
+assert renamed_user["username"] == "reporting_user_2"
+after_row = store.get(created["id"])
+assert after_row.secret_ref != before_ref
+stored_credential = secrets.read(after_row.secret_ref)
+assert stored_credential.username == "reporting_user_2"
+assert stored_credential.password == "s3cr3t-p1-cookbook-password"
+print(
+    "PATCH {username} only -> username changed, password carried over from the stored "
+    "secret, old secret replaced. PASS"
+)
+
+# --- a hostname that does not resolve, and a malformed one: a result, never a 500 ------------
+
+for label, bad_host in (
+    ("unresolvable", "this-does-not-resolve.invalid"),
+    ("malformed", "a" * 300 + ".example"),
+):
+    bad_source = client.post(
+        "/configure/sources", json=dict(write_body, name=f"P1 {label}", host=bad_host)
+    ).json()
+    response = client.post(f"/configure/sources/{bad_source['id']}/test")
+    assert response.status_code == 200 and response.json()["ok"] is False
+    assert bad_host not in response.text
+    client.delete(f"/configure/sources/{bad_source['id']}")
+    print(f"POST .../test against a {label} host -> 200 ok=false, no 500. PASS")
+
+# --- a real, successful test-connection through the pinned address ---------------------------
+
+source_host = os.environ.get("P1_SOURCE_HOST")
+if source_host:
+    live_write = dict(
+        write_body,
+        name="P1 cookbook live probe",
+        host=source_host,
+        port=5532,
+        database_name="ai",
+        schema="public",
+        username="ai",
+        password="ai",
+        ssl_mode="prefer",  # the local container has no SSL
+    )
+    live_source = client.post("/configure/sources", json=live_write).json()
+    live_test = client.post(f"/configure/sources/{live_source['id']}/test").json()
+    assert live_test["ok"] is True, live_test
+    assert "Connected as ai" in live_test["detail"]
+    assert store.get(live_source["id"]).status.value == "connected"
+    client.delete(f"/configure/sources/{live_source['id']}")
+    print(f"POST .../test against {source_host}:5532 -> {live_test['detail']!r}. PASS")
+else:
+    print("P1_SOURCE_HOST not set -- skipping the real successful test-connection.")
 
 assert client.delete(f"/configure/sources/{created['id']}").status_code == 204
 assert client.delete(f"/configure/sources/{loopback_source['id']}").status_code == 204
