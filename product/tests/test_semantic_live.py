@@ -1326,3 +1326,126 @@ class TestSemanticProposalsHttp:
             assert registry.get("livetest_kpi__bulk_http") is not None
         finally:
             registry.delete("livetest_kpi__bulk_http")
+
+
+class TestSourceScoping:
+    """#307: a self-serve source's tables share the graph with the operator's, and reads are
+    scoped by ``source_id`` so neither sees the other. The synthetic schema deliberately reuses
+    a bare table name silver already has -- the exact case that used to make a bare-name lookup
+    ambiguous the moment a customer harvested a table called ``crm_contact``."""
+
+    SCHEMA = "livetest_src"
+    SOURCE = "livetest_ds_1"
+
+    def _source_harvest(self) -> Harvest:
+        from egpt_retail.semantic.harvest import HarvestedColumn, HarvestedTable
+
+        return Harvest(
+            schema=self.SCHEMA,
+            tables=(
+                HarvestedTable(
+                    schema=self.SCHEMA,
+                    name="crm_contact",
+                    columns=(
+                        HarvestedColumn("livetest_only_col", "integer", False, True),
+                    ),
+                    row_count=3,
+                ),
+                HarvestedTable(
+                    schema=self.SCHEMA,
+                    name="livetest_widget",
+                    columns=(HarvestedColumn("id", "integer", False, True),),
+                    row_count=1,
+                ),
+            ),
+            source="livetest",
+        )
+
+    @pytest.fixture
+    def source_graph(self, graph: SemanticGraphStore, driver: Any) -> Iterator[Any]:
+        graph.write_harvest(
+            self._source_harvest(),
+            snapshot_version="livetest.src",
+            source_id=self.SOURCE,
+        )
+        try:
+            yield SemanticGraphStore(driver=driver, source_id=self.SOURCE)
+        finally:
+            graph.drop_schema(self.SCHEMA)
+
+    def test_the_default_scope_never_lists_a_sources_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        schemas = {ref.schema for ref in graph.list_tables()}
+        assert self.SCHEMA not in schemas
+        assert "livetest_widget" not in {ref.name for ref in graph.list_tables()}
+
+    def test_a_sources_scope_lists_only_its_own_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        refs = source_graph.list_tables()
+        assert {(r.schema, r.name) for r in refs} == {
+            (self.SCHEMA, "crm_contact"),
+            (self.SCHEMA, "livetest_widget"),
+        }
+
+    def test_a_shared_bare_name_is_not_ambiguous_in_either_scope(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        """Before scoping this raised 'names a table in more than one schema'."""
+        operator = graph.get_table("crm_contact")
+        source = source_graph.get_table("crm_contact")
+        assert operator is not None and operator.ref.schema == "silver"
+        assert source is not None and source.ref.schema == self.SCHEMA
+        assert "livetest_only_col" in {c.name for c in source.columns}
+        assert "livetest_only_col" not in {c.name for c in operator.columns}
+
+    def test_column_index_and_feasibility_inputs_do_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert not any(k.startswith(f"{self.SCHEMA}.") for k in graph.column_index())
+        assert set(source_graph.column_index()) == {
+            f"{self.SCHEMA}.crm_contact",
+            f"{self.SCHEMA}.livetest_widget",
+        }
+        operator_names = {ref.name for ref in graph.list_tables()}
+        assert "livetest_widget" not in operator_names
+
+    def test_an_operator_table_is_unknown_to_a_sources_scope(
+        self, source_graph: Any
+    ) -> None:
+        assert source_graph.get_table("silver.crm_deal") is None
+        with pytest.raises(SemanticReadError, match="not a table"):
+            source_graph.find_join_path("crm_deal", "livetest_widget")
+
+    def test_a_sources_harvest_leaves_the_operators_snapshot_pointer_alone(
+        self, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        before = graph.snapshot()
+        graph.write_harvest(
+            self._source_harvest(),
+            snapshot_version="livetest.src2",
+            source_id=self.SOURCE,
+        )
+        try:
+            assert graph.snapshot() == before
+        finally:
+            graph.drop_schema(self.SCHEMA)
+
+    def test_source_snapshot_version_reads_off_its_own_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert source_graph.source_snapshot_version() == "livetest.src"
+        empty = SemanticGraphStore(
+            driver=source_graph._driver, source_id="livetest_none"
+        )
+        assert empty.source_snapshot_version() is None
+
+    def test_the_collision_guard_names_the_owner_and_spares_the_owner(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE) is None
+        assert (
+            graph.schema_owned_by_other_source(self.SCHEMA, "livetest_ds_other")
+            == self.SOURCE
+        )

@@ -5923,8 +5923,8 @@ cookbook/94_retail/P2_harvest_source.py`.
 
 The write path (`write_harvest`) and the new collision guard
 (`schema_owned_by_other_source`) needed real, unmerged data-model changes discovered while
-starting this phase: table identity in the graph is still `(schema, name)` alone (#307 is
-where that becomes a real multi-source key), so two sources sharing one `schema` name would
+starting this phase: table identity in the graph is still `(schema, name)` alone (#307
+scopes reads by `source_id` rather than rekeying it), so two sources sharing one `schema` name would
 otherwise silently prune and overwrite each other's tables the moment a second self-serve
 harvest ran. `source_id` is now tagged on every written table (additive, not yet part of
 identity) and `schema_owned_by_other_source` refuses a harvest whose target schema is
@@ -5961,5 +5961,50 @@ test-connection, no non-loopback reachable target available here.
 `test_p2_harvest_source.py::test_successful_harvest_writes_the_graph_and_marks_modelled`
 covers that path with the connection step faked; every other real piece it composes is
 proved live by this cookbook instead.
+
+---
+
+### P3_source_scoping.py
+
+**Status:** PASS
+
+**Description:** #307 -- source-scoped semantic reads. Run against the real control-plane
+Postgres and the real Neo4j (already holding the real `silver` harvest):
+`EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product .venv/bin/python
+cookbook/94_retail/P3_source_scoping.py`.
+
+**Design call, and why it is narrower than the issue's "make source_id part of identity".**
+Table identity in the graph stays `(schema, name)`; #307 scopes *reads* by the `source_id`
+tag #306 already writes, via a `source_id` on `SemanticGraphStore` (default `""`, the
+operator). Rekeying identity means rewriting every `MERGE`, edge lookup, KPI mirror and
+proposal-apply in a ~1,600-line store for a benefit the #306 collision guard already
+delivers (schema names are unique across sources). Scoped reads: `_resolve_table`,
+`list_tables`, `mapped_concepts`, `column_index`, `unjoinable_oracle`,
+`business_area_evidence`, `find_join_path`. **No backfill migration**: rows written before
+#306 carry no `source_id`, and every scoped read treats that as the operator via
+`coalesce`, so nothing needed retagging.
+
+**What scoping fixes, concretely.** Without it, a customer harvesting a table named
+`crm_contact` turned every bare `crm_contact` lookup ambiguous ("names a table in more than
+one schema"), and any customer table name became an "available table" for operator KPI
+feasibility and the operator SQL guard's allow-list.
+
+**Result:** All assertions passed over HTTP: `GET /semantic/tables` lists 5 operator tables
+and none of the source's; a bare `crm_contact` resolves to silver; `?source_id=` lists only
+the source's table with its own snapshot (`source_snapshot_version`, the source's
+`last_harvest_at` and name); an unregistered id is 404; the operator's `SemanticSnapshot`
+pointer is not overwritten; `build_source_read_guard` allows the source's table and refuses
+`silver.crm_contact`. `test_semantic_live.py` (real Postgres and Neo4j): 81 passed including
+8 new `TestSourceScoping` cases (shared bare name unambiguous in both scopes, column index
+and list never cross, operator table unknown to a source scope, snapshot pointer untouched),
+plus the same one pre-existing unrelated failure (`TestKpiRegistryLive::
+test_a_definition_survives_postgres`, `updated_at`).
+
+**Not done, on purpose:** routing a KPI or dashboard tile to a customer's connection.
+`build_source_read_guard` is the building block (allow-list = the source's tables, schema
+pinned), but a KPI's `source_tables` still resolve against the operator warehouse only.
+Running customer SQL needs its own design -- whose credential, through which read-only role,
+whether `permission_level=read_only` is enforced at connect time -- and is filed as a
+follow-up rather than half-built here.
 
 ---

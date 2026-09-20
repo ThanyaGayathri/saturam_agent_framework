@@ -34,7 +34,8 @@ ScheduleExecutor``), so the frontend (#308) does the same thing a scheduled trig
    (:meth:`~egpt_retail.semantic.store.SemanticGraphStore.schema_owned_by_other_source`).
    Two data sources registered with the same ``schema`` name would otherwise silently
    prune and overwrite each other's tables -- see that method's docstring, and
-   ``write_harvest``'s, for why table identity does not yet include ``source_id`` (#307).
+   ``write_harvest``'s, for why table identity does not include ``source_id`` (reads are
+   scoped by it instead, #307), so schema names must be unique across sources.
 
 Every failure updates the source's ``harvest_state`` and returns a clean, non-raising
 ``StepOutput`` -- a harvest that cannot proceed is a fact about the source, not a workflow

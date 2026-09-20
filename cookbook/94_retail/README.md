@@ -59,6 +59,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `P0_data_source_registration.py` | #304 (self-serve data sources, part of #302) | A user-registered data source against a real control-plane Postgres: the returned `DataSource` carries no credential field, the stored ciphertext does not contain the plaintext password, `SecretStore.read()` recovers the exact credential written, rotating a credential deletes the old secret and makes it unreadable, and deleting a source deletes its secret too. |
 | `P1_sources_router.py` | #305 (self-serve data sources, part of #302) | The real `/configure/sources` router (`InternalSource`), against the real store and real Postgres: create/get/list/patch/delete over real HTTP with no credential ever in a response body, and `POST .../test` refusing a real loopback host before attempting a connection -- proving the SSRF guard fires end to end, not just at the unit level. |
 | `P2_harvest_source.py` | #306 (self-serve data sources, part of #302) | The `harvest-source` workflow step against a real warehouse schema and a real Neo4j graph: `harvest_schema` reads real tables, `write_harvest` tags the real node with `source_id` (verified by a direct read), the collision guard refuses a source_id claiming `silver` (already held by the operator's own harvest), and the real `harvest_source()` entry point refuses a real loopback host end to end, moving the source to `harvest_state=error`. |
+| `P3_source_scoping.py` | #307 (self-serve data sources, part of #302) | A registered source's tables and the operator's share one graph without seeing each other, over real HTTP against real Postgres and Neo4j: `GET /semantic/tables` never lists the source's tables and a bare `crm_contact` still resolves to silver, `?source_id=` lists only the source's with its own snapshot, an unregistered id is a 404, the operator's snapshot pointer survives the source's harvest, and the source's read guard allows its own table and refuses silver's. Needs a Neo4j already holding the silver harvest. |
 
 Run:
 
@@ -96,6 +97,10 @@ bash cookbook/94_retail/R04_minio_load.sh                    # needs Docker
 # P2 needs the same Postgres plus egpt_warehouse (created just above) and Neo4j:
 EGPT_RETAIL_NEO4J_PASSWORD=password \
   PYTHONPATH=product .venv/bin/python cookbook/94_retail/P2_harvest_source.py
+
+# P3 needs the same, plus a Neo4j already holding the silver harvest (K06_refresh_entrypoint.py):
+EGPT_RETAIL_NEO4J_PASSWORD=password \
+  PYTHONPATH=product .venv/bin/python cookbook/94_retail/P3_source_scoping.py
 
 # R6 needs no services for the classification rules alone:
 .venv/bin/python cookbook/94_retail/R06_sql_guard_parsing.py

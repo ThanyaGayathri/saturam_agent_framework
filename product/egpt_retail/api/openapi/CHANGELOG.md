@@ -109,6 +109,22 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.7 — 2026-09-20 — semantic: `listSemanticTables` `source_id` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new optional query parameter and one new
+`404` response on one operation, nothing removed or renamed -- so no negotiation and no major
+bump.
+
+- **`GET /semantic/tables?source_id=`** (#307). Absent means the deployment's own warehouse,
+  exactly what this operation returned before a customer could register a source. Present
+  lists that registered source's tables (`InternalSource.id`); an id naming no registered
+  source is `404`. The two sets never mix: a self-serve source's tables are absent from the
+  default listing, and the default listing's tables absent under a source -- the property
+  the SQL guard's allow-list and KPI feasibility depend on, since both are computed from this
+  listing and a customer's `orders` must not make an operator KPI look ready. Under a
+  `source_id`, `snapshot` describes that source's own harvest (newest table snapshot version,
+  last harvest time, source name), never the deployment's.
+
 ## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on
