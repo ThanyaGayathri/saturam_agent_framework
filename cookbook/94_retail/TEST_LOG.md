@@ -5962,4 +5962,31 @@ test-connection, no non-loopback reachable target available here.
 covers that path with the connection step faked; every other real piece it composes is
 proved live by this cookbook instead.
 
+**Review round 2 (PR #312), re-run against real infrastructure.** The collision guard moved
+from a separate read the executor made beforehand into `write_harvest`'s own transaction
+(raising `SchemaOwnedByOtherSource`), the upsert no longer re-stamps a table another source
+owns, the harvest read and the whole Neo4j phase now end in a terminal `harvest_state` instead
+of an unhandled exception, the two whole-graph column sweeps run only for the operator's
+refresh, `DataSource.harvestable` now reads the same driver set as the executor, and the
+source host is resolved once and connected to by address (`hostaddr=`). This cookbook now also
+proves `write_harvest()` itself refuses a claim on `silver` and that the refused write rolled
+back (no probe table left behind) -- all `PASS`, against real Postgres and a throwaway Neo4j.
+
+Also driven through the real `harvest_source()` entry point, over the machine's LAN address
+(non-loopback, so the SSRF guard passes and the pinned connection is really used) into a
+throwaway Neo4j: a **genuinely successful harvest** (2 tables tagged with the source, the
+operator's `Snapshot` pointer untouched) -- the case the note above could not reach; a second
+source claiming the same schema -> `needs_review`, first source's tables unchanged; Neo4j
+unreachable -> `error` with the cause, not stranded at `building`; a wrong password -> `error`;
+a missing schema -> `error`. No source was left in `building`.
+
+`test_semantic_live.py` gained `TestSourceScopedHarvest` (9 tests: tagging, the Snapshot
+pointer, refusal and rollback for source-vs-source, operator-vs-source and pre-#306 rows, a
+source re-harvesting its own schema, the column sweeps, and two harvests racing for one
+unclaimed schema -- exactly one wins every round). Each safeguard was removed in turn to
+confirm the suite goes red: the MERGE guard (4 tests fail), the in-transaction check (5
+fail), the self-serve early return (2 fail). Full file against a throwaway Neo4j: 50 passed,
+1 failed -- the same pre-existing `TestKpiRegistryLive::test_a_definition_survives_postgres`,
+which fails identically on the PR head without these changes (41 passed there).
+
 ---

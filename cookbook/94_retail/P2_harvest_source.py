@@ -4,7 +4,7 @@ harvest target) and real Neo4j.
 Two things this cookbook cannot demonstrate through the actual ``harvest_source(step_input)``
 entry point in this environment, and why: a genuinely *successful* end-to-end run needs a
 target host that both resolves and is not loopback/link-local -- the SSRF guard
-(``_refused_host_reason``) correctly refuses ``localhost``, which is the only reachable
+(``_resolve_allowed_addresses``) correctly refuses ``localhost``, which is the only reachable
 Postgres this local Docker Desktop setup offers from the host machine. So this cookbook
 proves every real piece the entry point composes individually, against real infrastructure,
 and separately proves the *refusal* path for real through the actual entry point.
@@ -39,7 +39,11 @@ from egpt_retail.contracts.data_source import (  # noqa: E402
 )
 from egpt_retail.executors.data_source_harvest import harvest_source  # noqa: E402
 from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
-from egpt_retail.semantic.store import SemanticGraphStore  # noqa: E402
+from egpt_retail.semantic.harvest import Harvest, HarvestedTable  # noqa: E402
+from egpt_retail.semantic.store import (  # noqa: E402
+    SchemaOwnedByOtherSource,
+    SemanticGraphStore,
+)
 from neo4j import GraphDatabase  # noqa: E402
 
 CONTROL_PLANE = os.environ.get(
@@ -137,17 +141,58 @@ print(
 
 # The collision guard, against a schema real KPIs actually depend on: 'silver' already holds
 # tables from the operator's own unscoped harvest (source_id=""), so a *different* source_id
-# claiming it must be refused.
+# claiming it must be refused -- by write_harvest() itself, inside its own transaction, not by
+# a check the caller has to remember to make first.
 silver_conflict = graph.schema_owned_by_other_source("silver", source.id)
 if silver_conflict is not None:
     print(
-        f"PASS: schema_owned_by_other_source('silver', ...) refuses -- claimed by {silver_conflict!r}"
+        f"PASS: schema_owned_by_other_source('silver', ...) reports the owner {silver_conflict!r}"
     )
+    probe_schema = "silver"
+    probe = Harvest(
+        schema=probe_schema,
+        tables=(
+            HarvestedTable(
+                schema=probe_schema,
+                name="p2_cookbook_probe",
+                columns=harvest.tables[0].columns,
+                row_count=0,
+            ),
+        ),
+        source=source.name,
+    )
+    try:
+        try:
+            graph.write_harvest(
+                probe, snapshot_version="p2-demo.2", source_id=source.id
+            )
+        except SchemaOwnedByOtherSource as refusal:
+            assert refusal.owner == silver_conflict
+            print(
+                f"PASS: write_harvest() itself refused the claim on 'silver': {refusal}"
+            )
+        else:
+            raise AssertionError(
+                "write_harvest() wrote into a schema another source holds"
+            )
+        with driver.session() as session:
+            leaked = session.run(
+                "MATCH (t:SemanticTable {schema: 'silver', name: 'p2_cookbook_probe'}) "
+                "RETURN count(t) AS n"
+            ).single()["n"]
+        assert leaked == 0
+        print("PASS: the refused write rolled back -- no probe table left in 'silver'")
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (t:SemanticTable {schema: 'silver', name: 'p2_cookbook_probe'}) "
+                "OPTIONAL MATCH (c:SemanticColumn)-[:OF_TABLE]->(t) DETACH DELETE c, t"
+            )
 else:
     print(
         "SKIPPED: 'silver' holds no tables in this graph yet (no prior K4/K7 cookbook run) -- "
         "the collision guard has nothing to conflict with here, proved instead by "
-        "test_schema_owned_by_another_source_is_refused_as_needs_review"
+        "TestSourceScopedHarvest in test_semantic_live.py"
     )
 
 store.set_harvest_state(source.id, HarvestState.MODELLED, mark_harvested_now=True)

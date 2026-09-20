@@ -50,6 +50,7 @@ __all__ = [
     "CONCEPT_LABEL",
     "TABLE_LABEL",
     "EmptyHarvestRefused",
+    "SchemaOwnedByOtherSource",
     "SemanticGraphStore",
     "canonical_join",
 ]
@@ -79,6 +80,31 @@ class EmptyHarvestRefused(RuntimeError):
     the operator decides: a schema that is genuinely gone is removed with ``drop_schema``,
     by name, on purpose. A first harvest of a schema the graph has never held is allowed.
     """
+
+
+class SchemaOwnedByOtherSource(RuntimeError):
+    """A harvest was offered for a schema whose tables belong to a different source.
+
+    A table's identity is still ``(schema, name)`` alone (#307 is where ``source_id`` joins
+    it), so writing a second source's tables into a claimed schema would overwrite the first
+    source's rows and re-stamp their ownership. ``write_harvest`` refuses it inside its own
+    transaction. ``owner`` is the other ``source_id`` -- ``""`` when the schema holds the
+    operator's own warehouse harvest, which carries no source id.
+    """
+
+    def __init__(self, schema: str, owner: str) -> None:
+        self.schema = schema
+        self.owner = owner
+        super().__init__(
+            f"schema {schema!r} already holds tables from "
+            + (
+                f"source {owner!r}"
+                if owner
+                else "the deployment's own warehouse harvest"
+            )
+            + "; a second source cannot write into it until multi-source scoping (#307) "
+            "lands"
+        )
 
 
 def canonical_join(edge: JoinEdge) -> JoinEdge:
@@ -189,8 +215,10 @@ class SemanticGraphStore:
         of a table's identity**: node uniqueness is still ``(schema, name)`` alone (#307 is
         where that becomes a real multi-source key, with the migration a change like that
         needs). Until then, two sources sharing one ``schema`` name would silently overwrite
-        each other's tables here -- :meth:`schema_owned_by_other_source` is the guard a
-        caller must run first to refuse that rather than let it happen.
+        each other's tables here -- so the write itself refuses, raising
+        :class:`SchemaOwnedByOtherSource`, when ``schema`` already holds tables of a different
+        source (the operator's own harvest counts as one, with ``source_id=""``). The check
+        runs inside the write transaction; see :meth:`_write_harvest_tx`.
 
         **Upserts and prunes; never wipes.** Tables and columns are merged by identity and
         the ones the harvest no longer has are removed. The first version of this method did
@@ -282,8 +310,18 @@ class SemanticGraphStore:
         source_id: str = "",
     ) -> None:
         """The whole write in one transaction, so a failure part-way leaves the graph as it
-        was rather than upserted-but-not-pruned, and the guard below reads inside the same
-        transaction it protects.
+        was rather than upserted-but-not-pruned, and the guards below read inside the same
+        transaction they protect.
+
+        **The ownership guard cannot be a separate read.** A check in its own session, run
+        before this transaction, lets two harvests of different sources into one unclaimed
+        schema both pass it and then race. So the upsert never re-stamps a table another
+        source owns (a foreign row is skipped, not overwritten), and the schema is checked
+        for foreign owners *after* the upsert, in this transaction: a concurrent harvest's
+        tables are either already committed and visible (the unique ``(schema, name)``
+        constraint makes a competing MERGE of the same table wait for the first to commit),
+        or the two sets are disjoint and nothing was overwritten. Raising rolls the whole
+        write back.
 
         **Everything here is scoped to ``harvest.schema``.** One graph serves every schema
         a deployment harvests, and a prune that matched every ``SemanticTable`` would remove
@@ -309,6 +347,9 @@ class SemanticGraphStore:
             f"""
             UNWIND $rows AS row
             MERGE (t:{TABLE_LABEL} {{schema: row.schema, name: row.name}})
+              ON CREATE SET t.source_id = $source_id
+            WITH t, row
+            WHERE coalesce(t.source_id, '') = $source_id
             SET t.row_count = row.row_count,
                 t.comment = row.comment,
                 t.snapshot_version = $version,
@@ -328,14 +369,15 @@ class SemanticGraphStore:
             version=version,
             source_id=source_id,
         )
+        owner = SemanticGraphStore._foreign_owner(tx, schema, source_id)
+        if owner is not None:
+            raise SchemaOwnedByOtherSource(schema, owner)
         # Prune what the warehouse no longer has. Columns first, so a column dropped from
         # a surviving table goes; then tables, taking their remaining columns and edges.
-        # ``coalesce(t.source_id, '') = $source_id`` is belt-and-suspenders: every caller is
-        # expected to have already refused via `schema_owned_by_other_source` if `schema` is
-        # claimed by a different source, so this should never actually exclude a row in
-        # practice -- but if a future caller skips that guard, this is what stops a
-        # same-named schema from two different sources pruning each other instead of a
-        # refusal at write time.
+        # ``coalesce(t.source_id, '') = $source_id`` is belt-and-suspenders: the ownership
+        # check above has already refused a schema claimed by a different source, so this
+        # should never actually exclude a row -- it is what would stop two sources pruning
+        # each other if that check were ever weakened.
         tx.run(
             f"""
             MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL} {{schema: $schema}})
@@ -359,17 +401,24 @@ class SemanticGraphStore:
             keep=keep_tables,
             source_id=source_id,
         )
+        if source_id:
+            # Everything below is the operator's nightly refresh, not part of a self-serve
+            # harvest:
+            #
+            # - The two whole-graph column sweeps are housekeeping, and an orphaned column has
+            #   no schema of its own to scope them by, so on every on-demand customer harvest
+            #   they would scan every column of every customer. The nightly refresh is the
+            #   periodic sweep.
+            # - The singleton Snapshot node is the *deployment's* last-harvest pointer -- the
+            #   operator warehouse's, per the empty-string default every caller before #306
+            #   used. A self-serve source's harvest must not overwrite it: doing so would
+            #   make GET /semantic/snapshot report a customer's own database name and
+            #   timestamp in place of the operator's.
+            return
         # A column that lost its table some other way has no meaning; do not keep it.
         tx.run(f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c")
         # Any lingering row values from before this rule existed.
         tx.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
-        if source_id:
-            # The singleton Snapshot node is the *deployment's* last-harvest pointer -- the
-            # operator warehouse's, per the empty-string default every caller before #306
-            # used. A self-serve source's harvest must not overwrite it: it is not the
-            # deployment's harvest, and doing so would make GET /semantic/snapshot report a
-            # customer's own database name and timestamp in place of the operator's.
-            return
         tx.run(
             f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
             "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
@@ -415,31 +464,37 @@ class SemanticGraphStore:
             source_id=source_id,
         )
 
+    @staticmethod
+    def _foreign_owner(runner: Any, schema: str, source_id: str) -> Optional[str]:
+        """The other ``source_id`` holding tables in ``schema``, or ``None``. ``runner`` is
+        anything with ``.run`` -- a session for the public read, the write transaction for
+        the guard -- so the two cannot drift apart."""
+        record = runner.run(
+            f"""
+            MATCH (t:{TABLE_LABEL} {{schema: $schema}})
+            WHERE coalesce(t.source_id, '') <> $source_id
+            RETURN DISTINCT coalesce(t.source_id, '') AS other
+            LIMIT 1
+            """,
+            schema=schema,
+            source_id=source_id,
+        ).single()
+        return record["other"] if record else None
+
     def schema_owned_by_other_source(
         self, schema: str, source_id: str
     ) -> Optional[str]:
-        """#306's write-time guard against the collision :meth:`write_harvest`'s own
-        docstring describes: two data sources registered with the same ``schema`` name
-        would otherwise silently overwrite and prune each other's tables, since a table's
-        identity is still ``(schema, name)`` alone. Returns the *other* ``source_id`` already
-        using ``schema`` if one exists, or ``None`` if ``schema`` is unclaimed or already
-        belongs to ``source_id`` itself -- in either of which cases writing is safe. A
-        caller (#306's harvest executor) must check this before calling
-        :meth:`write_harvest` and refuse the harvest on a conflict rather than let the two
-        sources corrupt each other's semantic layer.
+        """The *other* ``source_id`` already using ``schema`` if one exists, or ``None`` if
+        ``schema`` is unclaimed or already belongs to ``source_id`` itself. ``""`` means the
+        operator's own harvest (or a table written before #306 tagged sources).
+
+        A read for callers that want to know up front -- a UI, a cookbook. It is **not** the
+        guard: :meth:`write_harvest` enforces the same rule inside its own transaction and
+        raises :class:`SchemaOwnedByOtherSource`, because a check made in a separate session
+        cannot stop two concurrent harvests from both passing it.
         """
         with self._driver.session(database=self._database) as session:
-            record = session.run(
-                f"""
-                MATCH (t:{TABLE_LABEL} {{schema: $schema}})
-                WHERE coalesce(t.source_id, '') <> $source_id
-                RETURN DISTINCT coalesce(t.source_id, '') AS other
-                LIMIT 1
-                """,
-                schema=schema,
-                source_id=source_id,
-            ).single()
-        return record["other"] if record else None
+            return self._foreign_owner(session, schema, source_id)
 
     async def aschema_owned_by_other_source(
         self, schema: str, source_id: str
