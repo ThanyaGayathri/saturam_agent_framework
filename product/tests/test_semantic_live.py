@@ -1348,13 +1348,17 @@ class TestSourceScoping:
                     name="crm_contact",
                     columns=(
                         HarvestedColumn("livetest_only_col", "integer", False, True),
+                        HarvestedColumn("livetest_join_key", "integer", False, True),
                     ),
                     row_count=3,
                 ),
                 HarvestedTable(
                     schema=self.SCHEMA,
                     name="livetest_widget",
-                    columns=(HarvestedColumn("id", "integer", False, True),),
+                    columns=(
+                        HarvestedColumn("id", "integer", False, True),
+                        HarvestedColumn("livetest_join_key", "integer", False, True),
+                    ),
                     row_count=1,
                 ),
             ),
@@ -1449,3 +1453,176 @@ class TestSourceScoping:
             graph.schema_owned_by_other_source(self.SCHEMA, "livetest_ds_other")
             == self.SOURCE
         )
+
+    @pytest.fixture
+    def mapped_scopes(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> Iterator[None]:
+        """Concepts mapped so each scope holds something the other must not see: one concept
+        mapped in *both* (a ``crm_contact`` in silver and one in the source's schema), plus one
+        mapped only in each. A filter on the concept side rather than the table side would pass
+        the only-in-one cases and fail the shared one."""
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeShared",
+                description="x",
+                business_area="livetest_area_shared",
+            ),
+            tables=("silver.crm_contact", f"{self.SCHEMA}.crm_contact"),
+        )
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeOnlyOp",
+                description="x",
+                business_area="livetest_area_op",
+            ),
+            tables=("silver.crm_deal",),
+        )
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeOnlySrc",
+                description="x",
+                business_area="livetest_area_src",
+            ),
+            tables=(f"{self.SCHEMA}.livetest_widget",),
+        )
+        try:
+            yield
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'LivetestScope' "
+                    "DETACH DELETE c"
+                )
+
+    def test_mapped_concepts_do_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, mapped_scopes: None
+    ) -> None:
+        operator = graph.mapped_concepts()
+        source = source_graph.mapped_concepts()
+        assert operator["LivetestScopeShared"] == ["silver.crm_contact"]
+        assert source["LivetestScopeShared"] == [f"{self.SCHEMA}.crm_contact"]
+        assert "LivetestScopeOnlyOp" in operator and "LivetestScopeOnlyOp" not in source
+        assert (
+            "LivetestScopeOnlySrc" in source and "LivetestScopeOnlySrc" not in operator
+        )
+
+    def test_business_area_evidence_does_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, mapped_scopes: None
+    ) -> None:
+        """The K9 path: an area is 'supported' by a mapped table, so a customer's mapped table
+        must not make an operator area look supported."""
+        operator = graph.business_area_evidence()
+        source = source_graph.business_area_evidence()
+        assert operator["livetest_area_shared"]["tables"] == ["silver.crm_contact"]
+        assert source["livetest_area_shared"]["tables"] == [
+            f"{self.SCHEMA}.crm_contact"
+        ]
+        assert "livetest_area_op" in operator and "livetest_area_op" not in source
+        assert "livetest_area_src" in source and "livetest_area_src" not in operator
+
+    def test_unjoinable_oracle_does_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> None:
+        """A pair review ruled out in one scope is not ruled out, or in, the other. The oracle
+        is keyed on bare table names, so the source's ``crm_contact`` and silver's would be one
+        pair if the scopes leaked."""
+        graph.write_concept(Concept(name="LivetestScopeOracle", description="x"))
+        try:
+            for store, tables, column in (
+                (graph, ("silver.crm_contact", "silver.crm_deal"), "load_id"),
+                (
+                    source_graph,
+                    (f"{self.SCHEMA}.crm_contact", f"{self.SCHEMA}.livetest_widget"),
+                    "livetest_join_key",
+                ),
+            ):
+                for table in tables:
+                    store.write_column_meaning(
+                        table,
+                        column,
+                        concept="LivetestScopeOracle",
+                        meaning="ruled out by review",
+                        joinable=False,
+                    )
+            operator = graph.unjoinable_oracle()
+            source = source_graph.unjoinable_oracle()
+            assert operator("crm_contact", "crm_deal") is True
+            assert source("crm_contact", "livetest_widget") is True
+            # Each pair exists only in the other scope, so a leak is the only way to answer True.
+            assert source("crm_contact", "crm_deal") is False
+            assert operator("crm_contact", "livetest_widget") is False
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticColumn)-[:OF_TABLE]->(t:SemanticTable) "
+                    "WHERE c.concept = 'LivetestScopeOracle' "
+                    "REMOVE c.concept, c.meaning, c.joinable"
+                )
+                s.run(
+                    "MATCH (c:SemanticConcept {name:'LivetestScopeOracle'}) DETACH DELETE c"
+                )
+
+    def test_find_join_path_never_crosses_scopes_mid_path(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> None:
+        """Both endpoints in scope, the only short route through a table that is not.
+
+        ``write_join`` cannot author such an edge (it resolves both ends in its own scope), so
+        it is written with raw Cypher: the point is that the read holds even if a write-side
+        slip ever produced one. The second half adds a longer route that stays in scope and
+        expects it to be found, so the filter must apply during the search rather than
+        discarding a shortest path afterwards and reporting 'no path'.
+        """
+        cross = "livetest_cross"
+
+        def connect(session: Any, a: str, b: str, tag: str) -> None:
+            session.run(
+                "MATCH (x:SemanticTable {schema: $sa, name: $na}), "
+                "(y:SemanticTable {schema: $sb, name: $nb}) "
+                "CREATE (x)-[:JOINS_TO {on: $on, cardinality: 'many-to-one', "
+                "status: 'accepted'}]->(y)",
+                sa=a.split(".")[0],
+                na=a.split(".")[1],
+                sb=b.split(".")[0],
+                nb=b.split(".")[1],
+                on=f"{cross}_{tag}",
+            )
+
+        foreign = f"{self.SCHEMA}.livetest_widget"
+        try:
+            with driver.session() as s:
+                connect(s, "silver.analytics_event", foreign, "a")
+                connect(s, foreign, "silver.session_replay_session", "b")
+                # The source's mirror image: silver.crm_deal sits between two of its tables.
+                connect(s, f"{self.SCHEMA}.crm_contact", "silver.crm_deal", "c")
+                connect(s, "silver.crm_deal", foreign, "d")
+
+            assert (
+                graph.find_join_path("analytics_event", "session_replay_session")
+                is None
+            )
+            assert source_graph.find_join_path("crm_contact", "livetest_widget") is None
+
+            for left, right, tag in (
+                ("analytics_event", "crm_contact", "e"),
+                ("crm_contact", "crm_deal", "f"),
+                ("crm_deal", "session_replay_session", "g"),
+            ):
+                graph.write_join(JoinEdge(left, right, f"{cross}_{tag}.x = y.x"))
+            path = graph.find_join_path("analytics_event", "session_replay_session")
+            assert path is not None
+            assert [(e.left_table, e.right_table) for e in path.edges] == [
+                ("analytics_event", "crm_contact"),
+                ("crm_contact", "crm_deal"),
+                ("crm_deal", "session_replay_session"),
+            ]
+            assert "livetest_widget" not in {
+                t for e in path.edges for t in (e.left_table, e.right_table)
+            }
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH ()-[j:JOINS_TO]->() WHERE j.on CONTAINS $p DELETE j",
+                    p=cross,
+                )

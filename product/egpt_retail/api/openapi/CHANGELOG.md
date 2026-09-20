@@ -124,6 +124,10 @@ bump.
   listing and a customer's `orders` must not make an operator KPI look ready. Under a
   `source_id`, `snapshot` describes that source's own harvest (newest table snapshot version,
   last harvest time, source name), never the deployment's.
+- An explicit empty `source_id=` is not the same as omitting it: it names no registered source
+  and is `404`. And a registered source that was harvested but now holds no tables reports
+  `snapshot.version: "empty"` beside its real `harvested_at`; `"unharvested"` appears only
+  with `harvested_at: "never"`, so the two fields cannot disagree.
 
 ## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
 

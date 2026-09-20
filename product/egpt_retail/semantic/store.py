@@ -143,6 +143,14 @@ class SemanticGraphStore:
         # landing in the same graph: a customer's ``orders`` cannot make an operator KPI
         # look ready, nor turn a bare ``orders`` lookup ambiguous. Writes are not scoped by
         # this; ``write_harvest`` takes its own ``source_id``.
+        #
+        # What this does *not* scope: the concept side of the graph. ``SemanticConcept``
+        # nodes are the shared K3 ontology and carry no ``source_id``, so ``list_concepts``,
+        # ``get_concept`` and ``list_business_areas`` answer the same for every scope, and
+        # ``authoritative_source`` follows a concept's edge to whichever table it names
+        # without checking that table's scope. Nothing routes a source-scoped reader through
+        # them today; whoever extends ``build_source_read_guard``'s seam to customer
+        # connections must not assume this class's whole read surface is isolated.
         self._source_id = source_id
         # Where ``include_proposed=True`` reads from. Proposals live in Postgres (K7), never
         # in the graph, so without this the flag is a no-op on the real store -- the contract
@@ -1205,6 +1213,13 @@ class SemanticGraphStore:
         ``None`` means "there is no path" and is a real answer. An endpoint the layer does not
         expose raises instead: "no path from a table I have never heard of" would report a typo
         as a fact about the data.
+
+        Scoped end to end, not only at the endpoints: every table on the path, intermediate
+        hops included, must belong to this store's ``source_id``. ``write_join`` already
+        resolves both ends through the scoped ``_resolve_table``, so today a ``JOINS_TO`` edge
+        cannot join two scopes -- but that invariant lives in the write path, and a read that
+        relied on it alone would turn a future write-side slip into a cross-source leak of a
+        foreign table's name. A path that exists only by crossing scopes is no path here.
         """
         with self._driver.session(database=self._database) as session:
             ends = []
@@ -1230,6 +1245,7 @@ class SemanticGraphStore:
                 MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $left}}),
                       (b:{TABLE_LABEL} {{schema: $rs, name: $right}})
                 MATCH path = shortestPath((a)-[:JOINS_TO*..6]-(b))
+                WHERE all(n IN nodes(path) WHERE coalesce(n.source_id, '') = $source_id)
                 RETURN [r IN relationships(path) |
                         {{on: r.on, cardinality: r.cardinality,
                           left: startNode(r).name, right: endNode(r).name}}] AS hops
@@ -1238,6 +1254,7 @@ class SemanticGraphStore:
                 left=left,
                 rs=rs,
                 right=right,
+                source_id=self._source_id,
             ).single()
         if record is None:
             return None
@@ -1262,7 +1279,14 @@ class SemanticGraphStore:
         return await asyncio.to_thread(self.find_join_path, from_table, to_table)
 
     def authoritative_source(self, concept: str) -> Optional[AuthoritativeSource]:
-        """Which table answers for this concept, or ``None`` if nobody has decided (G20)."""
+        """Which table answers for this concept, or ``None`` if nobody has decided (G20).
+
+        **Not scoped by ``source_id``**, unlike the table-enumerating reads. A concept belongs
+        to the shared ontology, not to a data source, and the edge is followed without a check
+        on the table's scope, so the answer can name a table the store's own scope cannot
+        otherwise see. No source-scoped reader calls this today; a caller that adds one must
+        filter on the returned table itself.
+        """
         with self._driver.session(database=self._database) as session:
             record = session.run(
                 f"""

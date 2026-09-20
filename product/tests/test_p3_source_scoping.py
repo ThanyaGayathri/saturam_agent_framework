@@ -134,6 +134,29 @@ class TestListSemanticTablesSourceId:
         assert body["snapshot"]["version"] == "unharvested"
         assert body["snapshot"]["harvested_at"] == "never"
 
+    def test_a_harvested_source_whose_tables_are_gone_does_not_contradict_itself(
+        self, monkeypatch
+    ):
+        """``version`` is read off the tables held now and ``harvested_at`` off the
+        registration, so a harvested source that was since pruned to nothing has a real
+        timestamp and no version. It must not say "unharvested" beside a real time."""
+        client, _ = _client(monkeypatch, registered={"ds_gone": _source()})
+        body = client.get("/semantic/tables", params={"source_id": "ds_gone"}).json()
+        assert body["tables"] == []
+        assert body["snapshot"]["version"] == "empty"
+        assert body["snapshot"]["harvested_at"] == "2026-09-20T08:00:00+00:00"
+
+    def test_an_empty_source_id_is_an_unknown_source_not_the_operators_listing(
+        self, monkeypatch
+    ):
+        """An omitted parameter is the operator's listing; ``source_id=`` is not the same
+        thing. It names no registered source, so it is a 404 -- not the operator's tables
+        by way of the operator's own source id also being the empty string."""
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get("/semantic/tables", params={"source_id": ""})
+        assert response.status_code == 404
+        assert opened == []  # never reached the graph, and not the operator scope
+
 
 class TestBuildSourceReadGuard:
     @staticmethod

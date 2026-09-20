@@ -394,15 +394,16 @@ def _source_listing(
             version = reader.source_snapshot_version()
     except (SemanticReadError, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # ``version`` comes off the tables the source holds *now*, ``harvested_at`` off the
+    # registration row, so a harvested source whose tables were since all pruned has a real
+    # timestamp and no version to read. Both fields answer "has this source been harvested",
+    # so they must not disagree: "unharvested" only ever sits beside "never".
+    harvested_at = source.last_harvest_at
     return wire.TableList(
         tables=[_table_ref_out(r) for r in refs],
         snapshot=wire.Snapshot(
-            version=version or "unharvested",
-            harvested_at=(
-                source.last_harvest_at.isoformat()
-                if source.last_harvest_at
-                else "never"
-            ),
+            version=version or ("empty" if harvested_at else "unharvested"),
+            harvested_at=harvested_at.isoformat() if harvested_at else "never",
             source=source.name,
         ),
     )
@@ -417,7 +418,11 @@ def list_semantic_tables(
 ):
     _include_proposed_allowed(request, include_proposed)
     settings = RetailSettings()
-    if source_id:
+    # ``is not None``, not truthiness: an omitted parameter is the operator's listing, but an
+    # explicit ``source_id=`` names no registered source and is a 404 like any other unknown
+    # id. It would otherwise fall into the operator branch only because the operator's own
+    # ``source_id`` happens to be ``""`` too.
+    if source_id is not None:
         return _source_listing(settings, source_id, include_proposed)
     try:
         with open_semantic_reader(settings) as reader:
