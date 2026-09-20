@@ -40,6 +40,12 @@ export default function MetricPicker({ readyKpis, selectedIdentifiers, onAdd, lo
      autoFocus
      value={query}
      onChange={(e) => setQuery(e.target.value)}
+     // In the builder this input sits inside the dashboard form, whose submit button is enabled
+     // as soon as a KPI-page selection has pre-filled the charts, so Enter while searching would
+     // create the dashboard. Enter only filters here; picking a KPI is a click.
+     onKeyDown={(e) => {
+      if (e.key === "Enter") e.preventDefault();
+     }}
      placeholder="Search KPIs…"
      className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
     />
