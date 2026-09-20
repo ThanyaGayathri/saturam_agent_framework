@@ -71,6 +71,7 @@ export default function DashboardBuilderStep({
  filterColumns,
  setFilterColumns,
  readyKpis,
+ readyKpisLoading = false,
  aiSuggested,
  contextSummary,
  onBack,
@@ -349,6 +350,7 @@ export default function DashboardBuilderStep({
     </label>
     <input
      id="db-name"
+     autoFocus={!name}
      value={name}
      onChange={(e) => setName(e.target.value)}
      placeholder="e.g. Stock-outs vs margin"
@@ -553,7 +555,12 @@ export default function DashboardBuilderStep({
 
     {!aiSuggested && (
      <div className="mt-3">
-      <MetricPicker readyKpis={readyKpis} selectedIdentifiers={selectedIdentifiers} onAdd={addMetricAsChart} />
+      <MetricPicker
+        readyKpis={readyKpis}
+        loading={readyKpisLoading}
+        selectedIdentifiers={selectedIdentifiers}
+        onAdd={addMetricAsChart}
+       />
      </div>
     )}
    </div>

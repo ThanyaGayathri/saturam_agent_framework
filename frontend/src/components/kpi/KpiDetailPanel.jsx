@@ -866,11 +866,10 @@ export default function KpiDetailPanel({
  <section>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">KPI</p>
  <p className="mt-1 text-base font-semibold text-text-primary">{detailRow.kpi.name}</p>
- {/* A registry row's description is editable below, as part of `registryEditBlock` -- shown
-     read-only here would just be the same text twice. */}
- {!fromRegistry && (
+ {/* Read-only for every row, a registry row included: what the KPI is belongs under its name.
+     A registry row's editable Description card sits at the bottom of Overview
+     (`registryEditBlock`), the place to change it, not the place to read it. */}
  <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
- )}
  {/* The same reason the card's disabled box gives on hover, said here in full: a proposal
      is not a governed KPI yet, so it cannot be picked for a dashboard until adopted. Skipped
      when the suggestion is itself blocked (missing data) -- adopting it wouldn't help, and the

@@ -7,7 +7,7 @@ import { Plus, Search } from "lucide-react";
  * `GET /kpis`) - the same set a tile can legally reference (`_check_tiles_ready` on the
  * backend). Already-selected identifiers are excluded so nothing can be added twice.
  */
-export default function MetricPicker({ readyKpis, selectedIdentifiers, onAdd }) {
+export default function MetricPicker({ readyKpis, selectedIdentifiers, onAdd, loading = false }) {
  const [open, setOpen] = useState(false);
  const [query, setQuery] = useState("");
 
@@ -57,7 +57,11 @@ export default function MetricPicker({ readyKpis, selectedIdentifiers, onAdd }) 
    <div className="max-h-56 overflow-y-auto p-1.5">
     {options.length === 0 ? (
      <p className="px-2 py-3 text-center text-xs text-text-muted">
-      {readyKpis.length === 0 ? "No registered, ready KPIs yet." : "No matches."}
+      {readyKpis.length === 0
+       ? loading
+        ? "Loading KPIs..."
+        : "No registered, ready KPIs yet."
+       : "No matches."}
      </p>
     ) : (
      options.map((kpi) => (
