@@ -61,6 +61,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `P2_harvest_source.py` | #306 (self-serve data sources, part of #302) | The `harvest-source` workflow step against a real warehouse schema and a real Neo4j graph: `harvest_schema` reads real tables, `write_harvest` tags the real node with `source_id` (verified by a direct read), the collision guard refuses a source_id claiming `silver` (already held by the operator's own harvest), and the real `harvest_source()` entry point refuses a real loopback host end to end, moving the source to `harvest_state=error`. |
 | `P3_source_scoping.py` | #307 (self-serve data sources, part of #302) | A registered source's tables and the operator's share one graph without seeing each other, over real HTTP against real Postgres and Neo4j: `GET /semantic/tables` never lists the source's tables and a bare `crm_contact` still resolves to silver, `?source_id=` lists only the source's with its own snapshot, an unregistered id is a 404, the operator's snapshot pointer survives the source's harvest, and the source's read guard allows its own table and refuses silver's. Needs a Neo4j already holding the silver harvest. |
 | `P4_frontend_connect_flow.mjs` | #308 (self-serve data sources, part of #302) | The real Configure > Data sources screens driven in a headless browser (Playwright) against the real API, Postgres and Neo4j: register a source from the form, "Test Connection" shows the API's verdict, Save starts the `harvest-source` run (202) and the card moves Building -> Modelled by polling `GET /configure/sources`, the semantic-layer screen lists the harvested tables via `GET /semantic/tables?source_id=`; then the loopback refusal, a failed harvest with Retry, a 422 shown as written, Remove, and "Save Changes" on a saved source (a rename, a username edit refused without the password, username + password persisting). Any unexpected console error or API response >= 400 fails the run (exit 1). Node + Playwright, not the demo venv; see its header. |
+| `P5_self_serve_source_end_to_end.py` | #309 (self-serve data sources, part of #302) | The whole pipeline in one sitting, over HTTP against real Postgres and Neo4j: register (`POST /configure/sources`) -> test (`POST .../test`) -> harvest (the `harvest-source` workflow's executor) -> read back (`GET /semantic/tables?source_id=`) -> re-harvest from the shell (`egpt-retail harvest --source-id`, new here) -> remove. The refusal path (a loopback host, refused at test, harvest and listing) always runs; the success path runs when a Postgres answers on a non-loopback address (the LAN IP for the Docker one, auto-detected; `EGPT_P5_SOURCE_HOST` overrides) and includes a rival source stopping at `needs_review`. Its gated twin is `product/tests/test_data_sources_live.py`. |
 
 Run:
 
@@ -108,6 +109,9 @@ EGPT_RETAIL_NEO4J_PASSWORD=password \
   # the machine's LAN IP works for the Docker Postgres) holding schema `p4_ui`, and Playwright.
   P4_HOST=<lan-ip> P4_OUT=/tmp/p4-shots node cookbook/94_retail/P4_frontend_connect_flow.mjs
   # (P4_BASE / P4_API name the dev server and API when they are not on :3000 / :7777)
+
+  # P5 (#309): the whole pipeline; the success path needs a Postgres on a non-loopback address
+  EGPT_RETAIL_NEO4J_PASSWORD=password PYTHONPATH=product .venvs/demo/bin/python cookbook/94_retail/P5_self_serve_source_end_to_end.py
 
 # R6 needs no services for the classification rules alone:
 .venv/bin/python cookbook/94_retail/R06_sql_guard_parsing.py
