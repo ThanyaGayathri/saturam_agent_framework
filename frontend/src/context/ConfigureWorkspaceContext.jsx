@@ -5,7 +5,6 @@ import { storageKeysForProfile } from "../storage/keys";
 import {
   loadConfigureWorkspace,
   saveConfigureWorkspace,
-  createInternalSource,
   createLlmModel,
   createExternalIntegration,
   normalizeInternal,
@@ -20,13 +19,31 @@ import {
   subscribeCustomTable,
 } from "../lib/customRepo";
 import { CUSTOM_TABLES, isSupabaseEnabled } from "../lib/supabase";
+import {
+  createSource,
+  deleteSource,
+  fetchSources,
+  startSourceHarvest,
+  testSource,
+  updateSource,
+} from "../services/sources-api";
 
 /**
  * Configure Workspace context.
  *
- * Seed rows (from code) + localStorage-added rows still work as before.
- * New / edited rows go to Supabase when it's enabled so the whole sales
- * team sees the same list. Same overlay pattern as useKpiRegistry etc.
+ * Internal sources (Configure > Data sources) are real (#308): the list is
+ * `GET /configure/sources`, every add/edit/remove is a call to that API, and while
+ * any source is `building` the list is re-read on the same cadence the KPI suggestion
+ * run is polled (2s, relaxing to 5s after half a minute, giving up at four minutes) so
+ * the card's readiness follows #306's harvest as it runs. The seeded demo rows stay
+ * as UI fixtures -- marked "Demo", hidden by default -- and are the only internal
+ * sources still read from localStorage; a localStorage-added internal source from
+ * before this wiring is no longer shown, since it never existed anywhere real.
+ *
+ * LLM models and external integrations are unchanged: seed rows (from code) +
+ * localStorage-added rows, with new / edited rows going to Supabase when it's
+ * enabled so the whole sales team sees the same list. Same overlay pattern as
+ * useKpiRegistry etc. No backend exists for them yet.
  *
  * Cloud profile stays in localStorage (single settings object; no shared
  * edit needed today). See pendingItems.md 6.10 for future migration.
@@ -34,48 +51,94 @@ import { CUSTOM_TABLES, isSupabaseEnabled } from "../lib/supabase";
 
 const ConfigureWorkspaceContext = createContext(null);
 
-// ─── Supabase row ↔ app shape converters ──────────────────────────────
+// Poll cadence for a running harvest -- the same numbers `useDashboardSuggestionRun` and the
+// KPI suggestion run use, so every long-running thing in the product waits the same way.
+const POLL_MS = 2000;
+const POLL_RELAXED_MS = 5000;
+const POLL_RELAX_AFTER_MS = 30_000;
+const POLL_CEILING_MS = 4 * 60 * 1000;
 
-function internalRowToShape(row) {
-  return normalizeInternal({
-    id: `sb:${row.id}`,
-    __supabaseId: row.id,
-    __originSeedId: row.origin_seed_id || null,
-    sourceType: row.source_type,
-    name: row.name,
-    host: row.host,
-    port: row.port,
-    databaseName: row.database_name,
-    schema: row.schema_name,
-    authMethod: row.auth_method,
-    username: row.username,
-    password: row.password,
-    apiKey: row.api_key,
-    sslMode: row.ssl_mode,
-    permissionLevel: row.permission_level,
-    seed: false,
-  });
-}
+// ─── API row ↔ app shape converters (internal sources) ────────────────
 
-function internalShapeToRow(record, profileId) {
+/** `InternalSource` (contract 1.2.8) -> the shape every Configure screen already reads.
+ * Secrets never travel: `password`/`apiKey` are empty on the way in, and go out only when a
+ * person typed a new one. The harvest fields ride alongside for `source-model-state.js`. */
+export function internalSourceFromApi(row) {
   return {
-    profile_id: profileId,
-    source_type: record.sourceType || "postgres",
-    name: record.name || "",
-    host: record.host || null,
-    port: record.port || null,
-    database_name: record.databaseName || null,
-    schema_name: record.schema || null,
-    auth_method: record.authMethod || "username_password",
-    username: record.username || null,
-    password: record.password || null,
-    api_key: record.apiKey || null,
-    ssl_mode: record.sslMode || "require",
-    permission_level: record.permissionLevel === "read_write" ? "read_write" : "read_only",
-    extras: record.extras || {},
-    origin_seed_id: record.__originSeedId || null,
+    ...normalizeInternal({
+      id: row.id,
+      sourceType: row.source_type,
+      name: row.name,
+      host: row.host,
+      port: row.port == null ? "" : String(row.port),
+      databaseName: row.database_name,
+      schema: row.schema || "",
+      authMethod: row.auth_method,
+      username: row.username || "",
+      sslMode: row.ssl_mode,
+      permissionLevel: row.permission_level,
+      seed: false,
+    }),
+    remote: true,
+    hasCredentials: !!row.has_credentials,
+    harvestState: row.harvest_state || "not_started",
+    lastHarvestId: row.last_harvest_id || null,
+    lastHarvestAt: row.last_harvest_at || null,
+    createdAt: row.created_at || null,
   };
 }
+
+function portFromShape(record) {
+  const raw = String(record.port ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function internalCommonFields(record) {
+  return {
+    source_type: record.sourceType || "postgres",
+    name: (record.name || "").trim(),
+    host: (record.host || "").trim(),
+    port: portFromShape(record),
+    database_name: (record.databaseName || "").trim(),
+    schema: (record.schema || "").trim(),
+    ssl_mode: record.sslMode || "require",
+    permission_level: record.permissionLevel === "read_write" ? "read_write" : "read_only",
+  };
+}
+
+/** `InternalSourceWrite` for `POST /configure/sources`: everything, credential included. */
+function internalWriteFromShape(record) {
+  const body = {
+    ...internalCommonFields(record),
+    auth_method: record.authMethod || "username_password",
+    username: record.username || "",
+  };
+  if (record.password) body.password = record.password;
+  if (record.apiKey) body.api_key = record.apiKey;
+  return body;
+}
+
+/** `InternalSourcePatch` for `PATCH /configure/sources/{id}`. The backend reads any of
+ * `auth_method`/`password`/`api_key` on a patch as "rotate the credential" and validates the
+ * whole credential again -- an `auth_method` sent with an empty password is a 422, not a
+ * no-op -- so the credential fields go only when a new secret was actually typed. The
+ * username is part of that credential (`_credential_from_patch` ignores it on its own), so a
+ * username or auth-method change with no new secret cannot be expressed as a patch;
+ * `ConfigureInternalSourceForm` refuses to send one rather than let it save as a no-op. */
+function internalPatchFromShape(record) {
+  const body = internalCommonFields(record);
+  if (record.password || record.apiKey) {
+    body.auth_method = record.authMethod || "username_password";
+    body.username = record.username || "";
+    if (record.password) body.password = record.password;
+    if (record.apiKey) body.api_key = record.apiKey;
+  }
+  return body;
+}
+
+// ─── Supabase row ↔ app shape converters (models, integrations) ──────
 
 function llmRowToShape(row) {
   return {
@@ -186,7 +249,6 @@ export function ConfigureWorkspaceProvider({ children }) {
       readActiveDemoProfileId()
     )
   );
-  const [customInternal, setCustomInternal] = useState([]);
   const [customLlm, setCustomLlm] = useState([]);
   const [customExternal, setCustomExternal] = useState([]);
   const [hydrated, setHydrated] = useState(false);
@@ -206,20 +268,158 @@ export function ConfigureWorkspaceProvider({ children }) {
     saveConfigureWorkspace(localData, storageKeys.CONFIGURE_WORKSPACE);
   }, [localData, hydrated, storageKeys.CONFIGURE_WORKSPACE]);
 
-  // Supabase fetch + realtime for the three list-shaped domains.
+  // ─── Internal sources: the real API ──────────────────────────────────
+
+  const [remoteInternal, setRemoteInternal] = useState([]);
+  // `loading` until the first answer; `error` keeps whatever list was last read rather than
+  // blanking it, so one failed poll mid-harvest does not empty the screen.
+  const [sourcesStatus, setSourcesStatus] = useState({ state: "loading", error: null });
+
+  const refreshSources = useCallback(async ({ signal } = {}) => {
+    try {
+      const rows = await fetchSources({ signal });
+      setRemoteInternal(rows.map(internalSourceFromApi));
+      setSourcesStatus({ state: "ready", error: null });
+      return rows;
+    } catch (err) {
+      if (err?.name === "AbortError") return null;
+      setSourcesStatus({
+        state: "error",
+        error: err?.detail || err?.message || "Could not load the connected sources.",
+      });
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshSources({ signal: controller.signal });
+    return () => controller.abort();
+  }, [refreshSources]);
+
+  // Poll while anything is building. Keyed on the *set* of building ids (not the list), so a
+  // refresh that changes nothing does not restart the timer chain, and one source finishing
+  // while another still runs does. `pollEpoch` lets a retried harvest restart a chain that
+  // already gave up. The four-minute ceiling is per source: `pollStartedAt` maps each building
+  // source id to when *its* harvest began, so starting a second harvest never buys the first
+  // one more time, and a source that has gone quiet stops being polled without silencing the
+  // rest.
+  const buildingIds = useMemo(
+    () =>
+      remoteInternal
+        .filter((s) => s.harvestState === "building")
+        .map((s) => s.id)
+        .sort()
+        .join(","),
+    [remoteInternal]
+  );
+  const [pollEpoch, setPollEpoch] = useState(0);
+  const [harvestPollingStalled, setHarvestPollingStalled] = useState(false);
+  const pollStartedAt = useRef(new Map());
+
+  useEffect(() => {
+    const ids = buildingIds ? buildingIds.split(",") : [];
+    const started = pollStartedAt.current;
+    for (const known of [...started.keys()]) {
+      if (!ids.includes(known)) started.delete(known);
+    }
+    for (const id of ids) {
+      if (!started.has(id)) started.set(id, Date.now());
+    }
+    const ages = () => ids.map((id) => Date.now() - started.get(id));
+    const withinCeiling = () => ages().filter((age) => age <= POLL_CEILING_MS);
+    // The backend's own bound plus grace has passed for a source that is still `building`.
+    // Stop asking about it rather than poll forever; the screen says so and offers a manual
+    // refresh.
+    setHarvestPollingStalled(withinCeiling().length < ids.length);
+    if (!withinCeiling().length) return undefined;
+
+    const controller = new AbortController();
+    let cancelled = false;
+    let timer = null;
+    const tick = async () => {
+      const live = withinCeiling();
+      if (live.length < ids.length) setHarvestPollingStalled(true);
+      if (!live.length) return;
+      await refreshSources({ signal: controller.signal });
+      if (cancelled) return;
+      // The newest harvest sets the pace: a fresh build is checked every 2s even while an
+      // older one has already relaxed to 5s.
+      timer = window.setTimeout(tick, Math.min(...live) > POLL_RELAX_AFTER_MS ? POLL_RELAXED_MS : POLL_MS);
+    };
+    timer = window.setTimeout(tick, POLL_MS);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [buildingIds, pollEpoch, refreshSources]);
+
+  const placeRemote = (shaped) =>
+    setRemoteInternal((prev) => {
+      const i = prev.findIndex((s) => s.id === shaped.id);
+      return i >= 0 ? prev.map((s) => (s.id === shaped.id ? shaped : s)) : [...prev, shaped];
+    });
+
+  /** Create or update through the API and return the saved source in app shape. A record whose
+   * id names a real source is a PATCH; anything else -- a new form, or a seeded demo row someone
+   * filled in with real values -- is a POST that registers a new real source. Throws `ApiError`
+   * (the backend's 422 `detail` says what was wrong with the credential) for the form to show. */
+  const upsertInternal = async (record) => {
+    const isRemote = !!record.remote || remoteInternal.some((s) => s.id === record.id);
+    const saved = isRemote
+      ? await updateSource(record.id, internalPatchFromShape(record))
+      : await createSource(internalWriteFromShape(record));
+    const shaped = internalSourceFromApi(saved);
+    placeRemote(shaped);
+    return shaped;
+  };
+
+  const removeInternal = async (id) => {
+    if (remoteInternal.some((s) => s.id === id)) {
+      await deleteSource(id);
+      setRemoteInternal((prev) => prev.filter((s) => s.id !== id));
+      return;
+    }
+    // A seeded demo row: hidden for this session (seeds re-hydrate on reload, as before).
+    setLocalData((prev) => ({
+      ...prev,
+      internalSources: (prev.internalSources || []).filter((x) => x.id !== id),
+    }));
+  };
+
+  const addInternal = (fields) => upsertInternal(normalizeInternal({ ...fields, seed: false }));
+
+  /** `POST /configure/sources/{id}/test` -- resolves `{ok, detail, tested_at}`. */
+  const testInternalConnection = (id) => testSource(id);
+
+  /** Start #306's harvest for a source and show it `building` at once; the poll above takes
+   * it from there. Resolves the framework's 202 `{run_id, session_id, status}`. */
+  const startInternalHarvest = async (id) => {
+    const run = await startSourceHarvest(id);
+    setRemoteInternal((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, harvestState: "building", lastHarvestId: run?.run_id || s.lastHarvestId } : s
+      )
+    );
+    // Only this source's clock restarts; the effect re-derives the stalled flag from the map.
+    pollStartedAt.current.set(id, Date.now());
+    setPollEpoch((n) => n + 1);
+    return run;
+  };
+
+  // ─── Supabase fetch + realtime for models and integrations ───────────
+
   const refreshCustom = useCallback(async () => {
     if (!isSupabaseEnabled() || !profileId) {
-      setCustomInternal([]);
       setCustomLlm([]);
       setCustomExternal([]);
       return;
     }
-    const [ins, lls, exs] = await Promise.all([
-      listCustomRows(CUSTOM_TABLES.internalSources, profileId),
+    const [lls, exs] = await Promise.all([
       listCustomRows(CUSTOM_TABLES.llmModels, profileId),
       listCustomRows(CUSTOM_TABLES.externalIntegrations, profileId),
     ]);
-    setCustomInternal(ins);
     setCustomLlm(lls);
     setCustomExternal(exs);
   }, [profileId]);
@@ -231,7 +431,6 @@ export function ConfigureWorkspaceProvider({ children }) {
   useEffect(() => {
     if (!isSupabaseEnabled() || !profileId) return undefined;
     const unsubs = [
-      subscribeCustomTable(CUSTOM_TABLES.internalSources, profileId, () => void refreshCustom()),
       subscribeCustomTable(CUSTOM_TABLES.llmModels, profileId, () => void refreshCustom()),
       subscribeCustomTable(CUSTOM_TABLES.externalIntegrations, profileId, () => void refreshCustom()),
     ];
@@ -243,7 +442,8 @@ export function ConfigureWorkspaceProvider({ children }) {
   const data = useMemo(() => {
     const merged = {
       ...localData,
-      internalSources: [...(localData.internalSources || []), ...customInternal.map(internalRowToShape)],
+      // Demo fixtures first (hidden by default on the grid), then what the API knows.
+      internalSources: [...(localData.internalSources || []).filter((s) => s.seed), ...remoteInternal],
       llmModels: [...(localData.llmModels || []), ...customLlm.map(llmRowToShape)],
       externalIntegrations: [
         ...(localData.externalIntegrations || []),
@@ -251,56 +451,7 @@ export function ConfigureWorkspaceProvider({ children }) {
       ],
     };
     return merged;
-  }, [localData, customInternal, customLlm, customExternal]);
-
-  // ─── Internal sources ────────────────────────────────────────────────
-
-  const upsertInternal = async (record) => {
-    // Existing sb: row → update in Supabase. normalize* strips the
-    // __supabaseId marker on save, so fall back to reading the `sb:` prefix
-    // off the id itself.
-    const sbId =
-      record.__supabaseId ||
-      (typeof record.id === "string" && record.id.startsWith("sb:") ? record.id.slice(3) : null);
-    if (sbId) {
-      await updateCustomRow(
-        CUSTOM_TABLES.internalSources,
-        sbId,
-        internalShapeToRow(record, profileId)
-      );
-      await refreshCustom();
-      return;
-    }
-    // New row while Supabase is enabled → insert into Supabase
-    if (supabaseEnabled && !record.seed) {
-      await insertCustomRow(CUSTOM_TABLES.internalSources, internalShapeToRow(record, profileId));
-      await refreshCustom();
-      return;
-    }
-    // Otherwise (Supabase off, or seed override) → localStorage as before
-    setLocalData((prev) => {
-      const list = prev.internalSources || [];
-      const i = list.findIndex((x) => x.id === record.id);
-      const next = i >= 0 ? list.map((x) => (x.id === record.id ? record : x)) : [...list, record];
-      return { ...prev, internalSources: next };
-    });
-  };
-
-  const removeInternal = async (id) => {
-    const sbId = typeof id === "string" && id.startsWith("sb:") ? id.slice(3) : null;
-    if (sbId) {
-      await softDeleteCustomRow(CUSTOM_TABLES.internalSources, sbId);
-      await refreshCustom();
-      return;
-    }
-    // Legacy localStorage or seed row → filter out locally (seeds re-hydrate on reload)
-    setLocalData((prev) => ({
-      ...prev,
-      internalSources: (prev.internalSources || []).filter((x) => x.id !== id),
-    }));
-  };
-
-  const addInternal = (fields) => upsertInternal(createInternalSource(fields));
+  }, [localData, remoteInternal, customLlm, customExternal]);
 
   // ─── LLM models ──────────────────────────────────────────────────────
 
@@ -419,6 +570,11 @@ export function ConfigureWorkspaceProvider({ children }) {
     upsertInternal,
     removeInternal,
     addInternal,
+    testInternalConnection,
+    startInternalHarvest,
+    refreshSources,
+    sourcesStatus,
+    harvestPollingStalled,
     upsertLlm,
     removeLlm,
     addLlm,
