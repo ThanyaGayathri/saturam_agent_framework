@@ -203,24 +203,27 @@ class TestVocabulariesAgree:
     @pytest.mark.parametrize(
         ("column", "enum_cls"),
         [
-            ("harvest_state", HarvestState),
-            ("status", DataSourceStatus),
+            ("source_type", DataSourceType),
             ("permission_level", PermissionLevel),
+            ("auth_method", AuthMethod),
+            ("status", DataSourceStatus),
+            ("harvest_state", HarvestState),
         ],
     )
     def test_the_table_checks_exactly_the_enum(
         self, column: str, enum_cls: type
     ) -> None:
-        # The store's CHECK constraints are the last line, and these three are hand-written
-        # in the DDL (the rest are generated from their enum). Equality, not membership: a
-        # member the table refuses would fail at the first UPDATE, deep inside a workflow
-        # run, and a value the table accepts but the enum lacks is a state the code cannot
-        # name.
+        # The store's CHECK constraints are the last line. Every one is generated from its
+        # enum, and appears twice -- inline in CREATE TABLE for a fresh database, and in the
+        # guarded refresh statement that brings an already-provisioned one up to date -- so
+        # every occurrence is held to the enum. Equality, not membership: a member the table
+        # refuses would fail at the first UPDATE, deep inside a workflow run, and a value the
+        # table accepts but the enum lacks is a state the code cannot name.
         ddl = "\n".join(store_module._ddl("configure"))
         clauses = re.findall(rf"CHECK\s*\(\s*{column}\s+IN\s*\(([^)]*)\)\s*\)", ddl)
-        assert len(clauses) == 1, f"expected one CHECK on {column}, found {clauses}"
-        allowed = set(re.findall(r"'([^']+)'", clauses[0]))
-        assert allowed == _wire_values(enum_cls)
+        assert clauses, f"no CHECK on {column}"
+        for clause in clauses:
+            assert set(re.findall(r"'([^']+)'", clause)) == _wire_values(enum_cls)
 
     def test_harvestable_types_are_registrable_types(self) -> None:
         assert HARVESTABLE_SOURCE_TYPES <= set(DataSourceType)

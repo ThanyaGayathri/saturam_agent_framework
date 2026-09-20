@@ -16,6 +16,8 @@ in a suite ``integration.yml`` runs, rather than only in the manually-run
 - deleting a source never orphans a secret, even when a rotation lands mid-delete;
 - a failed insert leaves no secret behind and the connection usable;
 - padded free-text fields are stored stripped;
+- a secret store whose ``delete`` fails never changes the outcome of ``create``, ``update`` or
+  ``delete``, nor masks the error being handled;
 - the ``CHECK`` constraints on the closed enum columns are enforced, including on a table
   that was provisioned before they existed, and are refreshed when an enum gains a member.
 
@@ -32,6 +34,7 @@ what ``integration.yml`` sets). Everything written is keyed under a ``created_by
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -645,6 +648,126 @@ class TestSecretNameHint:
             created.id, DataSourceUpdate(credential=_credential("rotated")), recording
         )
         assert recording.hints == [created.name]
+
+
+class _FailingDeleteSecretStore(LocalEncryptedSecretStore):
+    """A secret store whose ``delete`` always fails (an unreachable vault, say). Everything
+    else is the real thing, so the secrets it fails to delete really are left behind."""
+
+    def delete(self, secret_ref: str) -> None:
+        raise RuntimeError("vault unreachable")
+
+
+class TestSecretCleanupFailureNeverChangesTheOutcome:
+    """Deleting a superseded or orphaned secret is best-effort. If it fails, the operation the
+    caller asked for must still have the outcome it would otherwise have had -- and, on an
+    error path, the caller must still see the *original* error, not the cleanup's."""
+
+    @staticmethod
+    def _sweep(env: SimpleNamespace, before: Any) -> None:
+        """Removes the secrets these tests deliberately failed to delete, so they do not
+        accumulate in the shared control-plane database."""
+        for ref in _refs(env.connection) - before:
+            env.secrets.delete(ref)
+
+    def test_create_raises_the_insert_error_not_the_cleanup_error(
+        self,
+        env: SimpleNamespace,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        psycopg = pytest.importorskip("psycopg")
+        existing = env.create()
+        before = _refs(env.connection)
+        failing = _FailingDeleteSecretStore(env.connection, env.key)
+        monkeypatch.setattr(store_module, "_new_id", lambda: existing.id)
+        try:
+            with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+                with pytest.raises(psycopg.errors.UniqueViolation):  # not RuntimeError
+                    env.sources.create(
+                        DataSourceCreate(
+                            name="Collides",
+                            source_type=DataSourceType.POSTGRES,
+                            host="warehouse.internal",
+                            database_name="analytics",
+                            credential=_credential(),
+                            created_by=env.marker,
+                        ),
+                        failing,
+                    )
+            # The connection is still usable, and the failed cleanup was reported.
+            assert env.sources.get(existing.id) == existing
+            assert any("orphaned" in r.getMessage() for r in caplog.records)
+        finally:
+            self._sweep(env, before)
+
+    def test_a_rotation_still_succeeds_when_the_old_secret_cannot_be_deleted(
+        self, env: SimpleNamespace, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        created = env.create()
+        before = _refs(env.connection)
+        failing = _FailingDeleteSecretStore(env.connection, env.key)
+        try:
+            with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+                rotated = env.sources.update(
+                    created.id,
+                    DataSourceUpdate(credential=_credential("rotated")),
+                    failing,
+                )
+            assert rotated is not None and rotated.secret_ref != created.secret_ref
+            assert env.secrets.read(rotated.secret_ref).password == "rotated"
+            # The old secret is left behind (that is the cost of a failed cleanup) and logged.
+            assert created.secret_ref in _refs(env.connection)
+            assert any(created.secret_ref in r.getMessage() for r in caplog.records)
+        finally:
+            self._sweep(env, before | {created.secret_ref})
+            env.secrets.delete(created.secret_ref)
+
+    def test_a_rotation_that_lost_its_race_still_retries_when_cleanup_fails(
+        self, env: SimpleNamespace
+    ) -> None:
+        """The loser's own secret cannot be deleted, so the retry has to go ahead regardless."""
+        created = env.create()
+        other = env.open_second()
+        before = _refs(env.connection)
+
+        class _RacingAndFailing(_RacingSecretStore):
+            def delete(self, secret_ref: str) -> None:
+                raise RuntimeError("vault unreachable")
+
+        def competitor() -> None:
+            other.sources.update(
+                created.id,
+                DataSourceUpdate(credential=_credential("competitor")),
+                other.secrets,
+            )
+
+        racing = _RacingAndFailing(
+            env.connection, env.key, competitor, every_time=False
+        )
+        try:
+            rotated = env.sources.update(
+                created.id,
+                DataSourceUpdate(credential=_credential("outer")),
+                racing,
+            )
+            assert racing.writes == 2  # lost once, retried, won
+            assert env.secrets.read(rotated.secret_ref).password == "outer"
+        finally:
+            self._sweep(env, before)
+
+    def test_delete_still_reports_true_when_the_secret_cannot_be_deleted(
+        self, env: SimpleNamespace, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        created = env.create()
+        failing = _FailingDeleteSecretStore(env.connection, env.key)
+        try:
+            with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+                assert env.sources.delete(created.id, failing) is True
+            assert env.sources.get(created.id) is None  # the row is gone regardless
+            assert any(created.secret_ref in r.getMessage() for r in caplog.records)
+        finally:
+            env.secrets.delete(created.secret_ref)
 
 
 class TestEnumConstraints:

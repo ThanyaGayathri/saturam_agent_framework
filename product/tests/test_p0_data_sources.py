@@ -13,6 +13,7 @@ never accidentally printable, and no shape that is stored or returned has a plac
 from __future__ import annotations
 
 import dataclasses
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -484,3 +485,84 @@ class TestMatchesTheWireContract:
         assert {member.value for member in PermissionLevel} == self._enum_values(
             "PermissionLevel"
         )
+
+
+class _RaisingDeleteSecretStore:
+    """A ``SecretStore`` whose ``delete`` fails -- only ``delete`` is ever called on it."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+        self.deleted: list = []
+
+    def delete(self, secret_ref: str) -> None:
+        self.deleted.append(secret_ref)
+        raise self._error
+
+
+class TestBestEffortSecretDelete:
+    """Cleanup of a superseded or orphaned secret runs *after* the caller's real work (or while
+    it is already handling a failure), so it must never turn a success into an error or
+    replace the error being handled with its own. This is the one place that promise lives."""
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RuntimeError("vault unreachable"),
+            ConnectionError("connection reset"),
+            TimeoutError("timed out"),
+            KeyError("gone"),
+            Exception("anything else"),
+        ],
+    )
+    def test_a_failing_delete_is_swallowed_and_logged(
+        self, error: Exception, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        secrets = _RaisingDeleteSecretStore(error)
+        with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+            result = store_module.DataSourceStore._best_effort_delete_secret(
+                secrets, "local:abc123"
+            )
+
+        assert result is None
+        assert secrets.deleted == ["local:abc123"]  # it did try
+        (record,) = caplog.records
+        assert record.levelno == logging.WARNING
+        assert "local:abc123" in record.getMessage()  # names what was orphaned
+        assert record.exc_info is not None  # and keeps the traceback for the operator
+
+    def test_the_log_carries_the_reference_and_never_the_error_text(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A reference string is not credential material, but the message is fixed text plus
+        the ref -- nothing from the exception is interpolated into it."""
+        secrets = _RaisingDeleteSecretStore(RuntimeError("password=hunter2 leaked"))
+        with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+            store_module.DataSourceStore._best_effort_delete_secret(secrets, "local:x")
+        assert "hunter2" not in caplog.records[0].getMessage()
+
+    def test_a_working_delete_logs_nothing(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class _Working:
+            def __init__(self) -> None:
+                self.deleted: list = []
+
+            def delete(self, secret_ref: str) -> None:
+                self.deleted.append(secret_ref)
+
+        secrets = _Working()
+        with caplog.at_level(logging.WARNING, logger="egpt_retail.configure.store"):
+            store_module.DataSourceStore._best_effort_delete_secret(secrets, "local:ok")
+        assert secrets.deleted == ["local:ok"]
+        assert caplog.records == []
+
+    @pytest.mark.parametrize("error", [KeyboardInterrupt(), SystemExit(1)])
+    def test_an_interpreter_level_exit_is_not_swallowed(
+        self, error: BaseException
+    ) -> None:
+        """Best-effort means ordinary failures only -- Ctrl-C and ``sys.exit`` still stop the
+        process."""
+        with pytest.raises(type(error)):
+            store_module.DataSourceStore._best_effort_delete_secret(
+                _RaisingDeleteSecretStore(error), "local:x"
+            )
