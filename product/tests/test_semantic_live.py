@@ -40,7 +40,11 @@ from egpt_retail.semantic.proposals import (
 )
 from egpt_retail.semantic.refresh import refresh_semantic_layer
 from egpt_retail.semantic.snapshots import SnapshotStore
-from egpt_retail.semantic.store import EmptyHarvestRefused, SemanticGraphStore
+from egpt_retail.semantic.store import (
+    EmptyHarvestRefused,
+    SchemaOwnedByOtherSource,
+    SemanticGraphStore,
+)
 
 _LIVE = os.environ.get("EGPT_INTEGRATION_POSTGRES") and os.environ.get(
     "EGPT_INTEGRATION_NEO4J"
@@ -390,6 +394,287 @@ class TestSchemaIsolation:
             == 0
         )
         assert _table_count(driver) == before
+
+
+class TestSourceScopedHarvest:
+    """#306's ownership rules, in the real Cypher: ``source_id`` tagging, the refusal of a
+    schema another source holds (enforced inside ``write_harvest``'s transaction, so two
+    harvests racing for one schema cannot both win), the untouched deployment ``Snapshot``
+    pointer, and the operator-only column sweeps.
+
+    The DB-free tests in ``test_p2_harvest_source.py`` fake the graph store, so none of this
+    Cypher runs there -- review round 2 was right that only a by-hand cookbook covered it.
+    Synthetic ``livetest_`` schemas, so nothing depends on what the warehouse holds.
+    """
+
+    SCHEMA = "livetest_owned"
+    OPERATOR_SCHEMA = "livetest_operator_owned"
+    SOURCE_A = "livetest_src_a"
+    SOURCE_B = "livetest_src_b"
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, driver: Any) -> Iterator[None]:
+        store = SemanticGraphStore(driver=driver)
+        store.ensure_indexes()
+        for schema in (self.SCHEMA, self.OPERATOR_SCHEMA):
+            store.drop_schema(schema)
+        yield
+        for schema in (self.SCHEMA, self.OPERATOR_SCHEMA):
+            store.drop_schema(schema)
+        with driver.session() as s:
+            s.run(
+                "MATCH (c:SemanticColumn) WHERE c.name STARTS WITH 'livetest_orphan' "
+                "DETACH DELETE c"
+            )
+
+    @staticmethod
+    def _harvest(schema: str, *names: str, rows: int = 1) -> Harvest:
+        from egpt_retail.semantic.harvest import HarvestedColumn, HarvestedTable
+
+        return Harvest(
+            schema=schema,
+            tables=tuple(
+                HarvestedTable(
+                    schema=schema,
+                    name=name,
+                    columns=(HarvestedColumn("id", "integer", False, True),),
+                    row_count=rows,
+                )
+                for name in names
+            ),
+            source="livetest",
+        )
+
+    @staticmethod
+    def _owners(driver: Any, schema: str) -> dict:
+        with driver.session() as s:
+            return {
+                r["name"]: r["owner"]
+                for r in s.run(
+                    "MATCH (t:SemanticTable {schema: $schema}) "
+                    "RETURN t.name AS name, t.source_id AS owner",
+                    schema=schema,
+                )
+            }
+
+    @staticmethod
+    def _row_count(driver: Any, schema: str, name: str) -> Any:
+        with driver.session() as s:
+            return s.run(
+                "MATCH (t:SemanticTable {schema: $schema, name: $name}) "
+                "RETURN t.row_count AS n",
+                schema=schema,
+                name=name,
+            ).single()["n"]
+
+    @staticmethod
+    def _snapshot(driver: Any) -> Any:
+        with driver.session() as s:
+            record = s.run(
+                "MATCH (s:SemanticSnapshot {singleton: true}) "
+                "RETURN s.version AS version, s.source AS source"
+            ).single()
+        return None if record is None else (record["version"], record["source"])
+
+    def test_tables_are_tagged_and_the_snapshot_pointer_is_left_alone(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        # The operator's harvest sets the deployment's pointer; a self-serve one must not.
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table"),
+            snapshot_version="livetest.operator",
+        )
+        pointer = self._snapshot(driver)
+        assert pointer == ("livetest.operator", "livetest")
+
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.customer",
+            source_id=self.SOURCE_A,
+        )
+
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+        assert self._snapshot(driver) == pointer
+
+    def test_a_second_source_is_refused_and_nothing_is_overwritten(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", "items", rows=1),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.SCHEMA, "orders", "refunds", rows=99),
+                snapshot_version="livetest.b",
+                source_id=self.SOURCE_B,
+            )
+        assert refused.value.owner == self.SOURCE_A
+        # The whole write rolled back: A's rows are as A left them, and B's new table never
+        # appeared -- not "was refused after being written".
+        assert self._owners(driver, self.SCHEMA) == {
+            "orders": self.SOURCE_A,
+            "items": self.SOURCE_A,
+        }
+        assert self._row_count(driver, self.SCHEMA, "orders") == 1
+
+    def test_the_operators_harvest_cannot_overwrite_a_self_serve_schema(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.SCHEMA, "orders"), snapshot_version="livetest.op"
+            )
+        assert refused.value.owner == self.SOURCE_A
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+
+    def test_a_self_serve_source_cannot_claim_the_operators_schema(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table", rows=5),
+            snapshot_version="livetest.operator",
+        )
+        pointer = self._snapshot(driver)
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.OPERATOR_SCHEMA, "ops_table", rows=99),
+                snapshot_version="livetest.customer",
+                source_id=self.SOURCE_A,
+            )
+        assert refused.value.owner == ""
+        assert self._owners(driver, self.OPERATOR_SCHEMA) == {"ops_table": ""}
+        assert self._row_count(driver, self.OPERATOR_SCHEMA, "ops_table") == 5
+        assert self._snapshot(driver) == pointer
+
+    def test_a_table_written_before_source_ids_existed_counts_as_the_operators(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "legacy"), snapshot_version="v"
+        )
+        with driver.session() as s:
+            s.run(
+                "MATCH (t:SemanticTable {schema: $schema}) REMOVE t.source_id",
+                schema=self.OPERATOR_SCHEMA,
+            )
+        with pytest.raises(SchemaOwnedByOtherSource):
+            graph.write_harvest(
+                self._harvest(self.OPERATOR_SCHEMA, "legacy"),
+                snapshot_version="v",
+                source_id=self.SOURCE_A,
+            )
+        # ...and the operator's own re-harvest still goes through.
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "legacy"), snapshot_version="v2"
+        )
+
+    def test_a_source_reharvesting_its_own_schema_prunes_only_what_it_dropped(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", "items"),
+            snapshot_version="livetest.1",
+            source_id=self.SOURCE_A,
+        )
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", rows=7),
+            snapshot_version="livetest.2",
+            source_id=self.SOURCE_A,
+        )
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+        assert self._row_count(driver, self.SCHEMA, "orders") == 7
+
+    def test_the_owner_lookup_agrees_with_the_write_guard(self, driver: Any) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_A) is None
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_A) is None
+        assert (
+            graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_B)
+            == self.SOURCE_A
+        )
+
+    def test_concurrent_harvests_of_one_unclaimed_schema_cannot_both_win(
+        self, driver: Any
+    ) -> None:
+        """Review round 2's race: the guard used to be a separate read, so two harvests of
+        different sources into a still-unclaimed schema could both pass it and the second
+        MERGE would re-stamp the first's tables. Now exactly one wins, every round, and the
+        loser leaves nothing behind."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        graph = SemanticGraphStore(driver=driver)
+        for _ in range(6):
+            graph.drop_schema(self.SCHEMA)
+            barrier = threading.Barrier(2)
+
+            def attempt(source_id: str) -> str:
+                barrier.wait()
+                try:
+                    graph.write_harvest(
+                        self._harvest(self.SCHEMA, "orders", "items", "refunds"),
+                        snapshot_version="livetest.race",
+                        source_id=source_id,
+                    )
+                except SchemaOwnedByOtherSource:
+                    return "refused"
+                return "won"
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = list(pool.map(attempt, (self.SOURCE_A, self.SOURCE_B)))
+
+            assert sorted(outcomes) == ["refused", "won"], outcomes
+            winner = self.SOURCE_A if outcomes[0] == "won" else self.SOURCE_B
+            assert self._owners(driver, self.SCHEMA) == {
+                "orders": winner,
+                "items": winner,
+                "refunds": winner,
+            }
+
+    def test_only_the_operators_refresh_runs_the_whole_graph_column_sweeps(
+        self, driver: Any
+    ) -> None:
+        """An orphaned column has no schema to scope a sweep by, so a self-serve harvest
+        must not run it (it would scan every customer's columns per on-demand run)."""
+        graph = SemanticGraphStore(driver=driver)
+
+        def orphans() -> int:
+            with driver.session() as s:
+                return s.run(
+                    "MATCH (c:SemanticColumn) WHERE c.name = 'livetest_orphan' "
+                    "AND NOT (c)-[:OF_TABLE]->() RETURN count(c) AS n"
+                ).single()["n"]
+
+        with driver.session() as s:
+            s.run("CREATE (:SemanticColumn {name: 'livetest_orphan'})")
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        assert orphans() == 1
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table"), snapshot_version="v"
+        )
+        assert orphans() == 0
 
 
 class TestRefreshEdges:

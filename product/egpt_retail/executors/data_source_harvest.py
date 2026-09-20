@@ -17,29 +17,38 @@ ScheduleExecutor``), so the frontend (#308) does the same thing a scheduled trig
 
 **Safety, in the order this function checks it, and why each check exists:**
 
-1. *Driver availability.* Only Postgres has a driver in this product (:data:`_HARVESTABLE`,
-   matching ``api/routers/sources.py``'s own ``_TESTABLE_SOURCE_TYPES`` -- Snowflake is in
-   the contract's ``HARVESTABLE_SOURCE_TYPES`` as a forward-looking claim; no
-   ``snowflake-connector-python`` dependency exists yet to make that real).
+1. *Driver availability* (``DataSource.harvestable``). Only Postgres has a driver in this
+   product -- Snowflake is in the contract's ``HARVESTABLE_SOURCE_TYPES`` as a
+   forward-looking claim, and ``HARVEST_DRIVER_SOURCE_TYPES`` is the narrower set that has a
+   driver. The executor and the public property read the same set, so they cannot disagree.
 2. *Permission level.* A ``read_write``-declared source is refused -- the wire contract's
    own words are "never exposed to a model" (``PermissionLevel``'s docstring), and a
    harvest is the first step of exactly that exposure.
-3. *The SSRF guard* (duplicated from ``api/routers/sources.py``'s ``_refused_host_reason``,
-   not imported -- this codebase's own convention for a small helper two call sites need;
-   see that module's docstring). A registered source's host was checked once, at
-   registration, by ``test-connection`` -- but nothing forces a caller to have called it
-   first, and a harvest is a second, independent connection attempt that deserves the same
-   guard, not an inherited assumption.
-4. *The schema-collision guard*
-   (:meth:`~egpt_retail.semantic.store.SemanticGraphStore.schema_owned_by_other_source`).
-   Two data sources registered with the same ``schema`` name would otherwise silently
-   prune and overwrite each other's tables -- see that method's docstring, and
-   ``write_harvest``'s, for why table identity does not include ``source_id`` (reads are
-   scoped by it instead, #307), so schema names must be unique across sources.
+3. *The SSRF guard* (:func:`_resolve_allowed_addresses`, the same policy as
+   ``api/routers/sources.py``'s ``_refused_host_reason``, duplicated rather than imported --
+   this codebase's own convention for a small helper two call sites need; see that module's
+   docstring). A registered source's host was checked once, at registration, by
+   ``test-connection`` -- but nothing forces a caller to have called it first, and a harvest
+   is a second, independent connection attempt that deserves the same guard, not an
+   inherited assumption. Unlike that helper, the host is resolved **once** and the
+   connection is then made to the addresses that passed (``hostaddr=``), so a hostname
+   cannot answer with a public address for the check and rebind to loopback or a cloud
+   metadata address for the connect.
+4. *The schema-collision guard*, enforced by
+   :meth:`~egpt_retail.semantic.store.SemanticGraphStore.write_harvest` itself, which raises
+   :class:`~egpt_retail.semantic.store.SchemaOwnedByOtherSource` from inside its write
+   transaction. Two data sources registered with the same ``schema`` name would otherwise
+   silently prune and overwrite each other's tables -- see ``write_harvest``'s docstring for
+   why table identity does not include ``source_id`` (reads are scoped by it instead, #307,
+   so schema names must be unique across sources), and why the check cannot be a separate
+   read made beforehand.
 
-Every failure updates the source's ``harvest_state`` and returns a clean, non-raising
-``StepOutput`` -- a harvest that cannot proceed is a fact about the source, not a workflow
-crash, the same distinction R7's executors draw between a guard refusal and an error.
+Every failure after the source is marked ``building`` -- including an unexpected error
+reading the schema or writing the graph -- moves ``harvest_state`` to a terminal state and
+returns a clean, non-raising ``StepOutput``. A harvest that cannot proceed is a fact about the
+source, not a workflow crash, the same distinction R7's executors draw between a guard
+refusal and an error; and a source must never be left showing ``building`` for a run that has
+already ended.
 """
 
 from __future__ import annotations
@@ -48,7 +57,7 @@ import logging
 import socket
 from datetime import datetime, timezone
 from ipaddress import ip_address
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from egpt.workflow.types import StepInput, StepOutput
 
@@ -58,43 +67,51 @@ from egpt_retail.configure.secrets import build_secret_store
 from egpt_retail.configure.store import DataSourceStore
 from egpt_retail.contracts.data_source import (
     DataSource,
-    DataSourceType,
     HarvestState,
     PermissionLevel,
 )
 from egpt_retail.semantic.harvest import harvest_schema
-from egpt_retail.semantic.store import SemanticGraphStore
+from egpt_retail.semantic.store import SchemaOwnedByOtherSource, SemanticGraphStore
 
 __all__ = ["harvest_source"]
 
 log = logging.getLogger("egpt_retail.executors.data_source_harvest")
 
-#: Source types with an actual driver in this product today -- mirrors
-#: ``api/routers/sources.py``'s ``_TESTABLE_SOURCE_TYPES`` exactly, and for the same reason:
-#: the contract's own ``HARVESTABLE_SOURCE_TYPES`` also names Snowflake, which has no driver
-#: dependency in this product yet either. Duplicated rather than imported -- see the module
-#: docstring.
-_HARVESTABLE = frozenset({DataSourceType.POSTGRES})
-
 _CONNECT_TIMEOUT_SECONDS = 10.0
 
 
-def _refused_host_reason(host: str) -> Optional[str]:
-    """Duplicated from ``api/routers/sources.py`` -- see that function's docstring for the
-    policy (refuses loopback/link-local, checked against the resolved address; allows
-    RFC1918) and the module docstring here for why it is duplicated, not imported."""
+def _resolve_allowed_addresses(host: str) -> Tuple[Tuple[str, ...], Optional[str]]:
+    """Resolve ``host`` once and return ``(addresses, refusal)``.
+
+    Refuses loopback and link-local addresses (link-local is where a cloud metadata endpoint
+    lives), checked against every *resolved* address rather than the literal string, so a
+    hostname pointing at ``169.254.169.254`` is caught like the literal IP. RFC1918 is
+    allowed: that is where a customer's own warehouse legitimately lives. A host that does
+    not resolve is refused too -- letting it through to the driver would resolve it a second
+    time, which is the window this function exists to close.
+
+    Returns the addresses in resolver order, for the caller to connect to directly.
+    """
     try:
-        infos = socket.getaddrinfo(host, None)
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
-        return None
+        return (), "refused: this host does not resolve, so there is no address to try."
+    addresses: list = []
     for info in infos:
-        addr = ip_address(info[4][0])
+        text = info[4][0]
+        addr = ip_address(text)
+        if addr.version == 6 and addr.ipv4_mapped is not None:
+            addr = addr.ipv4_mapped
         if addr.is_loopback or addr.is_link_local:
-            return (
+            return (), (
                 "refused: this host resolves to a loopback or link-local address, which "
                 "this deployment does not connect to."
             )
-    return None
+        if text not in addresses:
+            addresses.append(text)
+    if not addresses:
+        return (), "refused: this host resolves to no address."
+    return tuple(addresses), None
 
 
 def _neo4j_driver(settings: RetailSettings) -> Any:
@@ -110,18 +127,31 @@ def _neo4j_driver(settings: RetailSettings) -> Any:
     )
 
 
-def _open_source_connection(source: DataSource, credential: Any) -> Any:
+def _open_source_connection(
+    source: DataSource, credential: Any, addresses: Tuple[str, ...]
+) -> Any:
+    """Connect to ``source`` at one of ``addresses``, the ones
+    :func:`_resolve_allowed_addresses` already vetted, trying each in order as the driver
+    would have. ``host`` is still passed so ``verify-full`` checks the certificate against
+    the name, not the address."""
     import psycopg
 
-    return psycopg.connect(
-        host=source.host,
-        port=source.port or 5432,
-        dbname=source.database_name,
-        user=credential.username,
-        password=credential.password or credential.api_key,
-        connect_timeout=int(_CONNECT_TIMEOUT_SECONDS),
-        sslmode=source.ssl_mode or "require",
-    )
+    last_error: Exception = RuntimeError("no vetted address to connect to")
+    for address in addresses:
+        try:
+            return psycopg.connect(
+                host=source.host,
+                hostaddr=address,
+                port=source.port or 5432,
+                dbname=source.database_name,
+                user=credential.username,
+                password=credential.password or credential.api_key,
+                connect_timeout=int(_CONNECT_TIMEOUT_SECONDS),
+                sslmode=source.ssl_mode or "require",
+            )
+        except psycopg.OperationalError as exc:
+            last_error = exc
+    raise last_error
 
 
 def _fail(
@@ -175,7 +205,7 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
                 stop=True,
             )
 
-        if source.source_type not in _HARVESTABLE:
+        if not source.harvestable:
             return _fail(
                 store,
                 source_id,
@@ -195,7 +225,7 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
 
         store.set_harvest_state(source_id, HarvestState.BUILDING, run_id=run_id)
 
-        refusal = _refused_host_reason(source.host)
+        addresses, refusal = _resolve_allowed_addresses(source.host)
         if refusal is not None:
             return _fail(store, source_id, HarvestState.ERROR, refusal, run_id=run_id)
 
@@ -211,7 +241,9 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
             )
 
         try:
-            warehouse_connection = _open_source_connection(source, credential)
+            warehouse_connection = _open_source_connection(
+                source, credential, addresses
+            )
         except Exception as exc:
             return _fail(
                 store,
@@ -227,6 +259,17 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
             harvest = harvest_schema(
                 warehouse_connection, schema_name, source=source.name, sample=False
             )
+        except Exception as exc:
+            log.exception(
+                "harvest_source(%s): reading %r failed", source_id, schema_name
+            )
+            return _fail(
+                store,
+                source_id,
+                HarvestState.ERROR,
+                f"Could not read schema {schema_name!r}: {exc}",
+                run_id=run_id,
+            )
         finally:
             warehouse_connection.close()
 
@@ -240,26 +283,42 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
                 run_id=run_id,
             )
 
-        driver = _neo4j_driver(settings)
+        try:
+            driver = _neo4j_driver(settings)
+        except Exception as exc:
+            log.exception("harvest_source(%s): no graph driver", source_id)
+            return _fail(
+                store,
+                source_id,
+                HarvestState.ERROR,
+                f"Could not reach the semantic graph: {exc}",
+                run_id=run_id,
+            )
+        version = datetime.now(timezone.utc).strftime("%Y%m%d.%H%M%S")
         try:
             graph = SemanticGraphStore(
                 driver=driver, database=settings.retail_neo4j_database
             )
             graph.ensure_indexes()
-            conflict = graph.schema_owned_by_other_source(schema_name, source_id)
-            if conflict is not None:
-                return _fail(
-                    store,
-                    source_id,
-                    HarvestState.NEEDS_REVIEW,
-                    f"Schema {schema_name!r} already holds tables from a different "
-                    f"source ({conflict!r}). Two sources sharing one schema name is not "
-                    "supported yet -- rename this source's schema.",
-                    run_id=run_id,
-                )
-            version = datetime.now(timezone.utc).strftime("%Y%m%d.%H%M%S")
             tables_written = graph.write_harvest(
                 harvest, snapshot_version=version, source_id=source_id
+            )
+        except SchemaOwnedByOtherSource as exc:
+            return _fail(
+                store,
+                source_id,
+                HarvestState.NEEDS_REVIEW,
+                f"{exc}. Rename this source's schema.",
+                run_id=run_id,
+            )
+        except Exception as exc:
+            log.exception("harvest_source(%s): graph write failed", source_id)
+            return _fail(
+                store,
+                source_id,
+                HarvestState.ERROR,
+                f"Could not write the harvest to the semantic graph: {exc}",
+                run_id=run_id,
             )
         finally:
             driver.close()
