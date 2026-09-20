@@ -14,28 +14,45 @@ Supabase/localStorage, and this is the backend it should have been calling.
 entirely and is not touched here; see ``contracts/data_source.py``'s module docstring.
 
 **Test-connection is a real, bounded probe, not a simulation.** ``POST
-/configure/sources/{id}/test`` opens an actual connection with the stored credential,
-under a short timeout, and closes it immediately -- replacing
-``ConfigureInternalSourceForm.jsx``'s ``window.alert("Demo only...")`` stub. Two things this
-deliberately does *not* do, both because this app now makes outbound connections to a
-caller-supplied host and port, a new attack surface: it refuses to connect to a loopback or
-link-local address (``_refused_host_reason`` -- link-local is where a cloud metadata
-endpoint lives, e.g. AWS/Azure's ``169.254.169.254``, the single highest-value SSRF target;
-loopback would let a caller probe the API process's own host), checked against the
-*resolved* address, not the literal string, so a hostname cannot rebind past the check; and
-it never returns a raw driver exception to the caller (``_classify_connection_error``) --
-only a small, fixed vocabulary of reasons, so a stack trace or an internal hostname never
-reaches the response. Only Postgres is actually implemented (:data:`_TESTABLE_SOURCE_TYPES`)
--- every other registered ``source_type`` has no driver in this product yet and says so
-rather than pretending to have tried.
+/configure/sources/{id}/test`` opens an actual connection with the stored credential and
+closes it immediately -- replacing ``ConfigureInternalSourceForm.jsx``'s
+``window.alert("Demo only...")`` stub. Because this app now makes outbound connections to a
+caller-supplied host and port, a new attack surface, three things are enforced:
+
+* **The host guard** (``configure/host_guard.py``, which documents the policy): loopback,
+  link-local and unspecified addresses are refused, checked against the *resolved* address.
+  The host is resolved once, and the connection is then made to that checked address
+  (``hostaddr``), never to the hostname a second time, so a name cannot rebind past the check.
+* **A hard time bound.** Name resolution is bounded, the connection attempt has
+  ``connect_timeout``, the verification query has a ``statement_timeout``, and the whole probe
+  runs under one wall-clock deadline (:data:`_PROBE_DEADLINE_SECONDS`) so a server that
+  stalls after the handshake cannot hold the request.
+* **Always a result.** Whatever goes wrong inside the probe comes back as a ``ConnectionTestResult``
+  with ``ok: false`` and is recorded on the row, never a raw 500 -- and never a raw driver
+  exception (``_classify_connection_error``), only a small fixed vocabulary of reasons, so a
+  stack trace or an internal hostname never reaches the response.
+
+Only Postgres is actually implemented (:data:`_TESTABLE_SOURCE_TYPES`) -- every other
+registered ``source_type`` has no driver in this product yet and says so rather than pretending
+to have tried (and, making no connection, is not subject to the host guard).
+
+**Sources are deployment-wide, not per-user -- a deliberate decision.** No route filters by,
+or checks, ``created_by``: any principal holding ``config:read`` sees every registered source
+and any holding ``configure:write`` can change, delete or test one. That differs from
+``dashboards.py``, which scopes to an owner, on purpose. A deployment serves one customer (D3),
+Configure is an administrative surface already gated by those two scopes, and a registered
+source feeds the *single* shared semantic layer every user reads -- so a source visible only to
+whoever registered it would hide, from their colleagues, data that everyone's answers are built
+from. ``created_by`` is attribution only. If a deployment ever needs per-owner sources,
+``DataSourceStore.list(created_by=...)`` already supports the filter; the routes would need to
+enforce it.
 """
 
 from __future__ import annotations
 
-import socket
+from dataclasses import replace
 from datetime import datetime, timezone
-from ipaddress import ip_address
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -43,7 +60,12 @@ from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.configure.secrets import SecretStore, build_secret_store
+from egpt_retail.configure.host_guard import check_host, run_with_timeout
+from egpt_retail.configure.secrets import (
+    SecretNotFoundError,
+    SecretStore,
+    build_secret_store,
+)
 from egpt_retail.configure.store import DataSourceConflictError, DataSourceStore
 from egpt_retail.contracts.data_source import (
     AuthMethod,
@@ -138,22 +160,51 @@ def _credential_from_write(body: "wire.InternalSourceWrite") -> Credential:
     )
 
 
-def _credential_from_patch(body: "wire.InternalSourcePatch") -> Optional[Credential]:
-    """``None`` means "no credential in this patch, leave the stored one alone" -- distinct
-    from a :class:`Credential` with every field empty, which would fail
-    :func:`~egpt_retail.contracts.data_source.validate_credential` and correctly refuse the
-    request rather than silently keeping the old secret. A patch rotates the credential only
-    when it names an ``auth_method``; ``password``/``api_key`` alone with no ``auth_method``
-    is ambiguous about which credential shape they belong to and is refused by
-    :func:`validate_credential`."""
-    if body.auth_method is None and body.password is None and body.api_key is None:
+def _credential_from_patch(
+    body: "wire.InternalSourcePatch", stored: Callable[[], Credential]
+) -> Optional[Credential]:
+    """``None`` means "no credential in this patch, leave the stored one alone".
+
+    Any of ``auth_method``/``username``/``password``/``api_key`` on the patch rotates the
+    credential, and "omitted fields are unchanged" (the wire contract's own rule) holds for the
+    ones left out: when the auth method is not changing, the omitted parts are carried over
+    from the stored credential (``stored()`` reads it lazily, so a patch that touches no
+    credential field never reads a secret). That is what lets a form change only the username
+    or only the password. A patch that *changes* the auth method carries nothing over -- the
+    old material belongs to a different method -- so it must supply the new one in full, and
+    :func:`~egpt_retail.contracts.data_source.validate_update` refuses it if it does not."""
+    if (
+        body.auth_method is None
+        and body.username is None
+        and body.password is None
+        and body.api_key is None
+    ):
         return None
-    auth_method = body.auth_method or AuthMethod.USERNAME_PASSWORD
-    return Credential(
-        auth_method=AuthMethod(auth_method.value),
-        username=body.username,
-        password=body.password,
-        api_key=body.api_key,
+    try:
+        current = stored()
+    except SecretNotFoundError:
+        raise DataSourceValidationError(
+            "credential",
+            "the stored credential is unavailable, so a partial change cannot be applied; "
+            "send the full credential",
+        ) from None
+    auth_method = (
+        AuthMethod(body.auth_method.value)
+        if body.auth_method is not None
+        else current.auth_method
+    )
+    if auth_method is not current.auth_method:
+        return Credential(
+            auth_method=auth_method,
+            username=body.username,
+            password=body.password,
+            api_key=body.api_key,
+        )
+    return replace(
+        current,
+        username=body.username if body.username is not None else current.username,
+        password=body.password if body.password is not None else current.password,
+        api_key=body.api_key if body.api_key is not None else current.api_key,
     )
 
 
@@ -178,7 +229,9 @@ def _create_from_write(
     )
 
 
-def _update_from_patch(body: "wire.InternalSourcePatch") -> DataSourceUpdate:
+def _update_from_patch(
+    body: "wire.InternalSourcePatch", stored: Callable[[], Credential]
+) -> DataSourceUpdate:
     return DataSourceUpdate(
         name=body.name,
         host=body.host,
@@ -191,7 +244,7 @@ def _update_from_patch(body: "wire.InternalSourcePatch") -> DataSourceUpdate:
             if body.permission_level is not None
             else None
         ),
-        credential=_credential_from_patch(body),
+        credential=_credential_from_patch(body, stored),
     )
 
 
@@ -242,8 +295,12 @@ def update_source(
     secrets: SecretStore = Depends(_secret_store),
     _: None = Depends(require_scopes("configure:write")),
 ):
+    existing = store.get(source_id)
+    if existing is None:
+        raise _not_found(source_id)
     try:
-        updated = store.update(source_id, _update_from_patch(body), secrets)
+        patch = _update_from_patch(body, lambda: secrets.read(existing.secret_ref))
+        updated = store.update(source_id, patch, secrets)
     except DataSourceValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DataSourceConflictError as exc:
@@ -281,39 +338,21 @@ def delete_source(
 _TESTABLE_SOURCE_TYPES = frozenset({DataSourceType.POSTGRES})
 
 _CONNECT_TIMEOUT_SECONDS = 5.0
+_STATEMENT_TIMEOUT_MS = 5000
 
-
-def _refused_host_reason(host: str) -> Optional[str]:
-    """Refuses loopback and link-local addresses, checked against the *resolved* address
-    (not the literal ``host`` string), so ``metadata.internal`` or any other hostname that
-    resolves to ``169.254.169.254`` is caught the same as the literal IP would be. Private
-    (RFC1918) addresses are deliberately allowed -- that is where a real customer's own
-    warehouse legitimately lives, and refusing it would break the primary use case this
-    router exists for. Returns ``None`` when the host is fine to try."""
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return (
-            None  # DNS failure surfaces as "unreachable" once the real connect is tried
-        )
-    for info in infos:
-        addr = ip_address(info[4][0])
-        if addr.is_loopback or addr.is_link_local:
-            return (
-                "refused: this host resolves to a loopback or link-local address, which "
-                "this deployment does not connect to."
-            )
-    return None
+#: Wall-clock ceiling on the whole probe -- connect, handshake and the verification query. The
+#: per-phase timeouts above bound each step against a server that responds; this bounds the
+#: sum, and a server that stops responding altogether (which no server-side timeout can help
+#: with), so the request always returns.
+_PROBE_DEADLINE_SECONDS = 12.0
 
 
 def _classify_connection_error(exc: BaseException) -> str:
     """A small, fixed vocabulary -- never the raw driver exception. See the module
     docstring's security note."""
     text = str(exc).lower()
-    if (
-        "password authentication failed" in text
-        or "role" in text
-        and "does not exist" in text
+    if "password authentication failed" in text or (
+        "role" in text and "does not exist" in text
     ):
         return "Authentication failed."
     if "timeout" in text or "timed out" in text:
@@ -323,41 +362,62 @@ def _classify_connection_error(exc: BaseException) -> str:
     return "Could not connect."
 
 
-def _test_postgres_connection(
-    source: DataSource, credential: Credential
+def _probe_postgres(
+    source: DataSource, credential: Credential, address: str
 ) -> ConnectionTestResult:
+    """Connects to ``address`` -- the host guard's checked address, not ``source.host`` again
+    -- and reads the schema's table count. ``host`` is still passed so TLS verification and
+    SNI use the name; libpq does not resolve it when ``hostaddr`` is given. Runs on a worker
+    thread under :data:`_PROBE_DEADLINE_SECONDS`; may raise anything, which
+    :func:`_test_postgres_connection` turns into a result."""
     import psycopg
 
-    now = datetime.now(timezone.utc)
-    try:
-        connection = psycopg.connect(
-            host=source.host,
-            port=source.port or 5432,
-            dbname=source.database_name,
-            user=credential.username,
-            password=credential.password or credential.api_key,
-            connect_timeout=int(_CONNECT_TIMEOUT_SECONDS),
-            sslmode=source.ssl_mode or "require",
-        )
-    except Exception as exc:  # psycopg raises a wide OperationalError family here
-        return ConnectionTestResult(
-            ok=False, message=_classify_connection_error(exc), tested_at=now
-        )
+    connection = psycopg.connect(
+        host=source.host,
+        hostaddr=address,
+        port=source.port or 5432,
+        dbname=source.database_name,
+        user=credential.username,
+        password=credential.password or credential.api_key,
+        connect_timeout=int(_CONNECT_TIMEOUT_SECONDS),
+        sslmode=source.ssl_mode or "require",
+    )
     try:
         with connection.cursor() as cursor:
+            cursor.execute(f"SET statement_timeout = {_STATEMENT_TIMEOUT_MS}")
             cursor.execute(
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema = %s",
                 (source.schema_name or "public",),
             )
             row = cursor.fetchone()
             table_count = row[0] if row is not None else 0
-        message = (
-            f"Connected as {credential.username}; {table_count} table(s) visible in "
-            f"schema {source.schema_name or 'public'}."
-        )
-        return ConnectionTestResult(ok=True, message=message, tested_at=now)
     finally:
         connection.close()
+    message = (
+        f"Connected as {credential.username}; {table_count} table(s) visible in "
+        f"schema {source.schema_name or 'public'}."
+    )
+    return ConnectionTestResult(
+        ok=True, message=message, tested_at=datetime.now(timezone.utc)
+    )
+
+
+def _test_postgres_connection(
+    source: DataSource, credential: Credential, address: str
+) -> ConnectionTestResult:
+    """Always returns a :class:`ConnectionTestResult`: a failure at any stage -- connect, auth,
+    the query, or the deadline -- is ``ok: False`` with a fixed-vocabulary reason."""
+    try:
+        return run_with_timeout(
+            _probe_postgres, _PROBE_DEADLINE_SECONDS, source, credential, address
+        )
+    except TimeoutError:
+        message = "Connection timed out."
+    except Exception as exc:  # psycopg raises a wide OperationalError family
+        message = _classify_connection_error(exc)
+    return ConnectionTestResult(
+        ok=False, message=message, tested_at=datetime.now(timezone.utc)
+    )
 
 
 @router.post("/configure/sources/{source_id}/test")
@@ -372,18 +432,30 @@ def test_source(
         raise _not_found(source_id)
 
     now = datetime.now(timezone.utc)
-    refusal = _refused_host_reason(source.host)
-    if refusal is not None:
-        result = ConnectionTestResult(ok=False, message=refusal, tested_at=now)
-    elif source.source_type not in _TESTABLE_SOURCE_TYPES:
+    if source.source_type not in _TESTABLE_SOURCE_TYPES:
+        # No connection is attempted, so there is nothing for the host guard to guard.
         result = ConnectionTestResult(
             ok=False,
             message=f"Testing a {source.source_type.value} connection is not implemented yet.",
             tested_at=now,
         )
     else:
-        credential = secrets.read(source.secret_ref)
-        result = _test_postgres_connection(source, credential)
+        checked = check_host(source.host, source.port or 5432)
+        if checked.address is None:
+            result = ConnectionTestResult(
+                ok=False, message=checked.message or "Could not connect.", tested_at=now
+            )
+        else:
+            try:
+                credential = secrets.read(source.secret_ref)
+            except SecretNotFoundError:
+                result = ConnectionTestResult(
+                    ok=False,
+                    message="The stored credential could not be read.",
+                    tested_at=now,
+                )
+            else:
+                result = _test_postgres_connection(source, credential, checked.address)
 
     store.record_test_result(source_id, result)
     return {"ok": result.ok, "detail": result.message, "tested_at": result.tested_at}

@@ -5894,18 +5894,24 @@ Wires the actual `sources.py` router (not a fake) to the actual `DataSourceStore
 SSRF-guard/error-classification pure logic), inside a real FastAPI app driven by
 `TestClient`. Create -> get -> list -> patch -> delete over real HTTP, then the security-
 sensitive part: `POST /configure/sources/{id}/test` against `host="localhost"` -- a real
-resolvable loopback address -- refused by `_refused_host_reason` *before* any connection is
+resolvable loopback address -- refused by the host guard (`check_host`) *before* any connection is
 attempted, returned as a 200 with `ok: false` per the contract's own "a failure is a 200"
 rule, and the refusal actually persisted on the row (`status=error`) when read back through
 the real store directly (the wire `InternalSource` has no `status` field, so this is the one
 assertion the HTTP response alone cannot make).
 
-**Result:** All assertions passed, including the live SSRF refusal. Not exercised live in
-this environment: a real *successful* connection test (`ok: true`) -- doing that would need a
-target host that both resolves and isn't loopback/link-local/RFC1918-from-a-container-the-
-host-can't-reach, which this local Docker Desktop setup can't offer without extra
-infrastructure. `test_p1_sources_router.py`'s unsupported-source-type case and
-`test_classify_connection_error`'s unit tests cover the response-shape and message-
-classification logic the success path would otherwise be the only thing proving.
+**Result:** All assertions passed, including the live SSRF refusal.
+
+**Review round (#311):** the guard now lives in `configure/host_guard.py`, resolves the host
+once and connects to the address it checked (`hostaddr`), so a name cannot rebind between the
+check and the connection; resolution and the whole probe are time-bounded; and a probe failure
+at any stage is a recorded `ok: false` result, never a 500. Re-run with the additions below, all
+PASS: a username-only `PATCH` (username changed, password carried over from the stored secret,
+old secret replaced -- read back through the real `LocalEncryptedSecretStore`); an unresolvable
+host and a 300-character host each returning a 200 with `ok: false`; and, with
+`P1_SOURCE_HOST=$(ipconfig getifaddr en0)`, a real *successful* test-connection to the local
+Postgres through the pinned address (`Connected as ai; ...`, row `status=connected`) -- the
+`ok: true` path this entry previously said it could not exercise. Without `P1_SOURCE_HOST` the
+script skips that one step and says so.
 
 ---

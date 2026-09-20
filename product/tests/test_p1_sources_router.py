@@ -9,15 +9,19 @@ real, including one live connection attempt to prove the SSRF guard fires end to
 
 from __future__ import annotations
 
+import socket
+import threading
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 from egpt_retail.api.routers import sources as sources_module
+from egpt_retail.configure.host_guard import HostCheck
 from egpt_retail.configure.secrets import SecretNotFoundError
 from egpt_retail.configure.store import DataSourceConflictError
 from egpt_retail.contracts.data_source import (
+    AuthMethod,
     ConnectionTestResult,
     Credential,
     DataSource,
@@ -134,6 +138,10 @@ class _FakeDataSourceStore:
             changes["secret_ref"] = secret_store.write(existing.name, patch.credential)
         updated = replace(existing, updated_at=datetime.now(timezone.utc), **changes)
         self._rows[source_id] = updated
+        if patch.credential is not None:
+            secret_store.delete(
+                existing.secret_ref
+            )  # as the real store does on rotation
         return updated
 
     def delete(self, source_id: str, secret_store) -> bool:
@@ -161,11 +169,12 @@ class _FakeDataSourceStore:
         return updated
 
 
-def _client(*, scopes) -> TestClient:
+def _client(*, scopes, user_id: str = "test-user", like: Any = None) -> TestClient:
+    """``like`` reuses another client's stores, for a second caller of the same deployment."""
     app = FastAPI()
     app.include_router(sources_module.router)
-    fake_store = _FakeDataSourceStore()
-    fake_secrets = _FakeSecretStore()
+    fake_store = like.fake_store if like is not None else _FakeDataSourceStore()
+    fake_secrets = like.fake_secrets if like is not None else _FakeSecretStore()
     app.dependency_overrides[sources_module._source_store] = lambda: fake_store
     app.dependency_overrides[sources_module._secret_store] = lambda: fake_secrets
 
@@ -174,11 +183,12 @@ def _client(*, scopes) -> TestClient:
         request.state.authorization_enabled = True
         request.state.scopes = scopes
         request.state.admin_scope = None
-        request.state.user_id = "test-user"
+        request.state.user_id = user_id
         return await call_next(request)
 
     client = TestClient(app)
     client.fake_store = fake_store  # type: ignore[attr-defined]
+    client.fake_secrets = fake_secrets  # type: ignore[attr-defined]
     return client
 
 
@@ -319,6 +329,11 @@ class TestTestConnection:
         body = response.json()
         assert body["ok"] is False
         assert "loopback" in body["detail"] or "link-local" in body["detail"]
+        # ... and the result is recorded on the row, not only returned.
+        row = client.fake_store.get(created["id"])
+        assert row.status is DataSourceStatus.ERROR
+        assert row.last_test_ok is False
+        assert row.last_test_message == body["detail"]
 
     def test_unsupported_source_type_is_a_clean_refusal_not_a_500(self):
         client = _client(scopes=["configure:write"])
@@ -332,32 +347,333 @@ class TestTestConnection:
         assert "not implemented" in response.json()["detail"]
 
 
-class TestRefusedHostReason:
-    """Pure logic, no HTTP needed."""
+class _FakeCursor:
+    def __init__(self, connection: "_FakeConnection") -> None:
+        self._connection = connection
 
-    def test_loopback_is_refused(self):
-        assert sources_module._refused_host_reason("127.0.0.1") is not None
+    def __enter__(self) -> "_FakeCursor":
+        return self
 
-    def test_localhost_hostname_is_refused(self):
-        assert sources_module._refused_host_reason("localhost") is not None
+    def __exit__(self, *exc: object) -> None:
+        return None
 
-    def test_link_local_is_refused(self):
-        # 169.254.169.254 -- the AWS/Azure/GCP cloud metadata endpoint. The single highest-
-        # value SSRF target this guard exists to close off.
-        assert sources_module._refused_host_reason("169.254.169.254") is not None
+    def execute(self, statement: str, params: Any = None) -> None:
+        self._connection.executed.append(statement)
+        if self._connection.on_execute is not None:
+            self._connection.on_execute(statement)
 
-    def test_a_private_rfc1918_address_is_not_refused(self):
-        """Deliberately allowed -- see the module docstring. A customer's own warehouse
-        legitimately lives here."""
-        assert sources_module._refused_host_reason("10.0.5.20") is None
+    def fetchone(self) -> Any:
+        return (7,)
 
-    def test_unresolvable_host_is_not_refused_here(self):
-        """DNS failure surfaces as 'unreachable' once the real connection is attempted, not
-        as a refusal -- the two are different failure modes with different causes."""
-        assert (
-            sources_module._refused_host_reason("this-does-not-resolve.invalid.example")
-            is None
+
+class _FakeConnection:
+    def __init__(self, on_execute: Any = None) -> None:
+        self.executed: List[str] = []
+        self.on_execute = on_execute
+        self.closed = False
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def fake_psycopg(monkeypatch: pytest.MonkeyPatch):
+    """Replaces ``psycopg.connect`` and records how it was called."""
+    psycopg = pytest.importorskip("psycopg")
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.calls: List[Dict[str, Any]] = []
+            self.connection = _FakeConnection()
+            self.error: Optional[BaseException] = None
+            self.block: Optional[threading.Event] = None
+
+        def connect(self, **kwargs: Any) -> _FakeConnection:
+            self.calls.append(kwargs)
+            if self.block is not None:
+                self.block.wait(30)
+            if self.error is not None:
+                raise self.error
+            return self.connection
+
+    recorder = Recorder()
+    monkeypatch.setattr(psycopg, "connect", recorder.connect)
+    return recorder
+
+
+def _public(monkeypatch: pytest.MonkeyPatch, address: str = "93.184.216.34") -> None:
+    """Makes every hostname resolve to ``address``."""
+    monkeypatch.setattr(
+        sources_module,
+        "check_host",
+        lambda host, port=None, **kw: HostCheck(address=address),
+    )
+
+
+def _register(client: TestClient, **overrides: Any) -> Dict[str, Any]:
+    return client.post("/configure/sources", json=dict(_WRITE_BODY, **overrides)).json()
+
+
+class TestProbeConnectsToTheCheckedAddress:
+    """DNS rebinding: the guard used to resolve a name to check it and let libpq resolve it
+    again to connect, so the address checked and the address dialled could differ."""
+
+    def test_the_connection_is_pinned_to_the_address_the_guard_checked(
+        self, monkeypatch, fake_psycopg
+    ):
+        _public(monkeypatch, "10.0.5.20")
+        client = _client(scopes=["configure:write"])
+        created = _register(client, host="warehouse.customer.example", port=5433)
+
+        body = client.post(f"/configure/sources/{created['id']}/test").json()
+
+        assert body["ok"] is True
+        (call,) = fake_psycopg.calls
+        assert call["hostaddr"] == "10.0.5.20"
+        # The name is still passed, so TLS verification and SNI keep using it.
+        assert call["host"] == "warehouse.customer.example"
+        assert call["port"] == 5433
+
+    def test_a_name_that_rebinds_between_lookups_is_dialled_at_the_checked_address(
+        self, monkeypatch, fake_psycopg
+    ):
+        lookups: List[str] = []
+
+        def rebinding(host: str, *args: Any, **kwargs: Any):
+            lookups.append(host)
+            address = "93.184.216.34" if len(lookups) == 1 else "169.254.169.254"
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 5432))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", rebinding)
+        client = _client(scopes=["configure:write"])
+        created = _register(client, host="rebind.attacker.example")
+
+        client.post(f"/configure/sources/{created['id']}/test")
+
+        assert len(lookups) == 1  # resolved once; nothing left to rebind
+        (call,) = fake_psycopg.calls
+        assert call["hostaddr"] == "93.184.216.34"
+
+    def test_a_refused_address_never_reaches_the_driver(self, fake_psycopg):
+        client = _client(scopes=["configure:write"])
+        created = _register(client, host="169.254.169.254")
+        body = client.post(f"/configure/sources/{created['id']}/test").json()
+        assert body["ok"] is False
+        assert fake_psycopg.calls == []
+
+    def test_an_unresolvable_host_is_a_clean_result_not_a_500(self, fake_psycopg):
+        client = _client(scopes=["configure:write"])
+        created = _register(client, host="this-does-not-resolve.invalid")
+        response = client.post(f"/configure/sources/{created['id']}/test")
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert fake_psycopg.calls == []
+
+    @pytest.mark.parametrize("host", ["a" * 300 + ".example", "bad\x00host"])
+    def test_a_malformed_host_is_a_clean_result_not_a_500(self, fake_psycopg, host):
+        client = _client(scopes=["configure:write"])
+        created = _register(client, host=host)
+        response = client.post(f"/configure/sources/{created['id']}/test")
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+
+
+class TestProbeAlwaysReturnsAResult:
+    def test_a_failure_after_the_handshake_is_a_recorded_result_not_a_500(
+        self, monkeypatch, fake_psycopg
+    ):
+        """The verification query used to sit outside the try block that classified errors,
+        so a server dropping the connection mid-query escaped as a raw 500 and the row's test
+        status was never updated."""
+        _public(monkeypatch)
+
+        def drop(statement: str) -> None:
+            if "information_schema" in statement:
+                raise RuntimeError("server closed the connection unexpectedly")
+
+        fake_psycopg.connection.on_execute = drop
+        client = _client(scopes=["configure:write"])
+        created = _register(client)
+
+        response = client.post(f"/configure/sources/{created['id']}/test")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is False
+        assert body["detail"] == "Could not connect."
+        assert "closed the connection" not in response.text  # never the raw driver text
+        row = client.fake_store.get(created["id"])
+        assert row.status is DataSourceStatus.ERROR
+        assert row.last_test_ok is False
+        assert fake_psycopg.connection.closed is True
+
+    def test_a_server_that_stalls_is_cut_off_by_the_deadline(
+        self, monkeypatch, fake_psycopg
+    ):
+        _public(monkeypatch)
+        monkeypatch.setattr(sources_module, "_PROBE_DEADLINE_SECONDS", 0.1)
+        fake_psycopg.block = threading.Event()
+        client = _client(scopes=["configure:write"])
+        created = _register(client)
+        try:
+            response = client.post(f"/configure/sources/{created['id']}/test")
+        finally:
+            fake_psycopg.block.set()
+        assert response.status_code == 200
+        assert response.json() == {
+            "ok": False,
+            "detail": "Connection timed out.",
+            "tested_at": response.json()["tested_at"],
+        }
+        assert client.fake_store.get(created["id"]).status is DataSourceStatus.ERROR
+
+    def test_the_verification_query_runs_under_a_statement_timeout(
+        self, monkeypatch, fake_psycopg
+    ):
+        _public(monkeypatch)
+        client = _client(scopes=["configure:write"])
+        created = _register(client)
+        client.post(f"/configure/sources/{created['id']}/test")
+        first = fake_psycopg.connection.executed[0]
+        assert first.startswith("SET statement_timeout")
+
+    def test_a_successful_probe_is_recorded_on_the_row(self, monkeypatch, fake_psycopg):
+        _public(monkeypatch)
+        client = _client(scopes=["configure:write"])
+        created = _register(client)
+        body = client.post(f"/configure/sources/{created['id']}/test").json()
+        assert body["ok"] is True
+        row = client.fake_store.get(created["id"])
+        assert row.status is DataSourceStatus.CONNECTED
+        assert row.last_test_ok is True
+
+    def test_a_missing_stored_secret_is_a_clean_result_not_a_500(
+        self, monkeypatch, fake_psycopg
+    ):
+        _public(monkeypatch)
+        client = _client(scopes=["configure:write"])
+        created = _register(client)
+        client.fake_secrets._by_ref.clear()
+        response = client.post(f"/configure/sources/{created['id']}/test")
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert fake_psycopg.calls == []
+
+    def test_an_unsupported_type_makes_no_connection_and_needs_no_resolution(
+        self, fake_psycopg
+    ):
+        client = _client(scopes=["configure:write"])
+        created = _register(client, source_type="snowflake", host="not-a-hostname")
+        response = client.post(f"/configure/sources/{created['id']}/test")
+        assert "not implemented" in response.json()["detail"]
+        assert fake_psycopg.calls == []
+
+
+class TestPatchCredentialFields:
+    """``InternalSourcePatch`` says omitted fields are unchanged, and ``username`` is
+    independently settable -- but a username-only patch used to be a silent no-op."""
+
+    def _stored(self, client: TestClient, source_id: str) -> Credential:
+        row = client.fake_store.get(source_id)
+        return client.fake_secrets.read(row.secret_ref)
+
+    def test_a_username_only_patch_changes_the_username_and_keeps_the_password(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+        old_ref = client.fake_store.get(created["id"]).secret_ref
+
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"username": "new_reader"}
         )
+
+        assert response.status_code == 200
+        assert response.json()["username"] == "new_reader"
+        stored = self._stored(client, created["id"])
+        assert stored.username == "new_reader"
+        assert stored.password == "hunter2"
+        # It is a real rotation: the secret was rewritten and the row points at the new one.
+        assert client.fake_store.get(created["id"]).secret_ref != old_ref
+        assert old_ref not in client.fake_secrets._by_ref
+
+    def test_a_password_only_patch_changes_the_password_and_keeps_the_username(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"password": "rotated"}
+        )
+
+        assert response.status_code == 200
+        stored = self._stored(client, created["id"])
+        assert (stored.username, stored.password) == ("egpt_reader", "rotated")
+
+    def test_a_patch_touching_no_credential_field_does_not_read_the_secret(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+        client.fake_secrets._by_ref.clear()  # any read would now raise
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"name": "Renamed"}
+        )
+        assert response.status_code == 200
+
+    def test_changing_the_auth_method_carries_nothing_over(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"auth_method": "api_key"}
+        )
+        assert response.status_code == 422  # the old password is not an api key
+        assert self._stored(client, created["id"]).password == "hunter2"
+
+    def test_changing_the_auth_method_with_the_new_material_succeeds(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+        response = client.patch(
+            f"/configure/sources/{created['id']}",
+            json={"auth_method": "api_key", "api_key": "sk-new"},
+        )
+        assert response.status_code == 200
+        stored = self._stored(client, created["id"])
+        assert stored.auth_method is AuthMethod.API_KEY
+        assert stored.api_key == "sk-new"
+        assert stored.password is None
+
+    def test_a_partial_patch_with_the_stored_secret_gone_is_a_422_not_a_500(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = _register(client)
+        client.fake_secrets._by_ref.clear()
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"username": "x"}
+        )
+        assert response.status_code == 422
+        assert "send the full credential" in response.json()["detail"]
+
+
+class TestSourcesAreDeploymentWide:
+    """A deliberate decision (see the router docstring), pinned so a change to it is a
+    conscious one: no route scopes to, or checks, the registering user."""
+
+    def test_another_user_sees_and_can_change_a_source_they_did_not_register(self):
+        registrar = _client(scopes=["configure:write"], user_id="registrar")
+        created = _register(registrar)
+        assert registrar.fake_store.get(created["id"]).created_by == "registrar"
+
+        other = _client(
+            scopes=["config:read", "configure:write"],
+            user_id="someone-else",
+            like=registrar,
+        )
+
+        listing = other.get("/configure/sources").json()
+        assert [row["id"] for row in listing] == [created["id"]]
+        renamed = other.patch(
+            f"/configure/sources/{created['id']}", json={"name": "Renamed"}
+        )
+        assert renamed.json()["name"] == "Renamed"
+        assert other.delete(f"/configure/sources/{created['id']}").status_code == 204
 
 
 class TestClassifyConnectionError:
@@ -370,6 +686,19 @@ class TestClassifyConnectionError:
     def test_timeout_is_classified(self):
         exc = Exception("connection timeout expired")
         assert sources_module._classify_connection_error(exc) == "Connection timed out."
+
+    def test_a_missing_role_is_an_authentication_failure(self):
+        exc = Exception('FATAL: role "nobody" does not exist')
+        assert (
+            sources_module._classify_connection_error(exc) == "Authentication failed."
+        )
+
+    def test_a_missing_database_is_not_an_authentication_failure(self):
+        exc = Exception('FATAL: database "nope" does not exist')
+        assert (
+            sources_module._classify_connection_error(exc)
+            == "The named database does not exist."
+        )
 
     def test_unknown_error_never_leaks_the_raw_exception_text(self):
         exc = Exception(
