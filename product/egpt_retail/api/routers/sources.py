@@ -44,7 +44,7 @@ from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.configure.secrets import SecretStore, build_secret_store
-from egpt_retail.configure.store import DataSourceStore
+from egpt_retail.configure.store import DataSourceConflictError, DataSourceStore
 from egpt_retail.contracts.data_source import (
     AuthMethod,
     ConnectionTestResult,
@@ -246,6 +246,13 @@ def update_source(
         updated = store.update(source_id, _update_from_patch(body), secrets)
     except DataSourceValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DataSourceConflictError as exc:
+        # Concurrent credential rotations of one source kept beating this one. Nothing was
+        # written and no secret was left behind; the caller can simply retry.
+        raise HTTPException(
+            status_code=409,
+            detail="This source's credential was changed by another request. Retry.",
+        ) from exc
     if updated is None:
         raise _not_found(source_id)
     return _source_out(updated)

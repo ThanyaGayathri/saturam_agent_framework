@@ -16,6 +16,7 @@ from typing import Dict, Optional
 import pytest
 from egpt_retail.api.routers import sources as sources_module
 from egpt_retail.configure.secrets import SecretNotFoundError
+from egpt_retail.configure.store import DataSourceConflictError
 from egpt_retail.contracts.data_source import (
     ConnectionTestResult,
     Credential,
@@ -26,7 +27,7 @@ from egpt_retail.contracts.data_source import (
     DataSourceUpdate,
     HarvestState,
     validate_create,
-    validate_credential,
+    validate_update,
 )
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -64,6 +65,7 @@ class _FakeDataSourceStore:
     def __init__(self) -> None:
         self._rows: Dict[str, DataSource] = {}
         self._next = 0
+        self.conflict = False  # set to make update() lose its rotation race
 
     def create(self, create: DataSourceCreate, secret_store) -> DataSource:
         validate_create(create)
@@ -108,6 +110,9 @@ class _FakeDataSourceStore:
         existing = self._rows.get(source_id)
         if existing is None:
             return None
+        if self.conflict:
+            raise DataSourceConflictError(source_id)
+        validate_update(existing, patch)
         changes: Dict[str, object] = {}
         if patch.name is not None:
             changes["name"] = patch.name
@@ -124,7 +129,6 @@ class _FakeDataSourceStore:
         if patch.permission_level is not None:
             changes["permission_level"] = patch.permission_level
         if patch.credential is not None:
-            validate_credential(existing.source_type, patch.credential)
             changes["auth_method"] = patch.credential.auth_method
             changes["username"] = patch.credential.username or ""
             changes["secret_ref"] = secret_store.write(existing.name, patch.credential)
@@ -173,7 +177,9 @@ def _client(*, scopes) -> TestClient:
         request.state.user_id = "test-user"
         return await call_next(request)
 
-    return TestClient(app)
+    client = TestClient(app)
+    client.fake_store = fake_store  # type: ignore[attr-defined]
+    return client
 
 
 _WRITE_BODY = {
@@ -249,6 +255,41 @@ class TestReadUpdateDelete:
     def test_get_unknown_id_is_404(self):
         client = _client(scopes=["config:read"])
         assert client.get("/configure/sources/does-not-exist").status_code == 404
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"name": ""},
+            {"host": "  "},
+            {"port": 99999},
+            {"ssl_mode": "requires"},
+            {"ssl_mode": "verify_full"},
+        ],
+    )
+    def test_patch_a_create_would_refuse_is_422(self, patch):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = client.post("/configure/sources", json=_WRITE_BODY).json()
+        response = client.patch(f"/configure/sources/{created['id']}", json=patch)
+        assert response.status_code == 422
+        assert client.get(f"/configure/sources/{created['id']}").json() == created
+
+    def test_create_with_an_ssl_mode_typo_is_422(self):
+        client = _client(scopes=["configure:write"])
+        response = client.post(
+            "/configure/sources", json={**_WRITE_BODY, "ssl_mode": "requires"}
+        )
+        assert response.status_code == 422
+        assert "ssl_mode" in response.json()["detail"]
+
+    def test_a_credential_rotation_that_lost_its_race_is_409(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        created = client.post("/configure/sources", json=_WRITE_BODY).json()
+        client.fake_store.conflict = True
+        response = client.patch(
+            f"/configure/sources/{created['id']}", json={"password": "new-password"}
+        )
+        assert response.status_code == 409
+        assert "new-password" not in response.text
 
     def test_patch_unknown_id_is_404(self):
         client = _client(scopes=["configure:write"])
