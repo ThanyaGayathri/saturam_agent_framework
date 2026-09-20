@@ -123,7 +123,10 @@ function internalWriteFromShape(record) {
 /** `InternalSourcePatch` for `PATCH /configure/sources/{id}`. The backend reads any of
  * `auth_method`/`password`/`api_key` on a patch as "rotate the credential" and validates the
  * whole credential again -- an `auth_method` sent with an empty password is a 422, not a
- * no-op -- so the credential fields go only when a new secret was actually typed. */
+ * no-op -- so the credential fields go only when a new secret was actually typed. The
+ * username is part of that credential (`_credential_from_patch` ignores it on its own), so a
+ * username or auth-method change with no new secret cannot be expressed as a patch;
+ * `ConfigureInternalSourceForm` refuses to send one rather than let it save as a no-op. */
 function internalPatchFromShape(record) {
   const body = internalCommonFields(record);
   if (record.password || record.apiKey) {
@@ -297,7 +300,10 @@ export function ConfigureWorkspaceProvider({ children }) {
   // Poll while anything is building. Keyed on the *set* of building ids (not the list), so a
   // refresh that changes nothing does not restart the timer chain, and one source finishing
   // while another still runs does. `pollEpoch` lets a retried harvest restart a chain that
-  // already gave up.
+  // already gave up. The four-minute ceiling is per source: `pollStartedAt` maps each building
+  // source id to when *its* harvest began, so starting a second harvest never buys the first
+  // one more time, and a source that has gone quiet stops being polled without silencing the
+  // rest.
   const buildingIds = useMemo(
     () =>
       remoteInternal
@@ -309,29 +315,37 @@ export function ConfigureWorkspaceProvider({ children }) {
   );
   const [pollEpoch, setPollEpoch] = useState(0);
   const [harvestPollingStalled, setHarvestPollingStalled] = useState(false);
-  const pollStartedAt = useRef(null);
+  const pollStartedAt = useRef(new Map());
 
   useEffect(() => {
-    if (!buildingIds) {
-      pollStartedAt.current = null;
-      setHarvestPollingStalled(false);
-      return undefined;
+    const ids = buildingIds ? buildingIds.split(",") : [];
+    const started = pollStartedAt.current;
+    for (const known of [...started.keys()]) {
+      if (!ids.includes(known)) started.delete(known);
     }
-    if (pollStartedAt.current == null) pollStartedAt.current = Date.now();
+    for (const id of ids) {
+      if (!started.has(id)) started.set(id, Date.now());
+    }
+    const ages = () => ids.map((id) => Date.now() - started.get(id));
+    const withinCeiling = () => ages().filter((age) => age <= POLL_CEILING_MS);
+    // The backend's own bound plus grace has passed for a source that is still `building`.
+    // Stop asking about it rather than poll forever; the screen says so and offers a manual
+    // refresh.
+    setHarvestPollingStalled(withinCeiling().length < ids.length);
+    if (!withinCeiling().length) return undefined;
+
     const controller = new AbortController();
     let cancelled = false;
     let timer = null;
     const tick = async () => {
-      const elapsed = Date.now() - pollStartedAt.current;
-      if (elapsed > POLL_CEILING_MS) {
-        // The backend's own bound plus grace has passed with the row still `building`. Stop
-        // asking rather than poll forever; the screen says so and offers a manual refresh.
-        setHarvestPollingStalled(true);
-        return;
-      }
+      const live = withinCeiling();
+      if (live.length < ids.length) setHarvestPollingStalled(true);
+      if (!live.length) return;
       await refreshSources({ signal: controller.signal });
       if (cancelled) return;
-      timer = window.setTimeout(tick, elapsed > POLL_RELAX_AFTER_MS ? POLL_RELAXED_MS : POLL_MS);
+      // The newest harvest sets the pace: a fresh build is checked every 2s even while an
+      // older one has already relaxed to 5s.
+      timer = window.setTimeout(tick, Math.min(...live) > POLL_RELAX_AFTER_MS ? POLL_RELAXED_MS : POLL_MS);
     };
     timer = window.setTimeout(tick, POLL_MS);
     return () => {
@@ -388,8 +402,8 @@ export function ConfigureWorkspaceProvider({ children }) {
         s.id === id ? { ...s, harvestState: "building", lastHarvestId: run?.run_id || s.lastHarvestId } : s
       )
     );
-    pollStartedAt.current = Date.now();
-    setHarvestPollingStalled(false);
+    // Only this source's clock restarts; the effect re-derives the stalled flag from the map.
+    pollStartedAt.current.set(id, Date.now());
     setPollEpoch((n) => n + 1);
     return run;
   };

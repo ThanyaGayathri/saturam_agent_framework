@@ -6063,6 +6063,21 @@ to poll; `_source_out` returns them; `test_p1_sources_router.py` asserts the def
 `npx vite build` clean; `product/tests` 1551 passed / 113 skipped; mypy clean (155 files); ruff
 clean; API contract check valid (118 operations, 200 schemas).
 
+**Review follow-up (#315):** the script's pass/fail was tightened and one step added, then re-run
+against an isolated stack (a scratch control-plane database and Neo4j, a second API and Vite on
+other ports; removed afterwards). Steps 04/05 now hard-assert the "Building model" card and the
+completion banner (both were `.catch()`-and-log). `console errors` and API responses >= 400 now
+gate the exit code; the only response a step provokes on purpose (step 09's 422) is declared
+with `expectFailure` and must actually occur. Step 01 arms its `waitForResponse` before
+`goto` (on a warm server the list response landed first and the wait timed out). New step
+`11-edit-existing` covers "Save Changes" on a saved source: a rename with no secret (`PATCH` 200,
+persists across a re-fetch); a username-only edit, which the form refuses with "Changing the
+username or authentication method replaces the stored credential. Enter the password again to
+save it." and sends no `PATCH` (the API keeps the username inside the credential, so it cannot be
+patched alone); and username + password, which persists. Result: 11/11 steps, exit 0, no console
+errors, no unexpected >= 400 -- twice, the second on reset state. Mutation check: with step 09's
+`expectFailure` removed the run exits 1 and lists `422 POST /configure/sources`.
+
 **Not done, on purpose:** external integrations (`ConfigureExternalForm.jsx`) still use their
 demo path -- the contract has `/configure/integrations` as a stub only and no store behind it,
 so wiring the form would have nowhere real to go. A real source's semantic-layer review queue

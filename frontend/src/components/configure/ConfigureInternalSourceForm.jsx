@@ -78,6 +78,13 @@ const AUTH_OPTIONS = [
  { value: "oauth", label: "OAuth" },
 ];
 
+/** What a person types to (re)store the credential for each auth method. */
+const SECRET_NOUN = {
+ username_password: "password",
+ api_key: "key",
+ oauth: "token",
+};
+
 /** The picker offers what the API can register (`SourceType`), in the catalogue's own labels
  * and order, plus a plain "Other" for anything the catalogue does not name. */
 const TYPE_OPTIONS = [
@@ -97,7 +104,7 @@ function SectionLabel({ label, required }) {
 }
 
 /* Input with left icon */
-function IconInput({ icon: Icon, label, required, type = "text", value, onChange, placeholder, autoComplete }) {
+function IconInput({ icon: Icon, label, required, type = "text", value, onChange, placeholder, autoComplete, hint }) {
  return (
  <div>
  {label && (
@@ -117,6 +124,7 @@ function IconInput({ icon: Icon, label, required, type = "text", value, onChange
  className="w-full rounded-lg border border-border-light py-2.5 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-[#6941c6]"
  />
  </div>
+ {hint && <p className="mt-1.5 text-xs text-text-muted">{hint}</p>}
  </div>
  );
 }
@@ -186,6 +194,19 @@ export default function ConfigureInternalSourceForm() {
  // real source; the demo row itself stays a fixture.
  const isLive = !!existing?.remote;
 
+ // The API keeps the username and auth method *inside* the stored credential (there is no
+ // standalone field for either), so changing one is a credential rotation and needs the new
+ // secret typed in the same save. A live source edited that way with no secret would PATCH
+ // nothing -- `save()` refuses it and says why, rather than report a save that did not happen.
+ const credentialEdited =
+ isLive &&
+ (form.authMethod !== existing.authMethod ||
+ (form.authMethod === "username_password" &&
+ form.username.trim() !== (existing.username || "").trim()));
+ const secretTyped = !!(form.password || form.apiKey);
+ const secretNoun = SECRET_NOUN[form.authMethod] || "secret";
+ const secretRequired = !isLive || credentialEdited;
+
  // Load the form once per source id -- not on every context refresh. The harvest poll
  // re-reads the list every few seconds while something builds, and resetting the fields on
  // each tick would wipe whatever the person is typing.
@@ -225,6 +246,11 @@ export default function ConfigureInternalSourceForm() {
 
  /** POST for a new form or a demo row; PATCH for a real source. Returns the saved source. */
  const save = async () => {
+ if (credentialEdited && !secretTyped) {
+ throw new Error(
+ `Changing the username or authentication method replaces the stored credential. Enter the ${secretNoun} again to save it.`
+ );
+ }
  const base = isLive ? { id: existing.id } : {};
  const record = { ...normalizeInternal({ ...base, ...form, seed: false }), remote: isLive };
  return upsertInternal(record);
@@ -483,13 +509,14 @@ export default function ConfigureInternalSourceForm() {
  required
  placeholder="egpt_reader"
  autoComplete="off"
+ hint={isLive ? "Changing the username replaces the stored credential — enter the password again to save it." : undefined}
  value={form.username}
  onChange={(e) => setField("username", e.target.value)}
  />
  <IconInput
  icon={Lock}
  label="Password"
- required={!isLive}
+ required={secretRequired}
  type="password"
  autoComplete="new-password"
  placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "••••••••"}
@@ -502,7 +529,7 @@ export default function ConfigureInternalSourceForm() {
  <IconInput
  icon={Lock}
  label="API Key / Private Key"
- required={!isLive}
+ required={secretRequired}
  type="password"
  autoComplete="new-password"
  placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "sk-…"}
@@ -519,7 +546,7 @@ export default function ConfigureInternalSourceForm() {
  <IconInput
  icon={Lock}
  label="Access token"
- required={!isLive}
+ required={secretRequired}
  type="password"
  autoComplete="new-password"
  placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "token"}
