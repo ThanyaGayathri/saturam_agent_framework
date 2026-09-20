@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.6",
+    "version": "1.2.8",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -2001,6 +2001,17 @@
           }
         }
       },
+      "HarvestState": {
+        "type": "string",
+        "enum": [
+          "not_started",
+          "building",
+          "modelled",
+          "needs_review",
+          "error"
+        ],
+        "description": "Where the source stands in the semantic-layer pipeline. `not_started` means nothing has read its schema yet; `building` means the `harvest-source` workflow is running; `modelled` means its tables are in the graph and answer questions; `needs_review` means the harvest stopped on something a person must settle (today: its schema name is already claimed by another connected source); `error` means the last harvest failed -- test the connection and retry. Same vocabulary as the frontend's `MODEL_STATES`."
+      },
       "HarvestStatus": {
         "type": "string",
         "enum": [
@@ -2044,7 +2055,8 @@
           "database_name",
           "auth_method",
           "permission_level",
-          "has_credentials"
+          "has_credentials",
+          "harvest_state"
         ],
         "properties": {
           "id": {
@@ -2089,10 +2101,24 @@
           "has_credentials": {
             "type": "boolean"
           },
+          "harvest_state": {
+            "$ref": "#/components/schemas/HarvestState"
+          },
           "last_harvest_id": {
             "type": [
               "string",
               "null"
+            ]
+          },
+          "last_harvest_at": {
+            "description": "When the last harvest reached a terminal state; `null` until one has. The Configure card's \"Last sync\".",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "created_at": {
@@ -5738,7 +5764,9 @@
                         "ssl_mode": "require",
                         "permission_level": "read_only",
                         "has_credentials": true,
+                        "harvest_state": "modelled",
                         "last_harvest_id": "hv_20260907_0200",
+                        "last_harvest_at": "2026-09-07T02:00:00Z",
                         "created_at": "2026-09-01T10:00:00Z"
                       }
                     ]
@@ -5812,7 +5840,9 @@
                       "ssl_mode": "require",
                       "permission_level": "read_only",
                       "has_credentials": true,
+                      "harvest_state": "not_started",
                       "last_harvest_id": null,
+                      "last_harvest_at": null,
                       "created_at": "2026-09-07T10:00:00Z"
                     }
                   }
@@ -5884,7 +5914,9 @@
                       "ssl_mode": "require",
                       "permission_level": "read_only",
                       "has_credentials": true,
+                      "harvest_state": "modelled",
                       "last_harvest_id": "hv_20260907_0200",
+                      "last_harvest_at": "2026-09-07T02:00:00Z",
                       "created_at": "2026-09-01T10:00:00Z"
                     }
                   }
@@ -5976,7 +6008,9 @@
                       "ssl_mode": "require",
                       "permission_level": "read_only",
                       "has_credentials": true,
+                      "harvest_state": "modelled",
                       "last_harvest_id": "hv_20260907_0200",
+                      "last_harvest_at": "2026-09-07T02:00:00Z",
                       "created_at": "2026-09-01T10:00:00Z"
                     }
                   }
@@ -16159,9 +16193,36 @@
               "default": false
             },
             "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A registered data source's id (`InternalSource.id`, `GET /configure/sources`). Absent means the deployment's own warehouse -- the default, and what this operation returned before sources could be registered. A source's tables never appear in the default listing, and the default listing's tables never appear under a source, so a customer's `orders` cannot make an operator KPI look ready. `snapshot` then describes that source's own harvest (its newest table snapshot version, its last harvest time, its name) rather than the deployment's."
           }
         ],
         "responses": {
+          "404": {
+            "description": "`source_id` names no registered data source.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No such source: 'ds_missing'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "200": {
             "description": "Table references.",
             "content": {

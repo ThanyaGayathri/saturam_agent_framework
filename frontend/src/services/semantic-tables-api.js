@@ -9,9 +9,15 @@ import { apiGet } from "../lib/api";
 
 /** `GET /semantic/tables` - every table the semantic layer exposes, as `{tables: [{name,
  * schema, row_count}], snapshot}`. Also the allow-list the SQL guard restricts a chart's query
- * to, so a table absent here is one no chart can read. */
-export function fetchSemanticTables({ signal } = {}) {
-  return apiGet("/semantic/tables", { signal });
+ * to, so a table absent here is one no chart can read.
+ *
+ * With `sourceId` (contract 1.2.7, #307) the listing is that registered source's own harvest --
+ * its tables only, and `snapshot` is its own (`version` is `unharvested` and `last_harvest_at`
+ * is `never` until #306's workflow has run for it). Without it, the operator's snapshot, as
+ * before. Throws `ApiError` (404) for a `sourceId` no source has. */
+export function fetchSemanticTables({ sourceId, signal } = {}) {
+  const query = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : "";
+  return apiGet(`/semantic/tables${query}`, { signal });
 }
 
 /** `GET /semantic/tables/{name}` - one table with its columns: `{ref, description, concepts,
