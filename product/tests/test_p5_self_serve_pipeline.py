@@ -24,6 +24,7 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.configure import store as store_module
 from egpt_retail.contracts.data_source import (
     HARVESTABLE_SOURCE_TYPES,
+    SSL_MODES,
     AuthMethod,
     DataSourceStatus,
     DataSourceType,
@@ -39,6 +40,7 @@ FRONTEND_MODEL_STATES = (
     REPO_ROOT / "frontend/src/components/configure/source-model-state.js"
 )
 FRONTEND_SOURCES_API = REPO_ROOT / "frontend/src/services/sources-api.js"
+FRONTEND_CATALOGS = REPO_ROOT / "frontend/src/domain/configure-catalogs.js"
 
 
 def _settings() -> RetailSettings:
@@ -189,6 +191,18 @@ class TestVocabulariesAgree:
         assert match is not None
         names = set(re.findall(r'"([^"]+)"', match.group(1)))
         assert names == {t.value for t in HARVESTABLE_SOURCE_TYPES}
+
+    def test_frontend_ssl_modes_are_the_ones_the_store_accepts(self) -> None:
+        """The form sends ``ssl_mode`` verbatim and the store refuses anything outside
+        libpq's set -- the form once offered ``verify_ca``/``verify_full``, which the API
+        would 422 (and libpq would reject at connect)."""
+        if not FRONTEND_CATALOGS.exists():
+            pytest.skip("frontend not checked out alongside product")
+        js = FRONTEND_CATALOGS.read_text()
+        match = re.search(r"SSL_MODES\s*=\s*\[(.*?)\n\];", js, flags=re.DOTALL)
+        assert match is not None
+        offered = set(re.findall(r'value:\s*"([^"]+)"', match.group(1)))
+        assert offered == set(SSL_MODES)
 
     def test_frontend_registrable_types_match_the_wire_enum(self) -> None:
         if not FRONTEND_SOURCES_API.exists():
