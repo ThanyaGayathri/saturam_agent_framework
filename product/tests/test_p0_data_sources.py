@@ -1,28 +1,40 @@
 """#304 -- the parts of the data-source contract and secret encoding that need no database.
 
-The round trip against real Postgres (credential storage, rotation, deletion) is proved by
-``cookbook/94_retail/P0_data_source_registration.py``, the same split every other store in
-this product uses (see ``semantic/proposals.py``'s own note on why). What is worth testing
-here is validation logic a wrong change would break silently, and the one property the whole
-design rests on: a credential is never accidentally printable.
+The round trip against real Postgres (credential storage, rotation, deletion, the async
+twins, the rotation race) is proved by ``test_p0_data_sources_live.py``, gated by
+``EGPT_INTEGRATION_POSTGRES`` and run by ``integration.yml`` -- the same split every other
+store in this product uses (see ``semantic/proposals.py``'s own note on why).
+``cookbook/94_retail/P0_data_source_registration.py`` is the same scenario as a readable
+walkthrough. What is tested here is what needs no database: validation logic a wrong change
+would break silently, and the two properties the whole design rests on -- a credential is
+never accidentally printable, and no shape that is stored or returned has a place to hold one.
 """
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 import yaml
+from egpt_retail.configure import store as store_module
 from egpt_retail.configure.secrets import _credential_from_dict, _credential_to_dict
 from egpt_retail.contracts.data_source import (
+    SSL_MODES,
     AuthMethod,
     Credential,
+    DataSource,
     DataSourceCreate,
+    DataSourceStatus,
     DataSourceType,
+    DataSourceUpdate,
     DataSourceValidationError,
+    HarvestState,
     PermissionLevel,
     validate_create,
     validate_credential,
+    validate_update,
 )
 
 _CONFIGURE_SCHEMAS = (
@@ -142,6 +154,205 @@ class TestValidateCreate:
 
     def test_a_valid_create_raises_nothing(self) -> None:
         validate_create(_create())
+
+    def test_ssl_mode_typo_is_refused_at_registration(self) -> None:
+        """``ssl_mode`` reaches the driver as ``sslmode=``; a typo would otherwise register
+        cleanly and only fail deep inside a later connection attempt."""
+        with pytest.raises(DataSourceValidationError) as raised:
+            validate_create(_create(ssl_mode="requires"))
+        assert raised.value.field == "ssl_mode"
+
+    def test_underscore_spellings_of_verify_modes_are_refused(self) -> None:
+        """libpq spells them ``verify-ca``/``verify-full``; the underscore spelling is not a
+        value the driver accepts, so it must not be one the store accepts either."""
+        for spelling in ("verify_ca", "verify_full"):
+            with pytest.raises(DataSourceValidationError):
+                validate_create(_create(ssl_mode=spelling))
+
+    @pytest.mark.parametrize("mode", sorted(SSL_MODES))
+    def test_every_libpq_ssl_mode_is_accepted(self, mode: str) -> None:
+        validate_create(_create(ssl_mode=mode))
+
+    def test_the_ssl_modes_are_libpqs(self) -> None:
+        assert SSL_MODES == {
+            "disable",
+            "allow",
+            "prefer",
+            "require",
+            "verify-ca",
+            "verify-full",
+        }
+
+
+def _existing(**overrides: object) -> DataSource:
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id="ds_test",
+        name="Warehouse",
+        source_type=DataSourceType.POSTGRES,
+        host="db.internal",
+        database_name="analytics",
+        auth_method=AuthMethod.USERNAME_PASSWORD,
+        secret_ref="local:abc",
+        status=DataSourceStatus.REGISTERED,
+        harvest_state=HarvestState.NOT_STARTED,
+        created_by="",
+        created_at=now,
+        updated_at=now,
+    )
+    fields.update(overrides)
+    return DataSource(**fields)  # type: ignore[arg-type]
+
+
+class TestValidateUpdate:
+    """``update()`` used to apply a patch with no validation at all, so ``name=""``,
+    ``host=""`` or ``port=99999`` persisted -- rows ``validate_create`` exists to refuse."""
+
+    @pytest.mark.parametrize(
+        ("patch", "field"),
+        [
+            (DataSourceUpdate(name=""), "name"),
+            (DataSourceUpdate(name="   "), "name"),
+            (DataSourceUpdate(host=""), "host"),
+            (DataSourceUpdate(database_name=" "), "database_name"),
+            (DataSourceUpdate(port=0), "port"),
+            (DataSourceUpdate(port=99999), "port"),
+            (DataSourceUpdate(ssl_mode="requires"), "ssl_mode"),
+            (DataSourceUpdate(ssl_mode="verify_full"), "ssl_mode"),
+        ],
+    )
+    def test_a_patch_create_would_refuse_is_refused(
+        self, patch: DataSourceUpdate, field: str
+    ) -> None:
+        with pytest.raises(DataSourceValidationError) as raised:
+            validate_update(_existing(), patch)
+        assert raised.value.field == field
+
+    def test_a_rotated_credential_is_checked_against_the_existing_source_type(
+        self,
+    ) -> None:
+        salesforce = _existing(source_type=DataSourceType.SALESFORCE)
+        with pytest.raises(DataSourceValidationError):
+            validate_update(
+                salesforce, DataSourceUpdate(credential=_postgres_credential())
+            )
+
+    def test_an_incomplete_rotated_credential_is_refused(self) -> None:
+        with pytest.raises(DataSourceValidationError):
+            validate_update(
+                _existing(),
+                DataSourceUpdate(
+                    credential=Credential(
+                        auth_method=AuthMethod.USERNAME_PASSWORD, username="reader"
+                    )
+                ),
+            )
+
+    def test_an_empty_patch_is_valid(self) -> None:
+        validate_update(_existing(), DataSourceUpdate())
+
+    def test_a_valid_patch_raises_nothing(self) -> None:
+        validate_update(
+            _existing(),
+            DataSourceUpdate(
+                name="Renamed",
+                host="db2.internal",
+                port=5433,
+                ssl_mode="verify-full",
+                schema_name="",
+                credential=_postgres_credential(),
+            ),
+        )
+
+
+class TestNoCredentialShapeIsStoredOrReturned:
+    """The design's central claim, checked structurally so it needs no database: nothing that
+    is persisted or returned has a place to hold credential material. A future field added to
+    ``DataSource`` or a new column on the table that looks like one fails here."""
+
+    #: Substrings that mark a credential-shaped name. ``secret_ref`` is the one field that
+    #: legitimately mentions a secret -- it is the opaque handle, not the material.
+    _CREDENTIAL_SHAPED = (
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "token",
+        "credential",
+        "secret",
+        "private_key",
+    )
+    _ALLOWED = {"secret_ref"}
+
+    def _offending(self, names: "list[str]") -> "list[str]":
+        return [
+            name
+            for name in names
+            if name not in self._ALLOWED
+            and any(marker in name.lower() for marker in self._CREDENTIAL_SHAPED)
+        ]
+
+    def test_data_source_has_no_credential_shaped_field(self) -> None:
+        names = [field.name for field in dataclasses.fields(DataSource)]
+        assert self._offending(names) == []
+        assert "secret_ref" in names
+
+    def test_the_table_has_no_credential_shaped_column(self) -> None:
+        assert self._offending(list(store_module._COLUMNS)) == []
+
+    def test_the_table_ddl_declares_no_credential_shaped_column(self) -> None:
+        create_table = next(
+            statement
+            for statement in store_module._ddl("configure")
+            if statement.lstrip().startswith("CREATE TABLE")
+        )
+        declared = [
+            line.split()[0]
+            for line in create_table.splitlines()[1:]
+            if line.strip()
+            and not line.strip().startswith(("CONSTRAINT", "CHECK"))
+            and line.split()[0].isidentifier()
+        ]
+        assert "secret_ref" in declared
+        assert self._offending(declared) == []
+
+    def test_a_returned_data_source_has_no_credential_attribute(self) -> None:
+        source = _existing()
+        for name in ("password", "api_key", "credential", "oauth_client_secret"):
+            assert not hasattr(source, name)
+
+
+class TestDdlEnumConstraints:
+    """Every closed enum column has a ``CHECK`` -- ``auth_method`` and ``source_type`` used to
+    have none, so a direct SQL write could put a value there that ``_row_to_data_source`` then
+    fails to construct."""
+
+    @staticmethod
+    def _ddl_text() -> str:
+        return "\n".join(store_module._ddl("configure"))
+
+    @pytest.mark.parametrize(
+        ("column", "enum"),
+        [("source_type", DataSourceType), ("auth_method", AuthMethod)],
+    )
+    def test_the_check_lists_exactly_the_enums_members(
+        self, column: str, enum: type
+    ) -> None:
+        text = self._ddl_text()
+        assert f"data_source_{column}_valid" in text
+        expected = ", ".join(f"'{member.value}'" for member in enum)
+        assert f"CHECK ({column} IN ({expected}))" in text
+
+    def test_an_already_provisioned_table_gets_the_constraints_too(self) -> None:
+        """``CREATE TABLE IF NOT EXISTS`` skips an existing table, so the two added
+        constraints also ship as guarded ``ALTER TABLE`` statements."""
+        alters = [
+            statement
+            for statement in store_module._ddl("configure")
+            if "ADD CONSTRAINT" in statement
+        ]
+        assert len(alters) == 2
+        assert all("pg_constraint" in statement for statement in alters)
 
 
 class TestCredentialDictRoundTrip:

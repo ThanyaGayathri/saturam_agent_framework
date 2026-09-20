@@ -18,6 +18,11 @@ Evidence this exists to produce, each asserted, not just printed:
   deleted, not just orphaned and still resolvable.
 - Deleting a source deletes its secret too.
 
+The same assertions run in CI as ``product/tests/test_p0_data_sources_live.py`` (gated by
+``EGPT_INTEGRATION_POSTGRES``, wired into ``integration.yml``), which also covers update
+validation, the concurrent-rotation race and the async twins. This script stays as the
+readable walkthrough.
+
 Needs the control-plane Postgres from ``deploy/compose.yaml`` (``docker compose -f
 deploy/compose.yaml up -d postgres``, or the ``egpt-retail-postgres-1`` container already
 running locally on 5532):

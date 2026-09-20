@@ -35,18 +35,29 @@ from egpt_retail.contracts.data_source import (
     HarvestState,
     PermissionLevel,
     validate_create,
-    validate_credential,
+    validate_update,
 )
 from egpt_retail.db.schema_utils import aensure_schema, ensure_schema
 
 if TYPE_CHECKING:
     from egpt_retail.configure.secrets import SecretStore
 
-__all__ = ["DATA_SOURCE_SCHEMA", "DataSourceStore"]
+__all__ = ["DATA_SOURCE_SCHEMA", "DataSourceConflictError", "DataSourceStore"]
 
 log = logging.getLogger("egpt_retail.configure.store")
 
 DATA_SOURCE_SCHEMA = "configure"
+
+#: How many times :meth:`DataSourceStore.update` re-reads and re-applies a credential
+#: rotation that lost a race with another rotation of the same source (see there).
+_ROTATION_ATTEMPTS = 3
+
+
+class DataSourceConflictError(RuntimeError):
+    """A credential rotation kept losing to concurrent rotations of the same source, and gave
+    up after :data:`_ROTATION_ATTEMPTS` tries. Nothing was written: every secret this call
+    created was deleted again before it was raised."""
+
 
 #: Fixed order, used by every SELECT/INSERT/RETURNING below and by :func:`_row_to_data_source`
 #: -- one list, so the two can never drift out of sync with each other.
@@ -77,6 +88,12 @@ _COLUMNS: Tuple[str, ...] = (
 _COLUMN_LIST = ", ".join(_COLUMNS)
 
 
+def _sql_values(enum: Any) -> str:
+    """``'a', 'b', ...`` for an ``IN (...)`` list, generated from the enum itself so the
+    ``CHECK`` cannot drift from the Python vocabulary the way a hand-copied list would."""
+    return ", ".join(f"'{member.value}'" for member in enum)
+
+
 def _ddl(schema: str) -> Tuple[str, ...]:
     return (
         f"CREATE SCHEMA IF NOT EXISTS {schema}",
@@ -105,12 +122,36 @@ def _ddl(schema: str) -> Tuple[str, ...]:
             last_harvest_at      timestamptz,
             CONSTRAINT data_source_permission_level_valid
                 CHECK (permission_level IN ('read_only', 'read_write')),
+            CONSTRAINT data_source_source_type_valid
+                CHECK (source_type IN ({_sql_values(DataSourceType)})),
+            CONSTRAINT data_source_auth_method_valid
+                CHECK (auth_method IN ({_sql_values(AuthMethod)})),
             CONSTRAINT data_source_status_valid
                 CHECK (status IN ('registered', 'testing', 'connected', 'error')),
             CONSTRAINT data_source_harvest_state_valid
                 CHECK (harvest_state IN
                     ('not_started', 'building', 'modelled', 'needs_review', 'error'))
         )""",
+        # ``CREATE TABLE IF NOT EXISTS`` does not touch a table that already exists, so a
+        # database provisioned before these two constraints existed would never get them.
+        # Postgres has no ``ADD CONSTRAINT IF NOT EXISTS``; the guard is the catalog lookup.
+        *(
+            f"""DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = '{schema}.data_source'::regclass
+                      AND conname = 'data_source_{column}_valid'
+                ) THEN
+                    ALTER TABLE {schema}.data_source
+                        ADD CONSTRAINT data_source_{column}_valid
+                        CHECK ({column} IN ({_sql_values(enum)}));
+                END IF;
+            END $$"""
+            for column, enum in (
+                ("source_type", DataSourceType),
+                ("auth_method", AuthMethod),
+            )
+        ),
         f"""CREATE INDEX IF NOT EXISTS data_source_created_by_idx
             ON {schema}.data_source (created_by, created_at DESC)""",
         f"""COMMENT ON TABLE {schema}.data_source IS
@@ -152,6 +193,10 @@ def _row_to_data_source(row: Sequence[Any]) -> DataSource:
         last_harvest_run_id=values["last_harvest_run_id"],
         last_harvest_at=values["last_harvest_at"],
     )
+
+
+#: Sentinel :meth:`DataSourceStore._apply_update` returns when a rotation lost its race.
+_LOST_RACE: Any = object()
 
 
 class DataSourceStore:
@@ -268,14 +313,51 @@ class DataSourceStore:
         :class:`~egpt_retail.contracts.data_source.DataSourceUpdate`'s own docstring on why
         that matters for ``credential`` specifically. Returns ``None`` if ``source_id``
         does not exist, the same "absent means not found" shape :meth:`get` uses.
+
+        The patch is validated (:func:`~egpt_retail.contracts.data_source.validate_update`)
+        before anything is written, so a bad patch never leaves a stray secret behind and a
+        row ``create`` would have refused cannot be reached by patching a good one.
+
+        **Concurrent rotations.** Rotating writes the new secret first, then swaps the row's
+        ``secret_ref``, then deletes the old secret. Two rotations of one source that both
+        read the same ``secret_ref`` would each write a secret and only one would end up
+        referenced -- the other would sit in the secret store forever, unreferenced and never
+        deleted. So the swap is conditional on the ``secret_ref`` that was read
+        (compare-and-swap); a rotation that loses deletes the secret it just wrote, re-reads
+        and tries again, up to :data:`_ROTATION_ATTEMPTS` times before raising
+        :class:`DataSourceConflictError`. A row lock is deliberately not used: the secret
+        write is a network call to Key Vault, or on the local store a commit on the very
+        connection that would be holding the lock, and neither belongs inside a row lock.
         """
         existing = self.get(source_id)
         if existing is None:
             return None
+        validate_update(existing, patch)
 
+        if patch.credential is None:
+            return self._apply_update(existing, patch, secret_store)
+
+        for _ in range(_ROTATION_ATTEMPTS):
+            updated = self._apply_update(existing, patch, secret_store)
+            if updated is not _LOST_RACE:
+                return updated
+            existing = self.get(source_id)
+            if existing is None:
+                return None
+        raise DataSourceConflictError(
+            f"data source {source_id!r} was rotated concurrently "
+            f"{_ROTATION_ATTEMPTS} times in a row; nothing was changed"
+        )
+
+    def _apply_update(
+        self, existing: DataSource, patch: DataSourceUpdate, secret_store: "SecretStore"
+    ) -> Any:
+        """One attempt at ``patch`` against ``existing``. Returns the updated
+        :class:`DataSource`, ``None`` if the row is gone, or :data:`_LOST_RACE` if a
+        credential rotation found ``secret_ref`` changed under it."""
         set_clauses = ["updated_at = %s"]
         params: List[Any] = [datetime.now(timezone.utc)]
-        old_secret_ref: Optional[str] = None
+        new_secret_ref: Optional[str] = None
 
         if patch.name is not None:
             set_clauses.append("name = %s")
@@ -299,7 +381,6 @@ class DataSourceStore:
             set_clauses.append("permission_level = %s")
             params.append(patch.permission_level.value)
         if patch.credential is not None:
-            validate_credential(existing.source_type, patch.credential)
             new_secret_ref = secret_store.write(existing.name, patch.credential)
             set_clauses.append("auth_method = %s")
             params.append(patch.credential.auth_method.value)
@@ -307,22 +388,42 @@ class DataSourceStore:
             params.append(patch.credential.username or "")
             set_clauses.append("secret_ref = %s")
             params.append(new_secret_ref)
-            old_secret_ref = existing.secret_ref
 
-        params.append(source_id)
-        with self._connection.cursor() as cursor:
-            cursor.execute(
-                f"""UPDATE {self._schema}.data_source SET {", ".join(set_clauses)}
-                    WHERE id = %s
-                    RETURNING {_COLUMN_LIST}""",
-                params,
-            )
-            row = cursor.fetchone()
-        self._connection.commit()
+        where = "id = %s"
+        params.append(existing.id)
+        if new_secret_ref is not None:
+            where += " AND secret_ref = %s"
+            params.append(existing.secret_ref)
 
-        if old_secret_ref is not None:
-            self._best_effort_delete_secret(secret_store, old_secret_ref)
-        return _row_to_data_source(row) if row is not None else None
+        try:
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"""UPDATE {self._schema}.data_source SET {", ".join(set_clauses)}
+                        WHERE {where}
+                        RETURNING {_COLUMN_LIST}""",
+                    params,
+                )
+                row = cursor.fetchone()
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            if new_secret_ref is not None:
+                self._best_effort_delete_secret(secret_store, new_secret_ref)
+            raise
+
+        if row is None:
+            # Nothing matched: the row was deleted, or (rotation only) another rotation
+            # swapped ``secret_ref`` first. Either way the secret written above is now
+            # unreferenced -- delete it rather than orphan it.
+            if new_secret_ref is not None:
+                self._best_effort_delete_secret(secret_store, new_secret_ref)
+            if self.get(existing.id) is None:
+                return None
+            return _LOST_RACE
+
+        if new_secret_ref is not None:
+            self._best_effort_delete_secret(secret_store, existing.secret_ref)
+        return _row_to_data_source(row)
 
     async def aupdate(
         self, source_id: str, patch: DataSourceUpdate, secret_store: "SecretStore"

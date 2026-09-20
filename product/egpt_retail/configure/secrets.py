@@ -78,7 +78,11 @@ class SecretStore(Protocol):
     def delete(self, secret_ref: str) -> None:
         """A no-op, not an error, if ``secret_ref`` is already gone -- callers use this for
         best-effort cleanup after rotating or deleting a data source, and a second delete
-        racing the first must not raise."""
+        racing the first must not raise.
+
+        What "delete" guarantees is backend-specific: the secret stops resolving through
+        :meth:`read` on every backend, but whether the material is *erased* is not part of
+        this contract -- see :class:`AzureKeyVaultSecretStore.delete`."""
         ...
 
     async def adelete(self, secret_ref: str) -> None: ...
@@ -168,6 +172,21 @@ class AzureKeyVaultSecretStore:
         return await asyncio.to_thread(self.read, secret_ref)
 
     def delete(self, secret_ref: str) -> None:
+        """Soft-deletes the secret: :meth:`read` raises :class:`SecretNotFoundError` from here
+        on, but the credential is **not erased**. ``begin_delete_secret`` moves it to Key
+        Vault's recoverable "deleted" state, where anyone holding the vault's recover
+        permission can restore it until the vault's soft-delete retention period lapses (90
+        days by default; the vault's own setting, not this code's). That is weaker than
+        :class:`LocalEncryptedSecretStore`, whose ``DELETE`` is immediate and final -- "deleting
+        a data source deletes its secret" means the two things below, not one.
+
+        Purging (``purge_deleted_secret``) is deliberately not done here: it needs a purge
+        permission this identity may not have, fails outright on a vault with purge protection
+        on (which a production vault should have), and this path has only been reviewed
+        against the SDK's shape, not a real vault. A deployment that needs the material gone
+        sooner than the retention period should shorten the vault's retention, or purge
+        out of band, until a follow-up makes it an explicit, tested step.
+        """
         from azure.core.exceptions import ResourceNotFoundError
 
         if not secret_ref.startswith(_KEY_VAULT_REF_PREFIX):

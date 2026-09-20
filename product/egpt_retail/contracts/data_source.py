@@ -53,8 +53,10 @@ __all__ = [
     "HARVESTABLE_SOURCE_TYPES",
     "HarvestState",
     "PermissionLevel",
+    "SSL_MODES",
     "validate_create",
     "validate_credential",
+    "validate_update",
 ]
 
 #: Bumped on any breaking change, per the change protocol. Additive changes do not bump it.
@@ -132,6 +134,14 @@ HARVESTABLE_SOURCE_TYPES = frozenset(
     {DataSourceType.POSTGRES, DataSourceType.SNOWFLAKE}
 )
 
+#: The ``sslmode`` values libpq accepts, spelled the way libpq spells them (hyphenated
+#: ``verify-ca``/``verify-full``). ``ssl_mode`` is handed to the driver as ``sslmode=`` when a
+#: source is tested or harvested, so anything outside this set would register cleanly and only
+#: fail much later inside a connection attempt, with nothing pointing at the typo.
+SSL_MODES = frozenset(
+    {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+)
+
 #: Auth methods each source type's form actually collects. Checked by :func:`validate_create`
 #: so a Postgres row can never end up with ``AuthMethod.OAUTH`` -- ``ConfigureInternalSourceForm.jsx``
 #: never offers it, and a row shaped like that would have no code path that could ever use it.
@@ -155,7 +165,7 @@ _ALLOWED_AUTH_METHODS: Mapping[DataSourceType, frozenset] = {
 
 
 class DataSourceValidationError(ValueError):
-    """Raised by :func:`validate_create`/:func:`validate_credential`. Carries a human-readable
+    """Raised by :func:`validate_create`/:func:`validate_update`/:func:`validate_credential`. Carries a human-readable
     ``field`` so a caller (the API router, in #305) can turn it into a 422 without re-deriving
     which field was wrong from the message text."""
 
@@ -251,16 +261,41 @@ class DataSourceUpdate:
     credential: Optional[Credential] = None
 
 
+def _check_connection_fields(
+    *,
+    name: Optional[str],
+    host: Optional[str],
+    database_name: Optional[str],
+    port: Optional[int],
+    ssl_mode: Optional[str],
+) -> None:
+    """The field invariants create and update share, so the two cannot drift apart: a row
+    ``validate_create`` would refuse must not be reachable by patching a good one. A ``None``
+    argument means "not being set" and is skipped -- create always passes real values for
+    ``name``/``host``/``database_name``, and a patch passes only the fields it carries."""
+    if name is not None and not name.strip():
+        raise DataSourceValidationError("name", "must not be empty")
+    if host is not None and not host.strip():
+        raise DataSourceValidationError("host", "must not be empty")
+    if database_name is not None and not database_name.strip():
+        raise DataSourceValidationError("database_name", "must not be empty")
+    if port is not None and not (0 < port <= 65535):
+        raise DataSourceValidationError("port", "must be between 1 and 65535")
+    if ssl_mode is not None and ssl_mode not in SSL_MODES:
+        raise DataSourceValidationError(
+            "ssl_mode", f"must be one of {', '.join(sorted(SSL_MODES))}"
+        )
+
+
 def validate_create(create: DataSourceCreate) -> None:
     """Raises :class:`DataSourceValidationError` on the first problem found."""
-    if not create.name.strip():
-        raise DataSourceValidationError("name", "must not be empty")
-    if not create.host.strip():
-        raise DataSourceValidationError("host", "must not be empty")
-    if not create.database_name.strip():
-        raise DataSourceValidationError("database_name", "must not be empty")
-    if create.port is not None and not (0 < create.port <= 65535):
-        raise DataSourceValidationError("port", "must be between 1 and 65535")
+    _check_connection_fields(
+        name=create.name,
+        host=create.host,
+        database_name=create.database_name,
+        port=create.port,
+        ssl_mode=create.ssl_mode,
+    )
     validate_credential(create.source_type, create.credential)
 
 
@@ -303,6 +338,23 @@ class DataSource:
         Salesforce register today (the form exists) but have no connector yet, and the API
         should refuse a harvest request rather than let it fail deep inside a workflow run."""
         return self.source_type in HARVESTABLE_SOURCE_TYPES
+
+
+def validate_update(existing: DataSource, patch: DataSourceUpdate) -> None:
+    """Raises :class:`DataSourceValidationError` if applying ``patch`` to ``existing`` would
+    leave a row :func:`validate_create` would have refused. Only the fields the patch carries
+    are checked; a rotated ``credential`` is checked against ``existing.source_type``, the
+    source type a patch can never change. Called before anything is written, so a bad patch
+    never leaves a stray secret behind."""
+    _check_connection_fields(
+        name=patch.name,
+        host=patch.host,
+        database_name=patch.database_name,
+        port=patch.port,
+        ssl_mode=patch.ssl_mode,
+    )
+    if patch.credential is not None:
+        validate_credential(existing.source_type, patch.credential)
 
 
 @dataclass(frozen=True)
