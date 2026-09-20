@@ -357,6 +357,18 @@ class HarvestRequest(BaseModel):
     source_id: str
 
 
+class HarvestState(Enum):
+    """
+    Where the source stands in the semantic-layer pipeline. `not_started` means nothing has read its schema yet; `building` means the `harvest-source` workflow is running; `modelled` means its tables are in the graph and answer questions; `needs_review` means the harvest stopped on something a person must settle (today: its schema name is already claimed by another connected source); `error` means the last harvest failed -- test the connection and retry. Same vocabulary as the frontend's `MODEL_STATES`.
+    """
+
+    not_started = "not_started"
+    building = "building"
+    modelled = "modelled"
+    needs_review = "needs_review"
+    error = "error"
+
+
 class HarvestStatus(Enum):
     queued = "queued"
     running = "running"
@@ -1601,7 +1613,12 @@ class InternalSource(BaseModel):
     ssl_mode: str | None = "require"
     permission_level: PermissionLevel
     has_credentials: bool
+    harvest_state: HarvestState
     last_harvest_id: str | None = None
+    last_harvest_at: AwareDatetime | None = Field(
+        None,
+        description='When the last harvest reached a terminal state; `null` until one has. The Configure card\'s "Last sync".',
+    )
     created_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 
 

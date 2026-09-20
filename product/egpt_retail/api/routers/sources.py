@@ -124,7 +124,9 @@ def _source_out(source: DataSource) -> wire.InternalSource:
         ssl_mode=source.ssl_mode,
         permission_level=wire.PermissionLevel(source.permission_level.value),
         has_credentials=True,
+        harvest_state=wire.HarvestState(source.harvest_state.value),
         last_harvest_id=source.last_harvest_run_id,
+        last_harvest_at=source.last_harvest_at,
         created_at=source.created_at,
     )
 
@@ -320,6 +322,11 @@ def _classify_connection_error(exc: BaseException) -> str:
         return "Connection timed out."
     if "does not exist" in text and "database" in text:
         return "The named database does not exist."
+    if "does not support ssl" in text:
+        # The form defaults ssl_mode to ``require``; a server without SSL then fails
+        # before authentication, and "Could not connect." sent people looking at the
+        # host and port. The fix is a setting on this source, so say which one.
+        return "The server does not support SSL. Set this source's SSL mode to prefer or disable."
     return "Could not connect."
 
 

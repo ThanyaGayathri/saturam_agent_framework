@@ -222,6 +222,12 @@ class TestCreate:
         body = client.post("/configure/sources", json=_WRITE_BODY).json()
         assert body["ssl_mode"] == "require"
         assert body["permission_level"] == "read_only"
+        # Contract 1.2.8 (#308): the card's readiness state travels on the wire, so a
+        # freshly registered source reads as not yet modelled and never synced -- not as
+        # an absent field a client has to guess the meaning of.
+        assert body["harvest_state"] == "not_started"
+        assert body["last_harvest_at"] is None
+        assert body["last_harvest_id"] is None
 
     def test_invalid_credential_is_422(self):
         client = _client(scopes=["configure:write"])
@@ -366,6 +372,16 @@ class TestClassifyConnectionError:
         assert (
             sources_module._classify_connection_error(exc) == "Authentication failed."
         )
+
+    def test_server_without_ssl_is_classified_as_an_ssl_mode_problem(self):
+        # Seen live (#308): the form's default ssl_mode is ``require`` and a warehouse
+        # without SSL fails before authentication -- the fix is the source's SSL mode,
+        # so the message must point there rather than at the host.
+        exc = RuntimeError(
+            'connection to server at "10.0.0.5", port 5432 failed: server does not '
+            "support SSL, but SSL was required"
+        )
+        assert "SSL mode" in sources_module._classify_connection_error(exc)
 
     def test_timeout_is_classified(self):
         exc = Exception("connection timeout expired")

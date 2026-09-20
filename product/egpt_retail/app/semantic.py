@@ -17,8 +17,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.contracts.semantic import SemanticRead
-from egpt_retail.semantic.store import SemanticGraphStore
+from egpt_retail.semantic.store import OPERATOR_SOURCE_ID, SemanticGraphStore
 
 __all__ = ["build_semantic_reader", "open_semantic_reader", "semantic_driver"]
 
@@ -44,15 +43,26 @@ def semantic_driver(settings: RetailSettings) -> Any:
     )
 
 
-def build_semantic_reader(settings: RetailSettings, driver: Any) -> SemanticRead:
-    """The graph store over an already-open driver. Pure construction; no async twin."""
-    return SemanticGraphStore(driver=driver, database=settings.retail_neo4j_database)
+def build_semantic_reader(
+    settings: RetailSettings, driver: Any, *, source_id: str = OPERATOR_SOURCE_ID
+) -> SemanticGraphStore:
+    """The graph store over an already-open driver. Pure construction; no async twin.
+
+    ``source_id`` scopes every table-enumerating read to one data source (#307); the default
+    is the operator's own warehouse, which is what every caller before #307 got.
+    """
+    return SemanticGraphStore(
+        driver=driver, database=settings.retail_neo4j_database, source_id=source_id
+    )
 
 
 @contextmanager
 def open_semantic_reader(
-    settings: RetailSettings, driver: Optional[Any] = None
-) -> Iterator[SemanticRead]:
+    settings: RetailSettings,
+    driver: Optional[Any] = None,
+    *,
+    source_id: str = OPERATOR_SOURCE_ID,
+) -> Iterator[SemanticGraphStore]:
     """A reader for the duration of one block, closing the driver it opened on the way out.
 
     Pass ``driver`` to reuse one already open (a cookbook holding a session); the block then
@@ -61,7 +71,7 @@ def open_semantic_reader(
     owned = driver is None
     handle: Any = driver if driver is not None else semantic_driver(settings)
     try:
-        yield build_semantic_reader(settings, handle)
+        yield build_semantic_reader(settings, handle, source_id=source_id)
     finally:
         if owned:
             handle.close()

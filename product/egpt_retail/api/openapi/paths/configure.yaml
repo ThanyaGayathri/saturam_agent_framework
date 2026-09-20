@@ -32,7 +32,9 @@
                     ssl_mode: require
                     permission_level: read_only
                     has_credentials: true
+                    harvest_state: modelled
                     last_harvest_id: hv_20260907_0200
+                    last_harvest_at: "2026-09-07T02:00:00Z"
                     created_at: "2026-09-01T10:00:00Z"
               empty:
                 summary: "`ConfigureDatabaseEmpty` -- nothing connected yet."
@@ -84,7 +86,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: not_started
                   last_harvest_id: null
+                  last_harvest_at: null
                   created_at: "2026-09-07T10:00:00Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
@@ -119,7 +123,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: modelled
                   last_harvest_id: hv_20260907_0200
+                  last_harvest_at: "2026-09-07T02:00:00Z"
                   created_at: "2026-09-01T10:00:00Z"
       "404":
         $ref: '#/x-egpt-responses/NotFound'
@@ -161,7 +167,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: modelled
                   last_harvest_id: hv_20260907_0200
+                  last_harvest_at: "2026-09-07T02:00:00Z"
                   created_at: "2026-09-01T10:00:00Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'

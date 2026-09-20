@@ -109,6 +109,49 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.8 — 2026-09-20 — configure: `InternalSource.harvest_state`, `last_harvest_at` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of
+#302 (phase 4, #308).
+
+- **`HarvestState`** (enum: `not_started`, `building`, `modelled`, `needs_review`, `error`)
+  and **`InternalSource.harvest_state`** (required). The Configure card reports semantic-layer
+  readiness, not reachability -- and until now the only readiness it could show came from a
+  hardcoded per-seed lookup in the frontend (`source-model-state.js`'s `BY_ID`). #306's
+  `harvest-source` workflow already records exactly this state on the row
+  (`configure.data_source.harvest_state`, the same five words); the wire just never carried
+  it, so a screen polling `GET /configure/sources` after starting a harvest had nothing to
+  read. `required` rather than optional because every row has one (the column defaults to
+  `not_started`); a client is never left guessing what an absent field means.
+- **`InternalSource.last_harvest_at`** (Timestamp, nullable). The card's "Last sync". `null`
+  until a harvest reaches a terminal state -- the card says "Never" rather than fabricating a
+  time, which is the bug the redesign fixed and this field keeps fixed.
+
+`last_harvest_id` is unchanged. The run id alone was never enough to draw the card: reading a
+run's status needs the framework's `GET /workflows/{id}/runs/{run_id}` plus the `session_id`
+the 202 returned, and says nothing about `needs_review`, which is a decision recorded on the
+source, not a run outcome.
+
+## 1.2.7 — 2026-09-20 — semantic: `listSemanticTables` `source_id` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new optional query parameter and one new
+`404` response on one operation, nothing removed or renamed -- so no negotiation and no major
+bump.
+
+- **`GET /semantic/tables?source_id=`** (#307). Absent means the deployment's own warehouse,
+  exactly what this operation returned before a customer could register a source. Present
+  lists that registered source's tables (`InternalSource.id`); an id naming no registered
+  source is `404`. The two sets never mix: a self-serve source's tables are absent from the
+  default listing, and the default listing's tables absent under a source -- the property
+  the SQL guard's allow-list and KPI feasibility depend on, since both are computed from this
+  listing and a customer's `orders` must not make an operator KPI look ready. Under a
+  `source_id`, `snapshot` describes that source's own harvest (newest table snapshot version,
+  last harvest time, source name), never the deployment's.
+- An explicit empty `source_id=` is not the same as omitting it: it names no registered source
+  and is `404`. And a registered source that was harvested but now holds no tables reports
+  `snapshot.version: "empty"` beside its real `harvested_at`; `"unharvested"` appears only
+  with `harvested_at: "never"`, so the two fields cannot disagree.
+
 ## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on

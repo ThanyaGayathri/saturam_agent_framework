@@ -39,8 +39,9 @@ ScheduleExecutor``), so the frontend (#308) does the same thing a scheduled trig
    :class:`~egpt_retail.semantic.store.SchemaOwnedByOtherSource` from inside its write
    transaction. Two data sources registered with the same ``schema`` name would otherwise
    silently prune and overwrite each other's tables -- see ``write_harvest``'s docstring for
-   why table identity does not yet include ``source_id`` (#307), and why the check cannot be
-   a separate read made beforehand.
+   why table identity does not include ``source_id`` (reads are scoped by it instead, #307,
+   so schema names must be unique across sources), and why the check cannot be a separate
+   read made beforehand.
 
 Every failure after the source is marked ``building`` -- including an unexpected error
 reading the schema or writing the graph -- moves ``harvest_state`` to a terminal state and

@@ -49,6 +49,7 @@ __all__ = [
     "COLUMN_LABEL",
     "CONCEPT_LABEL",
     "TABLE_LABEL",
+    "OPERATOR_SOURCE_ID",
     "EmptyHarvestRefused",
     "SchemaOwnedByOtherSource",
     "SemanticGraphStore",
@@ -85,11 +86,12 @@ class EmptyHarvestRefused(RuntimeError):
 class SchemaOwnedByOtherSource(RuntimeError):
     """A harvest was offered for a schema whose tables belong to a different source.
 
-    A table's identity is still ``(schema, name)`` alone (#307 is where ``source_id`` joins
-    it), so writing a second source's tables into a claimed schema would overwrite the first
-    source's rows and re-stamp their ownership. ``write_harvest`` refuses it inside its own
-    transaction. ``owner`` is the other ``source_id`` -- ``""`` when the schema holds the
-    operator's own warehouse harvest, which carries no source id.
+    A table's identity is ``(schema, name)`` alone -- ``source_id`` is a tag that scopes
+    reads (#307), not part of the key -- so writing a second source's tables into a claimed
+    schema would overwrite the first source's rows and re-stamp their ownership.
+    ``write_harvest`` refuses it inside its own transaction. ``owner`` is the other
+    ``source_id`` -- ``""`` when the schema holds the operator's own warehouse harvest, which
+    carries no source id.
     """
 
     def __init__(self, schema: str, owner: str) -> None:
@@ -102,8 +104,7 @@ class SchemaOwnedByOtherSource(RuntimeError):
                 if owner
                 else "the deployment's own warehouse harvest"
             )
-            + "; a second source cannot write into it until multi-source scoping (#307) "
-            "lands"
+            + "; schema names must be unique across data sources"
         )
 
 
@@ -124,6 +125,13 @@ def canonical_join(edge: JoinEdge) -> JoinEdge:
         on=edge.on,
         cardinality=_INVERSE_CARDINALITY.get(edge.cardinality, edge.cardinality),
     )
+
+
+#: The ``source_id`` of the operator's own warehouse -- the one nightly-refresh harvests, and
+#: what every table written before #306 carries implicitly (no ``source_id`` property at all,
+#: which every scoped read below treats as this value via ``coalesce``). No backfill exists
+#: because none is needed: the empty string is what "untagged" already means.
+OPERATOR_SOURCE_ID = ""
 
 
 def _visible(include_proposed: bool) -> str:
@@ -151,9 +159,25 @@ class SemanticGraphStore:
         driver: Any,
         database: str = "neo4j",
         proposals: Optional[ProposalStore] = None,
+        source_id: str = OPERATOR_SOURCE_ID,
     ) -> None:
         self._driver = driver
         self._database = database
+        # Which data source's tables every table-enumerating *read* below sees (#307).
+        # Defaults to the operator's warehouse, so an existing caller -- feasibility, the SQL
+        # guard's allow-list, K9's area evidence -- is unchanged by a customer's harvest
+        # landing in the same graph: a customer's ``orders`` cannot make an operator KPI
+        # look ready, nor turn a bare ``orders`` lookup ambiguous. Writes are not scoped by
+        # this; ``write_harvest`` takes its own ``source_id``.
+        #
+        # What this does *not* scope: the concept side of the graph. ``SemanticConcept``
+        # nodes are the shared K3 ontology and carry no ``source_id``, so ``list_concepts``,
+        # ``get_concept`` and ``list_business_areas`` answer the same for every scope, and
+        # ``authoritative_source`` follows a concept's edge to whichever table it names
+        # without checking that table's scope. Nothing routes a source-scoped reader through
+        # them today; whoever extends ``build_source_read_guard``'s seam to customer
+        # connections must not assume this class's whole read surface is isolated.
+        self._source_id = source_id
         # Where ``include_proposed=True`` reads from. Proposals live in Postgres (K7), never
         # in the graph, so without this the flag is a no-op on the real store -- the contract
         # promises pending rows with ``status='proposed'`` and the store would silently return
@@ -189,9 +213,11 @@ class SemanticGraphStore:
         """
         rows = session.run(
             f"MATCH (t:{TABLE_LABEL}) "
-            "WHERE (t.schema + '.' + t.name) = $name OR t.name = $name "
+            "WHERE ((t.schema + '.' + t.name) = $name OR t.name = $name) "
+            "AND coalesce(t.source_id, '') = $source_id "
             "RETURN t.schema AS schema, t.name AS name ORDER BY t.schema",
             name=name,
+            source_id=self._source_id,
         ).data()
         if not rows:
             return None
@@ -211,14 +237,16 @@ class SemanticGraphStore:
 
         ``source_id`` (#306) tags every written table with which registered data source
         produced it -- ``""`` (the default) for the operator's own nightly-refresh harvest,
-        unchanged from before this parameter existed. **Additive tagging only, not yet part
-        of a table's identity**: node uniqueness is still ``(schema, name)`` alone (#307 is
-        where that becomes a real multi-source key, with the migration a change like that
-        needs). Until then, two sources sharing one ``schema`` name would silently overwrite
-        each other's tables here -- so the write itself refuses, raising
+        unchanged from before this parameter existed. **A tag, not part of a table's
+        identity**: node uniqueness is still ``(schema, name)`` alone, and #307 deliberately
+        left it there -- it scopes *reads* by this tag (see ``SemanticGraphStore.__init__``'s
+        ``source_id``) rather than rekeying every ``MERGE`` and edge lookup in this class.
+        The cost is that two sources sharing one ``schema`` name would silently overwrite
+        each other's tables here, so the write itself refuses, raising
         :class:`SchemaOwnedByOtherSource`, when ``schema`` already holds tables of a different
         source (the operator's own harvest counts as one, with ``source_id=""``). The check
-        runs inside the write transaction; see :meth:`_write_harvest_tx`.
+        runs inside the write transaction; see :meth:`_write_harvest_tx`. Schema names are
+        therefore unique across the operator's warehouse and every registered source.
 
         **Upserts and prunes; never wipes.** Tables and columns are merged by identity and
         the ones the harvest no longer has are removed. The first version of this method did
@@ -865,9 +893,11 @@ class SemanticGraphStore:
                 MATCH (t:{TABLE_LABEL})-[:INSTANTIATES]->(c:{CONCEPT_LABEL})
                 WHERE coalesce(c.status, 'accepted') = 'accepted'
                   AND coalesce(t.status, 'accepted') = 'accepted'
+                  AND coalesce(t.source_id, '') = $source_id
                 RETURN c.name AS concept, t.schema + '.' + t.name AS table
                 ORDER BY concept, table
-                """
+                """,
+                source_id=self._source_id,
             ).data()
         mapped: Dict[str, List[str]] = {}
         for row in rows:
@@ -894,8 +924,10 @@ class SemanticGraphStore:
                 MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
                 WHERE coalesce(t.status, 'accepted') = 'accepted'
                   AND coalesce(c.status, 'accepted') = 'accepted'
+                  AND coalesce(t.source_id, '') = $source_id
                 RETURN t.schema + '.' + t.name AS table, collect(c.name) AS columns
-                """
+                """,
+                source_id=self._source_id,
             ).data()
         return {row["table"]: sorted(row["columns"]) for row in rows}
 
@@ -921,8 +953,10 @@ class SemanticGraphStore:
                 f"""
                 MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
                 WHERE c.joinable = false AND c.meaning IS NOT NULL
+                  AND coalesce(t.source_id, '') = $source_id
                 RETURN c.name AS column, collect(DISTINCT t.name) AS tables
-                """
+                """,
+                source_id=self._source_id,
             ).data()
         ruled_out: set = set()
         for row in rows:
@@ -961,10 +995,12 @@ class SemanticGraphStore:
                 WHERE c.business_area IS NOT NULL
                   AND coalesce(c.status, 'accepted') = 'accepted'
                   AND coalesce(t.status, 'accepted') = 'accepted'
+                  AND coalesce(t.source_id, '') = $source_id
                 RETURN c.business_area AS area, c.name AS concept,
                        t.schema + '.' + t.name AS table
                 ORDER BY area, concept, table
-                """
+                """,
+                source_id=self._source_id,
             ).data()
         evidence: Dict[str, Dict[str, List[str]]] = {}
         for row in rows:
@@ -1020,12 +1056,35 @@ class SemanticGraphStore:
         """Async variant."""
         return await asyncio.to_thread(self.snapshot)
 
+    def source_snapshot_version(self) -> Optional[str]:
+        """The newest snapshot version any of this scope's tables was written at, or ``None``
+        when the scope holds no tables.
+
+        What stands in for :meth:`snapshot` when this store is scoped to a self-serve source
+        (#307): the graph's one ``SemanticSnapshot`` node is the *operator's* last-harvest
+        pointer and a source's harvest deliberately never writes it (``write_harvest``), so a
+        source's own version can only be read back off the tables it tagged.
+        """
+        with self._driver.session(database=self._database) as session:
+            record = session.run(
+                f"MATCH (t:{TABLE_LABEL}) WHERE coalesce(t.source_id, '') = $source_id "
+                "RETURN max(t.snapshot_version) AS v",
+                source_id=self._source_id,
+            ).single()
+        return record["v"] if record and record["v"] else None
+
+    async def asource_snapshot_version(self) -> Optional[str]:
+        """Async variant."""
+        return await asyncio.to_thread(self.source_snapshot_version)
+
     def list_tables(self, *, include_proposed: bool = False) -> Tuple[TableRef, ...]:
         with self._driver.session(database=self._database) as session:
             result = session.run(
                 f"MATCH (n:{TABLE_LABEL}) WHERE true{_visible(include_proposed)} "
+                "AND coalesce(n.source_id, '') = $source_id "
                 "RETURN n.schema AS schema, n.name AS name, n.row_count AS row_count "
-                "ORDER BY n.name"
+                "ORDER BY n.name",
+                source_id=self._source_id,
             )
             return tuple(
                 TableRef(name=r["name"], schema=r["schema"], row_count=r["row_count"])
@@ -1209,6 +1268,13 @@ class SemanticGraphStore:
         ``None`` means "there is no path" and is a real answer. An endpoint the layer does not
         expose raises instead: "no path from a table I have never heard of" would report a typo
         as a fact about the data.
+
+        Scoped end to end, not only at the endpoints: every table on the path, intermediate
+        hops included, must belong to this store's ``source_id``. ``write_join`` already
+        resolves both ends through the scoped ``_resolve_table``, so today a ``JOINS_TO`` edge
+        cannot join two scopes -- but that invariant lives in the write path, and a read that
+        relied on it alone would turn a future write-side slip into a cross-source leak of a
+        foreign table's name. A path that exists only by crossing scopes is no path here.
         """
         with self._driver.session(database=self._database) as session:
             ends = []
@@ -1216,7 +1282,10 @@ class SemanticGraphStore:
                 resolved = self._resolve_table(session, endpoint)
                 if resolved is None:
                     known = session.run(
-                        f"MATCH (t:{TABLE_LABEL}) RETURN t.name AS name ORDER BY name"
+                        f"MATCH (t:{TABLE_LABEL}) "
+                        "WHERE coalesce(t.source_id, '') = $source_id "
+                        "RETURN t.name AS name ORDER BY name",
+                        source_id=self._source_id,
                     )
                     raise SemanticReadError(
                         f"find_join_path: {endpoint!r} is not a table the semantic layer "
@@ -1231,6 +1300,7 @@ class SemanticGraphStore:
                 MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $left}}),
                       (b:{TABLE_LABEL} {{schema: $rs, name: $right}})
                 MATCH path = shortestPath((a)-[:JOINS_TO*..6]-(b))
+                WHERE all(n IN nodes(path) WHERE coalesce(n.source_id, '') = $source_id)
                 RETURN [r IN relationships(path) |
                         {{on: r.on, cardinality: r.cardinality,
                           left: startNode(r).name, right: endNode(r).name}}] AS hops
@@ -1239,6 +1309,7 @@ class SemanticGraphStore:
                 left=left,
                 rs=rs,
                 right=right,
+                source_id=self._source_id,
             ).single()
         if record is None:
             return None
@@ -1263,7 +1334,14 @@ class SemanticGraphStore:
         return await asyncio.to_thread(self.find_join_path, from_table, to_table)
 
     def authoritative_source(self, concept: str) -> Optional[AuthoritativeSource]:
-        """Which table answers for this concept, or ``None`` if nobody has decided (G20)."""
+        """Which table answers for this concept, or ``None`` if nobody has decided (G20).
+
+        **Not scoped by ``source_id``**, unlike the table-enumerating reads. A concept belongs
+        to the shared ontology, not to a data source, and the edge is followed without a check
+        on the table's scope, so the answer can name a table the store's own scope cannot
+        otherwise see. No source-scoped reader calls this today; a caller that adds one must
+        filter on the returned table itself.
+        """
         with self._driver.session(database=self._database) as session:
             record = session.run(
                 f"""

@@ -44,7 +44,21 @@
     x-egpt-scopes: [semantic:read]
     parameters:
       - $ref: '#/x-egpt-parameters/includeProposed'
+      - name: source_id
+        in: query
+        required: false
+        schema: {type: string}
+        description: "A registered data source's id (`InternalSource.id`, `GET /configure/sources`). Absent means the deployment's own warehouse -- the default, and what this operation returned before sources could be registered. A source's tables never appear in the default listing, and the default listing's tables never appear under a source, so a customer's `orders` cannot make an operator KPI look ready. `snapshot` then describes that source's own harvest (its newest table snapshot version, its last harvest time, its name) rather than the deployment's."
     responses:
+      "404":
+        description: "`source_id` names no registered data source."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No such source: 'ds_missing'.", code: not_found}
       "200":
         description: Table references.
         content:
