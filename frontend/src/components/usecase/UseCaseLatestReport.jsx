@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Download, ExternalLink, FileText, ShieldCheck, ShieldAlert, X } from "lucide-react";
 import { listUseCaseRuns, listUseCases } from "../../services/use-cases-api";
@@ -70,16 +71,19 @@ function NextBestActions({ recommendations }) {
  );
 }
 
-/** The report itself -- the same document the email carries -- in a dialog on request,
- *  with a print-to-PDF: the report opens in its own window and the browser's print
- *  dialog offers "Save as PDF". */
-function ReportDialog({ report }) {
+/** The report itself -- the same document the email carries -- in a drawer from the
+ *  right, the dashboard still in view behind it; Esc or the backdrop closes it. Download
+ *  as PDF opens the report in its own window and the browser's print dialog offers
+ *  "Save as PDF". */
+function ReportDrawer({ report, runHref }) {
  const [open, setOpen] = useState(false);
  useEffect(() => {
   if (!open) return undefined;
   const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
   window.addEventListener("keydown", onKey);
-  return () => window.removeEventListener("keydown", onKey);
+  const previous = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = previous; };
  }, [open]);
  if (!report?.html) return null;
  const download = () => {
@@ -92,19 +96,25 @@ function ReportDialog({ report }) {
  return (
   <>
    <button type="button" onClick={() => setOpen(true)} className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><FileText size={12} /> View the report</button>
-   {open && (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)} role="dialog" aria-modal="true" aria-label={report.title}>
-     <div className="flex h-[90vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
+   {open && createPortal(
+    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label={report.title}>
+     <div className="absolute inset-0 bg-black/30" onClick={() => setOpen(false)} />
+     <aside className="absolute inset-y-0 right-0 flex w-full max-w-[820px] flex-col border-l border-border bg-surface shadow-2xl">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-       <p className="truncate text-sm font-semibold text-text-primary">{report.title}</p>
-       <div className="flex items-center gap-2">
+       <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">The report · as sent</p>
+        <p className="truncate text-sm font-semibold text-text-primary">{report.title}</p>
+       </div>
+       <div className="flex shrink-0 items-center gap-2">
         <button type="button" onClick={download} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"><Download size={12} /> Download as PDF</button>
+        {runHref && <a href={runHref} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary">Open the run <ExternalLink size={11} /></a>}
         <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-md border border-border px-2 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><X size={12} /></button>
        </div>
       </div>
       <iframe title={report.title} srcDoc={report.html} sandbox="" className="h-full w-full flex-1 bg-[#f9fafb]" />
-     </div>
-    </div>
+     </aside>
+    </div>,
+    document.body,
    )}
   </>
  );
@@ -148,7 +158,7 @@ export default function UseCaseLatestReport({ title }) {
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
    {risk && <NextBestActions recommendations={report.recommendations} />}
-   {risk && <ReportDialog report={report} />}
+   {risk && <ReportDrawer report={report} runHref={`/use-cases/platform/${encodeURIComponent(useCase.id)}`} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>
    </div>
   </section>
