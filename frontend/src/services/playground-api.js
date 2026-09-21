@@ -18,7 +18,7 @@
  * model a vocabulary it can only fill by inventing.
  */
 
-import { apiForm, apiGet } from "../lib/api.js";
+import { apiGet, apiMultipart } from "../lib/api.js";
 import { BLOCK_TYPES } from "../domain/answer-blocks/schema.js";
 
 const AGENT_ID = "playground";
@@ -251,7 +251,7 @@ export async function askPlayground(
   form.append("stream", "false");
   if (sessionId) form.append("session_id", sessionId);
 
-  const run = await apiForm(`/agents/${AGENT_ID}/runs`, "POST", form, { signal });
+  const run = await apiMultipart(`/agents/${AGENT_ID}/runs`, "POST", form, { signal });
 
   // A refused mode still returns 200 with an empty answer and the reason in `notes` --
   // `resolve_mode_scope` declines before an agent is built, which is a refusal rather than a
