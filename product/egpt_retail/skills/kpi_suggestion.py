@@ -39,13 +39,20 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from egpt_retail.api.models import (
+    ColumnUsage,
+    ColumnUsageRole,
     Confidence,
     Feasibility,
     FeasibilityVerdict,
+    FormulaExplanation,
     KpiSuggestion,
     ResultShape,
     SkillRef,
+    TableRole,
+    TableUsage,
 )
+from egpt_retail.contracts.kpi import ColumnUsage as ContractColumnUsage
+from egpt_retail.contracts.kpi import ColumnUsageRole as ContractColumnUsageRole
 from egpt_retail.contracts.kpi import (
     KpiDefinition,
     KpiParameter,
@@ -54,6 +61,8 @@ from egpt_retail.contracts.kpi import (
     assess_feasibility_with_joins,
 )
 from egpt_retail.contracts.kpi import ResultShape as ContractResultShape
+from egpt_retail.contracts.kpi import TableRole as ContractTableRole
+from egpt_retail.contracts.kpi import TableUsage as ContractTableUsage
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 
 if TYPE_CHECKING:
@@ -63,8 +72,13 @@ __all__ = [
     "PROMPT_PATH",
     "SKILL",
     "AssemblyReport",
+    "ColumnUsageDraft",
+    "ColumnUsageRoleDraft",
+    "FormulaExplanationDraft",
     "KpiSuggestionDraft",
     "KpiSuggestionDraftSet",
+    "TableRoleDraft",
+    "TableUsageDraft",
     "aassemble",
     "arender_prompt",
     "assemble",
@@ -100,6 +114,116 @@ class DraftResultShape(str, Enum):
 
     SCALAR = "scalar"
     ROWSET = "rowset"
+
+
+class FormulaExplanationDraft(BaseModel):
+    """A human-readable rendering of ``proposed_sql``, for the discovery panel's FORMULA card.
+
+    Mirrors the contract's ``FormulaExplanation`` field for field -- kept as the agent's own
+    type rather than importing the contract one so a provider's strict-structured-output mode
+    only ever sees fields this schema actually declares (the same reasoning ``DraftConfidence``/
+    ``DraftResultShape`` give for mirroring rather than importing their contract enums).
+
+    ``extra="forbid"`` for the same reason as ``KpiSuggestionDraft``'s own: a model asked for
+    two short labels should not be able to smuggle a third field past validation unnoticed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expression_before: str = Field(
+        description=(
+            "Everything in the formula's expression before the ratio, in plain notation -- "
+            'e.g. "value = ROUND( 100 x" -- or the whole expression when there is no ratio, '
+            'e.g. "value = COUNT(*)".'
+        )
+    )
+    numerator_label: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-English description of the ratio's numerator, e.g. \"count of buy "
+            'inquiries with converted_to_quote = true". Null when the formula has no ratio '
+            "-- a plain count or sum, nothing divided."
+        ),
+    )
+    denominator_label: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-English description of the ratio's denominator. Null in exactly the same "
+            "cases as numerator_label -- both set, or both null, never one alone."
+        ),
+    )
+    expression_after: str = Field(
+        default="",
+        description=(
+            'Everything in the expression after the ratio, e.g. ", 1 )". Empty when there is '
+            "no ratio."
+        ),
+    )
+    condition_label: Optional[str] = Field(
+        default=None,
+        description=(
+            'A short, plain-English "where ..." sentence describing the formula\'s filter or '
+            'window, e.g. \'where buy inquiry = chat_type contains "buy" and as_of - 28 < '
+            "chat_date <= as_of'. Null when there's nothing beyond the ratio itself worth "
+            "naming."
+        ),
+    )
+
+
+class ColumnUsageRoleDraft(str, Enum):
+    """What one column contributes to the formula. Mirrors the contract's `ColumnUsageRole`."""
+
+    WINDOW = "window"
+    FILTER = "filter"
+    MEASURE = "measure"
+    DIMENSION = "dimension"
+    JOIN_KEY = "join_key"
+
+
+class ColumnUsageDraft(BaseModel):
+    """One column the formula reads, and why -- "the columns it uses". Mirrors the contract's
+    `ColumnUsage` field for field, kept as the agent's own type for the same reason
+    `FormulaExplanationDraft` is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table: str = Field(
+        description="As the harvest names it -- must be one of derived_from_tables."
+    )
+    column: str = Field(description="As the harvest names it, under that table.")
+    used_as: ColumnUsageRoleDraft
+    why: str = Field(
+        default="",
+        description=(
+            "One line: why this column and not a sibling that could plausibly mean the same "
+            'thing, e.g. "Two time columns; the month cannot cut a 28-day window."'
+        ),
+    )
+
+
+class TableRoleDraft(str, Enum):
+    """How the formula uses one of its `derived_from_tables`. Mirrors the contract's
+    `TableRole`."""
+
+    FACT = "fact"
+    LOOKUP = "lookup"
+
+
+class TableUsageDraft(BaseModel):
+    """How the formula uses one source table. Mirrors the contract's `TableUsage`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table: str = Field(description="Must be one of derived_from_tables.")
+    role: TableRoleDraft
+    join_note: str = Field(
+        default="",
+        description=(
+            'One line naming what the join confirms or looks up, e.g. "Joined on '
+            'linked_quote_id -> quote_id to confirm the quote exists". Empty for the fact '
+            "table, which is read but not joined to anything."
+        ),
+    )
 
 
 class KpiSuggestionDraft(BaseModel):
@@ -158,6 +282,29 @@ class KpiSuggestionDraft(BaseModel):
         description=(
             "The formula, if you can write one that reads only the tables above. Null "
             "rather than a guess."
+        ),
+    )
+    formula_explanation: Optional[FormulaExplanationDraft] = Field(
+        default=None,
+        description=(
+            "A human-readable rendering of proposed_sql, so a person can understand the "
+            "formula without parsing SQL. Null when proposed_sql is null -- there is nothing "
+            "to explain yet."
+        ),
+    )
+    column_usage: List[ColumnUsageDraft] = Field(
+        default_factory=list,
+        description=(
+            'Every column proposed_sql actually reads, and why -- "the columns it uses". '
+            "Empty when proposed_sql is null."
+        ),
+    )
+    table_usage: List[TableUsageDraft] = Field(
+        default_factory=list,
+        description=(
+            "How proposed_sql uses each of derived_from_tables -- the fact table it counts "
+            "over, or a table it only joins to look something up. Empty when proposed_sql is "
+            "null."
         ),
     )
     catalogue_source: Optional[str] = Field(
@@ -267,6 +414,17 @@ class AssemblyReport(BaseModel):
                     else []
                 ),
                 "rationale": suggestion.rationale,
+                "formula_explanation": (
+                    suggestion.formula_explanation.model_dump()
+                    if suggestion.formula_explanation
+                    else None
+                ),
+                "column_usage": [
+                    cu.model_dump(mode="json") for cu in (suggestion.column_usage or [])
+                ],
+                "table_usage": [
+                    tu.model_dump(mode="json") for tu in (suggestion.table_usage or [])
+                ],
             }
             proposals.append(
                 Proposal(
@@ -291,12 +449,63 @@ def _bare(table: str) -> str:
     return table.strip().split(".")[-1].lower()
 
 
+def _formula_explanation_out(
+    draft: Optional[FormulaExplanationDraft],
+) -> Optional[FormulaExplanation]:
+    """The draft's own explanation, as the contract's type -- field-for-field identical, kept
+    as two classes for the same reason ``FormulaExplanationDraft``'s own docstring gives for
+    mirroring rather than importing the contract type."""
+    if draft is None:
+        return None
+    return FormulaExplanation(
+        expression_before=draft.expression_before,
+        numerator_label=draft.numerator_label,
+        denominator_label=draft.denominator_label,
+        expression_after=draft.expression_after,
+        condition_label=draft.condition_label,
+    )
+
+
+def _column_usage_out(drafts: List[ColumnUsageDraft]) -> List[ColumnUsage]:
+    """Each draft's own column usage, as the contract's type -- same mirroring reasoning as
+    :func:`_formula_explanation_out`. ``table`` goes through :func:`_bare` the same way
+    ``derived_from_tables`` does: the agent sees tables qualified (``silver.crm_deal``), and
+    the contract's own drift guard compares against ``source_tables``, which is always bare."""
+    return [
+        ColumnUsage(
+            table=_bare(d.table),
+            column=d.column,
+            used_as=ColumnUsageRole(d.used_as.value),
+            why=d.why,
+            # Read-only enrichment the router fills in from the semantic layer at `GET
+            # /kpis/{kpi_id}` time (`ColumnUsage.definition`'s own docstring) -- the agent has
+            # no such field to draw from, so this is always empty on assembly.
+            definition="",
+        )
+        for d in drafts
+    ]
+
+
+def _table_usage_out(drafts: List[TableUsageDraft]) -> List[TableUsage]:
+    """Each draft's own table usage, as the contract's type -- same mirroring reasoning as
+    :func:`_formula_explanation_out`, and the same :func:`_bare` treatment as
+    :func:`_column_usage_out`."""
+    return [
+        TableUsage(
+            table=_bare(d.table), role=TableRole(d.role.value), join_note=d.join_note
+        )
+        for d in drafts
+    ]
+
+
 def _looks_like_a_definition(draft: KpiSuggestionDraft) -> KpiDefinition:
     """The draft as a ``KpiDefinition``, so its own construction rules apply.
 
     ``KpiDefinition`` refuses a formula that reads a table ``source_tables`` does not list,
     which is exactly the drift that makes a feasibility verdict lie. Running the draft through
-    it means a suggestion whose SQL and tables disagree is caught here rather than at adoption.
+    it means a suggestion whose SQL and tables disagree is caught here rather than at adoption
+    -- and the same check now also catches a ``column_usage``/``table_usage`` entry naming a
+    table ``derived_from_tables`` does not list, before it ever reaches the wire.
     """
     tables = sorted({_bare(table) for table in draft.derived_from_tables})
     sql = draft.proposed_sql or f"SELECT 1 FROM {tables[0]}"
@@ -316,6 +525,23 @@ def _looks_like_a_definition(draft: KpiSuggestionDraft) -> KpiDefinition:
         result_shape=ContractResultShape(draft.result_shape.value),
         parameters=parameters,
         concept=draft.concept,
+        column_usage=tuple(
+            ContractColumnUsage(
+                table=_bare(cu.table),
+                column=cu.column,
+                used_as=ContractColumnUsageRole(cu.used_as.value),
+                why=cu.why,
+            )
+            for cu in draft.column_usage
+        ),
+        table_usage=tuple(
+            ContractTableUsage(
+                table=_bare(tu.table),
+                role=ContractTableRole(tu.role.value),
+                join_note=tu.join_note,
+            )
+            for tu in draft.table_usage
+        ),
     )
 
 
@@ -420,6 +646,9 @@ def assemble(
                 ),
                 confidence=Confidence(draft.confidence.value),
                 proposed_sql=draft.proposed_sql,
+                formula_explanation=_formula_explanation_out(draft.formula_explanation),
+                column_usage=_column_usage_out(draft.column_usage),
+                table_usage=_table_usage_out(draft.table_usage),
                 feasibility=Feasibility(
                     kpi_id=identifier,
                     verdict=FeasibilityVerdict(verdict.verdict.value),

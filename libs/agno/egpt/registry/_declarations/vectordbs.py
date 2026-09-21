@@ -28,6 +28,9 @@ backend has a row, and so DB-defined-agent hydration (decision D2) has the seam 
 from egpt.registry.discovery import SOURCE_BUILTIN, register
 
 _ROWS = {
+    # AZ-C: the knowledge-side (K2) Azure AI Search backend, keyed on its package directory like
+    # every other row. Its memory-side twin is the ``vectorstore`` kind's row of the same name.
+    "azure_ai_search": ("egpt.integrations.vectordb.azure_ai_search", "AzureAISearch"),
     "cassandra": ("egpt.integrations.vectordb.cassandra", "Cassandra"),
     "chroma": ("egpt.integrations.vectordb.chroma", "ChromaDb"),
     "clickhouse": ("egpt.integrations.vectordb.clickhouse", "Clickhouse"),

@@ -13,6 +13,10 @@ secrets:
 auth:
   enabled: true
   audience: "api://egpt-retail"
+memory:
+  backend: pgvector                      # no Azure AI Search on kind; the chart default refuses without one
+knowledge:
+  backend: pgvector                      # same: K2 prose stays in the control-plane Postgres on kind
 api:
   replicas: 2                            # the pod-kill scenario needs a second replica to serve through
   resources:

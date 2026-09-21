@@ -10,8 +10,17 @@
 import { apiGet, apiJson } from "../lib/api";
 
 /** `GET /kpis` - every registered KPI, each with real `feasibility` and `identifier`. */
-export function fetchKpiList() {
-  return apiGet("/kpis");
+export function fetchKpiList({ signal } = {}) {
+  return apiGet("/kpis", { signal });
+}
+
+/** `GET /kpis/{kpi_id}` - one KPI, resolved by `identifier` despite the path segment's name
+ * (same as `fetchKpiSeries`/`computeKpi`/`updateKpi`/`deleteKpi` below). Includes `grain`,
+ * which `fetchKpiList` also carries per row but which nothing needs fetched singly until the
+ * chart editor (`ChartEditorPanel.jsx`) started reading it to tell an "overall"-grain KPI
+ * (always exactly one row, no breakdown to table) from a per-dimension one. */
+export function fetchKpi(identifier, { signal } = {}) {
+  return apiGet(`/kpis/${encodeURIComponent(identifier)}`, { signal });
 }
 
 /** `POST /kpis/suggestions` - start a run of the `kpi_suggestion` agent over the current
@@ -88,15 +97,18 @@ export function fetchKpiSeries(identifier, { days = 30, dimension, signal } = {}
   return apiGet(`/kpis/${encodeURIComponent(identifier)}/series?${query}`, { signal });
 }
 
-/** `POST /kpis/{kpi_id}/compute` - materialise this KPI for today, now: the nightly gold pass
- * narrowed to one KPI, so a just-adopted KPI has a value before its first night. Resolves to a
+/** `POST /kpis/{kpi_id}/compute` - materialise this KPI for today, now (or for `asOf`, a past
+ * business date, e.g. "YYYY-MM-DD" - the detail panel's "Re-run for another date"): the nightly
+ * gold pass narrowed to one KPI and one date, so a just-adopted KPI has a value before its
+ * first night, or a specific past night can be recomputed/backfilled on demand. Resolves to a
  * `KpiComputeResult` `{kpi_identifier, as_of, status: "materialised"|"failed"|"skipped",
  * rows_written, run_id, error, reason}` - a formula that fails is a 200 with `status:
  * "failed"` and `error`, not a rejected promise. 409 when the KPI is not `ready`; 503 when
  * gold itself refuses to run (the warehouse's last load did not pass, or a load is in
  * progress). Takes a few seconds: one guarded statement against the warehouse. */
-export function computeKpi(identifier, { signal } = {}) {
-  return apiJson(`/kpis/${encodeURIComponent(identifier)}/compute`, "POST", {}, { signal });
+export function computeKpi(identifier, { asOf, signal } = {}) {
+  const query = asOf ? `?as_of=${encodeURIComponent(asOf)}` : "";
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}/compute${query}`, "POST", {}, { signal });
 }
 
 /** `DELETE /kpis/{identifier}` - remove a registered KPI (the reverse of `createKpi`). Resolves

@@ -100,15 +100,20 @@ from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
+    ColumnUsage,
+    ColumnUsageRole,
     Dialect,
     Feasibility,
     FeasibilityVerdict,
+    FormulaExplanation,
     KpiDefinition,
     KpiLevel,
     KpiOrigin,
     KpiParameter,
     ParameterKind,
     ResultShape,
+    TableRole,
+    TableUsage,
     TimeWindow,
     TimeWindowUnit,
     kpi_identifier,
@@ -126,6 +131,7 @@ from egpt_retail.suggestions.runs import (
     SuggestionRunStore,
 )
 from egpt_retail.warehouse.health import akpi_health
+from egpt_retail.warehouse.lineage import asource_table_status, source_category_for
 
 __all__ = ["router"]
 
@@ -236,6 +242,65 @@ def _time_window_from_write(window: wire.TimeWindow) -> TimeWindow:
     return TimeWindow(length=window.length, unit=TimeWindowUnit(window.unit.value))
 
 
+def _formula_explanation_out(
+    explanation: FormulaExplanation,
+) -> wire.FormulaExplanation:
+    return wire.FormulaExplanation(
+        expression_before=explanation.expression_before,
+        numerator_label=explanation.numerator_label,
+        denominator_label=explanation.denominator_label,
+        expression_after=explanation.expression_after,
+        condition_label=explanation.condition_label,
+    )
+
+
+def _formula_explanation_from_write(
+    explanation: wire.FormulaExplanation,
+) -> FormulaExplanation:
+    return FormulaExplanation(
+        expression_before=explanation.expression_before,
+        numerator_label=explanation.numerator_label,
+        denominator_label=explanation.denominator_label,
+        expression_after=explanation.expression_after or "",
+        condition_label=explanation.condition_label,
+    )
+
+
+def _column_usage_out(usage: ColumnUsage, *, definition: str = "") -> wire.ColumnUsage:
+    return wire.ColumnUsage(
+        table=usage.table,
+        column=usage.column,
+        used_as=wire.ColumnUsageRole(usage.used_as.value),
+        why=usage.why,
+        definition=definition,
+    )
+
+
+def _column_usage_from_write(usage: wire.ColumnUsage) -> ColumnUsage:
+    return ColumnUsage(
+        table=usage.table,
+        column=usage.column,
+        used_as=ColumnUsageRole(usage.used_as.value),
+        why=usage.why or "",
+    )
+
+
+def _table_usage_out(usage: TableUsage) -> wire.TableUsage:
+    return wire.TableUsage(
+        table=usage.table,
+        role=wire.TableRole(usage.role.value),
+        join_note=usage.join_note,
+    )
+
+
+def _table_usage_from_write(usage: wire.TableUsage) -> TableUsage:
+    return TableUsage(
+        table=usage.table,
+        role=TableRole(usage.role.value),
+        join_note=usage.join_note or "",
+    )
+
+
 def _feasibility_out(
     feasibility: Feasibility, snapshot_version: str
 ) -> wire.Feasibility:
@@ -248,9 +313,71 @@ def _feasibility_out(
     )
 
 
+def _merged_source_table_status(
+    kpi: KpiDefinition,
+    *,
+    include_sql: bool,
+    load_status: Sequence[Mapping[str, Any]] = (),
+    semantic_details: Sequence[Mapping[str, Any]] = (),
+) -> list[Dict[str, Any]]:
+    """One row per ``kpi.source_tables``, "the data it reads"'s per-table detail -- merging
+    three independent, best-effort reads that each cover a different subset of tables (a table
+    can have no load yet, or the semantic layer can be unreachable, without losing the other
+    two): ``load_status`` (warehouse load history, keyed by table), ``semantic_details``
+    (the table's own description/concepts/source category, keyed by table), and ``kpi``'s own
+    ``table_usage`` (this KPI's fact/lookup role and join note for the table). Iterates
+    ``kpi.source_tables`` rather than any one input, so a table present in none of them still
+    gets a row -- naming what this KPI reads is the one fact that's always available.
+
+    ``role``/``join_note``/``unused_columns`` are gated behind ``include_sql`` the same way
+    ``sql`` itself is: null/empty for a ``kpis:read``-only caller regardless of what the KPI
+    has recorded, since a join note or an unused-column list can name the same schema detail
+    ``sql`` does.
+    """
+    load_by_table = {row["table"]: row for row in load_status}
+    semantic_by_table = {row["table"]: row for row in semantic_details}
+    usage_by_table = {usage.table: usage for usage in kpi.table_usage}
+    rows: list[Dict[str, Any]] = []
+    for table in sorted(kpi.source_tables):
+        load = load_by_table.get(table, {})
+        semantic = semantic_by_table.get(table, {})
+        usage = usage_by_table.get(table) if include_sql else None
+        rows.append(
+            {
+                "table": table,
+                "loaded_at": load.get("loaded_at"),
+                "row_count": load.get("row_count"),
+                "load_verdict": load.get("load_verdict"),
+                "description": semantic.get("description", ""),
+                "concepts": semantic.get("concepts", []),
+                "source_category": semantic.get("source_category"),
+                "role": wire.TableRole(usage.role.value) if usage else None,
+                "join_note": usage.join_note if usage else None,
+                "unused_columns": (
+                    semantic.get("unused_columns", []) if include_sql else []
+                ),
+            }
+        )
+    return rows
+
+
 def _kpi_out(
-    kpi: KpiDefinition, feasibility: wire.Feasibility, *, include_sql: bool
+    kpi: KpiDefinition,
+    feasibility: wire.Feasibility,
+    *,
+    include_sql: bool,
+    dashboard_names: Sequence[str] = (),
+    load_status: Sequence[Mapping[str, Any]] = (),
+    semantic_details: Sequence[Mapping[str, Any]] = (),
 ) -> wire.Kpi:
+    # `(table, column) -> Column.description`, from `semantic_details`' own per-table
+    # `column_definitions` map -- "the columns it uses" table's DEFINITION cell. Built once
+    # here rather than per `ColumnUsage` entry in `_column_usage_out` below.
+    column_definitions = {
+        (row["table"], column): text
+        for row in semantic_details
+        for column, text in row.get("column_definitions", {}).items()
+    }
     return wire.Kpi(
         id=kpi.identifier,
         identifier=kpi.identifier,
@@ -263,6 +390,21 @@ def _kpi_out(
         result_shape=wire.ResultShape(kpi.result_shape.value),
         dialect=wire.Dialect(kpi.dialect.value),
         sql=kpi.sql if include_sql else None,
+        formula_explanation=(
+            _formula_explanation_out(kpi.formula_explanation)
+            if include_sql and kpi.formula_explanation
+            else None
+        ),
+        column_usage=(
+            [
+                _column_usage_out(
+                    cu, definition=column_definitions.get((cu.table, cu.column), "")
+                )
+                for cu in kpi.column_usage
+            ]
+            if include_sql
+            else []
+        ),
         source_tables=sorted(kpi.source_tables),
         parameters=[_parameter_out(p) for p in kpi.parameters],
         time_window=_time_window_out(kpi.time_window) if kpi.time_window else None,
@@ -279,6 +421,16 @@ def _kpi_out(
         # contract has no third state to tell them apart, and no consumer has needed to yet.
         dataset_ids=list(kpi.dataset_ids) or None,
         process_ids=list(kpi.process_ids) or None,
+        dashboard_names=list(dashboard_names),
+        source_table_status=[
+            wire.SourceTableStatus.model_validate(row)
+            for row in _merged_source_table_status(
+                kpi,
+                include_sql=include_sql,
+                load_status=load_status,
+                semantic_details=semantic_details,
+            )
+        ],
         feasibility=feasibility,
         updated_at=kpi.updated_at,
     )
@@ -394,6 +546,27 @@ def _kpi_from_write(
         "process_ids",
         (),
     )
+    formula_explanation = _carried(
+        _formula_explanation_from_write(write.formula_explanation)
+        if write.formula_explanation
+        else None,
+        "formula_explanation",
+        None,
+    )
+    column_usage = _carried(
+        tuple(_column_usage_from_write(cu) for cu in write.column_usage)
+        if write.column_usage is not None
+        else None,
+        "column_usage",
+        (),
+    )
+    table_usage = _carried(
+        tuple(_table_usage_from_write(tu) for tu in write.table_usage)
+        if write.table_usage is not None
+        else None,
+        "table_usage",
+        (),
+    )
 
     return KpiDefinition(
         identifier=identifier,
@@ -424,6 +597,9 @@ def _kpi_from_write(
         # to these two fields.
         rationale=_carried(write.rationale, "rationale", None),
         business_value=_carried(write.business_value, "business_value", None),
+        formula_explanation=formula_explanation,
+        column_usage=column_usage,
+        table_usage=table_usage,
         active=active,
         source=existing.source if existing is not None else KpiOrigin.CUSTOMER,
         dataset_ids=dataset_ids,
@@ -451,6 +627,9 @@ def _respond_with_kpi(
     definition: KpiDefinition,
     request: Request,
     store: KpiRegistryStore,
+    *,
+    load_status: Sequence[Mapping[str, Any]] = (),
+    semantic_details: Sequence[Mapping[str, Any]] = (),
 ) -> wire.Kpi:
     """Feasibility lookup + wire assembly, shared by ``get_kpi``, ``create_kpi`` and
     ``update_kpi`` -- factored out because the block was duplicated near-verbatim across all
@@ -464,6 +643,11 @@ def _respond_with_kpi(
     rather than ``[...]``: a concurrent delete landing in that window would otherwise raise an
     unguarded ``KeyError`` FastAPI turns into a raw 500, rather than the 404 a vanished KPI
     should produce.
+
+    ``load_status``/``semantic_details`` both default empty: only ``get_kpi`` below pays for
+    the warehouse and semantic-layer reads it takes to fill them in -- ``create_kpi``/
+    ``update_kpi`` return them empty rather than run second, redundant lookups no caller of
+    either needs from their own response.
     """
     settings = RetailSettings()
     feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
@@ -472,10 +656,16 @@ def _respond_with_kpi(
         raise HTTPException(
             status_code=404, detail=f"No KPI {definition.identifier!r}."
         )
+    dashboard_names = store.dashboard_names_by_kpi([definition.identifier]).get(
+        definition.identifier, ()
+    )
     return _kpi_out(
         definition,
         _feasibility_out(feasibility, snapshot_version),
         include_sql=_may_read_sql(request),
+        dashboard_names=dashboard_names,
+        load_status=load_status,
+        semantic_details=semantic_details,
     )
 
 
@@ -499,6 +689,9 @@ def list_kpis(
 
     settings = RetailSettings()
     feasibility_map, snapshot_version = _feasibility_map(settings, store, definitions)
+    dashboard_names_map = store.dashboard_names_by_kpi(
+        [d.identifier for d in definitions]
+    )
     include_sql = _may_read_sql(request)
     kpis = []
     for definition in definitions:
@@ -516,6 +709,7 @@ def list_kpis(
                 definition,
                 _feasibility_out(verdict, snapshot_version),
                 include_sql=include_sql,
+                dashboard_names=dashboard_names_map.get(definition.identifier, ()),
             )
         )
     return [k for k in kpis if _matches_filters(k, subject_area, active, feasibility)]
@@ -614,7 +808,17 @@ def _finalize_suggestions(
     """
     suggestions = _filter_suggestions(suggestions, business_area)
     if not include_sql:
-        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
+        suggestions = [
+            s.model_copy(
+                update={
+                    "proposed_sql": None,
+                    "formula_explanation": None,
+                    "column_usage": [],
+                    "table_usage": [],
+                }
+            )
+            for s in suggestions
+        ]
     return suggestions
 
 
@@ -919,7 +1123,14 @@ def _run_out(
             result = result.model_copy(
                 update={
                     "suggestions": [
-                        s.model_copy(update={"proposed_sql": None})
+                        s.model_copy(
+                            update={
+                                "proposed_sql": None,
+                                "formula_explanation": None,
+                                "column_usage": [],
+                                "table_usage": [],
+                            }
+                        )
                         for s in result.suggestions
                     ]
                 }
@@ -1237,17 +1448,132 @@ async def list_kpi_health(
     ]
 
 
+async def _source_table_status_for(
+    definition: KpiDefinition,
+) -> Sequence[Mapping[str, Any]]:
+    """``definition.source_tables``' load status, or ``()`` on any warehouse trouble.
+
+    Deliberately not the ``_warehouse_engine`` dependency other routes use: that one raises a
+    503 for the whole request when the warehouse isn't configured, which is right for a route
+    whose entire job is warehouse freshness (``list_kpi_health``) and wrong here -- a KPI's own
+    definition has always been readable with no warehouse at all, and this field is enrichment
+    on top of it, not a reason to start refusing the read. So every exception building or using
+    the engine is swallowed here (``source_table_status`` itself already guards its own query
+    the same way) -- an unset ``EGPT_RETAIL_WAREHOUSE_DB_URL`` (``RuntimeError``) and a set but
+    malformed one (e.g. ``sqlalchemy.exc.ArgumentError``) are both just "no enrichment today,"
+    never a 500 on a KPI's own definition.
+
+    ``async`` -- and awaits :func:`asource_table_status` rather than calling the sync
+    ``source_table_status`` directly -- so ``get_kpi`` below, an async route like every other
+    read here, never blocks the event loop on the warehouse round trip. The whole body (engine
+    construction included) is wrapped in one broad ``except`` -- ``source_table_status`` already
+    guards its own query the same way, but ``sorted(definition.source_tables)`` or the
+    ``asyncio.to_thread`` dispatch inside :func:`asource_table_status` failing outside that
+    inner guard must not turn into a 500 on a KPI's own definition either.
+    """
+    settings = RetailSettings()
+    try:
+        engine = build_warehouse_engine(settings)
+    except Exception:
+        return ()
+    try:
+        return await asource_table_status(sorted(definition.source_tables), engine)
+    except Exception:
+        return ()
+    finally:
+        engine.dispose()
+
+
+def _table_semantic_details_for(
+    definition: KpiDefinition,
+) -> Sequence[Mapping[str, Any]]:
+    """``definition.source_tables``' own description, concept tags and coarse source category
+    (``crm``/``analytics``/``session_replay``), plus -- when ``column_usage`` says which
+    columns this KPI's formula reads -- each table's remaining columns as ``unused_columns``
+    and, for the columns actually used, their own ``Column.description`` (``column_definitions``,
+    keyed by column name -- "the columns it uses" table's DEFINITION cell). ``()`` on any
+    semantic-layer trouble, the same best-effort posture :func:`_source_table_status_for`
+    already has for the warehouse: a KPI's own definition is always readable, and this is
+    enrichment on top of it, never a reason to refuse the read.
+
+    Sync, unlike :func:`_source_table_status_for` -- ``open_semantic_reader`` is a sync context
+    manager (it opens a Neo4j driver directly), so ``get_kpi`` below dispatches this whole
+    function through ``asyncio.to_thread`` rather than awaiting an async variant of it.
+    ``source_category_for`` needs no I/O at all (a fixed, in-code mapping), so it is computed
+    here regardless of whether the semantic layer itself is reachable.
+    """
+    used_by_table: Dict[str, set] = {}
+    for usage in definition.column_usage:
+        used_by_table.setdefault(usage.table, set()).add(usage.column)
+    settings = RetailSettings()
+    try:
+        with open_semantic_reader(settings) as reader:
+            rows = []
+            for table in sorted(definition.source_tables):
+                found = reader.get_table(table)
+                used = used_by_table.get(table)
+                unused = (
+                    sorted(found.column_names - used)
+                    if found is not None and used is not None
+                    else []
+                )
+                column_definitions = (
+                    {
+                        # `meaning` is the semantic layer's own reviewed definition of what
+                        # the column identifies; `description` is only the schema's raw
+                        # comment (`contracts/semantic.py`'s `Column` docstring), which most
+                        # warehouses never populate. Prefer `meaning`, fall back to
+                        # `description` for a column enrichment hasn't reached yet.
+                        column.name: column.meaning or column.description
+                        for column in found.columns
+                        if used and column.name in used
+                    }
+                    if found is not None
+                    else {}
+                )
+                rows.append(
+                    {
+                        "table": table,
+                        "description": found.description if found else "",
+                        "concepts": list(found.concepts) if found else [],
+                        "source_category": source_category_for(table),
+                        "unused_columns": unused,
+                        "column_definitions": column_definitions,
+                    }
+                )
+            return rows
+    except Exception:
+        return ()
+
+
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
-def get_kpi(
+async def get_kpi(
     kpi_id: str,
     request: Request,
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:read")),
 ):
-    definition = store.get(kpi_id)
+    """``async`` for :func:`_source_table_status_for`'s real warehouse I/O and
+    :func:`_table_semantic_details_for`'s real semantic-layer I/O -- every other call this
+    route makes (``store.get``, and ``_respond_with_kpi``'s own Neo4j/Postgres feasibility
+    lookup) is still the synchronous code every other route here already shares, so each runs
+    via ``asyncio.to_thread`` rather than blocking the event loop directly now that this
+    function is a coroutine (round-2 review: before this route was ``def``, FastAPI's own
+    threadpool dispatch covered this for free; becoming ``async def`` opted out of that).
+    """
+    definition = await asyncio.to_thread(store.get, kpi_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
-    return _respond_with_kpi(definition, request, store)
+    load_status = await _source_table_status_for(definition)
+    semantic_details = await asyncio.to_thread(_table_semantic_details_for, definition)
+    return await asyncio.to_thread(
+        _respond_with_kpi,
+        definition,
+        request,
+        store,
+        load_status=load_status,
+        semantic_details=semantic_details,
+    )
 
 
 @router.patch("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -1389,12 +1715,17 @@ async def get_kpi_series(
 @router.post("/kpis/{kpi_id}/compute", response_model=wire.KpiComputeResult)
 async def compute_kpi(
     kpi_id: str,
+    as_of: Optional[date] = Query(
+        None,
+        description="The business date to materialise for. Defaults to today (UTC) when omitted.",
+    ),
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:write")),
 ):
-    """The nightly ``materialise_gold`` pass, narrowed to this KPI and today's business date:
+    """The nightly ``materialise_gold`` pass, narrowed to this KPI and one business date:
     bound, guarded, executed and stamped exactly as the scheduled run would. What "Add to my
-    metrics" calls so a newly adopted KPI has a value before its first night.
+    metrics" calls (no ``as_of``, i.e. today) so a newly adopted KPI has a value before its
+    first night; the detail panel's "Re-run for another date" calls it with one.
 
     ``409`` when the KPI is not ``ready`` -- gold skips a blocked KPI, so running the pass
     would only report ``skipped``; saying so up front, with the feasibility rationale, is the
@@ -1416,9 +1747,16 @@ async def compute_kpi(
             detail=f"{kpi_id} is {verdict.verdict.value}: {verdict.rationale}",
         )
     run_id = f"api_{uuid.uuid4().hex[:12]}"
-    output = await materialise_gold(
-        StepInput(additional_data={"kpi_identifiers": [kpi_id], "run_id": run_id})
-    )
+    additional_data: Dict[str, Any] = {"kpi_identifiers": [kpi_id], "run_id": run_id}
+    if as_of is not None:
+        additional_data["as_of"] = as_of.isoformat()
+    try:
+        output = await materialise_gold(StepInput(additional_data=additional_data))
+    except ValueError as exc:
+        # `_as_of` (`executors/gold.py`) rejects a future or implausibly old date before gold
+        # ever touches the warehouse -- a bad `as_of` would otherwise become the KPI's own
+        # `latest_as_of()` and silently break every other viewer's default series/trend read.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     content: Mapping[str, Any] = (
         output.content if isinstance(output.content, Mapping) else {}
     )

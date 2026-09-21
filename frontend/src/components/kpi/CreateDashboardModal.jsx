@@ -20,6 +20,10 @@ function metricFromKpi(kpi) {
   description: kpi.description || "",
   businessArea: kpi.businessAreaId || kpi.business_area || "",
   sourceTables: kpi.source_tables || kpi.sourceTables || [],
+  // Threaded through so `DashboardBuilderStep.jsx` can flag an accepted AI-suggested chart
+  // whose KPI resolves to `OVERALL_GRAIN` without a second fetch per chart -- see
+  // `storage/dashboards.js`'s `tableUnavailableForChart`.
+  grain: kpi.grain || "",
  };
 }
 
@@ -38,7 +42,7 @@ function chartFromSuggestion(chart, index) {
  * silently reverted #272's fix reintroducing that skip); it only seeds `initialCharts`/
  * `purposeMetrics`, the starting point either path resets back to.
  *
- * `onCreate({ name, refresh, charts, businessAreaFilter })` is the caller's job, same split as
+ * `onCreate({ name, refresh, charts, filterColumns })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
  * calls the API (`storage/dashboards.js`'s `buildDashboardWritePayload` does the turning).
  */
@@ -71,7 +75,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  const [purposeMetrics, setPurposeMetrics] = useState(initialMetrics);
  const [extraTables, setExtraTables] = useState([]);
  const [charts, setCharts] = useState(initialCharts);
- const [businessAreaFilter, setBusinessAreaFilter] = useState(null);
+ const [filterColumns, setFilterColumns] = useState([]);
  const [aiSuggested, setAiSuggested] = useState(false);
  const [purpose, setPurpose] = useState("");
  const [contextSummary, setContextSummary] = useState(null);
@@ -100,19 +104,6 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   };
  }, []);
 
- // Includes `businessAreaFilter` itself, not just `readyKpis`' own areas: the agent validates
- // a suggested area against the deployment's full vocabulary, not against the subset actually
- // represented among currently-ready KPIs, so a valid suggestion can name an area no ready KPI
- // has yet. Without this, that value stays selected in state (and gets submitted) while the
- // <select> silently falls back to "No filter", showing the user something that isn't true.
- const businessAreaOptions = useMemo(
-  () =>
-   Array.from(
-    new Set([...readyKpis.map((k) => k.businessArea), businessAreaFilter].filter(Boolean)),
-   ).sort(),
-  [readyKpis, businessAreaFilter],
- );
-
  const suggestionRun = useDashboardSuggestionRun();
 
  const handleGenerate = ({ purpose: text, chartBudget }) => {
@@ -127,24 +118,34 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  };
 
  // Once a run succeeds, prefill the builder from it and hand control to the person - nothing
- // here is final until they click Create.
+ // here is final until they click Create. Resets `suggestionRun` right after (round-2 review:
+ // DashboardView.jsx's own copy of this consuming-effect pattern already did, and the two had
+ // drifted apart on exactly this) rather than leaving it at `ready` for the `step` change to
+ // paper over -- nothing downstream reads `suggestionRun.result` once `step` is "builder", so
+ // this is free, and it keeps both call sites doing the same thing if the hook's contract ever
+ // requires a `reset()` before a second `start()`.
  useEffect(() => {
   if (suggestionRun.status !== "ready" || !suggestionRun.result) return;
   const result = suggestionRun.result;
   setName(result.name || "");
   setCharts((result.charts || []).map(chartFromSuggestion));
-  const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
-  setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
+  // The agent never proposes filter columns (R13.1) - it has no basis to pick one on its
+  // own; the person adds them afterward in this same builder step, from the candidates its
+  // own composed `query` charts make available.
+  setFilterColumns([]);
   setContextSummary(result.context || null);
   setAiSuggested(true);
   setStep("builder");
+  suggestionRun.reset();
+  // `suggestionRun.reset` is stable; `status`/`result` are the values that matter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [suggestionRun.status, suggestionRun.result]);
 
  const submit = async () => {
   setSubmitting(true);
   setSubmitError(null);
   try {
-   await onCreate({ name, refresh, charts, businessAreaFilter });
+   await onCreate({ name, refresh, charts, filterColumns });
   } catch (err) {
    setSubmitError(err?.message || "Could not create the dashboard.");
    setSubmitting(false);
@@ -207,9 +208,8 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      refreshOptions={REFRESH_OPTIONS}
      charts={charts}
      setCharts={setCharts}
-     businessAreaFilter={businessAreaFilter}
-     setBusinessAreaFilter={setBusinessAreaFilter}
-     businessAreaOptions={businessAreaOptions}
+     filterColumns={filterColumns}
+     setFilterColumns={setFilterColumns}
      readyKpis={readyKpis}
      aiSuggested={aiSuggested}
      contextSummary={contextSummary}
@@ -224,7 +224,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
           suggestionRun.reset();
           setCharts(initialCharts);
           setName("");
-          setBusinessAreaFilter(null);
+          setFilterColumns([]);
           setContextSummary(null);
           setStep("ai-purpose");
          }
@@ -238,7 +238,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
           setPurposeMetrics(initialMetrics);
           setExtraTables([]);
           setName("");
-          setBusinessAreaFilter(null);
+          setFilterColumns([]);
           setContextSummary(null);
           setStep("mode");
          }

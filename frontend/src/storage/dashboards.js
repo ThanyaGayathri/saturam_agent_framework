@@ -61,6 +61,33 @@ export function spanForChart(kind) {
  return kind === "line" || kind === "bar" ? 2 : 1;
 }
 
+/** The vocabulary's "overall" grain (`warehouse/gold.py`'s `GRAIN_OVERALL`): a KPI defined at
+ * it has no dimension keys, so its formula always returns exactly one row -- structurally,
+ * not just for the current data. */
+export const OVERALL_GRAIN = "overall";
+
+/**
+ * Whether `chart` cannot legally render as a `table`: scoped to one row via `grain_value` (a
+ * per-dimension KPI tile pinned to one supplier/location/etc.), or always one row because its
+ * KPI is defined at `OVERALL_GRAIN`. Both collapse the same way server-side
+ * (`dashboards/data.py`'s `_resolve_row`), so the tile would silently render as a plain number
+ * with a "table" label instead of an actual table (`ChartTile.jsx`'s `tile.chart === "table"`
+ * branch falls back to the scalar `value` when `rows` comes back empty).
+ *
+ * The one guard both `ChartEditorPanel.jsx` (a single chart, opened in the editor) and the
+ * bulk create-dashboard flow (`DashboardBuilderStep.jsx`, an accepted AI suggestion that may
+ * never open the editor at all) check against, so the two can't drift the way the editor's own
+ * inline guard alone did for three review rounds. `kpiGrain`, when known, is the chart's own
+ * KPI's `grain`; unknown (`undefined`) is never treated as unsafe here -- this only flags a
+ * *known* collapse. A caller that can tell "still checking" from "positively safe" apart (the
+ * editor) is expected to fail closed on the unknown case itself.
+ */
+export function tableUnavailableForChart(chart, kpiGrain) {
+ if (!chart || chart.source === "query" || chart.chart !== "table") return false;
+ if (chart.grain_value != null) return true;
+ return kpiGrain === OVERALL_GRAIN;
+}
+
 /**
  * Default chart kind for a metric, from its unit. A percentage or a ratio reads as a number
  * with a trend; a currency total is worth a bar when it splits by something. Getting this roughly
@@ -148,12 +175,11 @@ export function tilesToWrite(tiles) {
  * The `DashboardWrite` body for the create-dashboard flow. The manual path hands in
  * `metrics` (wire-ready KPI-shaped objects: `identifier`/`name`/`unit`); the composed path
  * hands in `charts` (the review step's chart list) and wins when both are given.
- * `businessAreaFilter` is a single `business_area` value or falsy for none. The contract's
- * `DashboardFilterField` also has `time_window`, but nothing in this app constructs a value
- * for it yet (no defined format anywhere in the contract) - this flow only ever writes
- * `business_area`, which has a real, validated vocabulary behind it.
+ * `filterColumns` is the checklist's selection - `{table, column}` pairs (R13.1) naming which
+ * columns become end-user filter dropdowns on the published dashboard; picking a value in one
+ * is view-time state, never written here (see `fetchDashboardData`'s `filters` option).
  */
-export function buildDashboardWritePayload({ name, refresh, metrics, charts, businessAreaFilter }) {
+export function buildDashboardWritePayload({ name, refresh, metrics, charts, filterColumns }) {
  const tiles = charts
   ? charts.map((chart, index) => tileWriteFromChart(chart, index))
   : (metrics || []).map((kpi, index) => tileWriteFromKpi(kpi, index));
@@ -161,9 +187,7 @@ export function buildDashboardWritePayload({ name, refresh, metrics, charts, bus
   name: String(name || "").trim() || "Untitled dashboard",
   refresh_schedule: refresh,
   tiles,
-  filters: businessAreaFilter
-   ? [{ field: "business_area", value: businessAreaFilter }]
-   : [],
+  filters: (filterColumns || []).map(({ table, column }) => ({ table, column })),
  };
 }
 

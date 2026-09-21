@@ -19,14 +19,14 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from egpt_retail.contracts.dashboards import (
     AxisKind,
     ChartAxis,
     ChartKind,
     Dashboard,
-    DashboardFilter,
+    DashboardFilterColumn,
     RefreshSchedule,
     Tile,
     TilePosition,
@@ -167,12 +167,19 @@ def _tile_from_json(payload: Dict[str, Any]) -> Tile:
     )
 
 
-def _filter_to_json(item: DashboardFilter) -> Dict[str, Any]:
-    return {"field": item.field, "value": item.value}
+def _filter_to_json(item: DashboardFilterColumn) -> Dict[str, Any]:
+    return {"table": item.table, "column": item.column}
 
 
-def _filter_from_json(payload: Dict[str, Any]) -> DashboardFilter:
-    return DashboardFilter(field=payload["field"], value=payload["value"])
+def _filter_from_json(payload: Dict[str, Any]) -> Optional[DashboardFilterColumn]:
+    """``None`` for a row written before this shape existed (``field``/``value`` keys, no
+    ``table``/``column``) -- that filter never did anything functionally (R13.1's own
+    change note), so it is dropped on read rather than migrated."""
+    table = payload.get("table")
+    column = payload.get("column")
+    if not table or not column:
+        return None
+    return DashboardFilterColumn(table=table, column=column)
 
 
 def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
@@ -187,7 +194,7 @@ def _row_to_dashboard(row: Sequence[Any]) -> Dashboard:
         name=row[1],
         description=row[2] or "",
         tiles=tuple(_tile_from_json(t) for t in tiles),
-        filters=tuple(_filter_from_json(f) for f in filters),
+        filters=tuple(f for f in (_filter_from_json(item) for item in filters) if f),
         refresh_schedule=RefreshSchedule(row[5]),
         visibility=Visibility(row[6]),
         owner=row[7],
@@ -264,7 +271,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
@@ -319,7 +326,7 @@ class DashboardStore:
         owner: str,
         description: str = "",
         tiles: Sequence[Tile] = (),
-        filters: Sequence[DashboardFilter] = (),
+        filters: Sequence[DashboardFilterColumn] = (),
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
@@ -606,3 +613,37 @@ class DashboardStore:
     async def alist_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
         """Async variant."""
         return await asyncio.to_thread(self.list_referencing, kpi_identifier)
+
+    def map_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Dashboard names referencing each of ``kpi_identifiers`` (every KPI named by any
+        tile, when omitted), one query rather than :meth:`list_referencing` called once per
+        KPI -- the shape a registry list view needs, where ``list_referencing``'s single-KPI
+        form would otherwise mean N round trips for an N-row registry.
+
+        Same reach-across-schemas exception ``list_referencing`` already documents: every
+        dashboard regardless of owner or visibility, because "who else still needs this KPI"
+        does not depend on who is asking. A KPI absent from the result has no dashboard
+        referencing it -- callers building a full map should default missing keys to ``()``
+        rather than treat absence as an error.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT tile ->> 'kpi_identifier' AS kpi_identifier,
+                           array_agg(DISTINCT d.name ORDER BY d.name) AS names
+                    FROM {self._schema}.dashboard AS d,
+                         jsonb_array_elements(d.tiles) AS tile
+                    WHERE tile ->> 'kpi_identifier' IS NOT NULL
+                    {"AND tile ->> 'kpi_identifier' = ANY(%s)" if kpi_identifiers is not None else ""}
+                    GROUP BY kpi_identifier""",
+                (list(kpi_identifiers),) if kpi_identifiers is not None else (),
+            )
+            rows = cursor.fetchall()
+        return {row[0]: tuple(row[1]) for row in rows}
+
+    async def amap_referencing(
+        self, kpi_identifiers: Optional[Sequence[str]] = None
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.map_referencing, kpi_identifiers)

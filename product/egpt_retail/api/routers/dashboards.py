@@ -49,7 +49,7 @@ from typing import (
 
 from egpt.agent import Agent
 from egpt.utils.log import log_error, log_warning
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
@@ -62,7 +62,7 @@ from egpt_retail.contracts.dashboards import (
     ChartAxis,
     ChartKind,
     Dashboard,
-    DashboardFilter,
+    DashboardFilterColumn,
     RefreshSchedule,
     Tile,
     TilePosition,
@@ -87,8 +87,11 @@ from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.dashboards.data import read_dashboard_data
 from egpt_retail.dashboards.queries import (
     arefresh_query_tiles,
+    arun_filtered_query_tiles,
+    available_filter_columns,
     build_query_engine,
     check_query,
+    distinct_column_values,
     personal_data_columns,
     preview_query,
 )
@@ -411,8 +414,11 @@ def _tile_from_write(write: wire.TileWrite) -> Tile:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _filter_from_wire(item: wire.DashboardFilter) -> DashboardFilter:
-    return DashboardFilter(field=item.field.value, value=item.value)
+def _filter_from_wire(item: wire.DashboardFilterColumn) -> DashboardFilterColumn:
+    try:
+        return DashboardFilterColumn(table=item.table, column=item.column)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _axis_out(axis: ChartAxis) -> wire.ChartAxis:
@@ -452,10 +458,8 @@ def _tile_out(tile: Tile) -> wire.Tile:
     )
 
 
-def _filter_out(item: DashboardFilter) -> wire.DashboardFilter:
-    return wire.DashboardFilter(
-        field=wire.DashboardFilterField(item.field), value=item.value
-    )
+def _filter_out(item: DashboardFilterColumn) -> wire.DashboardFilterColumn:
+    return wire.DashboardFilterColumn(table=item.table, column=item.column)
 
 
 def _dashboard_out(dashboard: Dashboard) -> wire.Dashboard:
@@ -955,6 +959,80 @@ def _validated_tiles(tiles: List[Tile], settings: RetailSettings) -> List[Tile]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _query_tables(tiles: Sequence[Tile]) -> List[str]:
+    """Every table one of ``tiles``' ``query`` tiles reads, sorted -- what a filter column
+    must come from. One shared place so the write-time validator (:func:`_validate_filters`),
+    the tiles-only-PATCH pruning logic, and the read-time picker
+    (:func:`get_dashboard_filter_columns`) cannot silently drift apart on the answer."""
+    return sorted(
+        {
+            table
+            for tile in tiles
+            if tile.source is TileSource.QUERY and tile.query is not None
+            for table in tile.query.source_tables
+        }
+    )
+
+
+def _validate_filters(
+    filters: Sequence[DashboardFilterColumn],
+    tiles: Sequence[Tile],
+    settings: RetailSettings,
+) -> None:
+    """422 unless every filter column is a real, text-typed, non-personal-data column of a
+    table one of ``tiles``' ``query`` tiles actually reads -- the same candidate set
+    :func:`get_dashboard_filter_columns` offers the creation-step picker, checked again here
+    so a write cannot smuggle in a column the picker never showed. 503 (not an uncaught 500)
+    if the semantic layer can't answer, the same posture every other filter-touching endpoint
+    in this router takes."""
+    if not filters:
+        return
+    tables = _query_tables(tiles)
+    try:
+        with open_semantic_reader(settings) as reader:
+            candidates = {
+                (c.table, c.column) for c in available_filter_columns(reader, tables)
+            }
+    except SemanticReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    invalid = [f for f in filters if (f.table, f.column) not in candidates]
+    if invalid:
+        bad = ", ".join(f"{f.table}.{f.column}" for f in invalid)
+        raise DashboardValidationError(
+            f"{bad}: not a filterable column of this dashboard's query tiles (must be a "
+            "text column of a table one of the dashboard's query tiles reads, and not "
+            "personal data)."
+        )
+
+
+def _parse_filter_selection(
+    values: Sequence[str],
+) -> Dict[Tuple[str, str], Tuple[str, ...]]:
+    """``["orders.region:North", "orders.region:South", "orders.channel:Online"]`` ->
+    ``{("orders", "region"): ("North", "South"), ("orders", "channel"): ("Online",)}``. One
+    ``f`` param per value -- never a comma-joined list -- because a distinct value can itself
+    contain a comma (a real city, "Dallas, TX"), which a comma-joined scheme could not tell
+    apart from the separator between values. A malformed entry (no ``:``, no ``.`` before it)
+    is skipped rather than raising -- an unparsed filter is a display convenience gone wrong,
+    not something a made-up query string should be able to break the dashboard over; an empty
+    value (a real, blank-but-non-null distinct value, which ``distinct_column_values`` does
+    not filter out) is kept, not skipped -- only ``table``/``column`` are trimmed and
+    required. The caller further restricts the result to the dashboard's own declared filter
+    columns."""
+    collected: Dict[Tuple[str, str], List[str]] = {}
+    for raw in values:
+        key, sep, value = raw.partition(":")
+        if not sep or "." not in key:
+            continue
+        table, _, column = key.partition(".")
+        table = table.strip().lower()
+        column = column.strip().lower()
+        if not table or not column:
+            continue
+        collected.setdefault((table, column), []).append(value)
+    return {key: tuple(values) for key, values in collected.items()}
+
+
 @router.post("/dashboards", response_model=wire.Dashboard, status_code=201)
 def create_dashboard(
     body: wire.DashboardWrite,
@@ -966,6 +1044,11 @@ def create_dashboard(
     tiles = _validated_tiles(
         [_tile_from_write(t) for t in (body.tiles or [])], settings
     )
+    filters = [_filter_from_wire(f) for f in (body.filters or [])]
+    try:
+        _validate_filters(filters, tiles, settings)
+    except DashboardValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         dashboard = store.create(
@@ -973,7 +1056,7 @@ def create_dashboard(
             owner=_owner(request),
             description=body.description or "",
             tiles=tiles,
-            filters=[_filter_from_wire(f) for f in (body.filters or [])],
+            filters=filters,
             refresh_schedule=RefreshSchedule(
                 (body.refresh_schedule or wire.RefreshSchedule.nightly).value
             ),
@@ -1100,9 +1183,50 @@ def update_dashboard(
         tiles = _validated_tiles([_tile_from_write(t) for t in body.tiles], settings)
     # Read before the write, so the recompute below can be scoped to only the query tiles
     # whose `query` actually changed, and any tile dropped from the array can have its cached
-    # result cleaned up rather than orphaned. `None` (not fetched) when `tiles` was not sent at
-    # all -- nothing about the tile set can have changed, so there is nothing to diff.
-    before = store.get(dashboard_id) if body.tiles is not None else None
+    # result cleaned up rather than orphaned; a `filters`-only write also needs it, to validate
+    # against the dashboard's *current* tiles when the tiles themselves are not being replaced
+    # in this same request. `None` (not fetched) when neither was sent at all.
+    before = (
+        store.get(dashboard_id)
+        if body.tiles is not None or body.filters is not None
+        else None
+    )
+
+    filters: Any = UNSET
+    if body.filters is not None:
+        filters = [_filter_from_wire(f) for f in body.filters]
+        if tiles is not UNSET:
+            reference_tiles: Optional[Sequence[Tile]] = tiles
+        elif before is not None:
+            reference_tiles = before.tiles
+        else:
+            # The dashboard doesn't exist (or a concurrent delete raced this read) and no
+            # fresh `tiles` were sent to validate against either -- defer to `store.update`'s
+            # own 404 rather than 422ing against an empty candidate set first (round-1 review,
+            # nit: a PATCH to a nonexistent dashboard carrying only a `filters` body must 404,
+            # not 422).
+            reference_tiles = None
+        if reference_tiles is not None:
+            try:
+                _validate_filters(filters, reference_tiles, settings)
+            except DashboardValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif tiles is not UNSET and before is not None and before.filters:
+        # `tiles` is being replaced but `filters` was not explicitly sent: drop any of the
+        # dashboard's existing filters whose backing table no longer appears among the new
+        # tiles' query tables, rather than leaving a dead filter dropdown that silently has
+        # zero effect (`_apply_filter_predicates` already no-ops a column absent from every
+        # tile's SQL, but the dropdown itself would keep showing as if it still worked --
+        # round-1 review, minor).
+        try:
+            with open_semantic_reader(settings) as reader:
+                still_valid = {
+                    (c.table, c.column)
+                    for c in available_filter_columns(reader, _query_tables(tiles))
+                }
+        except SemanticReadError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        filters = [f for f in before.filters if (f.table, f.column) in still_valid]
 
     try:
         dashboard = store.update(
@@ -1111,11 +1235,7 @@ def update_dashboard(
             name=body.name if body.name is not None else UNSET,
             description=body.description if body.description is not None else UNSET,
             tiles=tiles,
-            filters=(
-                UNSET
-                if body.filters is None
-                else [_filter_from_wire(f) for f in body.filters]
-            ),
+            filters=filters,
             refresh_schedule=(
                 RefreshSchedule(body.refresh_schedule.value)
                 if body.refresh_schedule is not None
@@ -1171,15 +1291,159 @@ def _load_query_results(
 async def get_dashboard_data(
     dashboard_id: str,
     request: Request,
+    f: List[str] = Query(default=[]),
     store: DashboardStore = Depends(_dashboard_store),
     _: None = Depends(require_scopes("dashboards:read")),
 ):
+    """``f`` is zero or more ``table.column:value`` selections -- repeat the parameter once per
+    value (never a comma-joined list: a distinct value can itself contain a comma, e.g. a city
+    named "Dallas, TX") -- read from the URL rather than the saved dashboard, since a filter's
+    *values* are per-viewer, transient view-time state (R13.1), never persisted. Restricted to
+    the dashboard's own declared filter columns; anything else is silently ignored, the same
+    tolerance :func:`_parse_filter_selection` already has for a malformed entry.
+
+    With no filter active, this is exactly today's cached read. With one active, every
+    ``query`` tile the filter actually reaches (its ``source_tables`` intersects one of the
+    active predicates') is recomputed live through the guard instead of read from
+    ``dashboard_query_result``; a tile no active filter reaches keeps reading from the cache,
+    unchanged.
+    """
     dashboard = store.get(dashboard_id)
     if dashboard is None or not dashboard.visible_to(_owner(request)):
         raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
     settings = RetailSettings()
+    declared = {(item.table, item.column) for item in dashboard.filters}
+    predicates = {
+        key: values
+        for key, values in _parse_filter_selection(f).items()
+        if key in declared
+    }
     cached = await asyncio.to_thread(_load_query_results, dashboard, settings)
+    if predicates:
+        predicate_tables = {table for table, _ in predicates}
+        affected_ids = {
+            tile.id
+            for tile in dashboard.tiles
+            if tile.source is TileSource.QUERY
+            and tile.query is not None
+            and predicate_tables & tile.query.source_tables
+        }
+
+        def _run_filtered() -> Dict[str, QueryResultRecord]:
+            # `open_semantic_reader` (inside `arun_filtered_query_tiles`) blocks on Neo4j
+            # connect/close; run off the event loop via `asyncio.to_thread` below (round-2
+            # review, minor) the same way `refresh_dashboard`'s `_refresh` already does for
+            # `arefresh_query_tiles`, so `asyncio.run` here is safe.
+            return asyncio.run(
+                arun_filtered_query_tiles(
+                    dashboard, settings, predicates, only=affected_ids
+                )
+            )
+
+        try:
+            live = await asyncio.to_thread(_run_filtered)
+        except SemanticReadError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        cached = {**cached, **live}
     return await read_dashboard_data(dashboard, query_results=cached)
+
+
+@router.get(
+    "/dashboards/{dashboard_id}/filter-columns",
+    response_model=List[wire.DashboardFilterColumn],
+)
+async def get_dashboard_filter_columns(
+    dashboard_id: str,
+    request: Request,
+    store: DashboardStore = Depends(_dashboard_store),
+    _: None = Depends(require_scopes("dashboards:read")),
+):
+    """Candidate ``(table, column)`` pairs across this dashboard's own ``query`` tiles --
+    text-typed, non-personal-data columns of the tables those tiles read. Drives the
+    creation-step filter-column picker; ``_validate_filters`` re-checks the same set on write."""
+    dashboard = store.get(dashboard_id)
+    if dashboard is None or not dashboard.visible_to(_owner(request)):
+        raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
+    tables = _query_tables(dashboard.tiles)
+    if not tables:
+        return []
+    settings = RetailSettings()
+
+    def _candidates() -> List[DashboardFilterColumn]:
+        # `open_semantic_reader` blocks on Neo4j connect/close; run the whole sync sequence
+        # off the event loop via `asyncio.to_thread` below (round-2 review, minor) rather than
+        # opening it directly inside this `async def` -- the pattern `apreview_query`'s own
+        # docstring already documents for the same reason.
+        with open_semantic_reader(settings) as reader:
+            return list(available_filter_columns(reader, tables))
+
+    try:
+        candidates = await asyncio.to_thread(_candidates)
+    except SemanticReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [
+        wire.DashboardFilterColumn(table=c.table, column=c.column) for c in candidates
+    ]
+
+
+@router.get(
+    "/dashboards/{dashboard_id}/filter-values",
+    response_model=wire.DashboardFilterValues,
+)
+async def get_dashboard_filter_values(
+    dashboard_id: str,
+    table: str,
+    column: str,
+    request: Request,
+    store: DashboardStore = Depends(_dashboard_store),
+    _: None = Depends(require_scopes("dashboards:read")),
+):
+    """Distinct values of one of this dashboard's *chosen* filter columns -- 422 for a
+    ``table``/``column`` pair that is not in ``dashboard.filters``; this never runs against an
+    arbitrary column a caller merely guards at, only ones the picker already offered."""
+    dashboard = store.get(dashboard_id)
+    if dashboard is None or not dashboard.visible_to(_owner(request)):
+        raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
+    key = (table.strip().lower(), column.strip().lower())
+    if key not in {(item.table, item.column) for item in dashboard.filters}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{table}.{column} is not one of this dashboard's filter columns.",
+        )
+    settings = RetailSettings()
+
+    def _values() -> Tuple[str, ...]:
+        # `open_semantic_reader` blocks on Neo4j connect/close; run the whole sync sequence
+        # off the event loop via `asyncio.to_thread` below (round-2 review, minor), the same
+        # pattern `apreview_query` documents and `get_dashboard_filter_columns` now uses too.
+        with open_semantic_reader(settings) as reader:
+            guard = build_warehouse_read_guard(reader)
+            engine = build_query_engine(settings)
+            try:
+                return distinct_column_values(engine, guard, key[0], key[1])
+            finally:
+                engine.dispose()
+
+    try:
+        values = await asyncio.to_thread(_values)
+    except SemanticReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        # Anything else -- a transient connection failure, the harvested metadata having
+        # drifted from the actual warehouse column, or a real bug -- is reported to the
+        # caller as a live-read failure rather than an opaque 500, the same way a tile's own
+        # guarded read treats one (`_acheck_and_run`'s exception handling); logged with a
+        # traceback first, the same as every other broad `except Exception` in this module,
+        # so an actual bug here still leaves a trace even though the client only sees a
+        # generic message.
+        log_error(
+            f"dashboard {dashboard_id}: filter values for {key[0]}.{key[1]} could not be "
+            f"read: {traceback.format_exc(limit=5)}"
+        )
+        raise HTTPException(
+            status_code=503, detail=f"Could not read filter values: {exc}"
+        ) from exc
+    return wire.DashboardFilterValues(table=key[0], column=key[1], values=list(values))
 
 
 @router.post("/dashboards/{dashboard_id}/refresh", response_model=wire.DashboardData)

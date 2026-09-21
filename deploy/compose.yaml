@@ -79,6 +79,11 @@ services:
       EGPT_RETAIL_STORAGE_ACCESS_KEY: minioadmin
       EGPT_RETAIL_STORAGE_SECRET_KEY: minioadmin
       EGPT_RETAIL_CUSTOMER_SLUG: ${EGPT_RETAIL_CUSTOMER_SLUG:-}
+      # K1 memory vectors stay in the compose Postgres. The setting's default is
+      # azure_ai_search (AZ-B) and refuses at startup without a service endpoint, so the
+      # local option is named explicitly here rather than inherited.
+      EGPT_RETAIL_MEMORY_BACKEND: pgvector
+      EGPT_RETAIL_KNOWLEDGE_BACKEND: pgvector
       EGPT_AGENT_OS_HOST: 0.0.0.0
       EGPT_AGENT_OS_PORT: "7777"
     ports:
@@ -99,6 +104,8 @@ services:
     environment:
       EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
       EGPT_RETAIL_CUSTOMER_SLUG: ${EGPT_RETAIL_CUSTOMER_SLUG:-}
+      EGPT_RETAIL_MEMORY_BACKEND: pgvector   # same store as the api service, see above
+      EGPT_RETAIL_KNOWLEDGE_BACKEND: pgvector
       EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL: "300"
     depends_on:
       migrate:

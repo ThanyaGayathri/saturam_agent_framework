@@ -20,7 +20,12 @@ from egpt_retail.memory.config import build_memory_config
 def test_provider_mode_setting_reaches_memory_config(mode):
     """One setting, both subsystems. It was hardcoded to FRONTIER while knowledge read the
     setting, which would have given one deployment two vector spaces."""
-    assert build_memory_config(RetailSettings(retail_provider_mode=mode)).mode is mode
+    # pgvector named explicitly: since AZ-B the default backend is azure_ai_search, which
+    # refuses without an endpoint; this test is about the mode reaching the config.
+    settings = RetailSettings(
+        retail_provider_mode=mode, retail_memory_backend="pgvector"
+    )
+    assert build_memory_config(settings).mode is mode
 
 
 def test_build_agent_os_is_pure_construction(monkeypatch):

@@ -17,6 +17,7 @@ Everything written here is prefixed ``livetest_kpi__`` and removed at the end of
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import timedelta
 from typing import Any, Iterator
@@ -108,7 +109,9 @@ def test_get_kpi_returns_a_definition_saved_to_the_real_registry(
     from egpt_retail.api.routers.kpis import get_kpi
 
     store.save(_definition())
-    wire = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    wire = asyncio.run(
+        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert wire.identifier == IDENT
     assert wire.sql == "SELECT count(*) FROM crm_contact"
     assert wire.feasibility.verdict.value in ("ready", "partial", "blocked")
@@ -120,10 +123,12 @@ def test_get_kpi_404s_on_a_missing_identifier(store: KpiRegistryStore) -> None:
     from egpt_retail.api.routers.kpis import get_kpi
 
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(
-            "livetest_kpi__does_not_exist",
-            _FakeRequest(authorization_enabled=False),
-            store=store,
+        asyncio.run(
+            get_kpi(
+                "livetest_kpi__does_not_exist",
+                _FakeRequest(authorization_enabled=False),
+                store=store,
+            )
         )
     assert excinfo.value.status_code == 404
 
@@ -205,7 +210,9 @@ def test_create_kpi_then_get_round_trips_the_new_columns(
     assert created.source.value == "customer"
     assert created.validated_against_snapshot is None
 
-    fetched = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    fetched = asyncio.run(
+        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert fetched.subject_area == "Customer Ops"
     assert fetched.source.value == "customer"
 
@@ -276,7 +283,9 @@ def test_delete_kpi_removes_the_row(store: KpiRegistryStore) -> None:
     store.save(_definition())
     delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        asyncio.run(
+            get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        )
     assert excinfo.value.status_code == 404
 
 
@@ -483,6 +492,146 @@ def test_delete_kpi_refuses_while_another_owners_private_dashboard_references_it
         assert "1 dashboard you do not have visibility into" in excinfo.value.detail
     finally:
         dashboard_store.delete(dashboard.id, "someone_else")
+
+
+# ---------------------------------------------------------------------------
+# `DashboardStore.map_referencing` / `KpiRegistryStore.dashboard_names_by_kpi` -- the read-only
+# generalization of `delete_if_unreferenced`'s reference check (above), behind `GET /kpis`'s
+# `dashboard_names` field ("Maps to" on the discovery screen). One bulk query per route rather
+# than `list_referencing` called once per KPI in the registry.
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_names_by_kpi_covers_zero_one_and_many_referencing_dashboards(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    import asyncio
+
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    unreferenced = "livetest_kpi__unreferenced"
+    single = "livetest_kpi__single_dashboard"
+    multi = "livetest_kpi__multi_dashboard"
+    store.save(_definition(identifier=unreferenced))
+    store.save(_definition(identifier=single))
+    store.save(_definition(identifier=multi))
+
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    created = []
+    try:
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__dashboard_a",
+                owner="local",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_a1",
+                        kpi_identifier=single,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="x",
+                    ),
+                    Tile(
+                        id="tl_livetest_kpi_a2",
+                        kpi_identifier=multi,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=1, y=0, w=1, h=1),
+                        title="y",
+                    ),
+                ],
+            )
+        )
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__dashboard_b",
+                owner="local",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_b1",
+                        kpi_identifier=multi,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="z",
+                    ),
+                ],
+            )
+        )
+
+        result = store.dashboard_names_by_kpi([unreferenced, single, multi])
+        # Zero references: absent from the map entirely, not present with an empty tuple.
+        assert unreferenced not in result
+        assert result[single] == ("livetest_kpi__dashboard_a",)
+        assert result[multi] == (
+            "livetest_kpi__dashboard_a",
+            "livetest_kpi__dashboard_b",
+        )
+
+        # Omitted `identifiers` covers every KPI any dashboard references, not only the ones
+        # asked about.
+        everything = dashboard_store.map_referencing()
+        assert everything[single] == ("livetest_kpi__dashboard_a",)
+        assert everything[multi] == (
+            "livetest_kpi__dashboard_a",
+            "livetest_kpi__dashboard_b",
+        )
+
+        async_result = asyncio.run(
+            store.adashboard_names_by_kpi([single, multi, unreferenced])
+        )
+        assert async_result == {
+            single: ("livetest_kpi__dashboard_a",),
+            multi: ("livetest_kpi__dashboard_a", "livetest_kpi__dashboard_b"),
+        }
+    finally:
+        for dashboard in created:
+            dashboard_store.delete(dashboard.id, "local")
+
+
+def test_get_kpi_wire_response_includes_dashboard_names(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from egpt_retail.api.routers.kpis import get_kpi
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    store.save(_definition())
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    dashboard = dashboard_store.create(
+        name="livetest_kpi__wire_dashboard",
+        owner="local",
+        visibility=Visibility.PRIVATE,
+        tiles=[
+            Tile(
+                id="tl_livetest_kpi_wire",
+                kpi_identifier=IDENT,
+                chart=ChartKind.NUMBER,
+                position=TilePosition(x=0, y=0, w=1, h=1),
+                title="x",
+            )
+        ],
+    )
+    try:
+        wire = asyncio.run(
+            get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        )
+        assert wire.dashboard_names == ["livetest_kpi__wire_dashboard"]
+    finally:
+        dashboard_store.delete(dashboard.id, "local")
 
 
 # ---------------------------------------------------------------------------

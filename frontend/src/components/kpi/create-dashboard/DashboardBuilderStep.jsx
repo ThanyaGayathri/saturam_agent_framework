@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { AlertTriangle, ArrowLeft, CalendarClock, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, CalendarClock, Check, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import MetricPicker from "./MetricPicker";
 import ChartEditorPanel from "./ChartEditorPanel";
+import AiGeneratingStep from "./AiGeneratingStep";
 import ChartTile from "../ChartTile";
-import { spanForChart, tileDataFromPreview } from "../../../storage/dashboards";
+import { useDashboardSuggestionRun } from "../../../hooks/useDashboardSuggestionRun";
+import { spanForChart, tableUnavailableForChart, tileDataFromPreview } from "../../../storage/dashboards";
+import { fetchSemanticTable } from "../../../services/semantic-tables-api";
 
 const AI_BADGE = (
  <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
@@ -18,12 +21,44 @@ function newChartId() {
  return `draft_${Date.now()}_${_chartSeq}`;
 }
 
+// Mirrors `dashboards/queries.py`'s `_FILTERABLE_TEXT_TYPES`/`_is_filterable_type` -- a
+// dropdown-of-values filter suits text/categorical columns, not numeric or date ones. Checked
+// here too (not just server-side on submit) so a column the write would reject with a 422 is
+// never offered as pickable in the first place.
+const FILTERABLE_TEXT_TYPES = [
+ "text",
+ "varchar",
+ "character varying",
+ "char",
+ "character",
+ "citext",
+ "string",
+ "enum",
+];
+
+function isFilterableType(dataType) {
+ const normalized = String(dataType || "")
+  .trim()
+  .toLowerCase();
+ return FILTERABLE_TEXT_TYPES.some(
+  (kind) => normalized === kind || normalized.startsWith(`${kind}(`),
+ );
+}
+
 /**
  * The review step for both paths: for the AI path this *is* the composed dashboard --
  * every chart the agent wrote, with its SQL/metric, guard verdict, preview rows and
  * description, each editable or removable, plus a slot to add one more. For the manual path
  * it is the KPI picker, one chart per metric, with the same edit surface. Name, filter and
  * refresh live in the header/foot, folded in rather than shown on an earlier screen.
+ *
+ * "Add a chart" is one button; clicking it reveals two ways to add one more, whichever path
+ * built the rest of the list: "Add manually" opens a blank query chart in the editor
+ * (`addBlankQueryChart`); "AI-assisted" opens a one-line prompt bar that composes a single
+ * chart the same way `DashboardView.jsx`'s add-chart-by-description bar does for an
+ * already-saved dashboard -- one `dashboard_suggestion` run (`chartBudget: 1`), reviewed in
+ * the same editor before it joins `charts`, never saved to a backend dashboard directly
+ * (there isn't one yet at this step).
  */
 export default function DashboardBuilderStep({
  name,
@@ -33,9 +68,8 @@ export default function DashboardBuilderStep({
  refreshOptions,
  charts,
  setCharts,
- businessAreaFilter,
- setBusinessAreaFilter,
- businessAreaOptions,
+ filterColumns,
+ setFilterColumns,
  readyKpis,
  aiSuggested,
  contextSummary,
@@ -51,7 +85,106 @@ export default function DashboardBuilderStep({
  // A not-yet-added chart's draft, or `null`. Distinct from `editingId`/`editingChart` below,
  // which only ever point at a chart already in `charts` -- see `addBlankQueryChart`'s comment.
  const [addingChart, setAddingChart] = useState(null);
- const canSubmit = charts.length > 0 && !submitting;
+
+ // "Add a chart" is one button; clicking it swaps that same slot for the two ways to add one
+ // (`addChartMenuOpen`), rather than showing both up front. Picking either collapses the menu
+ // back -- `addBlankQueryChart` opens straight into the editor, "AI-assisted" opens the prompt
+ // bar below (`showAiComposeBar`) in the menu's place.
+ const [addChartMenuOpen, setAddChartMenuOpen] = useState(false);
+
+ // The AI-assisted "Add a chart" path -- a single-chart `dashboard_suggestion` run
+ // (`chartBudget: 1`), the same run-then-poll seam `DashboardView.jsx`'s own add-chart-by-
+ // description bar uses for an already-saved dashboard. `showAiComposeBar` toggles the prompt
+ // bar in place of the "Add a chart" button/menu below; `aiPrompt` is the text box's own
+ // value, kept separate from `composePurpose` (the text the *last started* run was for) so
+ // "Change the description" can put it back without racing a run already in flight.
+ const [showAiComposeBar, setShowAiComposeBar] = useState(false);
+ const [aiPrompt, setAiPrompt] = useState("");
+ const composeRun = useDashboardSuggestionRun();
+ const [composePurpose, setComposePurpose] = useState("");
+ // Set when a run finished without a usable chart: the composer's own `notes` on why. Kept
+ // apart from `composeRun.error` (a failed *run*) because the run succeeded here -- it just
+ // had nothing to draft.
+ const [composeEmptyNote, setComposeEmptyNote] = useState(null);
+ const resetCompose = () => {
+  composeRun.reset();
+  setComposePurpose("");
+  setComposeEmptyNote(null);
+ };
+ const closeAiComposeBar = () => {
+  resetCompose();
+  setAiPrompt("");
+  setShowAiComposeBar(false);
+ };
+
+ // Once the run succeeds, hand its first chart to the same editor `addBlankQueryChart` opens --
+ // nothing is added to `charts` until the person saves there. Deliberately *not* scoped to this
+ // step's own `readyKpis`/`contextSummary` (`kpiIdentifiers`/`tableNames` left empty): the
+ // agent is shown every ready KPI and table instead, for the same reason `DashboardView.jsx`'s
+ // own comment documents -- narrowing to what's already picked caused wrongful refusals for a
+ // chart about something the current selection doesn't cover yet, which is usually exactly why
+ // someone is adding one.
+ useEffect(() => {
+  if (composeRun.status !== "ready") return;
+  const result = composeRun.result;
+  const chart = (result?.charts || [])[0];
+  if (!chart) {
+   setComposeEmptyNote(
+    result?.notes?.trim() || "The composer couldn't draft a chart for that from these metrics and tables.",
+   );
+   composeRun.reset();
+   return;
+  }
+  // No `id` on a composed chart (`DashboardChartSuggestion` has none) -- minted the same way
+  // `chartFromSuggestion`/`addBlankQueryChart` do, so it tracks edits/deletes once saved.
+  setAddingChart({ ...chart, id: newChartId() });
+  setShowAiComposeBar(false);
+  composeRun.reset();
+  // `composeRun.reset` is stable; `status`/`result` are the values that matter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [composeRun.status, composeRun.result]);
+
+ const composeChart = (text) => {
+  setComposeEmptyNote(null);
+  setComposePurpose(text);
+  composeRun.start({ purpose: text, chartBudget: 1 });
+ };
+ const composing = composeRun.status === "loading";
+ const composeFailed = composeRun.status === "error";
+
+ const submitAiPrompt = () => {
+  const text = aiPrompt.trim();
+  if (!text || composing) return;
+  setAiPrompt("");
+  composeChart(text);
+ };
+
+ // "Change the description": drop the run (or its failure) and put the text back in the bar.
+ const editComposePurpose = () => {
+  setAiPrompt(composePurpose);
+  resetCompose();
+ };
+
+ // `readyKpis` (round-4 review: this is the same guard `ChartEditorPanel.jsx`'s
+ // `tableUnavailableReason` applies, but that only ever fires for a chart someone actually
+ // opened in the editor -- an accepted AI suggestion never has to) already carries every ready
+ // KPI's `grain` (`CreateDashboardModal.jsx`'s `metricFromKpi`), so this is a lookup, not a
+ // fetch: no extra round trip per chart, and no risk of blocking "Create dashboard" on a
+ // network call the way a per-chart fetch would.
+ const kpiGrainByIdentifier = useMemo(
+  () => Object.fromEntries(readyKpis.filter((k) => k.grain).map((k) => [k.identifier, k.grain])),
+  [readyKpis],
+ );
+ const tableUnavailableChartIds = useMemo(
+  () =>
+   new Set(
+    charts
+     .filter((c) => tableUnavailableForChart(c, kpiGrainByIdentifier[c.kpi_identifier]))
+     .map((c) => c.id),
+   ),
+  [charts, kpiGrainByIdentifier],
+ );
+ const canSubmit = charts.length > 0 && tableUnavailableChartIds.size === 0 && !submitting;
  const editingChart = editingId ? charts.find((c) => c.id === editingId) : null;
 
  const removeChart = (id) => setCharts(charts.filter((c) => c.id !== id));
@@ -93,6 +226,85 @@ export default function DashboardBuilderStep({
  const selectedIdentifiers = new Set(
   charts.filter((c) => c.source !== "query").map((c) => c.kpi_identifier),
  );
+
+ // Every table a `query` chart's own guarded SQL reads (`ChartEditorPanel`'s save populates
+ // `query.source_tables` from the preview's guard verdict) - the only tables a filter column
+ // can come from in this phase (R13.1: a `kpi` tile reads a per-KPI gold view, not a raw
+ // table, so it has no columns to offer here).
+ const queryTables = useMemo(
+  () =>
+   Array.from(
+    new Set(
+     charts.filter((c) => c.source === "query").flatMap((c) => c.query?.source_tables || []),
+    ),
+   ).sort(),
+  [charts],
+ );
+
+ // Candidate `{table, column}` pairs, fetched once per table from the semantic layer's own
+ // read surface (the same one the chart editor's schema pane uses) and never re-fetched --
+ // `fetchedTablesRef` tracks what has been asked for, independent of render, so a table
+ // dropped and re-added mid-session does not re-fetch. Personal-data and non-text columns are
+ // excluded client-side (mirroring the server's `available_filter_columns`) so a numeric/date
+ // column is never offered here in the first place; the write is still re-checked
+ // server-side (`_validate_filters`), which stays the source of truth.
+ const fetchedTablesRef = useRef(new Set());
+ const [candidateColumns, setCandidateColumns] = useState([]);
+ useEffect(() => {
+  const toFetch = queryTables.filter((t) => !fetchedTablesRef.current.has(t));
+  if (toFetch.length === 0) return;
+  toFetch.forEach((t) => fetchedTablesRef.current.add(t));
+  let cancelled = false;
+  Promise.all(
+   toFetch.map((table) =>
+    fetchSemanticTable(table)
+     .then((info) => ({
+      table,
+      columns: (info?.columns || [])
+       .filter((c) => !c.is_personal_data && isFilterableType(c.data_type))
+       .map((c) => c.name),
+     }))
+     .catch(() => ({ table, columns: [] })),
+   ),
+  ).then((results) => {
+   if (cancelled) {
+    // This effect was superseded before the fetch resolved - undo the "already fetched"
+    // mark for these tables so a later run (e.g. the same table reappearing after the user
+    // swaps which query chart is present) retries them instead of being permanently blocked
+    // from ever fetching their columns again this session.
+    toFetch.forEach((t) => fetchedTablesRef.current.delete(t));
+    return;
+   }
+   setCandidateColumns((prev) => [
+    ...prev,
+    ...results.flatMap(({ table, columns }) => columns.map((column) => ({ table, column }))),
+   ]);
+  });
+  return () => {
+   cancelled = true;
+  };
+ }, [queryTables]);
+
+ // A chart removed after its columns were offered takes its candidates (and any selection
+ // made against them) with it.
+ const visibleCandidates = useMemo(
+  () => candidateColumns.filter((c) => queryTables.includes(c.table)),
+  [candidateColumns, queryTables],
+ );
+ useEffect(() => {
+  const valid = new Set(queryTables);
+  setFilterColumns((prev) => prev.filter((f) => valid.has(f.table)));
+ }, [queryTables, setFilterColumns]);
+
+ const isFilterSelected = (table, column) =>
+  filterColumns.some((f) => f.table === table && f.column === column);
+ const toggleFilterColumn = (table, column) => {
+  if (isFilterSelected(table, column)) {
+   setFilterColumns(filterColumns.filter((f) => !(f.table === table && f.column === column)));
+  } else {
+   setFilterColumns([...filterColumns, { table, column }]);
+  }
+ };
 
  return (
   <form
@@ -169,45 +381,175 @@ export default function DashboardBuilderStep({
      </div>
     )}
 
+    {tableUnavailableChartIds.size > 0 && (
+     <div className="mb-3 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2.5 text-xs text-text-secondary">
+      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
+      <p>
+       {tableUnavailableChartIds.size} chart{tableUnavailableChartIds.size === 1 ? " has" : "s have"} no
+       breakdown to show as a table -- open the flagged chart{tableUnavailableChartIds.size === 1 ? "" : "s"}{" "}
+       below (the pencil icon) and pick a different chart type before creating.
+      </p>
+     </div>
+    )}
+
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-     {charts.map((chart) => (
-      <ChartTile
-       key={chart.id}
-       className={spanForChart(chart.chart) === 2 ? "sm:col-span-2" : ""}
-       tile={chart}
-       data={chart.source === "query" ? tileDataFromPreview(chart, chart.preview) : null}
-       guard={chart.guard}
-       actions={
-        <>
-         <button
-          type="button"
-          onClick={() => setEditingId(chart.id)}
-          aria-label={`Edit ${chart.title}`}
-          className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
-         >
-          <Pencil size={13} />
-         </button>
-         <button
-          type="button"
-          onClick={() => removeChart(chart.id)}
-          aria-label={`Remove ${chart.title}`}
-          className="rounded-md p-1.5 text-text-muted hover:bg-status-critical/10 hover:text-status-critical"
-         >
-          <Trash2 size={13} />
-         </button>
-        </>
-       }
-      />
-     ))}
-     <button
-      type="button"
-      onClick={addBlankQueryChart}
-      className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
-     >
-      <Plus size={16} />
-      Add a chart
-     </button>
+     {charts.map((chart) => {
+      const tableBlocked = tableUnavailableChartIds.has(chart.id);
+      return (
+       <div key={chart.id} className={spanForChart(chart.chart) === 2 ? "sm:col-span-2" : ""}>
+        <ChartTile
+         className={tableBlocked ? "ring-1 ring-status-warning/60" : ""}
+         tile={chart}
+         data={chart.source === "query" ? tileDataFromPreview(chart, chart.preview) : null}
+         guard={chart.guard}
+         actions={
+          <>
+           <button
+            type="button"
+            onClick={() => setEditingId(chart.id)}
+            // Disabled while a chart is being composed for the same reason
+            // `DashboardView.jsx`'s own copy of this does: opening this editor now would
+            // strand the composed chart -- the hand-off effect above still calls
+            // `setAddingChart`, but the render below only shows it once this tile's editor
+            // closes, so it would pop open unannounced afterward with no "Composing…" to
+            // explain it.
+            disabled={composing}
+            title={composing ? "Wait for the chart being composed to finish." : undefined}
+            aria-label={`Edit ${chart.title}`}
+            className="rounded-md p-1.5 text-text-muted hover:bg-surface-tertiary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+           >
+            <Pencil size={13} />
+           </button>
+           <button
+            type="button"
+            onClick={() => removeChart(chart.id)}
+            aria-label={`Remove ${chart.title}`}
+            className="rounded-md p-1.5 text-text-muted hover:bg-status-critical/10 hover:text-status-critical"
+           >
+            <Trash2 size={13} />
+           </button>
+          </>
+         }
+        />
+        {tableBlocked && (
+         <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-status-warning">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          This metric has no breakdown to list as a table -- edit it to pick a different chart type.
+         </p>
+        )}
+       </div>
+      );
+     })}
+     {!showAiComposeBar &&
+      (addChartMenuOpen ? (
+       <div className="relative flex min-h-[140px] flex-col justify-center gap-2 rounded-xl border border-dashed border-border-light p-3">
+        <button
+         type="button"
+         onClick={() => setAddChartMenuOpen(false)}
+         aria-label="Cancel add chart"
+         className="absolute right-2 top-2 rounded-md p-1 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+        >
+         <X size={14} />
+        </button>
+        <button
+         type="button"
+         onClick={() => {
+          setAddChartMenuOpen(false);
+          addBlankQueryChart();
+         }}
+         className="flex items-center justify-center gap-1.5 rounded-lg border border-border-light px-3 py-2 text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+        >
+         <Plus size={14} />
+         Add manually
+        </button>
+        <button
+         type="button"
+         onClick={() => {
+          setAddChartMenuOpen(false);
+          setShowAiComposeBar(true);
+         }}
+         className="flex items-center justify-center gap-1.5 rounded-lg border border-border-light px-3 py-2 text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+        >
+         <Sparkles size={14} />
+         AI-assisted
+        </button>
+       </div>
+      ) : (
+       <button
+        type="button"
+        onClick={() => setAddChartMenuOpen(true)}
+        className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light text-sm font-semibold text-primary hover:border-primary/40 hover:bg-primary-light/20"
+       >
+        <Plus size={16} />
+        Add a chart
+       </button>
+      ))}
     </div>
+
+    {showAiComposeBar && (
+     <div className="mt-3 rounded-lg border border-dashed border-border-light px-3.5 py-2.5">
+      <div className="flex items-center gap-2.5">
+       <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">
+        <Sparkles size={12} />
+       </span>
+       <input
+        value={aiPrompt}
+        onChange={(e) => setAiPrompt(e.target.value)}
+        onKeyDown={(e) => {
+         if (e.key === "Enter") {
+          e.preventDefault();
+          submitAiPrompt();
+         }
+        }}
+        disabled={composing}
+        autoFocus
+        aria-label="Describe the chart to compose"
+        placeholder={
+         composing ? "Composing a chart…" : 'Describe it, e.g. "late deliveries by supplier, top 10"'
+        }
+        className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-60"
+       />
+       <kbd className="rounded border border-border-strong px-1.5 py-0.5 font-mono text-[11px] text-text-muted">⏎</kbd>
+       <button
+        type="button"
+        onClick={closeAiComposeBar}
+        aria-label="Cancel AI-assisted chart"
+        className="rounded-md p-1 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+       >
+        <X size={14} />
+       </button>
+      </div>
+
+      {(composing || composeFailed) && (
+       <div className="mt-3 rounded-lg border border-border-light bg-surface px-4 py-3">
+        <AiGeneratingStep
+         purpose={composePurpose}
+         stage={composeRun.stage}
+         error={composeFailed ? composeRun.error : null}
+         onBack={editComposePurpose}
+         onRetry={() => composeChart(composePurpose)}
+        />
+       </div>
+      )}
+
+      {composeEmptyNote && (
+       <div className="mt-3 flex items-start gap-2 rounded-lg border border-status-warning/30 bg-status-warning/5 px-3 py-2.5 text-xs text-text-secondary">
+        <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
+        <div className="min-w-0 flex-1">
+         <p>No chart for "{composePurpose}". {composeEmptyNote}</p>
+         <div className="mt-2 flex items-center gap-3">
+          <button type="button" onClick={editComposePurpose} className="font-semibold text-primary hover:underline">
+           Change the description
+          </button>
+          <button type="button" onClick={resetCompose} className="font-semibold text-text-secondary hover:text-text-primary">
+           Dismiss
+          </button>
+         </div>
+        </div>
+       </div>
+      )}
+     </div>
+    )}
 
     {!aiSuggested && (
      <div className="mt-3">
@@ -217,22 +559,56 @@ export default function DashboardBuilderStep({
    </div>
 
    <div className="mb-5">
-    <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-text-primary">
-     Filter
-     {aiSuggested && businessAreaFilter && AI_BADGE}
+    <div className="mb-1 flex items-center justify-between">
+     <p className="text-sm font-semibold text-text-primary">Dashboard filters</p>
+     {filterColumns.length > 0 && (
+      <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
+       {filterColumns.length} selected
+      </span>
+     )}
+    </div>
+    <p className="mb-2 text-xs text-text-muted">
+     Pick columns viewers can filter this dashboard by. Each checked column becomes a dropdown
+     on the published dashboard, populated with that column&rsquo;s values.
     </p>
-    <select
-     value={businessAreaFilter || ""}
-     onChange={(e) => setBusinessAreaFilter(e.target.value || null)}
-     className="w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-    >
-     <option value="">No filter</option>
-     {businessAreaOptions.map((area) => (
-      <option key={area} value={area}>
-       Business area = {area}
-      </option>
-     ))}
-    </select>
+
+    {visibleCandidates.length === 0 ? (
+     <p className="rounded-lg border border-dashed border-border-light px-3 py-2.5 text-xs text-text-muted">
+      Add a chart with a custom SQL query to make some of its columns available as filters.
+     </p>
+    ) : (
+     <div className="overflow-hidden rounded-lg border border-border">
+      {visibleCandidates.map(({ table, column }, index) => {
+       const selected = isFilterSelected(table, column);
+       return (
+        <button
+         key={`${table}.${column}`}
+         type="button"
+         onClick={() => toggleFilterColumn(table, column)}
+         className={`flex w-full items-center gap-2.5 px-3 py-2 text-left ${
+          index > 0 ? "border-t border-border" : ""
+         } ${selected ? "bg-primary-light" : "hover:bg-surface-secondary"}`}
+        >
+         <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+           selected ? "bg-primary" : "border border-border-light"
+          }`}
+         >
+          {selected && <Check size={11} className="text-white" strokeWidth={3} />}
+         </span>
+         <span
+          className={`flex-1 text-sm ${selected ? "font-semibold text-primary" : "font-medium text-text-tertiary"}`}
+         >
+          {column}
+         </span>
+         <span className="font-mono text-[11px] text-text-muted">
+          {table}.{column}
+         </span>
+        </button>
+       );
+      })}
+     </div>
+    )}
    </div>
 
    {charts.length === 0 && (

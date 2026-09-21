@@ -114,11 +114,46 @@ def _options(step_input: StepInput) -> Mapping[str, Any]:
     return step_input.additional_data or {}
 
 
+#: How far back a caller-supplied `as_of` may reach -- generous enough for a real backfill,
+#: tight enough to catch a fat-fingered date (a four-digit year typo, an accidental epoch
+#: value) before it reaches `gold.kpi_value` and corrupts `latest_as_of()` for every reader.
+_AS_OF_MAX_LOOKBACK_DAYS = 1095
+
+
+def _validate_as_of(value: date) -> date:
+    """Bounds-checks an explicit ``as_of`` against ``[today - _AS_OF_MAX_LOOKBACK_DAYS,
+    today]`` -- the actual choke point, shared by :func:`_as_of` (``materialise_gold``'s own
+    resolution, which *defaults* to today when ``as_of`` is absent) and ``read_gold`` (below;
+    its resolution instead defaults an absent ``as_of`` to a KPI's own latest materialised date
+    via ``alatest_as_of``, so it cannot reuse ``_as_of`` outright -- only this check, on the
+    date it already parsed). A future date would otherwise become the KPI's own
+    ``latest_as_of()`` (``MAX(as_of) WHERE status='materialised'``), silently corrupting every
+    viewer's default series/trend window until a later date is materialised.
+    """
+    today = datetime.now(timezone.utc).date()
+    if value > today:
+        raise ValueError(
+            f"as_of {value.isoformat()} is in the future; today (UTC) is {today.isoformat()}."
+        )
+    floor = today - timedelta(days=_AS_OF_MAX_LOOKBACK_DAYS)
+    if value < floor:
+        raise ValueError(
+            f"as_of {value.isoformat()} is more than {_AS_OF_MAX_LOOKBACK_DAYS} days in the "
+            f"past (earliest allowed: {floor.isoformat()})."
+        )
+    return value
+
+
 def _as_of(options: Mapping[str, Any]) -> date:
+    """Today (UTC) when ``options["as_of"]`` is absent, else that date, bounds-checked by
+    :func:`_validate_as_of`. ``materialise_gold``'s own resolution -- ``read_gold`` (below)
+    parses and validates an explicit ``as_of`` the same way but falls back differently when one
+    isn't given, so it calls :func:`_validate_as_of` directly rather than this function.
+    """
     raw = options.get("as_of")
     if raw is None:
         return datetime.now(timezone.utc).date()
-    return date.fromisoformat(str(raw))
+    return _validate_as_of(date.fromisoformat(str(raw)))
 
 
 def _run_id(step_input: StepInput, options: Mapping[str, Any]) -> str:
@@ -455,7 +490,7 @@ async def read_gold(step_input: StepInput) -> StepOutput:
             missing: List[Dict[str, Any]] = []
             for identifier in identifiers:
                 as_of = (
-                    date.fromisoformat(str(options["as_of"]))
+                    _validate_as_of(date.fromisoformat(str(options["as_of"])))
                     if options.get("as_of")
                     else await alatest_as_of(engine, identifier)
                 )

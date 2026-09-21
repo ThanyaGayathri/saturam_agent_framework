@@ -7,11 +7,12 @@ import { useEffect, useState } from "react";
 import { X, Calendar, Pause, Play, Trash2, Send, Check, Loader2, Inbox } from "lucide-react";
 import { describeSchedule, describeDelivery } from "../../storage/scheduled-runs";
 import { deliverScheduledRun, readDeliveries } from "../../services/schedule-delivery";
+import { formatShortDateTime } from "../../lib/format-date";
 
 function formatWhen(ts) {
   if (!ts) return null;
   const d = new Date(ts);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return formatShortDateTime(d, { hourFormat: "numeric" });
 }
 
 function InAppInbox({ deliveries }) {

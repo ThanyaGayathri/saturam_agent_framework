@@ -13,7 +13,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI, HTTPException, Request
@@ -36,6 +36,7 @@ from egpt_retail.api.routers.kpis import (
     _SuggestionRegistrySnapshot,
     _validated_business_area,
     _warehouse_engine,
+    compute_kpi,
     create_kpi,
     delete_kpi,
     get_kpi,
@@ -1531,8 +1532,10 @@ def test_delete_kpi_refuses_when_the_store_reports_a_reference():
 def test_get_kpi_404s_on_a_missing_identifier():
     store = _FakeKpiStore(existing=None)
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi(
-            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        asyncio.run(
+            get_kpi(
+                "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+            )
         )
     assert excinfo.value.status_code == 404
 
@@ -1566,10 +1569,14 @@ def _fake_semantic_reader(settings):
 
 
 class _FakeStore:
-    def __init__(self, kpis, *, omit_from_feasibility=frozenset()):
+    def __init__(
+        self, kpis, *, omit_from_feasibility=frozenset(), dashboard_names=None
+    ):
         self._kpis = list(kpis)
         self._omit = frozenset(omit_from_feasibility)
+        self._dashboard_names = dict(dashboard_names or {})
         self.feasibility_calls: list = []
+        self.dashboard_names_calls: list = []
 
     def list(self, *, business_area=None):
         if business_area is None:
@@ -1587,6 +1594,15 @@ class _FakeStore:
             if kpi.identifier not in self._omit
         }
 
+    def dashboard_names_by_kpi(self, identifiers=None):
+        wanted = (
+            [k.identifier for k in self._kpis] if identifiers is None else identifiers
+        )
+        self.dashboard_names_calls.append(list(wanted))
+        return {
+            i: self._dashboard_names[i] for i in wanted if i in self._dashboard_names
+        }
+
 
 @pytest.fixture(autouse=True)
 def _patch_semantic_reader(monkeypatch):
@@ -1595,7 +1611,9 @@ def _patch_semantic_reader(monkeypatch):
 
 def test_get_kpi_returns_the_kpi_with_its_own_feasibility_only():
     store = _FakeStore([_kpi(identifier="a"), _kpi(identifier="b")])
-    result = get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
     assert result.identifier == "a"
     assert result.feasibility.kpi_id == "a"
     # The whole point of the fix: one KPI's route computes feasibility over one KPI, not
@@ -1606,7 +1624,9 @@ def test_get_kpi_returns_the_kpi_with_its_own_feasibility_only():
 def test_get_kpi_missing_id_is_404():
     store = _FakeStore([_kpi(identifier="a")])
     with pytest.raises(HTTPException) as excinfo:
-        get_kpi("nope", _FakeRequest(authorization_enabled=False), store=store)
+        asyncio.run(
+            get_kpi("nope", _FakeRequest(authorization_enabled=False), store=store)
+        )
     assert excinfo.value.status_code == 404
     assert store.feasibility_calls == [], "a 404 must not compute feasibility at all"
 
@@ -1642,6 +1662,72 @@ def test_list_kpis_computes_feasibility_only_over_the_business_area_filtered_kpi
     # Narrowed by business_area *before* feasibility is computed -- not a second,
     # unfiltered full-registry query the router then mostly discards.
     assert store.feasibility_calls == [["a"]]
+
+
+# ---------------------------------------------------------------------------
+# `Kpi.dashboard_names` -- "Maps to" on the discovery screen (the read-only generalization of
+# `delete_if_unreferenced`'s reference check): populated from `store.dashboard_names_by_kpi`,
+# one bulk call per route rather than one per row.
+# ---------------------------------------------------------------------------
+
+
+def test_get_kpi_includes_dashboard_names_from_the_bulk_lookup():
+    store = _FakeStore([_kpi(identifier="a")], dashboard_names={"a": ("Q3 Sales",)})
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
+    assert result.dashboard_names == ["Q3 Sales"]
+    assert store.dashboard_names_calls == [["a"]]
+
+
+def test_get_kpi_dashboard_names_is_empty_when_nothing_references_it():
+    store = _FakeStore([_kpi(identifier="a")])
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
+    assert result.dashboard_names == []
+
+
+# ---------------------------------------------------------------------------
+# compute_kpi's `as_of` -> `materialise_gold` ValueError -> 422 (round-2 review, PR #300):
+# `_as_of`'s own bound math is pinned directly in `test_r5_gold.py`; this covers the router's
+# side -- that a `ValueError` from the executor becomes the contract's documented 422, not an
+# unhandled 500, and that its message reaches the caller.
+# ---------------------------------------------------------------------------
+
+
+async def _raise_as_of_out_of_range(step_input):
+    raise ValueError("as_of 2099-01-01 is in the future; today (UTC) is 2026-09-18.")
+
+
+def test_compute_kpi_maps_an_as_of_valueerror_to_422(monkeypatch):
+    monkeypatch.setattr(kpis_module, "materialise_gold", _raise_as_of_out_of_range)
+    store = _FakeStore([_kpi(identifier="a")])
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(compute_kpi("a", as_of=date(2099, 1, 1), store=store))
+    assert excinfo.value.status_code == 422
+    assert "2099-01-01" in excinfo.value.detail
+
+
+def test_list_kpis_computes_dashboard_names_with_one_bulk_call_not_one_per_row():
+    store = _FakeStore(
+        [
+            _kpi(identifier="a", business_area="sales"),
+            _kpi(identifier="b", business_area="sales"),
+        ],
+        # Pre-sorted, the same as `DashboardStore.map_referencing`'s own `ORDER BY d.name` --
+        # sorting is that store's job, not this router's.
+        dashboard_names={"a": ("Exec Overview", "Q3 Sales"), "b": ()},
+    )
+    result = list_kpis(
+        _FakeRequest(authorization_enabled=False),
+        business_area="sales",
+        store=store,
+    )
+    by_id = {k.identifier: k.dashboard_names for k in result}
+    assert by_id == {"a": ["Exec Overview", "Q3 Sales"], "b": []}
+    # One call for the whole page, not one per KPI -- the N+1 `map_referencing` exists to avoid.
+    assert store.dashboard_names_calls == [["a", "b"]]
 
 
 # ---------------------------------------------------------------------------

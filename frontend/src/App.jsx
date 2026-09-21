@@ -81,7 +81,6 @@ const UseCaseImpactDashboard = lazy(() => import("./components/UseCaseImpactDash
 
 // ── KPIs ────────────────────────────────────────────────────────────────────
 const KpisHubLayout = lazy(() => import("./components/KpisHubLayout"));
-const KpiRegistry = lazy(() => import("./components/KpiRegistry"));
 const KpiDataGallery = lazy(() => import("./components/KpiDataGallery"));
 const KpiMappings = lazy(() => import("./components/KpiMappings"));
 const KpiHealthDashboard = lazy(() => import("./components/KpiHealthDashboard"));

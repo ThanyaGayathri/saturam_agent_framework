@@ -314,6 +314,48 @@ def test_read_gold_history_statement_bounds_the_window_on_both_ends():
 
 
 # ---------------------------------------------------------------------------
+# _as_of / _validate_as_of -- the as_of bound (round-2 review, PR #300): a caller-supplied
+# as_of in the future, or more than `_AS_OF_MAX_LOOKBACK_DAYS` in the past, is refused before
+# it ever reaches gold. Pure, no engine needed.
+# ---------------------------------------------------------------------------
+
+
+def test_as_of_defaults_to_today_utc_when_absent():
+    assert gold_module._as_of({}) == datetime.now(timezone.utc).date()
+
+
+def test_as_of_rejects_a_future_date():
+    with pytest.raises(ValueError, match="in the future"):
+        gold_module._as_of({"as_of": "2099-01-01"})
+
+
+def test_as_of_rejects_a_date_further_back_than_the_lookback_floor():
+    too_old = datetime.now(timezone.utc).date() - timedelta(
+        days=gold_module._AS_OF_MAX_LOOKBACK_DAYS + 1
+    )
+    with pytest.raises(ValueError, match="in the past"):
+        gold_module._as_of({"as_of": too_old.isoformat()})
+
+
+def test_as_of_accepts_today_and_the_lookback_floor_boundary():
+    today = datetime.now(timezone.utc).date()
+    assert gold_module._as_of({"as_of": today.isoformat()}) == today
+    floor = today - timedelta(days=gold_module._AS_OF_MAX_LOOKBACK_DAYS)
+    assert gold_module._as_of({"as_of": floor.isoformat()}) == floor
+
+
+def test_validate_as_of_is_the_actual_shared_bound_read_gold_applies_too():
+    """Round-2 review: `_as_of`'s docstring used to claim it was the single choke point for
+    both `materialise_gold` and `read_gold`, which wasn't true -- `read_gold` parses its own
+    `as_of` and defaults it differently (a KPI's own latest materialised date, not today), so
+    it cannot call `_as_of` itself, only share its bound via `_validate_as_of`. Pinned here
+    directly so a future regression that reintroduces two divergent bounds is caught."""
+    today = datetime.now(timezone.utc).date()
+    with pytest.raises(ValueError, match="in the future"):
+        gold_module._validate_as_of(today + timedelta(days=1))
+
+
+# ---------------------------------------------------------------------------
 # read_gold / _read_history -- exercised with a fake engine, no live warehouse
 #
 # The pure statement shapes above pin what SQL is sent; these pin what `read_gold` actually

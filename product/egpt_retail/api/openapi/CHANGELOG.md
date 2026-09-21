@@ -109,6 +109,15 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.14.0 — 2026-09-21 — merge: main's 1.2.4–1.2.6 series folded into the 1.13 line (additive)
+
+Agreed by: Lane K, Lane R. The branch carrying 1.3.0 → 1.13.0 (use cases, extraction
+templates, record mappings, targets, recommendations) merges `main`, whose KPI work went
+on numbering 1.2.4 → 1.2.6 (`Kpi.source_table_status`, `compute`'s `as_of`,
+`FormulaExplanation`, `ColumnUsage` / `TableUsage`). Both series are additive and disjoint;
+this version is the union, numbered above both. The 1.2.x entries stay below in their own
+order.
+
 ## 1.13.0 — 2026-09-20 — recommendations: the hand-off to Decision Intelligence (additive)
 
 Agreed by: Lane K. The at-risk kind (K26) ends in a `Recommendation` record -- one open
@@ -291,6 +300,85 @@ activation screen reads them back; `Spec.delivery` stays, and `parameters.recipi
 carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
 document-template guardrail catalogue remain strings with their closed sets documented rather
 than enums -- they are content the product ships, not contract.
+## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on
+`Kpi`/`KpiSuggestion` and two on `KpiWrite`, six new optional fields on `SourceTableStatus`,
+nothing removed or renamed -- so no negotiation and no major bump.
+
+- **`ColumnUsage`** (new schema) and **`Kpi.column_usage` / `KpiWrite.column_usage` /
+  `KpiSuggestion.column_usage`** (all optional, default `[]`). The mapping detail panel's
+  "the columns it uses" section needed which columns a formula reads, in what role
+  (`ColumnUsageRole`: window/filter/measure/dimension/join_key) and why -- the suggestion
+  agent already reads every table's full column list to write the formula
+  (`suggestions/context.py`'s harvest text), so this is it declaring what it used, not a
+  second system parsing `sql` back apart. Carried through adoption like `formula_explanation`.
+  Gated behind `kpis:write` the same way `sql` is -- `why` can name a column by what it means.
+  `KpiDefinition.__post_init__` refuses a `column_usage` entry naming a table
+  `source_tables` does not list, the same drift guard `sql` itself already has.
+  `ColumnUsage.definition` is a seventh, read-only field on the same schema, not part of what
+  a write or the agent's own output carries: the column's own reviewed definition
+  (`Column.meaning`, falling back to `Column.description`, the schema's raw comment, when
+  enrichment hasn't reached the column), filled in only by `GET /kpis/{kpi_id}` (same
+  enrichment posture as `SourceTableStatus.description` below) -- `""` everywhere else.
+- **`TableUsage`** (new schema) and **`KpiWrite.table_usage` / `KpiSuggestion.table_usage`**
+  (optional, default `[]`) -- how the formula uses each of its `source_tables` (`TableRole`:
+  fact or lookup) and, for a lookup, one line naming what the join confirms. Not a separate
+  field on `Kpi`: a KPI's own `table_usage` rides along on `SourceTableStatus` instead (below),
+  since both describe the same tables and the panel renders them together.
+- **`SourceTableStatus`** gains six fields, read at `GET /kpis/{kpi_id}` time: `description`
+  and `concepts` from the semantic layer's own `Table` record (visibility matches
+  `source_tables` itself -- concept names, not schema internals, so these are never gated);
+  `source_category` (`crm`/`analytics`/`session_replay`) from the landing contract's
+  stream-to-source mapping, no I/O; and `role`/`join_note` (this KPI's own `table_usage` for
+  the table) plus `unused_columns` (the table's columns, from the semantic layer, that
+  `column_usage` does not name) -- all three gated behind `kpis:write` like `sql`, always
+  empty/null for a `kpis:read`-only caller regardless of what the KPI has recorded.
+
+## 1.2.5 — 2026-09-18 — kpis: `FormulaExplanation` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new schema, one new optional field each on
+`Kpi`, `KpiWrite` and `KpiSuggestion`, nothing removed or renamed -- so no negotiation and no
+major bump.
+
+- **`FormulaExplanation`** (new schema) and **`Kpi.formula_explanation` /
+  `KpiWrite.formula_explanation` / `KpiSuggestion.formula_explanation`** (all optional,
+  nullable). The mapping detail panel's "Technical" section needed the formula rendered in
+  plain, readable notation for a reader who will never see `sql` -- a literal `SELECT` is not
+  something a business user parses, and there is no general SQL-to-English translator reliable
+  enough to run over arbitrary generated queries. Rather than build KPI-to-KPI linkage for a
+  numerator/denominator relationship (a Phase-2-sized modeling change), the suggestion agent
+  now emits the plain-English rendering itself at proposal time (`skills/kpi_suggestion.py`,
+  `skills/kpi_suggestion.md` section 5): `expression_before`/`expression_after` are the
+  surrounding text, and `numerator_label`/`denominator_label` name the two halves of a ratio
+  when the formula is one (both set, or both null). Carried through adoption exactly like
+  `rationale`/`business_value` (`_kpi_from_write`'s carry-forward semantics). Gated behind
+  `kpis:write` on `Kpi` and `KpiSuggestion` the same way `sql`/`proposed_sql` are -- its labels
+  can name the same columns and tables the formula reads, which is exactly the class of detail
+  that gate exists to protect.
+
+## 1.2.4 — 2026-09-18 — kpis: `Kpi.source_table_status`, `POST /kpis/{kpi_id}/compute`'s `as_of` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new schema (`SourceTableStatus`), one new
+optional field on `Kpi`, one new optional query parameter and a documented `422`, nothing
+removed or renamed -- so no negotiation and no major bump.
+
+- **`Kpi.source_table_status`** (array of `SourceTableStatus`, default `[]`). The detail
+  panel's "where this number comes from" tab needed each of a KPI's `source_tables`' most
+  recent load (row count, when it loaded, the load's quality-gate verdict) -- read from the
+  warehouse's own `quality.load_run`/`quality.load_stream_count` history
+  (`warehouse/lineage.py`), joined to the control-plane KPI definition via the existing
+  stream-id registry. Populated only by `GET /kpis/{kpi_id}` (a list read never pays for N
+  per-row warehouse queries); `create_kpi`/`update_kpi` return it empty. Best-effort: `[]`,
+  never a failure, when the warehouse is unreachable or a table has no load history -- this is
+  enrichment for the panel, not core KPI data.
+- **`POST /kpis/{kpi_id}/compute`'s new `as_of` query parameter** (date, optional, defaults to
+  today UTC). The same panel's "Re-run for another date" needed to materialise a specific past
+  business date, not only today -- `materialise_gold` already accepted an `as_of` via its
+  workflow `additional_data`, just unreachable from the API. Bounded to
+  `[today - 3 years, today]` at `_as_of()` (`executors/gold.py`), the shared point every
+  `materialise_gold` caller passes through; out of range is a new **`422`**
+  (`common.yaml#/Error`), not the `503`/`409` this route already returns for other refusals.
 ## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the

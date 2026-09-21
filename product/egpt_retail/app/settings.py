@@ -30,7 +30,14 @@ from egpt.providers.mode_b import FRONTIER_PROVIDER_KEYS
 from egpt.settings.sources import BrandedSettings
 from pydantic import Field, field_validator
 
-__all__ = ["RetailSettings", "Role", "StorageProvider", "DEFAULT_DB_URL"]
+__all__ = [
+    "RetailSettings",
+    "Role",
+    "StorageProvider",
+    "KnowledgeBackend",
+    "MemoryBackend",
+    "DEFAULT_DB_URL",
+]
 
 Role = Literal["api", "pipelines"]
 
@@ -39,6 +46,15 @@ Role = Literal["api", "pipelines"]
 #: ``azure_blob`` is the Azure Container Apps target (AZ-A,
 #: ``docs/plan/azure-migration-plan.md``), backed by ``egpt_retail.storage.AzureBlobObjectStore``.
 StorageProvider = Literal["local", "s3", "azure_blob"]
+
+#: Where the domain prose's vectors live (AZ-C, ``docs/plan/azure-migration-plan.md``).
+#: ``azure_ai_search`` is the deployment target; ``pgvector`` is the compose Postgres a laptop
+#: runs. Chosen by ``egpt_retail.knowledge.vector.build_knowledge_vector_db``.
+KnowledgeBackend = Literal["pgvector", "azure_ai_search"]
+#: Where K1's memory vectors live. ``pgvector`` is the control-plane Postgres the deployment
+#: already has; ``azure_ai_search`` is the Azure AI Search substrate AZ-B registered
+#: (``egpt/registry/_declarations/vectorstores.py``, ``docs/plan/azure-migration-plan.md``).
+MemoryBackend = Literal["pgvector", "azure_ai_search"]
 
 #: The cookbook and CI Postgres: ``agnohq/pgvector:18`` on host port 5532, database ``ai``.
 DEFAULT_DB_URL = "postgresql+psycopg://ai:ai@localhost:5532/ai"
@@ -124,6 +140,37 @@ class RetailSettings(BrandedSettings):
             )
         return value
 
+    retail_memory_backend: MemoryBackend = Field(
+        default="azure_ai_search",
+        description="Which vector substrate K1 memory writes to (EGPT_RETAIL_MEMORY_BACKEND): "
+        "'azure_ai_search' the Azure AI Search index, 'pgvector' the control-plane Postgres. Default "
+        "is 'azure_ai_search' because that is what the deployment runs; a laptop with no Azure AI "
+        "Search service sets 'pgvector' explicitly (compose and the kind overlay do). The default is "
+        "the production truth on purpose: running the wrong backend should fail loudly at startup, "
+        "naming the endpoint variable, not work silently against a different store.",
+    )
+    retail_memory_search_endpoint: Optional[str] = Field(
+        default=None,
+        description="Azure AI Search service endpoint when the memory backend is 'azure_ai_search' "
+        "(EGPT_RETAIL_MEMORY_SEARCH_ENDPOINT), e.g. https://<service>.search.windows.net. Unset with "
+        "that backend is refused when the memory config is built -- at startup, with the variable "
+        "named -- rather than at the first write.",
+    )
+    retail_memory_search_api_key: Optional[str] = Field(
+        default=None,
+        description="Azure AI Search admin key for key-based auth (EGPT_RETAIL_MEMORY_SEARCH_API_KEY). "
+        "Passed through explicitly rather than left to the substrate's own "
+        "EGPT_MEMORY_AZURE_SEARCH_API_KEY fallback, so one settings object names every credential the "
+        "deployment holds. Unset means the substrate refuses at construction: it does not build a "
+        "managed-identity credential itself (no azure-identity dependency).",
+    )
+    retail_memory_search_index: str = Field(
+        default="egpt-retail-memory",
+        description="Azure AI Search index holding the memory vectors (EGPT_RETAIL_MEMORY_SEARCH_INDEX). "
+        "Configurable for the same reason retail_memory_table is: the index is created at the "
+        "embedder's dimension and the substrate refuses to reconcile one of a different width.",
+    )
+
     retail_allow_unsafe_gold_options: bool = Field(
         default=False,
         description=(
@@ -136,7 +183,42 @@ class RetailSettings(BrandedSettings):
     )
     retail_knowledge_table: str = Field(
         default="egpt_retail_domain_prose",
-        description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE).",
+        description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE). Read only "
+        "when retail_knowledge_backend is 'pgvector'; the Azure AI Search backend names its index "
+        "with retail_knowledge_search_index instead.",
+    )
+    retail_knowledge_backend: KnowledgeBackend = Field(
+        default="azure_ai_search",
+        description="Which vector store holds the domain prose (EGPT_RETAIL_KNOWLEDGE_BACKEND): "
+        "'azure_ai_search' the deployment's Azure AI Search index, 'pgvector' the compose Postgres. "
+        "Default is 'azure_ai_search' because that is what the deployment runs -- the same posture "
+        "as retail_provider_mode: the default is the production truth, and a laptop against compose "
+        "Postgres sets 'pgvector' explicitly. Running the wrong backend fails at construction, "
+        "naming the endpoint variable, rather than silently writing prose somewhere retrieval "
+        "never reads.",
+    )
+    retail_knowledge_search_index: str = Field(
+        default="egpt-retail-knowledge",
+        description="Azure AI Search index holding the domain prose "
+        "(EGPT_RETAIL_KNOWLEDGE_SEARCH_INDEX). The Azure-side counterpart of "
+        "retail_knowledge_table, and configurable for the same reason: the index is created at "
+        "the embedder's dimension, so Mode A (768) and Mode B (1024) cannot share one.",
+    )
+    retail_knowledge_search_endpoint: Optional[str] = Field(
+        default=None,
+        description="Azure AI Search service endpoint for the domain prose "
+        "(EGPT_RETAIL_KNOWLEDGE_SEARCH_ENDPOINT), e.g. https://<service>.search.windows.net. "
+        "Unset is refused when the backend is 'azure_ai_search' and a knowledge store is built -- "
+        "at the point of use, like retail_warehouse_db_url, since the api role's memory path and "
+        "the consolidator never open it.",
+    )
+    retail_knowledge_search_api_key: Optional[str] = Field(
+        default=None,
+        description="Azure AI Search admin or query key for the domain prose "
+        "(EGPT_RETAIL_KNOWLEDGE_SEARCH_API_KEY). Unset falls through to the framework's own "
+        "EGPT_KNOWLEDGE_AZURE_SEARCH_API_KEY / EGPT_MEMORY_AZURE_SEARCH_API_KEY resolution and "
+        "then to the SDK's ambient credential chain, which is how managed identity is meant to "
+        "work on Container Apps.",
     )
     retail_ontology_overlay: Optional[str] = Field(
         default=None,

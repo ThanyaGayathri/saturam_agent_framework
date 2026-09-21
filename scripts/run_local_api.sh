@@ -24,4 +24,7 @@ export EGPT_RETAIL_CUSTOMER_SLUG="${EGPT_RETAIL_CUSTOMER_SLUG:-northwind}"
 # The in-process poller is the local stand-in for the cloud orchestrator: on by default here so
 # "runs every 15 minutes" is true on the demo machine. Set it to false to run only by hand.
 export EGPT_RETAIL_USE_CASE_POLLER="${EGPT_RETAIL_USE_CASE_POLLER:-true}"
+# Memory on the laptop lives in the control-plane Postgres, as compose sets it; the settings
+# default is Azure AI Search on purpose and refuses to start without its endpoint.
+export EGPT_RETAIL_MEMORY_BACKEND="${EGPT_RETAIL_MEMORY_BACKEND:-pgvector}"
 exec .venv/bin/python -m egpt_retail.entrypoints api --port "${EGPT_RETAIL_API_PORT:-7777}"
