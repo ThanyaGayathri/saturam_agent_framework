@@ -27,7 +27,7 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
     enabled: animate && !isAnswerBlock,
     onDone: isAnswerBlock ? undefined : reportDone,
   });
-  const bodyEntrance = entered || animate ? "animate-[chat-rise_260ms_ease-out]" : undefined;
+  const bodyEntrance = `space-y-3 ${entered || animate ? "animate-[chat-rise_260ms_ease-out]" : ""}`.trim();
   const bodyText = animate && !isAnswerBlock ? revealedText : msg.text;
 
   useEffect(() => {
