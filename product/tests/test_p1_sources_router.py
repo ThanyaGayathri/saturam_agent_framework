@@ -149,6 +149,7 @@ class _FakeDataSourceStore:
         if existing is None:
             return False
         secret_store.delete(existing.secret_ref)
+        getattr(self, "events", []).append(f"row:{source_id}")
         return True
 
     def record_test_result(
@@ -169,14 +170,53 @@ class _FakeDataSourceStore:
         return updated
 
 
+class _FakeRunStore:
+    """``SuggestionRunStore`` for a source's delete: records that it was asked, in order."""
+
+    def __init__(self, events: list) -> None:
+        self.events = events
+        self.fail = False
+
+    def delete_for_source(self, source_id: str) -> int:
+        self.events.append(f"runs:{source_id}")
+        if self.fail:
+            raise RuntimeError("control plane down: password=hunter2")
+        return 1
+
+
+class _FakeGraph:
+    """The graph cleanup, standing in for Neo4j: records that it was asked, in order."""
+
+    def __init__(self, events: list) -> None:
+        self.events = events
+        #: Fail the first ``n`` calls (a graph that is unreachable, then comes back).
+        self.fail_calls = 0
+        self.calls = 0
+
+    def __call__(self, source_id: str) -> int:
+        self.calls += 1
+        self.events.append(f"graph:{source_id}")
+        if self.calls <= self.fail_calls:
+            raise RuntimeError(
+                "ServiceUnavailable: bolt://neo4j.internal:7687 password=hunter2"
+            )
+        return 2
+
+
 def _client(*, scopes, user_id: str = "test-user", like: Any = None) -> TestClient:
     """``like`` reuses another client's stores, for a second caller of the same deployment."""
     app = FastAPI()
     app.include_router(sources_module.router)
     fake_store = like.fake_store if like is not None else _FakeDataSourceStore()
     fake_secrets = like.fake_secrets if like is not None else _FakeSecretStore()
+    events: list = like.events if like is not None else []
+    fake_runs = like.fake_runs if like is not None else _FakeRunStore(events)
+    fake_graph = like.fake_graph if like is not None else _FakeGraph(events)
+    fake_store.events = events  # type: ignore[attr-defined]
     app.dependency_overrides[sources_module._source_store] = lambda: fake_store
     app.dependency_overrides[sources_module._secret_store] = lambda: fake_secrets
+    app.dependency_overrides[sources_module._suggestion_runs] = lambda: fake_runs
+    app.dependency_overrides[sources_module._graph_cleaner] = lambda: fake_graph
 
     @app.middleware("http")
     async def _fake_auth(request, call_next):
@@ -189,6 +229,9 @@ def _client(*, scopes, user_id: str = "test-user", like: Any = None) -> TestClie
     client = TestClient(app)
     client.fake_store = fake_store  # type: ignore[attr-defined]
     client.fake_secrets = fake_secrets  # type: ignore[attr-defined]
+    client.fake_runs = fake_runs  # type: ignore[attr-defined]
+    client.fake_graph = fake_graph  # type: ignore[attr-defined]
+    client.events = events  # type: ignore[attr-defined]
     return client
 
 
@@ -315,6 +358,178 @@ class TestReadUpdateDelete:
     def test_delete_unknown_id_is_404(self):
         client = _client(scopes=["configure:write"])
         assert client.delete("/configure/sources/does-not-exist").status_code == 404
+
+
+def _registered(client: TestClient, state: HarvestState) -> str:
+    """A registered source, put in ``state`` (registration leaves it ``not_started``)."""
+    created = client.post("/configure/sources", json=_WRITE_BODY).json()
+    row = client.fake_store._rows[created["id"]]
+    client.fake_store._rows[created["id"]] = replace(row, harvest_state=state)
+    client.events.clear()
+    return created["id"]
+
+
+class TestDeleteRemovesWhatTheSourceLeftBehind:
+    """Deleting a source used to remove only its row and its secret. Its harvest had written its
+    tables into the semantic graph, and they stayed, claiming their schema: the next source
+    registered with the same schema was refused by the schema-collision guard on behalf of a
+    source that no longer existed."""
+
+    @pytest.mark.parametrize(
+        "state", [HarvestState.MODELLED, HarvestState.NEEDS_REVIEW, HarvestState.ERROR]
+    )
+    def test_the_graph_is_cleaned_first_then_the_saved_suggestions_then_the_row(
+        self, state
+    ):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, state)
+
+        response = client.delete(f"/configure/sources/{source_id}")
+
+        assert response.status_code == 204
+        assert client.events == [
+            f"graph:{source_id}",
+            f"runs:{source_id}",
+            f"row:{source_id}",
+        ]
+        assert client.get(f"/configure/sources/{source_id}").status_code == 404
+
+    def test_the_secret_goes_with_the_row(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        ref = client.fake_store.get(source_id).secret_ref
+        client.delete(f"/configure/sources/{source_id}")
+        with pytest.raises(SecretNotFoundError):
+            client.fake_secrets.read(ref)
+
+    def test_a_source_never_harvested_does_not_need_the_graph(self):
+        """Nothing was written for it, so deleting it must work with the graph down."""
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.NOT_STARTED)
+        client.fake_graph.fail_calls = 99  # unreachable
+
+        response = client.delete(f"/configure/sources/{source_id}")
+
+        assert response.status_code == 204
+        assert client.fake_graph.calls == 0
+        assert client.events == [f"runs:{source_id}", f"row:{source_id}"]
+
+    def test_an_unreachable_graph_keeps_the_source_and_says_so_with_a_503(self):
+        """The recommended ordering: a graph that cannot be cleaned is a reason to *keep* the
+        source, so the person can retry -- deleting the row anyway would be the orphan."""
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        client.fake_graph.fail_calls = 1
+        ref = client.fake_store.get(source_id).secret_ref
+
+        response = client.delete(f"/configure/sources/{source_id}")
+
+        assert response.status_code == 503
+        assert "not deleted" in response.json()["detail"]
+        # kept, in full: the row, its secret, and its saved suggestions
+        assert client.get(f"/configure/sources/{source_id}").status_code == 200
+        assert client.fake_secrets.read(ref) is not None
+        assert client.events == [f"graph:{source_id}"]
+
+    def test_the_503_never_carries_the_graphs_own_error_text(self):
+        client = _client(scopes=["configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        client.fake_graph.fail_calls = 1
+        response = client.delete(f"/configure/sources/{source_id}")
+        assert "hunter2" not in response.text
+        assert "neo4j.internal" not in response.text
+
+    def test_the_delete_can_be_retried_once_the_graph_is_back(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        client.fake_graph.fail_calls = 1
+
+        assert client.delete(f"/configure/sources/{source_id}").status_code == 503
+        assert client.delete(f"/configure/sources/{source_id}").status_code == 204
+        assert client.get(f"/configure/sources/{source_id}").status_code == 404
+
+    def test_saved_suggestions_that_cannot_be_removed_keep_the_source_too(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        client.fake_runs.fail = True
+
+        response = client.delete(f"/configure/sources/{source_id}")
+
+        assert response.status_code == 503
+        assert "hunter2" not in response.text
+        assert client.get(f"/configure/sources/{source_id}").status_code == 200
+        # the graph cleanup already ran; it is idempotent, so the retry is safe
+        assert client.events == [f"graph:{source_id}", f"runs:{source_id}"]
+
+    def test_an_unknown_id_touches_nothing(self):
+        client = _client(scopes=["configure:write"])
+        assert client.delete("/configure/sources/ds_missing").status_code == 404
+        assert client.events == []
+
+    def test_a_delete_that_lost_a_race_to_another_delete_is_a_404(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.MODELLED)
+        real_delete = client.fake_store.delete
+        client.fake_store.delete = lambda sid, secrets: (
+            real_delete(sid, secrets) and False  # someone else removed the row first
+        )
+        assert client.delete(f"/configure/sources/{source_id}").status_code == 404
+
+    def test_a_source_deleted_while_building_is_swept_a_second_time(self):
+        """Its harvest is running in a workflow and can write after the first cleanup."""
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.BUILDING)
+
+        response = client.delete(f"/configure/sources/{source_id}")
+
+        assert response.status_code == 204
+        assert client.events == [
+            f"graph:{source_id}",
+            f"runs:{source_id}",
+            f"row:{source_id}",
+            f"graph:{source_id}",
+            f"runs:{source_id}",
+        ]
+
+    def test_a_failed_second_sweep_does_not_undo_a_delete_that_already_happened(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        source_id = _registered(client, HarvestState.BUILDING)
+        real_call = client.fake_graph.__class__.__call__
+
+        def _first_ok_then_fail(self, sid):
+            real_call(self, sid)
+            if self.calls > 1:
+                raise RuntimeError("graph went away")
+            return 2
+
+        client.fake_graph.__class__.__call__ = _first_ok_then_fail
+        try:
+            response = client.delete(f"/configure/sources/{source_id}")
+        finally:
+            client.fake_graph.__class__.__call__ = real_call
+
+        assert (
+            response.status_code == 204
+        )  # the row is gone; the next harvest heals a claim
+        assert client.get(f"/configure/sources/{source_id}").status_code == 404
+
+    def test_deleting_one_source_never_asks_for_another_sources_tables(self):
+        client = _client(scopes=["config:read", "configure:write"])
+        a = _registered(client, HarvestState.MODELLED)
+        other = client.post(
+            "/configure/sources", json=dict(_WRITE_BODY, name="Other")
+        ).json()["id"]
+        client.events.clear()
+
+        client.delete(f"/configure/sources/{a}")
+
+        assert all(a in event for event in client.events)
+        assert not any(other in event for event in client.events)
+        assert client.get(f"/configure/sources/{other}").status_code == 200
+
+    def test_the_route_needs_configure_write(self):
+        client = _client(scopes=["config:read"])
+        assert client.delete("/configure/sources/ds_1").status_code == 403
 
 
 class TestTestConnection:

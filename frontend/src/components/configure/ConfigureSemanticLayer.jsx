@@ -229,7 +229,11 @@ function LiveSourceSemanticLayer({ source }) {
    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
   >
    <RefreshCw size={14} className={starting ? "animate-spin" : ""} />
-   {model.state === "modelled" ? "Model again" : model.state === "error" ? "Retry modelling" : "Build model"}
+   {model.state === "modelled"
+    ? "Model again"
+    : model.state === "error" || model.state === "needs_review"
+     ? "Retry modelling"
+     : "Build model"}
   </button>
  );
 

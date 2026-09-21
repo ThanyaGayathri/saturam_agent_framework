@@ -109,6 +109,25 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.10 — 2026-09-21 — configure: `deleteSource` removes the source's graph tables and answers `503` when it cannot (additive)
+
+Agreed by: Lane R (contract owner). Additive (a new response on an existing operation), so no
+negotiation and no major bump. Part of #302.
+
+- **`DELETE /configure/sources/{source_id}` now removes what the source's harvest left behind**:
+  its tables, columns and their edges in the semantic graph, and its saved KPI suggestion runs,
+  as well as its row and its secret. Until now it removed only the last two. The tables stayed,
+  still claiming their schema, so the next source registered with the same schema was refused by
+  the schema-collision guard and stopped in `needs_review` -- on behalf of a source that no
+  longer existed, with no way out in the UI.
+- **`503`**, new. The graph is cleaned *before* the row is deleted, so when it (or the
+  suggestion store) cannot be reached the source is **kept** and the call can be repeated;
+  deleting the row anyway would produce exactly the orphan this fixes. A source that was never
+  harvested (`not_started`) needs no graph and is deleted regardless. No request or success
+  shape changed.
+- Deliberately kept: KPI dismissals (deployment-wide decisions about a suggestion), proposals
+  (they carry no source), and KPIs already adopted into the registry.
+
 ## 1.2.9 — 2026-09-21 — kpis: persistent suggestions (`getCurrentKpiSuggestions`, `dismissKpiSuggestion`); semantic: `getSemanticTable` `source_id` (additive)
 
 Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of

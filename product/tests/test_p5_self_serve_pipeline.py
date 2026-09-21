@@ -42,6 +42,7 @@ FRONTEND_MODEL_STATES = (
 )
 FRONTEND_SOURCES_API = REPO_ROOT / "frontend/src/services/sources-api.js"
 FRONTEND_CATALOGS = REPO_ROOT / "frontend/src/domain/configure-catalogs.js"
+CONFIGURE_DIR = REPO_ROOT / "frontend/src/components/configure"
 
 
 def _settings() -> RetailSettings:
@@ -273,3 +274,66 @@ class TestVocabulariesAgree:
         assert match is not None
         names = set(re.findall(r'"([^"]+)"', match.group(1)))
         assert names == _wire_values(wire.SourceType)
+
+
+class TestNeedsReviewHasAWayOut:
+    """A source stopped in ``needs_review`` (its schema is held by another source) used to have no
+    way out in the UI: the card showed only "Review N items", the form re-ran the harvest only from
+    ``not_started``/``error`` (so the message's own remedy, "point it at a distinct schema", did
+    nothing), and the message said "then reconnect" -- a control that does not exist. The frontend
+    has no test runner; like the other tests here these read the JS source, so a change that
+    reopens the dead end fails in the ordinary unit run."""
+
+    @staticmethod
+    def _read(name: str) -> str:
+        path = CONFIGURE_DIR / name
+        if not path.exists():
+            pytest.skip("frontend not checked out alongside product")
+        return path.read_text()
+
+    def test_saving_the_form_re_runs_the_harvest_from_needs_review(self) -> None:
+        js = self._read("ConfigureInternalSourceForm.jsx")
+        match = re.search(r"const wantsHarvest =(.*?);\n", js, flags=re.DOTALL)
+        assert match is not None, "wantsHarvest is gone"
+        states = set(re.findall(r'"([a-z_]+)"', match.group(1)))
+        assert {"not_started", "error", "needs_review"} <= states
+        # a modelled source keeps its model on a rename: it must not be in the list
+        assert "modelled" not in states
+
+    def test_the_card_offers_retry_modelling_for_needs_review(self) -> None:
+        js = self._read("ConfigureInternalSources.jsx")
+        match = re.search(r"\{canHarvest && (\[.*?\])\.includes\(model\.state\)", js)
+        assert match is not None, "the card's harvest button condition changed shape"
+        assert {"error", "not_started", "needs_review"} == set(
+            re.findall(r'"([a-z_]+)"', match.group(1))
+        )
+        assert '"Retry modelling"' in js
+
+    def test_the_semantic_layer_screen_says_retry_not_build_for_needs_review(
+        self,
+    ) -> None:
+        js = self._read("ConfigureSemanticLayer.jsx")
+        assert re.search(
+            r'model\.state === "needs_review"\s*\?\s*"Retry modelling"', js
+        ) or re.search(
+            r'model\.state === "error" \|\| model\.state === "needs_review"', js
+        )
+
+    def test_the_reason_points_at_controls_that_exist_and_never_says_reconnect(
+        self,
+    ) -> None:
+        js = self._read("source-model-state.js")
+        match = re.search(
+            r"NEEDS_REVIEW_REASON =\s*\n?\s*\"(.*?)\";", js, flags=re.DOTALL
+        )
+        assert match is not None
+        reason = match.group(1)
+        assert "reconnect" not in reason.lower()
+        # accurate for the real cases -- and it does not call an absent owner "another connected source"
+        assert "another connected source or by the deployment's own warehouse" in reason
+        assert "Edit the source" in reason and "retry modelling" in reason
+        assert "since been removed" in reason  # the case where the owner was deleted
+
+    def test_removing_a_modelled_source_says_what_goes_with_it(self) -> None:
+        js = self._read("ConfigureInternalSources.jsx")
+        assert "Its tables are removed from the semantic layer" in js

@@ -150,6 +150,19 @@ What was already decided about it, and still applies:
   `cookbook/94_retail/P6_kpi_suggestions_after_harvest.mjs` and
   `P6_kpi_suggestion_failure.mjs`, with the model replaced by the suggestion replay fixture;
   results in `cookbook/94_retail/TEST_LOG.md`.
+- **A source stuck in `needs_review` has a way out; removing a source frees its schema** (part of
+  #302; contract 1.2.10). `needs_review` means the source's schema is held by another registered
+  source or by the deployment's own warehouse, and nothing was written. The card now shows
+  "Retry modelling" beside "Review N items" (`ConfigureInternalSources.jsx`), the semantic-layer
+  screen says the same instead of "Build model", and saving the source form re-runs the harvest
+  from `needs_review` -- so the message's own remedy, point it at a different schema, actually
+  does something (`ConfigureInternalSourceForm.jsx`'s `wantsHarvest`). `NEEDS_REVIEW_REASON`
+  (`source-model-state.js`) no longer says "reconnect" (no such control) or calls an absent owner
+  "another connected source". `DELETE /configure/sources/{id}` now also removes the source's
+  tables from the semantic graph and its saved KPI suggestions, so a deleted source's schema is
+  free to reuse; the confirm dialog says so, and a `503` (graph unreachable; the source is kept)
+  reaches the screen as the API's own sentence. Verified in a headless browser --
+  `cookbook/94_retail/P7_needs_review_way_out.mjs`, results in `cookbook/94_retail/TEST_LOG.md`.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

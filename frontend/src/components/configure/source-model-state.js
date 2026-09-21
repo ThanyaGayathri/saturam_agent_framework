@@ -74,9 +74,16 @@ function minutesSince(iso) {
 }
 
 /** The only reason a real harvest stops at `needs_review` today (#306's collision guard). Said
- * here once so the card and the semantic-layer screen tell the same story. */
+ * here once so the card and the semantic-layer screen tell the same story.
+ *
+ * A real conflict only: the schema is held by another *registered* source or by the deployment's
+ * own warehouse. A claim left by a source that was deleted is not a conflict -- the harvest
+ * reclaims it and carries on -- so this never describes one, and the last sentence is true for
+ * the case where the other source has since been removed. The two ways out are controls that
+ * exist: "Edit source" (a different schema, and saving re-runs the harvest) and "Retry
+ * modelling". */
 export const NEEDS_REVIEW_REASON =
- "This source's schema name is already claimed by another connected source. Point it at a distinct schema, or remove the other source, then reconnect.";
+ "This source's schema name is already used by another connected source or by the deployment's own warehouse, so nothing was written. Edit the source to use a different schema, then retry modelling. If the other source has since been removed, retrying is enough.";
 
 function liveModelState(source) {
  const state = MODEL_STATES[source.harvestState] ? source.harvestState : "not_started";

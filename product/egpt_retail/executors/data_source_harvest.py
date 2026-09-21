@@ -36,14 +36,28 @@ ScheduleExecutor``), so the frontend (#308) does the same thing a scheduled trig
    address for the check and rebind to loopback or a cloud metadata address for the connect.
    This module used to carry its own copy of the check; the copy had no ``is_unspecified`` and
    no timeout, and the two drifted -- there is nothing here to keep in step now.
-4. *The schema-collision guard*, enforced by
+4. *The schema-collision guard* (and the reclaim of a stale claim), enforced by
    :meth:`~egpt_retail.semantic.store.SemanticGraphStore.write_harvest` itself, which raises
    :class:`~egpt_retail.semantic.store.SchemaOwnedByOtherSource` from inside its write
    transaction. Two data sources registered with the same ``schema`` name would otherwise
    silently prune and overwrite each other's tables -- see ``write_harvest``'s docstring for
    why table identity does not include ``source_id`` (reads are scoped by it instead, #307,
    so schema names must be unique across sources), and why the check cannot be a separate
-   read made beforehand.
+   read made beforehand. **A claim held by a source that no longer exists is stale, and is
+   reclaimed, not refused.** Deleting a source used to leave its tables in the graph, still
+   tagged with its id, so the next source registered with the same schema was refused on behalf
+   of a source that was gone -- and stopped in ``needs_review`` with nothing in the UI to fix
+   it. The route now removes a deleted source's tables, but a graph orphaned before that (or by a
+   delete that raced a running harvest) is still out there, so :func:`_write_harvest` treats an
+   owner that is not a registered source as stale: it removes that owner's tables and writes
+   again, once. Ids are random and never reused, so "not registered" cannot become "registered"
+   between the check and the removal. Two owners are never reclaimed: a registered source (a real
+   conflict -- ``needs_review``, naming it) and the operator's own warehouse (``""``, which has
+   no source id to remove and which nothing here may delete).
+5. *The source still exists when the write is done.* A source deleted while ``building`` has
+   its row gone by the time this writes. After the write the row is looked up again; if it is
+   gone the tables just written are removed (the delete route's own sweep may already have run)
+   and the harvest ends without marking anything modelled.
 
 Every failure after the source is marked ``building`` -- including an unexpected error
 reading the schema or writing the graph -- moves ``harvest_state`` to a terminal state and
@@ -80,6 +94,53 @@ __all__ = ["harvest_source"]
 log = logging.getLogger("egpt_retail.executors.data_source_harvest")
 
 _CONNECT_TIMEOUT_SECONDS = 10.0
+
+
+def _owner_description(store: DataSourceStore, owner: str) -> str:
+    """Who holds a claimed schema, for a message a person reads: the source's name and id if it
+    is a registered source, the deployment's own warehouse for ``""``."""
+    if not owner:
+        return "the deployment's own warehouse"
+    source = store.get(owner)
+    if source is None:
+        return f"another source ({owner})"
+    return f"the source {source.name!r} ({owner})"
+
+
+def _write_harvest(
+    graph: SemanticGraphStore,
+    store: DataSourceStore,
+    harvest: Any,
+    version: str,
+    source_id: str,
+) -> int:
+    """Write the harvest, reclaiming the schema first if its claim is stale -- see the module
+    docstring. Raises :class:`SchemaOwnedByOtherSource` for a claim that is real."""
+    try:
+        return graph.write_harvest(
+            harvest, snapshot_version=version, source_id=source_id
+        )
+    except SchemaOwnedByOtherSource as claim:
+        owner = claim.owner
+        # The operator's own warehouse ("") and a registered source are real claims. So is a
+        # claim by this very source, which the guard never raises but a caller must not act on.
+        if not owner or owner == source_id or store.get(owner) is not None:
+            raise
+    log.warning(
+        "harvest_source(%s): schema %r is claimed by %s, which is not a registered source; "
+        "removing its tables and writing again",
+        source_id,
+        harvest.schema,
+        owner,
+    )
+    try:
+        graph.delete_source_tables(owner)
+    except Exception as exc:
+        raise RuntimeError(
+            f"could not remove the tables left behind by the deleted source {owner!r}: {exc}"
+        ) from exc
+    # Once. A second refusal is a different owner, and is reported as it is.
+    return graph.write_harvest(harvest, snapshot_version=version, source_id=source_id)
 
 
 def _neo4j_driver(settings: RetailSettings) -> Any:
@@ -268,20 +329,26 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
                 run_id=run_id,
             )
         version = datetime.now(timezone.utc).strftime("%Y%m%d.%H%M%S")
+        deleted_meanwhile = False
         try:
             graph = SemanticGraphStore(
                 driver=driver, database=settings.retail_neo4j_database
             )
             graph.ensure_indexes()
-            tables_written = graph.write_harvest(
-                harvest, snapshot_version=version, source_id=source_id
-            )
+            tables_written = _write_harvest(graph, store, harvest, version, source_id)
+            if store.get(source_id) is None:
+                # Deleted while this was running. The delete route cleans the graph, but this
+                # write can land after it: take back what was just written.
+                graph.delete_source_tables(source_id)
+                deleted_meanwhile = True
         except SchemaOwnedByOtherSource as exc:
             return _fail(
                 store,
                 source_id,
                 HarvestState.NEEDS_REVIEW,
-                f"{exc}. Rename this source's schema.",
+                f"Schema {harvest.schema!r} is already used by "
+                f"{_owner_description(store, exc.owner)}. Point this source at a "
+                "different schema, then retry modelling.",
                 run_id=run_id,
             )
         except Exception as exc:
@@ -295,6 +362,23 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
             )
         finally:
             driver.close()
+
+        if deleted_meanwhile:
+            log.info(
+                "harvest_source(%s): the source was deleted while it was harvested; its "
+                "tables were removed again",
+                source_id,
+            )
+            return StepOutput(
+                content={
+                    "source_id": source_id,
+                    "ok": False,
+                    "detail": "The source was deleted while it was being harvested.",
+                },
+                success=False,
+                error="The source was deleted while it was being harvested.",
+                stop=True,
+            )
 
         store.set_harvest_state(
             source_id, HarvestState.MODELLED, run_id=run_id, mark_harvested_now=True

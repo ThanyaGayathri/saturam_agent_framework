@@ -270,10 +270,13 @@ export default function ConfigureInternalSourceForm() {
  }
  // Connect = register, then model. Only for types #306's workflow has a connector for, and
  // only when there is something to (re)build -- a modelled source keeps its model on a
- // rename. A failure to *start* the run is shown here, on the saved source, not swallowed.
+ // rename. `needs_review` counts as something to build: nothing was written, and the way out
+ // the source's own message gives -- point it at a different schema -- is an edit to this very
+ // form, so saving it has to run the harvest again or the fix does nothing. A failure to
+ // *start* the run is shown here, on the saved source, not swallowed.
  const wantsHarvest =
  HARVESTABLE_SOURCE_TYPES.has(saved.sourceType) &&
- (!isLive || ["not_started", "error"].includes(saved.harvestState));
+ (!isLive || ["not_started", "error", "needs_review"].includes(saved.harvestState));
  if (wantsHarvest) {
  try {
  await startInternalHarvest(saved.id);

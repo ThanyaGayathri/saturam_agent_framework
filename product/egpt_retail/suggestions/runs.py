@@ -467,6 +467,31 @@ class SuggestionRunStore:
         """Async variant."""
         return await asyncio.to_thread(self.current, stale_after=stale_after)
 
+    def delete_for_source(self, source_id: str) -> int:
+        """Remove every run recorded for ``source_id`` -- whatever its status -- and return how
+        many. For the day the source is deleted: its ``result`` rows are suggestions over tables
+        that are being removed, and left in place they would keep offering KPIs for a source that
+        is gone (``GET /kpis/suggestions/current`` reads the newest success of each source).
+
+        By ``source_id`` alone: runs over the deployment's own warehouse have none (``NULL``)
+        and are never matched. An empty id raises ``ValueError`` rather than matching nothing
+        quietly -- it is a caller's mistake, not "no runs".
+        """
+        if not source_id:
+            raise ValueError("delete_for_source needs a registered source's id.")
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"DELETE FROM {self._schema}.kpi_suggestion_run WHERE source_id = %s",
+                (source_id,),
+            )
+            removed = cursor.rowcount
+        self._connection.commit()
+        return int(removed)
+
+    async def adelete_for_source(self, source_id: str) -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.delete_for_source, source_id)
+
     def typical_duration(
         self, *, sample: int = TYPICAL_DURATION_SAMPLE
     ) -> Optional[float]:

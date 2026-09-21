@@ -115,14 +115,33 @@ class _FakeGraphStore:
         self,
         *,
         conflict: Optional[str] = None,
+        conflict_after_reclaim: Optional[str] = None,
+        delete_error: Optional[Exception] = None,
+        on_write: Any = None,
         write_error: Optional[Exception] = None,
         index_error: Optional[Exception] = None,
     ) -> None:
+        #: The ``source_id`` that holds the schema; ``write_harvest`` refuses while it does.
         self.conflict = conflict
+        #: Who holds it once the first owner's tables are removed (a second, different claim).
+        self.conflict_after_reclaim = conflict_after_reclaim
+        self.delete_error = delete_error
+        #: Called after a write lands -- lets a test change the world mid-harvest.
+        self.on_write = on_write
         self.write_error = write_error
         self.index_error = index_error
         self.written: list = []
+        self.deleted_sources: list = []
         self.ensure_indexes_called = False
+
+    def delete_source_tables(self, source_id: str) -> int:
+        self.deleted_sources.append(source_id)
+        if self.delete_error is not None:
+            raise self.delete_error
+        if source_id == self.conflict:
+            self.conflict = self.conflict_after_reclaim
+            self.conflict_after_reclaim = None
+        return 1
 
     def ensure_indexes(self) -> None:
         self.ensure_indexes_called = True
@@ -137,6 +156,8 @@ class _FakeGraphStore:
         if self.write_error is not None:
             raise self.write_error
         self.written.append((harvest, snapshot_version, source_id))
+        if self.on_write is not None:
+            self.on_write()
         return len(harvest.tables)
 
 
@@ -151,11 +172,14 @@ def _install_fakes(
     harvest_error: Optional[Exception] = None,
     driver_error: Optional[Exception] = None,
     addresses: tuple = ("10.0.0.5",),
+    others: tuple = (),
     real_resolver: bool = False,
     connect_calls: Optional[list] = None,
     driver: Optional["_FakeConnection"] = None,
 ) -> _FakeDataSourceStore:
     store = _FakeDataSourceStore(None, seed=source)
+    for other in others:  # other registered sources: the owners of a real claim
+        store.rows[other.id] = other
     credential = credential or Credential(
         auth_method=AuthMethod.USERNAME_PASSWORD, username="reader", password="hunter2"
     )
@@ -292,25 +316,36 @@ class TestHarvestSource:
         assert "harvested as empty" in result.error
         assert store.rows["ds_1"].harvest_state is HarvestState.ERROR
 
-    async def test_schema_owned_by_another_source_is_refused_as_needs_review(
+    async def test_a_claim_held_by_a_registered_source_is_refused_as_needs_review_and_names_it(
         self, monkeypatch
     ):
         graph = _FakeGraphStore(conflict="ds_other")
-        store = _install_fakes(monkeypatch, source=_source(), graph=graph)
+        store = _install_fakes(
+            monkeypatch,
+            source=_source(),
+            graph=graph,
+            others=(_source(id="ds_other", name="Other source"),),
+        )
         result = await harvest_module.harvest_source(_step_input())
         assert result.success is False
-        assert "ds_other" in result.error
+        assert "'Other source'" in result.error and "ds_other" in result.error
+        assert "different schema" in result.error
         assert store.rows["ds_1"].harvest_state is HarvestState.NEEDS_REVIEW
         assert graph.written == []  # write_harvest refused before recording anything
+        assert graph.deleted_sources == []  # a real owner's tables are never touched
 
-    async def test_schema_held_by_the_operators_own_harvest_is_named_as_such(
+    async def test_schema_held_by_the_operators_own_harvest_is_named_as_such_and_never_reclaimed(
         self, monkeypatch
     ):
         graph = _FakeGraphStore(conflict="")
-        _install_fakes(monkeypatch, source=_source(), graph=graph)
+        store = _install_fakes(monkeypatch, source=_source(), graph=graph)
         result = await harvest_module.harvest_source(_step_input())
         assert result.success is False
-        assert "deployment's own warehouse harvest" in result.error
+        assert "the deployment's own warehouse" in result.error
+        assert store.rows["ds_1"].harvest_state is HarvestState.NEEDS_REVIEW
+        assert (
+            graph.deleted_sources == []
+        )  # "" is the operator's: nothing here removes it
 
     async def test_successful_harvest_writes_the_graph_and_marks_modelled(
         self, monkeypatch
@@ -356,6 +391,104 @@ class TestHarvestSource:
         )
         await harvest_module.harvest_source(_step_input())
         assert calls == [("10.0.0.5", "10.0.0.6")]
+
+
+@pytest.mark.asyncio
+class TestAStaleClaimIsReclaimed:
+    """A source deleted before the graph was cleaned up left its tables claiming their schema,
+    and the next source registered with that schema stopped in ``needs_review`` on behalf of a
+    source that no longer existed. An owner that is not a registered source is stale."""
+
+    async def test_an_owner_that_is_not_registered_is_reclaimed_and_the_harvest_succeeds(
+        self, monkeypatch
+    ):
+        graph = _FakeGraphStore(conflict="ds_gone")
+        store = _install_fakes(monkeypatch, source=_source(), graph=graph)
+
+        result = await harvest_module.harvest_source(_step_input())
+
+        assert result.success is not False
+        assert result.content["ok"] is True
+        assert graph.deleted_sources == ["ds_gone"]  # exactly the stale owner's tables
+        assert len(graph.written) == 1
+        assert store.rows["ds_1"].harvest_state is HarvestState.MODELLED
+
+    async def test_it_is_reclaimed_once_and_a_second_stale_owner_is_not_chased(
+        self, monkeypatch
+    ):
+        """A second refusal is a different owner and is reported as it is: the retry is once,
+        not a loop that could wipe a graph one owner at a time."""
+        graph = _FakeGraphStore(conflict="ds_gone", conflict_after_reclaim="ds_gone2")
+        store = _install_fakes(monkeypatch, source=_source(), graph=graph)
+
+        result = await harvest_module.harvest_source(_step_input())
+
+        assert result.success is False
+        assert graph.deleted_sources == ["ds_gone"]
+        assert "ds_gone2" in result.error
+        assert store.rows["ds_1"].harvest_state is HarvestState.NEEDS_REVIEW
+
+    async def test_a_source_that_is_registered_is_never_reclaimed_even_if_unharvested(
+        self, monkeypatch
+    ):
+        """Registered means real, whatever its state: a source mid-registration (row written,
+        harvest not yet started) is not a stale owner."""
+        graph = _FakeGraphStore(conflict="ds_new")
+        _install_fakes(
+            monkeypatch,
+            source=_source(),
+            graph=graph,
+            others=(_source(id="ds_new", harvest_state=HarvestState.NOT_STARTED),),
+        )
+        result = await harvest_module.harvest_source(_step_input())
+        assert result.success is False
+        assert graph.deleted_sources == []
+
+    async def test_a_failure_removing_the_stale_tables_ends_in_error_not_needs_review(
+        self, monkeypatch
+    ):
+        graph = _FakeGraphStore(
+            conflict="ds_gone", delete_error=RuntimeError("graph unreachable")
+        )
+        store = _install_fakes(monkeypatch, source=_source(), graph=graph)
+
+        result = await harvest_module.harvest_source(_step_input())
+
+        assert result.success is False
+        assert "ds_gone" in result.error and "could not remove" in result.error
+        assert (
+            store.rows["ds_1"].harvest_state is HarvestState.ERROR
+        )  # a retry can heal it
+        assert graph.written == []
+
+
+@pytest.mark.asyncio
+class TestASourceDeletedMidHarvest:
+    """The delete route cleans the graph, but a harvest already running can write after it."""
+
+    async def test_what_was_just_written_is_taken_back_and_nothing_is_marked_modelled(
+        self, monkeypatch
+    ):
+        holder: Dict[str, Any] = {}
+        graph = _FakeGraphStore(on_write=lambda: holder["store"].rows.pop("ds_1"))
+        holder["store"] = _install_fakes(monkeypatch, source=_source(), graph=graph)
+
+        result = await harvest_module.harvest_source(_step_input())
+
+        assert result.success is False
+        assert (
+            result.stop is True
+        )  # the suggest-kpis step must not run for a deleted source
+        assert "deleted while it was being harvested" in result.error
+        assert graph.deleted_sources == ["ds_1"]
+        states = [call[0] for call in holder["store"].harvest_state_calls]
+        assert HarvestState.MODELLED not in states
+
+    async def test_a_source_that_still_exists_is_left_alone(self, monkeypatch):
+        graph = _FakeGraphStore()
+        _install_fakes(monkeypatch, source=_source(), graph=graph)
+        await harvest_module.harvest_source(_step_input())
+        assert graph.deleted_sources == []
 
 
 @pytest.mark.asyncio

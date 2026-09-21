@@ -6238,3 +6238,70 @@ mutation-checked (per-scope newest success, failure superseded by a later succes
 stale-run guard); router, workflow-step and scoped-table-detail tests are DB-free.
 
 ---
+
+### P7_delete_source_cleanup.py, P7_needs_review_way_out.mjs
+
+**Status:** PASS
+
+**Description:** Deleting a data source removes what its harvest left behind, so a new source can
+take the same schema; and a source stuck in `needs_review` has a way out in the UI (part of #302,
+contract 1.2.10). **Reproduced first**, against the real API, Postgres and Neo4j: register a source
+on schema X, harvest it (2 graph tables tagged with its id), `DELETE` it (204) -- the 2 tables were
+still there, still tagged -- register a second source on X and harvest: `needs_review`. After the
+fix the same script ends `modelled`, and the tables left behind by the *earlier* run (a graph
+orphaned before the fix) were reclaimed by the first harvest of the rerun, with a log line saying so.
+
+`P7_delete_source_cleanup.py` (real router, executor, Postgres, Neo4j; scratch schema `p7_delete`)
+asserts five scenarios: (1) register/harvest/`DELETE`/register/harvest -- `modelled`, not
+`needs_review`; the delete removed the source's graph tables, its suggestion runs, its row and its
+secret; (2) tables tagged with an id no source has are reclaimed by a new source on that schema;
+(3) a *registered* holder is still respected -- `needs_review`, the message naming it, its tables
+untouched -- and deleting the holder then retrying is enough; (4) a graph that cannot be reached
+(a dead Bolt port) makes `DELETE` answer `503` with the source, its secret and its tables all still
+there, and the same delete succeeds once the graph is back; (5) a source never harvested deletes with
+the graph down. Throughout, every other registered source and the operator's own tables are asserted
+unchanged before and after. `P7_needs_review_way_out.mjs` (headless Chromium): a second source on a
+held schema stops in `needs_review` and its card shows "Retry modelling" beside "Review 1 item"; the
+reason names the real cases and never says "reconnect"; editing the schema and saving starts a
+harvest (202) and the source is `modelled`; removing the holder (the confirm dialog says its tables
+go with it) and pressing "Retry modelling" on another stuck source models it. No console errors.
+
+**Design decisions recorded:** the graph is cleaned *before* the row is deleted, so an unreachable
+graph is a `503` that keeps the source (retryable) rather than an orphan with nothing left to retry
+against; a never-harvested source needs no graph. Of the control-plane tables, only
+`semantic.kpi_suggestion_run` carries a `source_id` and is cleaned; KPI dismissals (a decision about a
+suggestion, deployment-wide), proposals (no source) and adopted KPIs (governed content) are kept on
+purpose. A source deleted while `building` is swept a second time after its row goes, and the
+harvest checks the source still exists after it writes, removing what it wrote if not.
+
+**An incident while testing, and what it cost.** I mutation-tested `delete_source_tables` -- deleting
+its empty-id refusal to see the tests fail -- **against the shared dev Neo4j**. The operator's own
+tables are stored with `source_id = ''`, so with the refusal gone `delete_source_tables("")` matched
+all of them: the operator's 5 `silver` tables and their columns, and every reviewed edge on them,
+were deleted. A separate mutation (`t.source_id <> ''`) deleted the *columns* of every tagged table,
+which almost certainly includes the 10 tables of the registered source `Nandha-Sep-21-test1` (its
+tables are still there with no columns attached; I cannot re-read it -- it is on port 5544 and its
+credential is encrypted with a key I do not have). Repaired from the sources of truth: the operator
+layer was re-harvested with `egpt-retail harvest` (5 tables, 55 columns, as before) and the 23
+previously-applied proposals were re-applied through the store's own apply path (3 `INSTANTIATES`
+edges, column meanings, enrichments), with `semantic.proposal` verified byte-identical to a copy
+taken first. **Not repaired:** that source's columns -- "Model again" on it (Configure > Data sources
+> View semantic layer) rebuilds them; and any edge that was never a proposal. The Cypher now carries
+its own `$source_id <> ''` guard beside the Python check so the failure needs two mistakes, and
+`test_source_delete_live.py` says not to mutate this method against a shared graph.
+
+**Also found:** the "42 orphan `SemanticColumn` nodes" in the dev graph are mine -- a scratch reset
+script used to clear earlier browser runs deleted a schema's tables through the wrong relationship
+name (`HAS_COLUMN`; the real one is `OF_TABLE`), leaving their columns behind -- and the same script
+deleted every registered source through the API on each run, which is very likely why registered demo
+sources "disappeared" (it removed `ds_81a67ba920d1`, the source in this bug's report, among others).
+Neither is in the repository; I have not cleaned the orphans up.
+
+**Result:** all checks pass. `product/tests/test_source_delete_live.py` (18 tests against real Neo4j
+and Postgres, synthetic `livetest_del_*` data only): a source's tables and columns go, another
+source's and the operator's do not, the shared concept stays and its other links survive, deletion is
+idempotent, and the empty id is refused; runs likewise. Router, executor (stale claim reclaimed once,
+a live owner and the operator's `""` never), the graph store's statements, and the frontend's
+source-reading tests are DB-free.
+
+---

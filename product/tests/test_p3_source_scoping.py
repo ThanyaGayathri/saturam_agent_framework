@@ -19,6 +19,7 @@ from egpt.exceptions import SQLGuardRefusal
 from egpt_retail.api.routers import semantic as semantic_module
 from egpt_retail.app.sql_guard import build_source_read_guard
 from egpt_retail.contracts.semantic import Column, Snapshot, Table, TableRef
+from egpt_retail.semantic.store import SemanticGraphStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -241,6 +242,105 @@ class TestGetSemanticTableSourceId:
         response = client.get("/semantic/tables/orders", params={"source_id": ""})
         assert response.status_code == 404
         assert opened == []
+
+
+class _RecordingDriver:
+    """A Neo4j driver that records what it is asked. ``opened`` counts sessions, so a test can
+    prove a refusal happened before the graph was so much as contacted."""
+
+    def __init__(self, tables_removed: int = 2) -> None:
+        self.statements: List[tuple] = []
+        self.opened = 0
+        self.write_transactions = 0
+        self._removed = tables_removed
+
+    def session(self, **kwargs: Any) -> "_RecordingDriver":
+        self.opened += 1
+        return self
+
+    def __enter__(self) -> "_RecordingDriver":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def execute_write(self, function: Any, *args: Any) -> Any:
+        self.write_transactions += 1
+        return function(self, *args)
+
+    def run(self, statement: str, **params: Any) -> Any:
+        self.statements.append((statement, params))
+        removed = self._removed
+
+        class _Result:
+            def single(self) -> Any:
+                return {"n": removed}
+
+        return _Result()
+
+
+class TestDeleteSourceTables:
+    """``SemanticGraphStore.delete_source_tables``: what it may touch is proved against a real
+    Neo4j by ``test_source_delete_live.py`` (another source's tables, the operator's, and the
+    shared concepts all survive). Here: the statements it sends, and the refusal that must come
+    before any of them."""
+
+    @staticmethod
+    def _store(driver: _RecordingDriver) -> SemanticGraphStore:
+        return SemanticGraphStore(driver=driver, database="neo4j")
+
+    @pytest.mark.parametrize("empty", ["", None])
+    def test_the_operators_own_warehouse_is_refused_before_the_graph_is_contacted(
+        self, empty: Any
+    ) -> None:
+        driver = _RecordingDriver()
+        with pytest.raises(ValueError, match="never removes"):
+            self._store(driver).delete_source_tables(empty)
+        assert driver.opened == 0
+        assert driver.statements == []
+
+    def test_the_async_twin_refuses_the_same_way(self) -> None:
+        import asyncio
+
+        driver = _RecordingDriver()
+        with pytest.raises(ValueError):
+            asyncio.run(self._store(driver).adelete_source_tables(""))
+        assert driver.opened == 0
+
+    def test_it_is_one_write_transaction_returning_how_many_tables_went(self) -> None:
+        driver = _RecordingDriver(tables_removed=3)
+        assert self._store(driver).delete_source_tables("ds_1") == 3
+        assert (
+            driver.write_transactions == 1
+        )  # a failure part-way leaves the graph as it was
+
+    def test_every_statement_is_scoped_by_the_sources_id_and_by_nothing_else(
+        self,
+    ) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert len(driver.statements) == 2  # columns, then tables
+        for statement, params in driver.statements:
+            assert params == {"source_id": "ds_1"}  # no schema, no name: the tag alone
+            assert "t.source_id = $source_id" in statement
+            # the second guard, in the query itself: the operator's tables are stored with
+            # source_id = '', so an empty id that got past the Python check must match nothing
+            assert "$source_id <> ''" in statement
+            assert (
+                "schema" not in statement
+            )  # not by schema: identity is (schema, name)
+            assert "DETACH DELETE" in statement  # concept links go with the tables
+
+    def test_the_shared_concepts_are_never_matched(self) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert not any("SemanticConcept" in st for st, _ in driver.statements)
+
+    def test_columns_are_removed_before_their_tables(self) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert "SemanticColumn" in driver.statements[0][0]
+        assert "SemanticTable" in driver.statements[1][0]
 
 
 class TestBuildSourceReadGuard:

@@ -50,6 +50,7 @@ enforce it.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, Optional
@@ -59,6 +60,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.scopes import require_scopes
+from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.configure.host_guard import check_host, run_with_timeout
 from egpt_retail.configure.secrets import (
@@ -76,10 +78,14 @@ from egpt_retail.contracts.data_source import (
     DataSourceType,
     DataSourceUpdate,
     DataSourceValidationError,
+    HarvestState,
     PermissionLevel,
 )
+from egpt_retail.suggestions.runs import SuggestionRunStore
 
 __all__ = ["router"]
+
+log = logging.getLogger("egpt_retail.api.routers.sources")
 
 router = APIRouter()
 
@@ -108,6 +114,12 @@ def _secret_store(
     connection: Any = Depends(_control_plane_connection),
 ) -> SecretStore:
     return build_secret_store(RetailSettings(), connection)
+
+
+def _suggestion_runs(
+    connection: Any = Depends(_control_plane_connection),
+) -> SuggestionRunStore:
+    return SuggestionRunStore(connection)
 
 
 def _caller_id(request: Request) -> str:
@@ -317,15 +329,106 @@ def update_source(
     return _source_out(updated)
 
 
+def _forget_source_tables(settings: RetailSettings, source_id: str) -> int:
+    """Remove the source's tables from the semantic graph -- see
+    :meth:`~egpt_retail.semantic.store.SemanticGraphStore.delete_source_tables`. Raises whatever
+    the graph raises; the caller decides what that means."""
+    with open_semantic_reader(settings, source_id=source_id) as graph:
+        return graph.delete_source_tables(source_id)
+
+
+def _graph_cleaner() -> Callable[[str], int]:
+    """The graph cleanup as a dependency, so a test can stand in for Neo4j the way it stands in
+    for the control plane."""
+    return lambda source_id: _forget_source_tables(RetailSettings(), source_id)
+
+
 @router.delete("/configure/sources/{source_id}", status_code=204)
 def delete_source(
     source_id: str,
     store: DataSourceStore = Depends(_source_store),
     secrets: SecretStore = Depends(_secret_store),
+    runs: SuggestionRunStore = Depends(_suggestion_runs),
+    forget_tables: Callable[[str], int] = Depends(_graph_cleaner),
     _: None = Depends(require_scopes("configure:write")),
 ):
-    if not store.delete(source_id, secrets):
+    """Delete a source -- and everything it left behind.
+
+    A source is not only its row and its secret. Harvesting it wrote its tables into the semantic
+    graph, tagged with its id, and it may have left KPI suggestion runs. The graph outlives the
+    row, so deleting only the row (as this route once did) left the tables claiming their
+    schema: the next source registered with the same schema was refused by the schema-collision
+    guard on behalf of a source that no longer existed, and stopped in ``needs_review``.
+
+    **Order, deliberately: the graph first, then the saved suggestions, then the row and the
+    secret.** If the graph cannot be reached the answer is ``503`` and the source is *kept*: the
+    person can retry, and nothing is orphaned -- which is the bug this fixes. Deleting the row
+    first and failing to clean the graph afterwards would produce exactly that orphan, with no
+    row left to retry against. A source that was never harvested (``not_started``) has nothing in
+    the graph, so it does not need the graph to be up to be deleted.
+
+    **What is removed, and what is deliberately kept.** Removed: the source's tables and their
+    columns and edges in the graph (the shared ontology concepts they linked to stay), its
+    ``kpi_suggestion_run`` rows (the only control-plane table with a ``source_id``), its row and
+    its secret. Kept: KPI *dismissals* (by identifier and deployment-wide -- a decision about a
+    suggestion, not part of a source), proposals (they carry no source), and KPIs already adopted
+    into the registry (governed content; one whose tables are gone reads as blocked).
+
+    **A source deleted while ``building``.** Its harvest is running in a workflow and can write
+    after this cleanup has run, so the graph is swept a second time once the row is gone, and the
+    harvest itself checks the source still exists after it writes and removes what it wrote if
+    not (``executors/data_source_harvest.py``). Either alone leaves a window; together they close
+    it, and a claim that still slips through is treated as stale by the next harvest that meets
+    it.
+    """
+    source = store.get(source_id)
+    if source is None:
         raise _not_found(source_id)
+
+    if source.harvest_state is not HarvestState.NOT_STARTED:
+        try:
+            forget_tables(source_id)
+        except Exception:
+            log.exception(
+                "delete source %s: its tables could not be removed from the semantic graph",
+                source_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "This source's tables could not be removed from the semantic graph, so "
+                    "the source was not deleted. Try again in a moment."
+                ),
+            ) from None
+    try:
+        runs.delete_for_source(source_id)
+    except Exception:
+        log.exception(
+            "delete source %s: its KPI suggestion runs could not be removed", source_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "This source's saved KPI suggestions could not be removed, so the source "
+                "was not deleted. Try again in a moment."
+            ),
+        ) from None
+
+    if not store.delete(source_id, secrets):
+        raise _not_found(source_id)  # a concurrent delete got there first
+
+    if source.harvest_state is HarvestState.BUILDING:
+        # A harvest was running: it may have written after the cleanup above. The row is gone,
+        # so a failure here is only logged -- the next harvest that meets a stale claim heals it.
+        try:
+            forget_tables(source_id)
+            runs.delete_for_source(source_id)
+        except Exception:
+            log.warning(
+                "delete source %s: the second sweep after a building delete failed",
+                source_id,
+                exc_info=True,
+            )
     return None
 
 

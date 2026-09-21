@@ -481,6 +481,71 @@ class SemanticGraphStore:
         """Async variant."""
         return await asyncio.to_thread(self.drop_schema, schema)
 
+    def delete_source_tables(self, source_id: str) -> int:
+        """Remove every table a registered data source's harvest wrote -- its columns, and the
+        reviewed edges on them -- and return how many tables were removed.
+
+        The counterpart to ``write_harvest(..., source_id=...)`` for the day the source is
+        deleted: the graph outlives the registration row, and a source's tables left behind
+        keep their ``schema`` claimed, so the next source registered with the same schema is
+        refused by :class:`SchemaOwnedByOtherSource` -- on behalf of a source that no longer
+        exists.
+
+        **Scoped by ``source_id`` alone, not by schema.** A table's identity is ``(schema,
+        name)`` and ``source_id`` is the tag that says whose it is, so this takes exactly what
+        the tag names: another source's tables, and the operator's own (which carry no tag),
+        are never matched, whatever schema they share with it.
+
+        **The operator's own warehouse is not removable through here.** ``""`` (or ``None``) is
+        what an untagged table -- the operator's -- reads as, and matching it would wipe the
+        deployment's own semantic layer; it raises ``ValueError`` before touching the graph.
+        Removing the operator's schema is ``drop_schema``'s job, by name, on purpose.
+
+        Columns first and tables second, both ``DETACH DELETE``, so ``INSTANTIATES``,
+        ``AUTHORITATIVE_SOURCE`` and ``JOINS_TO`` edges go with the tables they attach to. The
+        shared ``SemanticConcept`` nodes at the other end are not touched: they are the
+        ontology, not this source's. One transaction, so a failure leaves the graph as it was.
+        """
+        if not source_id:
+            raise ValueError(
+                "delete_source_tables needs a registered source's id: an empty id is the "
+                "operator's own warehouse, which this never removes."
+            )
+        with self._driver.session(database=self._database) as session:
+            return int(session.execute_write(self._delete_source_tables_tx, source_id))
+
+    @staticmethod
+    def _delete_source_tables_tx(tx: Any, source_id: str) -> int:
+        """The transaction. ``$source_id <> ''`` in both statements is the second, independent
+        guard behind :meth:`delete_source_tables`' ``ValueError``: the operator's own tables are
+        stored with ``source_id = ''``, so a ``source_id`` of ``''`` that got past the Python check
+        would otherwise match every one of them -- and their columns, and every reviewed edge on
+        them -- and this method would wipe the deployment's whole semantic layer. With the guard
+        in the query itself, that call matches nothing."""
+        tx.run(
+            f"""
+            MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
+            WHERE t.source_id = $source_id AND $source_id <> ''
+            DETACH DELETE c
+            """,
+            source_id=source_id,
+        )
+        record = tx.run(
+            f"""
+            MATCH (t:{TABLE_LABEL})
+            WHERE t.source_id = $source_id AND $source_id <> ''
+            WITH collect(t) AS tables
+            FOREACH (t IN tables | DETACH DELETE t)
+            RETURN size(tables) AS n
+            """,
+            source_id=source_id,
+        ).single()
+        return int(record["n"]) if record else 0
+
+    async def adelete_source_tables(self, source_id: str) -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.delete_source_tables, source_id)
+
     async def awrite_harvest(
         self, harvest: Harvest, *, snapshot_version: str = "", source_id: str = ""
     ) -> int:

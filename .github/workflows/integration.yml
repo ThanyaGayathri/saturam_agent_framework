@@ -233,10 +233,16 @@ jobs:
           # newest successful run of each source, the failure a later success got past, the
           # stale-run guard) and SuggestionDismissalStore, against this job's Postgres. Needs
           # only EGPT_RETAIL_CP_DSN (above).
+          # test_source_delete_live.py -- SemanticGraphStore.delete_source_tables and
+          # SuggestionRunStore.delete_for_source against this job's Neo4j and Postgres: a deleted
+          # source's tables go, another source's and the operator's never do, the shared concepts
+          # stay, and the empty id (the operator's own warehouse) is refused. Synthetic livetest_del
+          # schemas only; reads the same EGPT_ONTOLOGY_NEO4J_URI / EGPT_RETAIL_NEO4J_PASSWORD /
+          # EGPT_RETAIL_CP_DSN as the suites above.
         run: |
           set -e
           source .venv/bin/activate
-          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py product/tests/test_kpis_live.py product/tests/test_p0_data_sources_live.py product/tests/test_kpi_suggestions_live.py -v --tb=short
+          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py product/tests/test_kpis_live.py product/tests/test_p0_data_sources_live.py product/tests/test_kpi_suggestions_live.py product/tests/test_source_delete_live.py -v --tb=short
 
   system:
     name: system (py3.12)

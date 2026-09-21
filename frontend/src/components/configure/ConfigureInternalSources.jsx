@@ -255,8 +255,11 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
     </p>
    )}
    {/* A registered-but-unmodelled or failed real source can be (re)modelled from here. Only
-       for source types #306's workflow has a connector for; the rest register and stop. */}
-   {canHarvest && (model.state === "error" || model.state === "not_started") && (
+       for source types #306's workflow has a connector for; the rest register and stop.
+       `needs_review` is a way out, not a dead end: a schema claim that has since been released
+       (the other source was removed) needs only a retry, and one that has not needs the source
+       edited first -- which is why saving the form re-runs the harvest from this state too. */}
+   {canHarvest && ["error", "not_started", "needs_review"].includes(model.state) && (
     <button
      type="button"
      onClick={startHarvest}
@@ -264,7 +267,7 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
      className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
     >
      <RefreshCw size={13} className={starting ? "animate-spin" : ""} />
-     {model.state === "error" ? "Retry modelling" : "Build model"}
+     {model.state === "error" || model.state === "needs_review" ? "Retry modelling" : "Build model"}
     </button>
    )}
    {source.live && !source.harvestable && model.state === "not_started" && (
@@ -418,7 +421,13 @@ export default function ConfigureInternalSources() {
  };
 
  const removeFor = (source) => async () => {
-  if (!window.confirm(`Remove "${source.name}"?`)) return;
+  // A real source that was ever modelled takes its tables and its saved KPI suggestions with it
+  // (`DELETE /configure/sources/{id}`); say so, since that is more than the card itself.
+  const takesItsModelWithIt = source.live && source.harvestState && source.harvestState !== "not_started";
+  const consequence = takesItsModelWithIt
+    ? " Its tables are removed from the semantic layer, along with the KPI suggestions made from them."
+    : "";
+  if (!window.confirm(`Remove "${source.name}"?${consequence}`)) return;
   setActionError(null);
   try {
    await source.remove();
