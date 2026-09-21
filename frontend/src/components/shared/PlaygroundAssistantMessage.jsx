@@ -1,14 +1,27 @@
 // Assistant bubble layout shared by Playground active chat and Use Case builder chat.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, Check, RotateCcw, ThumbsUp, ThumbsDown, Bookmark, Calendar, Pin } from "lucide-react";
+import { useTypewriter } from "../../hooks/useTypewriter";
 import PlaygroundRichReplyBody from "./PlaygroundRichReplyBody";
 import { EnterpriseProductMark } from "./EnterpriseProductMark";
 import { AnswerBlockRenderer } from "./answer-blocks";
 import { isAnswerBlockMeta } from "../../domain/answer-blocks/schema";
 
-export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetry, onFollowUpSelect, onBlockAction, onPinToggle, onSaveMessage, onScheduleMessage, onAddMessageToReport, isMessagePinned = false, activeReportTitle, chatMode, isLatestAssistant = true, children }) {
+export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetry, onFollowUpSelect, onBlockAction, onPinToggle, onSaveMessage, onScheduleMessage, onAddMessageToReport, isMessagePinned = false, activeReportTitle, chatMode, isLatestAssistant = true, animate = false, onRevealTick, children }) {
   const isAnswerBlock = isAnswerBlockMeta(msg.meta);
   const [pinFlash, setPinFlash] = useState(false);
+
+  // Only a reply that arrived while you were watching is revealed; history renders whole, the
+  // way it does in any chat app. Answer blocks are not typed out - their charts and tables
+  // would reflow on every frame - so they fade in once the text has finished.
+  const { shown: revealedText, done: revealDone } = useTypewriter(msg.text, {
+    enabled: animate && !isAnswerBlock,
+  });
+  const bodyText = animate && !isAnswerBlock ? revealedText : msg.text;
+
+  useEffect(() => {
+    if (animate) onRevealTick?.();
+  }, [bodyText, animate, onRevealTick]);
 
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -36,7 +49,15 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
         {/* When rendering an answer-block message the intro paragraph lives inside
             the renderer, so we skip the plain-text bubble to avoid duplication. */}
         {!isAnswerBlock ? (
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-text-primary">{msg.text}</p>
+          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-text-primary">
+            {bodyText}
+            {animate && !revealDone ? (
+              <span
+                className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[2px] animate-pulse bg-primary align-baseline"
+                aria-hidden
+              />
+            ) : null}
+          </p>
         ) : null}
 
         {msg.meta?.variant === "playground-rich" ? (
@@ -50,6 +71,7 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
         ) : null}
 
         {isAnswerBlock ? (
+          <div className={animate ? "animate-[chat-rise_260ms_ease-out]" : undefined}>
           <AnswerBlockRenderer
             meta={msg.meta}
             chatMode={chatMode}
@@ -57,7 +79,10 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
             onFollowUpSelect={onFollowUpSelect}
             onAction={onBlockAction}
             onPinToggle={onPinToggle}
+            animate={animate}
+            onRevealTick={onRevealTick}
           />
+          </div>
         ) : null}
 
         {children}
