@@ -32,7 +32,9 @@
                     ssl_mode: require
                     permission_level: read_only
                     has_credentials: true
+                    harvest_state: modelled
                     last_harvest_id: hv_20260907_0200
+                    last_harvest_at: "2026-09-07T02:00:00Z"
                     created_at: "2026-09-01T10:00:00Z"
               empty:
                 summary: "`ConfigureDatabaseEmpty` -- nothing connected yet."
@@ -84,7 +86,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: not_started
                   last_harvest_id: null
+                  last_harvest_at: null
                   created_at: "2026-09-07T10:00:00Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
@@ -119,7 +123,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: modelled
                   last_harvest_id: hv_20260907_0200
+                  last_harvest_at: "2026-09-07T02:00:00Z"
                   created_at: "2026-09-01T10:00:00Z"
       "404":
         $ref: '#/x-egpt-responses/NotFound'
@@ -161,7 +167,9 @@
                   ssl_mode: require
                   permission_level: read_only
                   has_credentials: true
+                  harvest_state: modelled
                   last_harvest_id: hv_20260907_0200
+                  last_harvest_at: "2026-09-07T02:00:00Z"
                   created_at: "2026-09-01T10:00:00Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
@@ -170,17 +178,42 @@
   delete:
     tags: [configure]
     operationId: deleteSource
-    summary: Disconnect a source.
+    summary: Disconnect a source, and remove what its harvest left behind.
+    description: |
+      A source is more than its row and its stored secret: harvesting it wrote its tables into
+      the semantic graph, tagged with its id, and it may have left saved KPI suggestions. The
+      delete removes all of it -- the source's tables, columns and their edges in the graph (the
+      shared ontology concepts they linked to stay), its suggestion runs, its row and its
+      secret. It used to remove only the row and the secret, and the tables it left kept
+      claiming their schema, so the next source registered with the same schema was refused
+      by the schema-collision guard (`harvest_state: needs_review`) on behalf of a source that
+      no longer existed.
+
+      The graph is cleaned **first**. If it (or the suggestion store) cannot be reached the
+      answer is `503` and the source is **kept**, in full, so the delete can simply be tried
+      again -- deleting the row anyway would be the orphan this exists to prevent. A source
+      that was never harvested (`harvest_state: not_started`) has nothing in the graph and is
+      deleted without needing it. Dismissed KPI suggestions are kept: a dismissal is a decision
+      about a suggestion, not part of a source.
     x-egpt-scopes: [configure:write]
     parameters:
       - $ref: '#/x-egpt-parameters/sourceId'
     responses:
       "204":
-        description: Deleted.
+        description: Deleted, along with its tables in the semantic graph and its saved suggestions.
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
       "404":
         $ref: '#/x-egpt-responses/NotFound'
+      "503":
+        description: The source's tables (or saved suggestions) could not be removed, so the source was **not** deleted. Try again.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              graph_unreachable:
+                value: {detail: "This source's tables could not be removed from the semantic graph, so the source was not deleted. Try again in a moment.", code: service_unavailable}
 
 /configure/sources/{source_id}/test:
   post:

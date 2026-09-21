@@ -78,6 +78,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    FrozenSet,
     Iterator,
     Mapping,
     Optional,
@@ -99,6 +100,8 @@ from egpt_retail.app.db import build_warehouse_engine, pooled_control_plane_conn
 from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.store import DataSourceStore
+from egpt_retail.contracts.data_source import HarvestState
 from egpt_retail.contracts.kpi import (
     ColumnUsage,
     ColumnUsageRole,
@@ -125,7 +128,9 @@ from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
 from egpt_retail.suggestions.context import normalise_request
 from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
+from egpt_retail.suggestions.dismissals import SuggestionDismissalStore
 from egpt_retail.suggestions.runs import (
+    CurrentRuns,
     SuggestionRunPhase,
     SuggestionRunRecord,
     SuggestionRunStore,
@@ -927,6 +932,7 @@ def _list_kpi_suggestions(
     focus_areas: Sequence[str] = (),
     on_phase: Optional[PhaseCallback] = None,
     ask: Optional[str] = None,
+    source_id: Optional[str] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
@@ -942,6 +948,11 @@ def _list_kpi_suggestions(
 
     ``on_phase`` is forwarded to ``run_suggestions`` so a run row can record which stage
     the pass is in (``_execute_suggestion_run``); the synchronous route passes nothing.
+
+    ``source_id`` (contract 1.2.9) is the registered data source the pass is for: the semantic
+    reader is opened scoped to it, so the agents are shown -- and feasibility is judged
+    against -- that source's tables only. ``None`` is the deployment's own warehouse, as
+    before. It is what the ``suggest-kpis`` step of the ``harvest-source`` workflow passes.
 
     ``definitions``/``vocabularies`` come from :func:`_suggestion_registry_snapshot`, read
     before the store's pooled connection was released, rather than a live ``KpiRegistryStore``
@@ -1027,7 +1038,8 @@ def _list_kpi_suggestions(
     # `kpi_agent.run()` and `use_case_agent.run()`, so this can't be narrowed to wrap only
     # context-gathering without splitting `run_suggestions` itself -- out of scope per this
     # module's own docstring (decision 1). Tracked as a follow-up alongside that split.
-    with open_semantic_reader(settings) as reader:
+    reader_scope = {"source_id": source_id} if source_id is not None else {}
+    with open_semantic_reader(settings, **reader_scope) as reader:
         run: SuggestionRun = run_suggestions(
             settings,
             reader=reader,
@@ -1103,11 +1115,28 @@ def _with_run_store(
         return action(store)
 
 
+def _with_suggestion_stores(
+    settings: RetailSettings,
+    action: Callable[[SuggestionRunStore, SuggestionDismissalStore], _T],
+) -> _T:
+    """The run store and the dismissal store on one short-lived connection: a read that has
+    to apply the dismissals to what it returns needs both, and opening two connections for
+    one request would only spend a second pooled one."""
+    connection = pooled_control_plane_connection(settings)
+    try:
+        return action(
+            SuggestionRunStore(connection), SuggestionDismissalStore(connection)
+        )
+    finally:
+        connection.close()
+
+
 def _run_out(
     record: SuggestionRunRecord,
     *,
     include_sql: bool,
     typical_duration_seconds: Optional[float] = None,
+    dismissed: FrozenSet[str] = frozenset(),
 ) -> wire.KpiSuggestionRun:
     """The wire shape of a run row. The stored ``result`` always carries ``proposed_sql``;
     the ``kpis:write`` gate (``_may_read_sql``) is applied here, per reader, exactly as the
@@ -1115,10 +1144,25 @@ def _run_out(
 
     ``typical_duration_seconds`` is the deployment's own recent history
     (``SuggestionRunStore.typical_duration``), read alongside the row by the caller so the
-    screen can set an expectation before the run has done anything."""
+    screen can set an expectation before the run has done anything.
+
+    ``dismissed`` is every identifier a person removed (lower-cased): those suggestions are
+    left out of ``result`` whichever run is read, including a run that proposed one after it
+    was dismissed -- the stored row is never edited, the dismissal applies on the way out.
+    Each suggestion is stamped with the run's ``source_id`` so a screen can say where it came
+    from."""
     result: Optional[wire.KpiSuggestionList] = None
     if record.result is not None:
         result = wire.KpiSuggestionList.model_validate(record.result)
+        result = result.model_copy(
+            update={
+                "suggestions": [
+                    s.model_copy(update={"source_id": record.source_id})
+                    for s in result.suggestions
+                    if s.identifier.lower() not in dismissed
+                ]
+            }
+        )
         if not include_sql:
             result = result.model_copy(
                 update={
@@ -1141,6 +1185,7 @@ def _run_out(
         business_area=record.business_area,
         business_areas=list(record.business_areas),
         ask=record.ask,
+        source_id=record.source_id,
         created_at=record.created_at,
         started_at=record.started_at,
         finished_at=record.finished_at,
@@ -1214,8 +1259,10 @@ async def _execute_suggestion_run(
     business_area: Optional[str],
     focus_areas: Sequence[str] = (),
     ask: Optional[str] = None,
+    source_id: Optional[str] = None,
 ) -> None:
-    """The executor behind ``POST /kpis/suggestions``: ``queued`` -> ``running`` -> one
+    """The executor behind ``POST /kpis/suggestions`` (and, with ``source_id``, behind the
+    ``suggest-kpis`` step of ``harvest-source``): ``queued`` -> ``running`` -> one
     bounded ``_list_kpi_suggestions`` -> ``succeeded``/``failed``. Each row write opens and
     releases its own connection; the model calls in between hold none.
 
@@ -1223,6 +1270,9 @@ async def _execute_suggestion_run(
     SQL gate is theirs (``_run_out``), not the run's. Nothing here raises -- a failure to
     record an outcome is logged, since the task has no caller to raise to.
     """
+    # Only a source-scoped run says so: a run over the deployment's own warehouse calls the
+    # helper exactly as it always has.
+    scope: Dict[str, Any] = {"source_id": source_id} if source_id is not None else {}
     try:
         await asyncio.to_thread(
             _with_run_store, settings, lambda store: store.mark_running(run_id)
@@ -1238,6 +1288,7 @@ async def _execute_suggestion_run(
                     focus_areas=focus_areas,
                     on_phase=_phase_reporter(run_id, settings),
                     ask=ask,
+                    **scope,
                 ),
                 settings.retail_suggestion_timeout_seconds,
             )
@@ -1273,6 +1324,28 @@ async def _execute_suggestion_run(
         )
 
 
+def _require_suggestable_source(settings: RetailSettings, source_id: str) -> None:
+    """A run for ``source_id`` needs a registered source whose harvest has finished: 404 for an
+    id no source has, 409 for one that has not been modelled yet -- there are no tables to
+    read, and a run over none would only "succeed" with nothing to say. Checked before the run
+    row exists, so a refusal leaves nothing behind."""
+    connection = pooled_control_plane_connection(settings)
+    try:
+        source = DataSourceStore(connection).get(source_id)
+    finally:
+        connection.close()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"No such source: {source_id!r}.")
+    if source.harvest_state is not HarvestState.MODELLED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Source {source_id!r} has not been harvested yet "
+                f"(harvest_state is {source.harvest_state.value!r})."
+            ),
+        )
+
+
 @router.post("/kpis/suggestions", response_model=wire.KpiSuggestionRun, status_code=202)
 async def start_kpi_suggestion_run(
     request: Request,
@@ -1289,6 +1362,9 @@ async def start_kpi_suggestion_run(
     filter, still honoured. The frontend sends the first; the second stays for callers
     written against 1.1.5. ``ask`` (contract 1.2.3) is the customer's request in their own
     words, handed to the agents as the thing to answer first; whitespace-only is absent.
+    ``source_id`` (contract 1.2.9) starts the run for one connected source -- how a run that
+    failed after its harvest is started again -- 404 for an unknown source, 409 until its
+    harvest has finished.
     """
     settings = RetailSettings()
     business_area = _validated_business_area(
@@ -1303,23 +1379,145 @@ async def start_kpi_suggestion_run(
     # request made of spaces. Length is the contract's (`maxLength`), enforced by validation
     # before this is reached.
     ask = normalise_request(body.ask if body is not None else None)
+    # ``is not None``, not truthiness: an explicit empty ``source_id`` names no source and is
+    # a 404, not the deployment's own warehouse -- the rule ``GET /semantic/tables`` applies.
+    source_id = body.source_id if body is not None else None
+    if source_id is not None:
+        await asyncio.to_thread(_require_suggestable_source, settings, source_id)
     record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
         lambda store: (
-            store.create(business_area, focus_areas, ask),
+            store.create(business_area, focus_areas, ask, source_id),
             store.typical_duration(),
         ),
     )
     task = asyncio.create_task(
         _execute_suggestion_run(
-            record.identifier, settings, snapshot, business_area, focus_areas, ask
+            record.identifier,
+            settings,
+            snapshot,
+            business_area,
+            focus_areas,
+            ask,
+            source_id,
         )
     )
     _suggestion_run_tasks.add(task)
     task.add_done_callback(_suggestion_run_tasks.discard)
     return _run_out(
         record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+    )
+
+
+def _current_out(
+    runs: CurrentRuns,
+    *,
+    dismissed: FrozenSet[str],
+    registered: FrozenSet[str],
+    typical_duration_seconds: Optional[float],
+    include_sql: bool,
+) -> wire.KpiSuggestionCurrent:
+    """The standing list (:class:`~egpt_retail.suggestions.runs.CurrentRuns`), merged.
+
+    Newest run first, so when two sources propose the same identifier it is the newer
+    proposal that is kept, once. A suggestion is left out when a person dismissed it or when it
+    is already in the registry (a run that predates its adoption still lists it, and offering
+    to add what is already added would only produce a 409). ``notes`` are the runs' own, joined
+    without repeats -- a screen shows them only when there is nothing else to say.
+
+    ``seen``, ``dismissed`` and ``registered`` are all keyed by the bare identifier, with no
+    ``source_id``, on purpose: the registry's own key is the identifier alone, so two sources
+    proposing the same one (say both harvest a ``store`` table and get ``store__row_count``)
+    are proposing one registry entry. It is listed once, dismissing it hides it for both, and
+    adopting it takes it off both -- offering the second source's copy would only be a 409.
+    """
+    seen: set = set()
+    merged: list[wire.KpiSuggestion] = []
+    notes: list[str] = []
+    for record in runs.succeeded:
+        if record.result is None:
+            continue
+        listed = wire.KpiSuggestionList.model_validate(record.result)
+        if listed.notes and listed.notes not in notes:
+            notes.append(listed.notes)
+        for suggestion in listed.suggestions:
+            key = suggestion.identifier.lower()
+            if key in seen or key in dismissed or key in registered:
+                continue
+            seen.add(key)
+            merged.append(suggestion.model_copy(update={"source_id": record.source_id}))
+    return wire.KpiSuggestionCurrent(
+        suggestions=_finalize_suggestions(merged, None, include_sql),
+        notes="\n".join(notes),
+        generating=(
+            _run_out(
+                runs.generating,
+                include_sql=include_sql,
+                typical_duration_seconds=typical_duration_seconds,
+            )
+            if runs.generating is not None
+            else None
+        ),
+        failed=(
+            _run_out(runs.failed, include_sql=include_sql)
+            if runs.failed is not None
+            else None
+        ),
+    )
+
+
+@router.get("/kpis/suggestions/current", response_model=wire.KpiSuggestionCurrent)
+async def get_current_kpi_suggestions(
+    request: Request,
+    snapshot: _SuggestionRegistrySnapshot = Depends(_suggestion_registry_snapshot),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """The suggestions to show now, kept between visits (contract 1.2.9).
+
+    Declared before ``/kpis/suggestions/{run_id}`` so ``current`` is not read as a run id.
+    Reading applies the lost-run guard, like a poll of one run: a run whose executor is gone
+    comes back ``failed`` here rather than ``generating`` forever.
+    """
+    settings = RetailSettings()
+    runs, dismissed, typical = await asyncio.to_thread(
+        _with_suggestion_stores,
+        settings,
+        lambda run_store, dismissal_store: (
+            run_store.current(stale_after=_stale_after(settings)),
+            dismissal_store.identifiers(),
+            run_store.typical_duration(),
+        ),
+    )
+    return _current_out(
+        runs,
+        dismissed=dismissed,
+        registered=frozenset(d.identifier.lower() for d in snapshot.definitions),
+        typical_duration_seconds=typical,
+        include_sql=_may_read_sql(request),
+    )
+
+
+@router.post("/kpis/suggestions/dismissals", response_model=wire.KpiSuggestionDismissal)
+async def dismiss_kpi_suggestion(
+    body: wire.KpiSuggestionDismissalRequest,
+    request: Request,
+    _: None = Depends(require_scopes("kpis:write")),
+):
+    """Remove a suggestion for good (contract 1.2.9): it is left out of ``current`` and of
+    every run read afterwards, including a later run that proposes it again. Idempotent."""
+    settings = RetailSettings()
+    caller = _caller_id(request)
+    try:
+        dismissal = await asyncio.to_thread(
+            _with_suggestion_stores,
+            settings,
+            lambda _runs, dismissals: dismissals.dismiss(body.identifier, caller),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return wire.KpiSuggestionDismissal(
+        identifier=dismissal.identifier, dismissed_at=dismissal.dismissed_at
     )
 
 
@@ -1333,15 +1531,21 @@ async def get_kpi_suggestion_run(
     ``stale_after``), so a row whose executor is gone comes back ``failed`` here rather than
     ``running`` forever."""
     settings = RetailSettings()
-    record, typical = await asyncio.to_thread(
-        _with_run_store,
+    record, typical, dismissed = await asyncio.to_thread(
+        _with_suggestion_stores,
         settings,
-        lambda store: _read_run_with_history(store, run_id, _stale_after(settings)),
+        lambda runs, dismissals: (
+            *_read_run_with_history(runs, run_id, _stale_after(settings)),
+            dismissals.identifiers(),
+        ),
     )
     if record is None:
         raise HTTPException(status_code=404, detail=f"No suggestion run {run_id!r}.")
     return _run_out(
-        record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+        record,
+        include_sql=_may_read_sql(request),
+        typical_duration_seconds=typical,
+        dismissed=dismissed,
     )
 
 

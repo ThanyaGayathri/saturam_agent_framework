@@ -40,7 +40,11 @@ from egpt_retail.semantic.proposals import (
 )
 from egpt_retail.semantic.refresh import refresh_semantic_layer
 from egpt_retail.semantic.snapshots import SnapshotStore
-from egpt_retail.semantic.store import EmptyHarvestRefused, SemanticGraphStore
+from egpt_retail.semantic.store import (
+    EmptyHarvestRefused,
+    SchemaOwnedByOtherSource,
+    SemanticGraphStore,
+)
 
 _LIVE = os.environ.get("EGPT_INTEGRATION_POSTGRES") and os.environ.get(
     "EGPT_INTEGRATION_NEO4J"
@@ -390,6 +394,287 @@ class TestSchemaIsolation:
             == 0
         )
         assert _table_count(driver) == before
+
+
+class TestSourceScopedHarvest:
+    """#306's ownership rules, in the real Cypher: ``source_id`` tagging, the refusal of a
+    schema another source holds (enforced inside ``write_harvest``'s transaction, so two
+    harvests racing for one schema cannot both win), the untouched deployment ``Snapshot``
+    pointer, and the operator-only column sweeps.
+
+    The DB-free tests in ``test_p2_harvest_source.py`` fake the graph store, so none of this
+    Cypher runs there -- review round 2 was right that only a by-hand cookbook covered it.
+    Synthetic ``livetest_`` schemas, so nothing depends on what the warehouse holds.
+    """
+
+    SCHEMA = "livetest_owned"
+    OPERATOR_SCHEMA = "livetest_operator_owned"
+    SOURCE_A = "livetest_src_a"
+    SOURCE_B = "livetest_src_b"
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, driver: Any) -> Iterator[None]:
+        store = SemanticGraphStore(driver=driver)
+        store.ensure_indexes()
+        for schema in (self.SCHEMA, self.OPERATOR_SCHEMA):
+            store.drop_schema(schema)
+        yield
+        for schema in (self.SCHEMA, self.OPERATOR_SCHEMA):
+            store.drop_schema(schema)
+        with driver.session() as s:
+            s.run(
+                "MATCH (c:SemanticColumn) WHERE c.name STARTS WITH 'livetest_orphan' "
+                "DETACH DELETE c"
+            )
+
+    @staticmethod
+    def _harvest(schema: str, *names: str, rows: int = 1) -> Harvest:
+        from egpt_retail.semantic.harvest import HarvestedColumn, HarvestedTable
+
+        return Harvest(
+            schema=schema,
+            tables=tuple(
+                HarvestedTable(
+                    schema=schema,
+                    name=name,
+                    columns=(HarvestedColumn("id", "integer", False, True),),
+                    row_count=rows,
+                )
+                for name in names
+            ),
+            source="livetest",
+        )
+
+    @staticmethod
+    def _owners(driver: Any, schema: str) -> dict:
+        with driver.session() as s:
+            return {
+                r["name"]: r["owner"]
+                for r in s.run(
+                    "MATCH (t:SemanticTable {schema: $schema}) "
+                    "RETURN t.name AS name, t.source_id AS owner",
+                    schema=schema,
+                )
+            }
+
+    @staticmethod
+    def _row_count(driver: Any, schema: str, name: str) -> Any:
+        with driver.session() as s:
+            return s.run(
+                "MATCH (t:SemanticTable {schema: $schema, name: $name}) "
+                "RETURN t.row_count AS n",
+                schema=schema,
+                name=name,
+            ).single()["n"]
+
+    @staticmethod
+    def _snapshot(driver: Any) -> Any:
+        with driver.session() as s:
+            record = s.run(
+                "MATCH (s:SemanticSnapshot {singleton: true}) "
+                "RETURN s.version AS version, s.source AS source"
+            ).single()
+        return None if record is None else (record["version"], record["source"])
+
+    def test_tables_are_tagged_and_the_snapshot_pointer_is_left_alone(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        # The operator's harvest sets the deployment's pointer; a self-serve one must not.
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table"),
+            snapshot_version="livetest.operator",
+        )
+        pointer = self._snapshot(driver)
+        assert pointer == ("livetest.operator", "livetest")
+
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.customer",
+            source_id=self.SOURCE_A,
+        )
+
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+        assert self._snapshot(driver) == pointer
+
+    def test_a_second_source_is_refused_and_nothing_is_overwritten(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", "items", rows=1),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.SCHEMA, "orders", "refunds", rows=99),
+                snapshot_version="livetest.b",
+                source_id=self.SOURCE_B,
+            )
+        assert refused.value.owner == self.SOURCE_A
+        # The whole write rolled back: A's rows are as A left them, and B's new table never
+        # appeared -- not "was refused after being written".
+        assert self._owners(driver, self.SCHEMA) == {
+            "orders": self.SOURCE_A,
+            "items": self.SOURCE_A,
+        }
+        assert self._row_count(driver, self.SCHEMA, "orders") == 1
+
+    def test_the_operators_harvest_cannot_overwrite_a_self_serve_schema(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.SCHEMA, "orders"), snapshot_version="livetest.op"
+            )
+        assert refused.value.owner == self.SOURCE_A
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+
+    def test_a_self_serve_source_cannot_claim_the_operators_schema(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table", rows=5),
+            snapshot_version="livetest.operator",
+        )
+        pointer = self._snapshot(driver)
+        with pytest.raises(SchemaOwnedByOtherSource) as refused:
+            graph.write_harvest(
+                self._harvest(self.OPERATOR_SCHEMA, "ops_table", rows=99),
+                snapshot_version="livetest.customer",
+                source_id=self.SOURCE_A,
+            )
+        assert refused.value.owner == ""
+        assert self._owners(driver, self.OPERATOR_SCHEMA) == {"ops_table": ""}
+        assert self._row_count(driver, self.OPERATOR_SCHEMA, "ops_table") == 5
+        assert self._snapshot(driver) == pointer
+
+    def test_a_table_written_before_source_ids_existed_counts_as_the_operators(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "legacy"), snapshot_version="v"
+        )
+        with driver.session() as s:
+            s.run(
+                "MATCH (t:SemanticTable {schema: $schema}) REMOVE t.source_id",
+                schema=self.OPERATOR_SCHEMA,
+            )
+        with pytest.raises(SchemaOwnedByOtherSource):
+            graph.write_harvest(
+                self._harvest(self.OPERATOR_SCHEMA, "legacy"),
+                snapshot_version="v",
+                source_id=self.SOURCE_A,
+            )
+        # ...and the operator's own re-harvest still goes through.
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "legacy"), snapshot_version="v2"
+        )
+
+    def test_a_source_reharvesting_its_own_schema_prunes_only_what_it_dropped(
+        self, driver: Any
+    ) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", "items"),
+            snapshot_version="livetest.1",
+            source_id=self.SOURCE_A,
+        )
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders", rows=7),
+            snapshot_version="livetest.2",
+            source_id=self.SOURCE_A,
+        )
+        assert self._owners(driver, self.SCHEMA) == {"orders": self.SOURCE_A}
+        assert self._row_count(driver, self.SCHEMA, "orders") == 7
+
+    def test_the_owner_lookup_agrees_with_the_write_guard(self, driver: Any) -> None:
+        graph = SemanticGraphStore(driver=driver)
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_A) is None
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_A) is None
+        assert (
+            graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE_B)
+            == self.SOURCE_A
+        )
+
+    def test_concurrent_harvests_of_one_unclaimed_schema_cannot_both_win(
+        self, driver: Any
+    ) -> None:
+        """Review round 2's race: the guard used to be a separate read, so two harvests of
+        different sources into a still-unclaimed schema could both pass it and the second
+        MERGE would re-stamp the first's tables. Now exactly one wins, every round, and the
+        loser leaves nothing behind."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        graph = SemanticGraphStore(driver=driver)
+        for _ in range(6):
+            graph.drop_schema(self.SCHEMA)
+            barrier = threading.Barrier(2)
+
+            def attempt(source_id: str) -> str:
+                barrier.wait()
+                try:
+                    graph.write_harvest(
+                        self._harvest(self.SCHEMA, "orders", "items", "refunds"),
+                        snapshot_version="livetest.race",
+                        source_id=source_id,
+                    )
+                except SchemaOwnedByOtherSource:
+                    return "refused"
+                return "won"
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = list(pool.map(attempt, (self.SOURCE_A, self.SOURCE_B)))
+
+            assert sorted(outcomes) == ["refused", "won"], outcomes
+            winner = self.SOURCE_A if outcomes[0] == "won" else self.SOURCE_B
+            assert self._owners(driver, self.SCHEMA) == {
+                "orders": winner,
+                "items": winner,
+                "refunds": winner,
+            }
+
+    def test_only_the_operators_refresh_runs_the_whole_graph_column_sweeps(
+        self, driver: Any
+    ) -> None:
+        """An orphaned column has no schema to scope a sweep by, so a self-serve harvest
+        must not run it (it would scan every customer's columns per on-demand run)."""
+        graph = SemanticGraphStore(driver=driver)
+
+        def orphans() -> int:
+            with driver.session() as s:
+                return s.run(
+                    "MATCH (c:SemanticColumn) WHERE c.name = 'livetest_orphan' "
+                    "AND NOT (c)-[:OF_TABLE]->() RETURN count(c) AS n"
+                ).single()["n"]
+
+        with driver.session() as s:
+            s.run("CREATE (:SemanticColumn {name: 'livetest_orphan'})")
+        graph.write_harvest(
+            self._harvest(self.SCHEMA, "orders"),
+            snapshot_version="livetest.a",
+            source_id=self.SOURCE_A,
+        )
+        assert orphans() == 1
+        graph.write_harvest(
+            self._harvest(self.OPERATOR_SCHEMA, "ops_table"), snapshot_version="v"
+        )
+        assert orphans() == 0
 
 
 class TestRefreshEdges:
@@ -1326,3 +1611,303 @@ class TestSemanticProposalsHttp:
             assert registry.get("livetest_kpi__bulk_http") is not None
         finally:
             registry.delete("livetest_kpi__bulk_http")
+
+
+class TestSourceScoping:
+    """#307: a self-serve source's tables share the graph with the operator's, and reads are
+    scoped by ``source_id`` so neither sees the other. The synthetic schema deliberately reuses
+    a bare table name silver already has -- the exact case that used to make a bare-name lookup
+    ambiguous the moment a customer harvested a table called ``crm_contact``."""
+
+    SCHEMA = "livetest_src"
+    SOURCE = "livetest_ds_1"
+
+    def _source_harvest(self) -> Harvest:
+        from egpt_retail.semantic.harvest import HarvestedColumn, HarvestedTable
+
+        return Harvest(
+            schema=self.SCHEMA,
+            tables=(
+                HarvestedTable(
+                    schema=self.SCHEMA,
+                    name="crm_contact",
+                    columns=(
+                        HarvestedColumn("livetest_only_col", "integer", False, True),
+                        HarvestedColumn("livetest_join_key", "integer", False, True),
+                    ),
+                    row_count=3,
+                ),
+                HarvestedTable(
+                    schema=self.SCHEMA,
+                    name="livetest_widget",
+                    columns=(
+                        HarvestedColumn("id", "integer", False, True),
+                        HarvestedColumn("livetest_join_key", "integer", False, True),
+                    ),
+                    row_count=1,
+                ),
+            ),
+            source="livetest",
+        )
+
+    @pytest.fixture
+    def source_graph(self, graph: SemanticGraphStore, driver: Any) -> Iterator[Any]:
+        graph.write_harvest(
+            self._source_harvest(),
+            snapshot_version="livetest.src",
+            source_id=self.SOURCE,
+        )
+        try:
+            yield SemanticGraphStore(driver=driver, source_id=self.SOURCE)
+        finally:
+            graph.drop_schema(self.SCHEMA)
+
+    def test_the_default_scope_never_lists_a_sources_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        schemas = {ref.schema for ref in graph.list_tables()}
+        assert self.SCHEMA not in schemas
+        assert "livetest_widget" not in {ref.name for ref in graph.list_tables()}
+
+    def test_a_sources_scope_lists_only_its_own_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        refs = source_graph.list_tables()
+        assert {(r.schema, r.name) for r in refs} == {
+            (self.SCHEMA, "crm_contact"),
+            (self.SCHEMA, "livetest_widget"),
+        }
+
+    def test_a_shared_bare_name_is_not_ambiguous_in_either_scope(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        """Before scoping this raised 'names a table in more than one schema'."""
+        operator = graph.get_table("crm_contact")
+        source = source_graph.get_table("crm_contact")
+        assert operator is not None and operator.ref.schema == "silver"
+        assert source is not None and source.ref.schema == self.SCHEMA
+        assert "livetest_only_col" in {c.name for c in source.columns}
+        assert "livetest_only_col" not in {c.name for c in operator.columns}
+
+    def test_column_index_and_feasibility_inputs_do_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert not any(k.startswith(f"{self.SCHEMA}.") for k in graph.column_index())
+        assert set(source_graph.column_index()) == {
+            f"{self.SCHEMA}.crm_contact",
+            f"{self.SCHEMA}.livetest_widget",
+        }
+        operator_names = {ref.name for ref in graph.list_tables()}
+        assert "livetest_widget" not in operator_names
+
+    def test_an_operator_table_is_unknown_to_a_sources_scope(
+        self, source_graph: Any
+    ) -> None:
+        assert source_graph.get_table("silver.crm_deal") is None
+        with pytest.raises(SemanticReadError, match="not a table"):
+            source_graph.find_join_path("crm_deal", "livetest_widget")
+
+    def test_a_sources_harvest_leaves_the_operators_snapshot_pointer_alone(
+        self, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        before = graph.snapshot()
+        graph.write_harvest(
+            self._source_harvest(),
+            snapshot_version="livetest.src2",
+            source_id=self.SOURCE,
+        )
+        try:
+            assert graph.snapshot() == before
+        finally:
+            graph.drop_schema(self.SCHEMA)
+
+    def test_source_snapshot_version_reads_off_its_own_tables(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert source_graph.source_snapshot_version() == "livetest.src"
+        empty = SemanticGraphStore(
+            driver=source_graph._driver, source_id="livetest_none"
+        )
+        assert empty.source_snapshot_version() is None
+
+    def test_the_collision_guard_names_the_owner_and_spares_the_owner(
+        self, graph: SemanticGraphStore, source_graph: Any
+    ) -> None:
+        assert graph.schema_owned_by_other_source(self.SCHEMA, self.SOURCE) is None
+        assert (
+            graph.schema_owned_by_other_source(self.SCHEMA, "livetest_ds_other")
+            == self.SOURCE
+        )
+
+    @pytest.fixture
+    def mapped_scopes(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> Iterator[None]:
+        """Concepts mapped so each scope holds something the other must not see: one concept
+        mapped in *both* (a ``crm_contact`` in silver and one in the source's schema), plus one
+        mapped only in each. A filter on the concept side rather than the table side would pass
+        the only-in-one cases and fail the shared one."""
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeShared",
+                description="x",
+                business_area="livetest_area_shared",
+            ),
+            tables=("silver.crm_contact", f"{self.SCHEMA}.crm_contact"),
+        )
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeOnlyOp",
+                description="x",
+                business_area="livetest_area_op",
+            ),
+            tables=("silver.crm_deal",),
+        )
+        graph.write_concept(
+            Concept(
+                name="LivetestScopeOnlySrc",
+                description="x",
+                business_area="livetest_area_src",
+            ),
+            tables=(f"{self.SCHEMA}.livetest_widget",),
+        )
+        try:
+            yield
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'LivetestScope' "
+                    "DETACH DELETE c"
+                )
+
+    def test_mapped_concepts_do_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, mapped_scopes: None
+    ) -> None:
+        operator = graph.mapped_concepts()
+        source = source_graph.mapped_concepts()
+        assert operator["LivetestScopeShared"] == ["silver.crm_contact"]
+        assert source["LivetestScopeShared"] == [f"{self.SCHEMA}.crm_contact"]
+        assert "LivetestScopeOnlyOp" in operator and "LivetestScopeOnlyOp" not in source
+        assert (
+            "LivetestScopeOnlySrc" in source and "LivetestScopeOnlySrc" not in operator
+        )
+
+    def test_business_area_evidence_does_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, mapped_scopes: None
+    ) -> None:
+        """The K9 path: an area is 'supported' by a mapped table, so a customer's mapped table
+        must not make an operator area look supported."""
+        operator = graph.business_area_evidence()
+        source = source_graph.business_area_evidence()
+        assert operator["livetest_area_shared"]["tables"] == ["silver.crm_contact"]
+        assert source["livetest_area_shared"]["tables"] == [
+            f"{self.SCHEMA}.crm_contact"
+        ]
+        assert "livetest_area_op" in operator and "livetest_area_op" not in source
+        assert "livetest_area_src" in source and "livetest_area_src" not in operator
+
+    def test_unjoinable_oracle_does_not_cross(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> None:
+        """A pair review ruled out in one scope is not ruled out, or in, the other. The oracle
+        is keyed on bare table names, so the source's ``crm_contact`` and silver's would be one
+        pair if the scopes leaked."""
+        graph.write_concept(Concept(name="LivetestScopeOracle", description="x"))
+        try:
+            for store, tables, column in (
+                (graph, ("silver.crm_contact", "silver.crm_deal"), "load_id"),
+                (
+                    source_graph,
+                    (f"{self.SCHEMA}.crm_contact", f"{self.SCHEMA}.livetest_widget"),
+                    "livetest_join_key",
+                ),
+            ):
+                for table in tables:
+                    store.write_column_meaning(
+                        table,
+                        column,
+                        concept="LivetestScopeOracle",
+                        meaning="ruled out by review",
+                        joinable=False,
+                    )
+            operator = graph.unjoinable_oracle()
+            source = source_graph.unjoinable_oracle()
+            assert operator("crm_contact", "crm_deal") is True
+            assert source("crm_contact", "livetest_widget") is True
+            # Each pair exists only in the other scope, so a leak is the only way to answer True.
+            assert source("crm_contact", "crm_deal") is False
+            assert operator("crm_contact", "livetest_widget") is False
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticColumn)-[:OF_TABLE]->(t:SemanticTable) "
+                    "WHERE c.concept = 'LivetestScopeOracle' "
+                    "REMOVE c.concept, c.meaning, c.joinable"
+                )
+                s.run(
+                    "MATCH (c:SemanticConcept {name:'LivetestScopeOracle'}) DETACH DELETE c"
+                )
+
+    def test_find_join_path_never_crosses_scopes_mid_path(
+        self, graph: SemanticGraphStore, source_graph: Any, driver: Any
+    ) -> None:
+        """Both endpoints in scope, the only short route through a table that is not.
+
+        ``write_join`` cannot author such an edge (it resolves both ends in its own scope), so
+        it is written with raw Cypher: the point is that the read holds even if a write-side
+        slip ever produced one. The second half adds a longer route that stays in scope and
+        expects it to be found, so the filter must apply during the search rather than
+        discarding a shortest path afterwards and reporting 'no path'.
+        """
+        cross = "livetest_cross"
+
+        def connect(session: Any, a: str, b: str, tag: str) -> None:
+            session.run(
+                "MATCH (x:SemanticTable {schema: $sa, name: $na}), "
+                "(y:SemanticTable {schema: $sb, name: $nb}) "
+                "CREATE (x)-[:JOINS_TO {on: $on, cardinality: 'many-to-one', "
+                "status: 'accepted'}]->(y)",
+                sa=a.split(".")[0],
+                na=a.split(".")[1],
+                sb=b.split(".")[0],
+                nb=b.split(".")[1],
+                on=f"{cross}_{tag}",
+            )
+
+        foreign = f"{self.SCHEMA}.livetest_widget"
+        try:
+            with driver.session() as s:
+                connect(s, "silver.analytics_event", foreign, "a")
+                connect(s, foreign, "silver.session_replay_session", "b")
+                # The source's mirror image: silver.crm_deal sits between two of its tables.
+                connect(s, f"{self.SCHEMA}.crm_contact", "silver.crm_deal", "c")
+                connect(s, "silver.crm_deal", foreign, "d")
+
+            assert (
+                graph.find_join_path("analytics_event", "session_replay_session")
+                is None
+            )
+            assert source_graph.find_join_path("crm_contact", "livetest_widget") is None
+
+            for left, right, tag in (
+                ("analytics_event", "crm_contact", "e"),
+                ("crm_contact", "crm_deal", "f"),
+                ("crm_deal", "session_replay_session", "g"),
+            ):
+                graph.write_join(JoinEdge(left, right, f"{cross}_{tag}.x = y.x"))
+            path = graph.find_join_path("analytics_event", "session_replay_session")
+            assert path is not None
+            assert [(e.left_table, e.right_table) for e in path.edges] == [
+                ("analytics_event", "crm_contact"),
+                ("crm_contact", "crm_deal"),
+                ("crm_deal", "session_replay_session"),
+            ]
+            assert "livetest_widget" not in {
+                t for e in path.edges for t in (e.left_table, e.right_table)
+            }
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH ()-[j:JOINS_TO]->() WHERE j.on CONTAINS $p DELETE j",
+                    p=cross,
+                )

@@ -6,8 +6,8 @@
  *
  * No static demo candidates here any more (issue #234/#222 track F): the "suggested" surface
  * used to be a hardcoded array badged as if it were live, with an "adopt" that only ever wrote
- * to in-session React state. `KpiDiscoveryPage.jsx` now calls `fetchKpiSuggestions` for real and
- * maps each result through `rowFromSuggestion`, so this file keeps just the one thing about a
+ * to in-session React state. `KpiDiscoveryPage.jsx` now reads the standing suggestions
+ * (`fetchCurrentKpiSuggestions`) for real and maps each result through `rowFromSuggestion`, so this file keeps just the one thing about a
  * suggestion that isn't obvious from the wire shape: how it becomes a row.
  */
 

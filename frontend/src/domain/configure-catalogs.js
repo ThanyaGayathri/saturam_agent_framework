@@ -32,8 +32,8 @@ export const SSL_MODES = [
   { value: "allow", label: "Allow" },
   { value: "prefer", label: "Prefer" },
   { value: "require", label: "Require" },
-  { value: "verify_ca", label: "Verify CA" },
-  { value: "verify_full", label: "Verify Full" },
+  { value: "verify-ca", label: "Verify CA" },
+  { value: "verify-full", label: "Verify Full" },
 ];
 
 export const LLM_PROVIDERS = [
