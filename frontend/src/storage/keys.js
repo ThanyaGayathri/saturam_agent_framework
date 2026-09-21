@@ -14,6 +14,8 @@ export const STORAGE_KEYS = {
   KPI_SOURCES: "retailgpt:kpi-sources:v1",
   /** Persisted business hierarchy (business areas + subject areas). */
   BUSINESS_AREAS: "retailgpt:business-areas:v1",
+  /** Which databases and connectors are switched on, and which database is picked. */
+  SOURCE_PREFS: "retailgpt:source-prefs:v1",
 };
 
 /** Scoped copies per demo customer profile (`default` keeps legacy unprefixed keys). */
@@ -29,6 +31,7 @@ export function storageKeysForProfile(profileId) {
     ALERTS: `retailgpt:alerts:v1${suffix}`,
     KPI_SOURCES: `retailgpt:kpi-sources:v1${suffix}`,
     BUSINESS_AREAS: `retailgpt:business-areas:v1${suffix}`,
+    SOURCE_PREFS: `retailgpt:source-prefs:v1${suffix}`,
   };
 }
 

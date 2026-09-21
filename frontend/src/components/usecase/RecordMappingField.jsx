@@ -93,7 +93,7 @@ function RowTable({ title, rows, described, groups, onChange, parentField }) {
    </table>
    <div className="mt-1 flex flex-wrap items-center gap-2">
     {described ? (
-     <select value={adding} onChange={(e) => setAdding(e.target.value)} className={`${input} font-mono`} aria-label={`Add a ${title} row`}><option value="">add a field…</option>{(described.fields || []).filter((f) => !rows.some((r) => r.target === f.name) && f.name !== parentField).map((f) => <option key={f.name} value={f.name}>{f.name}{f.required ? " *" : ""} — {f.label}</option>)}</select>
+     <select value={adding} onChange={(e) => setAdding(e.target.value)} className={`${input} font-mono`} aria-label={`Add a ${title} row`}><option value="">add a field…</option>{(described.fields || []).filter((f) => !rows.some((r) => r.target === f.name) && f.name !== parentField).map((f) => <option key={f.name} value={f.name}>{f.name}{f.required ? " *" : ""} - {f.label}</option>)}</select>
     ) : (
      <input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="target field name" className={`${input} w-40 font-mono`} aria-label={`Add a ${title} row`} />
     )}
@@ -201,7 +201,7 @@ export default function RecordMappingField({ spec, template, target, setMapping,
   objectGroups.length ? (
    <select value={value} onChange={(e) => onPick(e.target.value)} className={`${input} max-w-[18rem] font-mono`} aria-label={label}>
     <option value="">{label}…</option>
-    {objectGroups.map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.name} value={o.name}>{o.name}{o.label !== o.name ? ` — ${o.label}` : ""}</option>)}</optgroup>)}
+    {objectGroups.map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.name} value={o.name}>{o.name}{o.label !== o.name ? ` - ${o.label}` : ""}</option>)}</optgroup>)}
     {value && !objects.some((o) => o.name === value) && <option value={value}>{value}</option>}
    </select>
   ) : <input value={value} onChange={(e) => onPick(e.target.value)} placeholder={label} className={`${input} w-40 font-mono`} aria-label={label} />

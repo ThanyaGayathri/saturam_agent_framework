@@ -214,7 +214,7 @@ export function extract(text, spec, ctx) {
   const allTerms = [...new Set([...(spec.metricTerms || []), ...terms])];
   if (allTerms.length !== (spec.metricTerms || []).length) {
    patch.metricTerms = allTerms;
-   understood.push(`you mean a KPI by "${terms.join('", "')}" — I'll check which`);
+   understood.push(`you mean a KPI by "${terms.join('", "')}": I'll check which`);
   }
  }
  const metricIds = patch.metricIds || spec.metricIds;

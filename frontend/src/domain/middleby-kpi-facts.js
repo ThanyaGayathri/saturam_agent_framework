@@ -361,7 +361,7 @@ export function getMiddlebyKpiDerivedHint(catalogId) {
     case "middleby-kpi-13":
       return `${F.topSegmentCategoryPair.segment} concentrates ${F.topSegmentCategoryPair.share}% of its quotes in ${F.topSegmentCategoryPair.category}. Where's the biggest cross-sell opening?`;
     case "middleby-ex-04":
-      return `"${F.topZeroResultSearch.term}" is the biggest zero-result gap — ${F.topZeroResultSearch.lostSearches.toLocaleString()} lost searches (${F.topZeroResultSearch.zeroResultRate}% zero-result of ${F.topZeroResultSearch.volume.toLocaleString()}). What should we add to the catalog?`;
+      return `"${F.topZeroResultSearch.term}" is the biggest zero-result gap: ${F.topZeroResultSearch.lostSearches.toLocaleString()} lost searches (${F.topZeroResultSearch.zeroResultRate}% zero-result of ${F.topZeroResultSearch.volume.toLocaleString()}). What should we add to the catalog?`;
     default:
       return null;
   }

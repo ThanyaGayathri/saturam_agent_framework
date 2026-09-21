@@ -143,7 +143,7 @@ export function suggestFor(gap, spec, ctx) {
    }
    if (!dims.length) return null;
    return {
-    lead: `${kpi.name} is computed from ${ds.map((d) => d.technicalName).join(" and ")}, which carr${ds.length > 1 ? "y" : "ies"} ${ds.flatMap((d) => d.attributeTags || []).filter((c) => DIMENSION_FOR_COLUMN.some(([re]) => re.test(c))).join(", ")} — so ${dims.join(" and ")} ${dims.length > 1 ? "are the cuts" : "is the cut"} your data supports without a join.`,
+    lead: `${kpi.name} is computed from ${ds.map((d) => d.technicalName).join(" and ")}, which carr${ds.length > 1 ? "y" : "ies"} ${ds.flatMap((d) => d.attributeTags || []).filter((c) => DIMENSION_FOR_COLUMN.some(([re]) => re.test(c))).join(", ")}, so ${dims.join(" and ")} ${dims.length > 1 ? "are the cuts" : "is the cut"} your data supports without a join.`,
     options: dims.map((d) => ({ label: d, why: "carried by the metric's own table", patch: { dimensions: [...new Set([...spec.dimensions, d])] } })),
     preferred: dims[0],
    };
@@ -172,7 +172,7 @@ export function suggestFor(gap, spec, ctx) {
    const opLabel = OPERATORS.find((o) => o.value === operator).label;
    const label = `${opLabel} ${value}${b.unit}`;
    return {
-    lead: `Your registry gives the retail benchmark for ${kpi.name} as ${kpi.industryBenchmark}. ${badHigh ? `Above ${value}${b.unit} is outside it — the usual trigger.` : `Below ${value}${b.unit} is outside it — the usual trigger.`}`,
+    lead: `Your registry gives the retail benchmark for ${kpi.name} as ${kpi.industryBenchmark}. ${badHigh ? `Above ${value}${b.unit} is outside it: the usual trigger.` : `Below ${value}${b.unit} is outside it: the usual trigger.`}`,
     options: [
      { label, why: "the edge of the benchmark range", patch: { condition: { metric: kpi.name, operator, threshold: value } } },
      ...(b.lo != null && b.hi != null ? [{ label: `moves by more than ${Math.max(1, Math.round((b.hi - b.lo) / 2))}${b.unit}`, why: "a swing, regardless of level", patch: { condition: { metric: kpi.name, operator: "delta_gt", threshold: Math.max(1, Math.round((b.hi - b.lo) / 2)) } } }] : []),
@@ -192,7 +192,7 @@ export function suggestFor(gap, spec, ctx) {
    const preferred = scopes[0] || "Everywhere";
    return {
     lead: scopes.length
-     ? `${kpi.name} is available per ${grains.map((g) => g.toLowerCase()).join(" and ")}, so it can watch each ${grains[0].toLowerCase()} separately — a breach in one ${grains[0].toLowerCase()} shows up even when the total looks fine.`
+     ? `${kpi.name} is available per ${grains.map((g) => g.toLowerCase()).join(" and ")}, so it can watch each ${grains[0].toLowerCase()} separately: a breach in one ${grains[0].toLowerCase()} shows up even when the total looks fine.`
      : `${kpi.name} is only available as a total, so it can only watch everywhere.`,
     options: ["Everywhere", ...scopes].map((s) => ({ label: s, why: s === "Everywhere" ? "one number, one check" : "one check per row of that grain", patch: { scope: s } })),
     preferred,
@@ -203,7 +203,7 @@ export function suggestFor(gap, spec, ctx) {
    if (!kpi) return null;
    const preferred = kpi.level === "Strategic" ? "Interrupt someone" : "Flag it";
    return {
-    lead: `${kpi.name} is ${kpi.level === "Strategic" ? "a strategic" : "an operational"} KPI in your registry — ${kpi.level === "Strategic" ? "a breach is worth interrupting someone for" : "worth flagging, not paging anyone"}.`,
+    lead: `${kpi.name} is ${kpi.level === "Strategic" ? "a strategic" : "an operational"} KPI in your registry: ${kpi.level === "Strategic" ? "a breach is worth interrupting someone for" : "worth flagging, not paging anyone"}.`,
     options: SEVERITIES.map((s) => ({ label: s.label, why: s.value, patch: { severity: s.value } })),
     preferred,
    };
@@ -218,7 +218,7 @@ export function suggestFor(gap, spec, ctx) {
    const preferred = isOwner && other ? other : team;
    return {
     lead: isOwner
-     ? other ? `Usually the team that receives it — ${other}.` : `${kpi.name} sits under ${kpi.businessAreaId} in your registry — ${team}?`
+     ? other ? `Usually the team that receives it: ${other}.` : `${kpi.name} sits under ${kpi.businessAreaId} in your registry: ${team}?`
      : `${kpi.name} sits under ${kpi.businessAreaId} in your registry, so ${team} is who usually acts on it.`,
     options: [...new Set([preferred, team, other].filter(Boolean))].map((t) => ({ label: t, why: t === team ? `owns ${kpi.businessAreaId} metrics` : "already on this use case", patch: isOwner ? { owner: t } : { notify: t } })),
     preferred,
@@ -233,7 +233,7 @@ export function suggestFor(gap, spec, ctx) {
    const grainCol = ds[0]?.attributeTags?.find((c) => /_id$/.test(c));
    const filterCols = (ds[0]?.attributeTags || []).filter((c) => !/_id$|_ts$|_date$/.test(c));
    return {
-    lead: `${kpi.name} is computed per ${grainCol ? grainCol.replace(/_id$/, "").toUpperCase() : "row"} in ${ds[0].technicalName}, so each run would consider ${concept.name.toLowerCase()} rows${filterCols.length ? ` — filtered on ${filterCols.slice(0, 2).join(" or ")}` : ""}.`,
+    lead: `${kpi.name} is computed per ${grainCol ? grainCol.replace(/_id$/, "").toUpperCase() : "row"} in ${ds[0].technicalName}, so each run would consider ${concept.name.toLowerCase()} rows${filterCols.length ? `, filtered on ${filterCols.slice(0, 2).join(" or ")}` : ""}.`,
     options: [{ label: concept.name, why: `the grain of ${kpi.name}`, patch: { candidates: { concept: concept.name, conceptId: concept.id, filter: spec.candidates?.filter || "" } } }],
     preferred: concept.name,
    };
@@ -269,8 +269,8 @@ export function suggestFor(gap, spec, ctx) {
    }
    return {
     lead: own
-     ? `It writes ${own.name}, and your registry benchmarks it at ${own.industryBenchmark} — a floor and a ceiling on it keep every write inside that band.`
-     : `A hard limit protects what the action could damage, not what it optimises. ${related[0].name} is the obvious one to fence — your registry benchmarks it at ${related[0].industryBenchmark}.`,
+     ? `It writes ${own.name}, and your registry benchmarks it at ${own.industryBenchmark}, a floor and a ceiling on it keep every write inside that band.`
+     : `A hard limit protects what the action could damage, not what it optimises. ${related[0].name} is the obvious one to fence, your registry benchmarks it at ${related[0].industryBenchmark}.`,
     options: options.slice(0, 4),
     preferred: options[0].label,
    };
@@ -291,7 +291,7 @@ export function suggestFor(gap, spec, ctx) {
     return { label: `${k.name} ${direction} ${target}${b.unit}`, why: `benchmark ${k.industryBenchmark}`, patch: { objective: { metric: k.name, direction, target, unit: b.unit } } };
    });
    return {
-    lead: `Your registry benchmarks ${cands[0].name} at ${cands[0].industryBenchmark} — the edge of that range is the usual target to tune towards.`,
+    lead: `Your registry benchmarks ${cands[0].name} at ${cands[0].industryBenchmark}, the edge of that range is the usual target to tune towards.`,
     options,
     preferred: options[0].label,
    };
@@ -316,7 +316,7 @@ export function suggestFor(gap, spec, ctx) {
    const catalogue = loadTemplateCatalogue();
    const proposed = proposeTemplateNames(spec.goal || "", catalogue);
    const options = catalogue.map((t) => ({ label: t.label, why: `${t.source === "shipped" ? "ships with the platform" : "saved in this workspace"} · ${headerFields(t).length} header fields, ${lineFields(t).length} per line → creates ${t.record === "order" ? "an order" : `a ${t.record}`}`, patch: { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } }));
-   for (const p of proposed) options.unshift({ label: `New: ${p.label}`, why: "named in your description and not in the catalogue yet — the platform drafts its fields, you edit them", patch: { extractionTemplateDraft: p } });
+   for (const p of proposed) options.unshift({ label: `New: ${p.label}`, why: "named in your description and not in the catalogue yet, the platform drafts its fields, you edit them", patch: { extractionTemplateDraft: p } });
    const inText = matchTemplateInText(spec.goal || "", catalogue);
    return {
     lead: proposed.length ? `Your description names a ${proposed[0].label.toLowerCase()}, which no template covers yet. Draft one from the description, or pick a catalogue template.` : `${catalogue.length} document templates are in the catalogue; each fixes the fields the AI step fills. A new kind is drafted from your description and an example.`,
@@ -331,7 +331,7 @@ export function suggestFor(gap, spec, ctx) {
    const cands = (ctx.concepts || []).filter((c) => matches(role.concept, c));
    const target = (ctx.writeTargets || [])[0] || "";
    const preferredC = cands.find((c) => target && c.sourceLabel && target.toLowerCase().startsWith(c.sourceLabel.toLowerCase())) || cands[0];
-   if (!cands.length) return { lead: `No business object for ${role.label.toLowerCase()} is in the semantic layer yet — harvest the target system first.`, options: [], preferred: null };
+   if (!cands.length) return { lead: `No business object for ${role.label.toLowerCase()} is in the semantic layer yet, harvest the target system first.`, options: [], preferred: null };
    // Every role at once, from the system this writes to: one connection for reads and writes.
    const sourceLabel = preferredC?.sourceLabel;
    const all = {};
@@ -341,7 +341,7 @@ export function suggestFor(gap, spec, ctx) {
    }
    const allLabel = `All from ${sourceLabel}`;
    return {
-    lead: `${role.concept} in the semantic layer maps to ${cands.length === 1 ? `one object: ${cands[0].name}` : cands.map((c) => `${c.name} (${c.sourceLabel})`).join(", ")}.${preferredC && target ? ` ${sourceLabel} is the system this writes to — one connection for reads and writes, and it carries ${Object.keys(all).length} of the ${MASTER_DATA_ROLES.length} objects.` : ""}`,
+    lead: `${role.concept} in the semantic layer maps to ${cands.length === 1 ? `one object: ${cands[0].name}` : cands.map((c) => `${c.name} (${c.sourceLabel})`).join(", ")}.${preferredC && target ? ` ${sourceLabel} is the system this writes to, one connection for reads and writes, and it carries ${Object.keys(all).length} of the ${MASTER_DATA_ROLES.length} objects.` : ""}`,
     options: [
      ...(Object.keys(all).length >= 3 ? [{ label: allLabel, why: MASTER_DATA_ROLES.filter((r) => all[r.id]).map((r) => `${r.label} → ${all[r.id]}`).join(" · "), patch: { masterData: { ...(spec.masterData || {}), ...all } } }] : []),
      ...cands.map((c) => ({ label: c.name, why: `${c.technicalName} · ${c.sourceLabel}`, patch: { masterData: { ...(spec.masterData || {}), [role.id]: c.name } } })),
@@ -355,7 +355,7 @@ export function suggestFor(gap, spec, ctx) {
    const tpl = findTemplate(spec);
    const suggested = suggestRules(tpl);
    if (!tpl) return { lead: "Pick the document template first; the checks are suggested from its fields.", options: [], preferred: null };
-   const options = suggested.filter((g) => !have.has(g.id)).map((g) => ({ label: g.label, why: `${ruleCheck(g).toLowerCase()}${needsOf(g) && !m[needsOf(g)] ? ` — needs ${MASTER_DATA_ROLES.find((r) => r.id === needsOf(g))?.label.toLowerCase()} bound` : ""}`, patch: { recordGuardrails: [...normalizeRules(spec.recordGuardrails), g] } }));
+   const options = suggested.filter((g) => !have.has(g.id)).map((g) => ({ label: g.label, why: `${ruleCheck(g).toLowerCase()}${needsOf(g) && !m[needsOf(g)] ? `, needs ${MASTER_DATA_ROLES.find((r) => r.id === needsOf(g))?.label.toLowerCase()} bound` : ""}`, patch: { recordGuardrails: [...normalizeRules(spec.recordGuardrails), g] } }));
    const all = { label: `All ${suggested.length} suggested`, why: suggested.map((g) => g.label.toLowerCase()).join(", "), patch: { recordGuardrails: suggested } };
    const history = suggested.filter((g) => needsOf(g) === "orderHistory").length;
    return { lead: `${suggested.length} checks follow from the ${tpl.label.toLowerCase()}'s own fields. ${m.orderHistory ? "History is bound, so the history checks can run." : history ? `${history} of them need history bound under master data.` : ""}`.trim(), options: [all, ...options], preferred: all.label };
@@ -401,10 +401,10 @@ export function suggestFor(gap, spec, ctx) {
    };
 
   case "rollback": {
-   if (spec.template === "document_to_record") { const target = spec.writeback || "the target"; return { lead: `Each record created in ${target} is kept with its request payload and returned ids, so a run can be reversed as a unit — cancelling the parent and removing its lines.`, options: [{ label: "Cancel the record and remove its lines", why: "reversible as a unit", patch: { rollback: "Cancel the record and remove its lines" } }, ...ROLLBACKS.slice(2).map((r) => ({ label: r, why: "a person reverses it", patch: { rollback: r } }))], preferred: "Cancel the record and remove its lines" }; }
+   if (spec.template === "document_to_record") { const target = spec.writeback || "the target"; return { lead: `Each record created in ${target} is kept with its request payload and returned ids, so a run can be reversed as a unit, cancelling the parent and removing its lines.`, options: [{ label: "Cancel the record and remove its lines", why: "reversible as a unit", patch: { rollback: "Cancel the record and remove its lines" } }, ...ROLLBACKS.slice(2).map((r) => ({ label: r, why: "a person reverses it", patch: { rollback: r } }))], preferred: "Cancel the record and remove its lines" }; }
    const target = spec.writeback || "the target";
    return {
-    lead: `Every change to ${target} is stamped with the run, so the prior value can be kept per record — restoring it is the cleanest rollback.`,
+    lead: `Every change to ${target} is stamped with the run, so the prior value can be kept per record, restoring it is the cleanest rollback.`,
     options: ROLLBACKS.map((r) => ({ label: r, why: r === ROLLBACKS[0] ? "reversible as a unit" : r === ROLLBACKS[1] ? "undo the write itself" : "a person reverses it", patch: { rollback: r } })),
     preferred: ROLLBACKS[0],
    };

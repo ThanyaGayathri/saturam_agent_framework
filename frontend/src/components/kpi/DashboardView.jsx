@@ -652,7 +652,7 @@ export default function DashboardView() {
      placeholder={
       composing
        ? "Composing a chart…"
-       : 'Add a chart — describe it, e.g. "late deliveries by supplier, top 10"'
+       : 'Add a chart: describe it, e.g. "late deliveries by supplier, top 10"'
      }
      className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-60"
     />

@@ -219,11 +219,11 @@ const MEDIA_EXPLORE_REPLIES = {
  "media-uc-01-content-conversation-trends": {
  week: {
  topic: "content_trend_intelligence",
- text: "Your Content Intelligence Analyst has run the full Listen → Understand → Detect → Explain loop on this week's audience conversation. Conversation around mythological drama reboots has grown for four straight weeks, driven mainly by nostalgia-led social clips and a rival network's successful relaunch — a Consumer + Culture signal, not a competitor-only move. Strongest signals come from Hindi-speaking audiences in Tier-2 markets. Similar themes have historically performed well in our mythology and family-drama slate. Every claim is source-traceable.",
+ text: "Your Content Intelligence Analyst has run the full Listen → Understand → Detect → Explain loop on this week's audience conversation. Conversation around mythological drama reboots has grown for four straight weeks, driven mainly by nostalgia-led social clips and a rival network's successful relaunch, a Consumer + Culture signal, not a competitor-only move. Strongest signals come from Hindi-speaking audiences in Tier-2 markets. Similar themes have historically performed well in our mythology and family-drama slate. Every claim is source-traceable.",
  },
  quarter: {
  topic: "content_trend_intelligence_quarter",
- text: "For the quarter, the Content Intelligence Analyst has stacked sustained 4-week themes across the Consumer / Culture / Competition dimensions: mythology reboots, competitive cooking formats, and regional-language thrillers cluster above the sustained-momentum threshold. Viral dance cameos are visible but the explainability layer flags them as spikes, not durable interest. Treat this as an evidence-backed watchlist for Content Strategy, Programming, and Marketing — not a forecast.",
+ text: "For the quarter, the Content Intelligence Analyst has stacked sustained 4-week themes across the Consumer / Culture / Competition dimensions: mythology reboots, competitive cooking formats, and regional-language thrillers cluster above the sustained-momentum threshold. Viral dance cameos are visible but the explainability layer flags them as spikes, not durable interest. Treat this as an evidence-backed watchlist for Content Strategy, Programming, and Marketing, not a forecast.",
  },
  },
  "media-uc-02-future-content-opportunity": {
@@ -233,7 +233,7 @@ const MEDIA_EXPLORE_REPLIES = {
  },
  quarter: {
  topic: "content_scoping_quarter",
- text: "For the quarter, the Content Strategy Advisor has extrapolated sustained trends against our own historical hits and competitor slate: regional mythology, women-led mythology, and youth-led courtroom drama are all under-represented in our lineup and match historically successful audience patterns. This is decision support for commissioning — not a prediction of the next hit. Recommend two scoping-research shortlists before the next commissioning cycle.",
+ text: "For the quarter, the Content Strategy Advisor has extrapolated sustained trends against our own historical hits and competitor slate: regional mythology, women-led mythology, and youth-led courtroom drama are all under-represented in our lineup and match historically successful audience patterns. This is decision support for commissioning, not a prediction of the next hit. Recommend two scoping-research shortlists before the next commissioning cycle.",
  },
  },
  "media-uc-03-competitor-content-benchmark": {

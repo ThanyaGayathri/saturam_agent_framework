@@ -699,7 +699,7 @@ function deriveTrackOverTime(catalogId) {
     signals: [
       {
         title: `Week-over-week delta: ${delta >= 0 ? "+" : ""}${delta}`,
-        detail: `Net change across the 12-week window. Watch the biggest single-week movers first — they usually pair with a release, campaign, or supply event.`,
+        detail: `Net change across the 12-week window. Watch the biggest single-week movers first, they usually pair with a release, campaign, or supply event.`,
       },
       {
         title: "Cross-reference other tabs",

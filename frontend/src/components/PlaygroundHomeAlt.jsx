@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Paperclip,
-  Database,
   Plus,
   ArrowRight,
   ArrowUpLeft,
@@ -13,8 +12,6 @@ import {
   Monitor,
   Package,
   Headphones,
-  LayoutGrid,
-  ExternalLink,
   Tag,
   TrendingUp,
   BarChart3,
@@ -30,13 +27,7 @@ import { PaperPlaneSendIcon } from "./icons/PaperPlaneSendIcon";
 import { useChatAttachments, stashAttachmentsForHandoff } from "../hooks/useChatAttachments";
 import { PendingAttachmentChips } from "./shared/ChatAttachmentChips";
 import { ExplorePromptSeverityIcon } from "./shared/ExplorePromptSeverityIcon";
-import snowflakeSvg from "../assets/snowflake.svg";
-import airflowSvg from "../assets/airflow.svg";
-import awsGlueSvg from "../assets/aws-glue.svg";
-import adfSvg from "../assets/azure-data-factory.svg";
-import salesforceSvg from "../assets/salesforce.svg";
-import sapSvg from "../assets/sap.svg";
-import netsuiteSvg from "../assets/netsuite.svg";
+import ComposerSourceMenus from "./shared/ComposerSourceMenus";
 import { PLAYGROUND_HUB_CHAT_MESSAGE_KEY, HUB_CHAT_ATTACH_HANDOFF_KEY } from "../storage/keys";
 import { serializePlaygroundHubHandoff } from "../domain/playground-hub-handoff";
 import {
@@ -49,7 +40,6 @@ import { useDemoProfile } from "../context/DemoProfileContext";
 import { useBusinessAreas } from "../hooks/useBusinessAreas";
 import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
 import { getUseCasesForRole, FEATURED_IMPACT, ROLE_STYLE } from "../domain/featured-use-cases";
-import Switch from "./ui/Switch";
 import TourLaunchButton from "../tours/TourLaunchButton";
 
 // Icon per business-area id. Keeps pill visuals consistent with the Business
@@ -82,31 +72,6 @@ const CARD_ICON_GRADIENT =
 const CARD_ICON_GRADIENT_DARK =
   "linear-gradient(145deg, rgba(139,92,246,0.26) 0%, rgba(99,102,241,0.17) 42%, rgba(22,25,34,0.94) 100%)";
 
-const DATABASES = [
-  { name: "Snowflake", img: snowflakeSvg },
-  { name: "Airflow", img: airflowSvg },
-  { name: "Amazon Glue", img: awsGlueSvg },
-  { name: "Azure Data Factory", img: adfSvg },
-];
-
-const CONNECTOR_ITEMS = [
-  { id: "salesforce", name: "Salesforce", img: salesforceSvg },
-  { id: "sap", name: "SAP", img: sapSvg },
-  { id: "netsuite", name: "Oracle NetSuite", img: netsuiteSvg },
-];
-
-function ConnectorToggle({ enabled, onChange, name }) {
-  return (
-    <Switch
-      checked={enabled}
-      onCheckedChange={onChange}
-      size="comfortable"
-      stopClickPropagation
-      aria-label={enabled ? `Disable connection for ${name}` : `Enable connection for ${name}`}
-    />
-  );
-}
-
 export default function PlaygroundHomeAlt() {
   const { colorMode } = useTheme();
   const [query, setQuery] = useState("");
@@ -115,18 +80,9 @@ export default function PlaygroundHomeAlt() {
   }, []);
   const dictation = useDictation({ onFinalText: appendDictation });
   const attachments = useChatAttachments();
-  const [showDbDropdown, setShowDbDropdown] = useState(false);
-  const [showConnDropdown, setShowConnDropdown] = useState(false);
-  const [connectorEnabled, setConnectorEnabled] = useState({
-    salesforce: true,
-    sap: false,
-    netsuite: false,
-  });
   const [businessAreasExpanded, setBusinessAreasExpanded] = useState(false);
   const [pendingPromptMeta, setPendingPromptMeta] = useState(null);
 
-  const dbDropdownRef = useRef(null);
-  const connDropdownRef = useRef(null);
   const composerRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -151,23 +107,6 @@ export default function PlaygroundHomeAlt() {
   const roleUseCasesRef = useRef(roleUseCases);
   roleUseCasesRef.current = roleUseCases;
 
-  useEffect(() => {
-    function handleClick(e) {
-      if (dbDropdownRef.current && !dbDropdownRef.current.contains(e.target)) {
-        setShowDbDropdown(false);
-      }
-      if (connDropdownRef.current && !connDropdownRef.current.contains(e.target)) {
-        setShowConnDropdown(false);
-      }
-    }
-
-    if (showDbDropdown || showConnDropdown) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-  }, [showDbDropdown, showConnDropdown]);
-
-  const enabledConnectorCount = Object.values(connectorEnabled).filter(Boolean).length;
   const visibleCategories =
     businessAreasExpanded || CATEGORIES.length <= PLAYGROUND_HUB_BUSINESS_AREAS_INITIAL_COUNT
       ? CATEGORIES
@@ -303,127 +242,7 @@ export default function PlaygroundHomeAlt() {
                 <Paperclip size={18} className="pointer-events-none" />
               </label>
 
-              {/* Database - dropdown */}
-              <div ref={dbDropdownRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowConnDropdown(false);
-                    setShowDbDropdown(!showDbDropdown);
-                  }}
-                  className={`rounded p-1.5 hover:bg-surface-secondary ${
-                    showDbDropdown ? "text-primary bg-surface-tertiary" : "text-text-muted hover:text-primary"
-                  }`}
-                  title="Database"
-                >
-                  <Database size={18} />
-                </button>
-
-                {showDbDropdown && (
-                  <div className="absolute left-0 top-full z-30 mt-2 w-[280px] rounded-xl border border-border bg-surface p-3 shadow-xl">
-                    <p className="mb-2 px-1 text-sm font-semibold text-text-primary">Database</p>
-                    <div className="space-y-1">
-                      {DATABASES.map((db) => (
-                        <div
-                          key={db.name}
-                          className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-surface-secondary"
-                        >
-                          <div className="flex items-center gap-3">
-                            <img src={db.img} alt={db.name} className="h-6 w-6" />
-                            <span className="text-sm text-text-primary">{db.name}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowDbDropdown(false);
-                              navigate("/configure/database");
-                            }}
-                            className="text-sm font-semibold text-primary hover:text-primary-hover"
-                          >
-                            Configure
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="my-2 h-px bg-border" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowDbDropdown(false);
-                        navigate("/configure/create-datasource");
-                      }}
-                      className="flex w-full items-center justify-between rounded-lg px-2 py-2.5 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Plus size={18} className="text-text-muted" />
-                        Add New Database
-                      </span>
-                      <ExternalLink size={18} className="shrink-0 text-text-muted" aria-hidden />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Connectors - dropdown */}
-              <div ref={connDropdownRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowDbDropdown(false);
-                    setShowConnDropdown(!showConnDropdown);
-                  }}
-                  className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-sm transition ${
-                    showConnDropdown
-                      ? "border-primary-light bg-surface-tertiary text-primary"
-                      : "border-border-light bg-surface-secondary text-text-muted hover:border-border hover:text-text-tertiary"
-                  }`}
-                  title="Connectors"
-                >
-                  <LayoutGrid size={18} />
-                  <span className="font-medium tabular-nums">{enabledConnectorCount} of {CONNECTOR_ITEMS.length}</span>
-                </button>
-
-                {showConnDropdown && (
-                  <div className="absolute left-0 top-full z-30 mt-2 w-[300px] rounded-xl border border-border bg-surface p-3 shadow-xl">
-                    <p className="mb-2 px-1 text-sm font-semibold text-text-primary">Connectors</p>
-                    <div className="space-y-0.5">
-                      {CONNECTOR_ITEMS.map((c) => (
-                        <div
-                          key={c.id}
-                          className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-surface-secondary"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <img src={c.img} alt="" className="h-7 w-7 shrink-0 object-contain" />
-                            <span className="truncate text-sm text-text-primary">{c.name}</span>
-                          </div>
-                          <ConnectorToggle
-                            name={c.name}
-                            enabled={connectorEnabled[c.id]}
-                            onChange={(next) =>
-                              setConnectorEnabled((prev) => ({ ...prev, [c.id]: next }))
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="my-2 h-px bg-border" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowConnDropdown(false);
-                        navigate("/configure/external");
-                      }}
-                      className="flex w-full items-center justify-between rounded-lg px-2 py-2.5 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Plus size={18} className="text-text-muted" />
-                        Manage Connectors
-                      </span>
-                      <ExternalLink size={18} className="shrink-0 text-text-muted" aria-hidden />
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ComposerSourceMenus direction="down" />
             </div>
             <div className="flex items-center gap-2">
               <MicButton

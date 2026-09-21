@@ -305,7 +305,7 @@ export default function ConfigureInternalSourceForm() {
  const saved = await save();
  if (!isLive) {
  sourceId = saved.id;
- setNotice("Saved first — the API tests the credentials it stores, not the ones on screen.");
+ setNotice("Saved first: the API tests the credentials it stores, not the ones on screen.");
  loadedFor.current = saved.id; // keep the typed values; do not reload the form from the API
  navigate(`/configure/internal-sources/edit/${encodeURIComponent(saved.id)}`, { replace: true });
  }
@@ -416,7 +416,7 @@ export default function ConfigureInternalSourceForm() {
  </div>
  {!harvestable && (
  <p className="mt-1.5 text-xs text-text-muted">
- Registers and can be tested, but no connector models this type yet — it will show as "Not modelled".
+ Registers and can be tested, but no connector models this type yet, it will show as "Not modelled".
  </p>
  )}
  </div>
@@ -513,7 +513,7 @@ export default function ConfigureInternalSourceForm() {
  required
  placeholder="egpt_reader"
  autoComplete="off"
- hint={isLive ? "Changing the username replaces the stored credential — enter the password again to save it." : undefined}
+ hint={isLive ? "Changing the username replaces the stored credential, enter the password again to save it." : undefined}
  value={form.username}
  onChange={(e) => setField("username", e.target.value)}
  />
@@ -523,7 +523,7 @@ export default function ConfigureInternalSourceForm() {
  required={secretRequired}
  type="password"
  autoComplete="new-password"
- placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "••••••••"}
+ placeholder={isLive && existing.hasCredentials ? "Stored: enter a new one to replace it" : "••••••••"}
  value={form.password}
  onChange={(e) => setField("password", e.target.value)}
  />
@@ -536,7 +536,7 @@ export default function ConfigureInternalSourceForm() {
  required={secretRequired}
  type="password"
  autoComplete="new-password"
- placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "sk-…"}
+ placeholder={isLive && existing.hasCredentials ? "Stored: enter a new one to replace it" : "sk-…"}
  value={form.apiKey}
  onChange={(e) => setField("apiKey", e.target.value)}
  />
@@ -553,7 +553,7 @@ export default function ConfigureInternalSourceForm() {
  required={secretRequired}
  type="password"
  autoComplete="new-password"
- placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "token"}
+ placeholder={isLive && existing.hasCredentials ? "Stored: enter a new one to replace it" : "token"}
  value={form.apiKey}
  onChange={(e) => setField("apiKey", e.target.value)}
  />

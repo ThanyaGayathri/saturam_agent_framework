@@ -23,8 +23,10 @@ export default function MiddlebyAutomationPlaybookPage() {
 
   return (
     <>
+      {/* The strip uses the same gutter as the page below it, so the button starts at the
+          page's left edge instead of floating in from a narrower column. */}
       {returnTo ? (
-        <div className="mx-auto max-w-3xl px-6 pt-8">
+        <div className="mx-auto w-full max-w-[1440px] px-8 pt-8">
           <button
             type="button"
             onClick={() => navigate(returnTo)}

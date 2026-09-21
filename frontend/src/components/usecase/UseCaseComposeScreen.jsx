@@ -110,7 +110,7 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
      {pref && (
       <span className="inline-flex flex-wrap items-center gap-1.5 text-text-secondary">
        <Sparkles size={11} className="text-primary" />
-       <span>Suggested: <strong className="text-text-primary">{pref.label}</strong>{pref.why ? <span className="text-text-muted"> — {pref.why}</span> : null}</span>
+       <span>Suggested: <strong className="text-text-primary">{pref.label}</strong>{pref.why ? <span className="text-text-muted"> - {pref.why}</span> : null}</span>
        {pref.patch && <button type="button" onClick={() => onUse(pref)} className="rounded-md border border-primary/40 bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary hover:text-white">Use</button>}
       </span>
      )}
@@ -185,7 +185,7 @@ function CategoryPicker({ onChoose }) {
           ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
           : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
         </div>
-        <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? " — an admin" : ""}.` : ""}</p>
+        <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? ", an admin" : ""}.` : ""}</p>
        </button>
        <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary">Choose <ArrowRight size={12} /></span>
       </div>
@@ -313,9 +313,9 @@ export default function UseCaseComposeScreen() {
    parts.remaining = all.length - 1;
    lastAsked.current = gap.id;
   } else if (nextGaps.length === 0) {
-   parts.done = `${describeShape(nextSpec)} Runs ${SCHEDULES.find((x) => x.value === nextSpec.schedule)?.label.toLowerCase()}${nextSpec.assumed?.includes("schedule") ? " — the default; change Frequency on the form if that's too often" : ""}. Save & validate when you're ready.`;
+   parts.done = `${describeShape(nextSpec)} Runs ${SCHEDULES.find((x) => x.value === nextSpec.schedule)?.label.toLowerCase()}${nextSpec.assumed?.includes("schedule") ? ", the default; change Frequency on the form if that's too often" : ""}. Save & validate when you're ready.`;
   } else {
-   parts.done = "The form is complete, but a KPI cannot be computed from your connected data — see the form.";
+   parts.done = "The form is complete, but a KPI cannot be computed from your connected data, see the form.";
   }
   setMessages((m) => [...m, { role: "assistant", parts, gaps: gap ? [gap] : [], suggest }]);
  };
@@ -567,7 +567,7 @@ export default function UseCaseComposeScreen() {
         ))}
         {offered.length > 0 && (
          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />The at-risk KPIs your data supports — click to add:</span>
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />The at-risk KPIs your data supports, click to add:</span>
           {offered.map((k) => <button key={k.identifier} type="button" title={k.identifier} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>)}
           {offered.length > 1 && <button type="button" onClick={() => setField(f, [...new Set([...spec.metricIds, ...offered.map((k) => k.identifier)])])} className="text-[11px] font-semibold text-primary hover:underline">add all</button>}
          </div>
@@ -604,9 +604,9 @@ export default function UseCaseComposeScreen() {
         })}
         {(spec.analytics?.kpis || []).filter((k) => !spec.metricIds.includes(k.identifier)).length > 0 && (
          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />Suggested from your goal — click to add:</span>
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />Suggested from your goal, click to add:</span>
           {spec.analytics.kpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => (
-           <button key={k.identifier} type="button" title={`${k.identifier} — because you said: ${k.why}${k.feasibility === "ready" ? " · in gold" : " · computed on first run"}`} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>
+           <button key={k.identifier} type="button" title={`${k.identifier}, because you said: ${k.why}${k.feasibility === "ready" ? " · in gold" : " · computed on first run"}`} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>
           ))}
          </div>
         )}
@@ -629,7 +629,7 @@ export default function UseCaseComposeScreen() {
          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))}><X size={11} /></button>
         </span>
        ))}
-       {spec.metricTerms.map((t) => <span key={t} className="inline-flex items-center gap-1 rounded-full border border-dashed border-status-warning-border px-2.5 py-1 text-xs font-semibold text-status-warning"><HelpCircle size={11} /> "{t}" — which?</span>)}
+       {spec.metricTerms.map((t) => <span key={t} className="inline-flex items-center gap-1 rounded-full border border-dashed border-status-warning-border px-2.5 py-1 text-xs font-semibold text-status-warning"><HelpCircle size={11} /> "{t}": which?</span>)}
        {(f === "metrics" || spec.metricIds.length === 0) && (
         <select value="" onChange={(e) => e.target.value && setField(f, f === "metric" ? [e.target.value] : [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[14rem]`}>
          <option value="">{f === "metric" ? "Choose a KPI…" : "Add a KPI…"}</option>
@@ -668,7 +668,7 @@ export default function UseCaseComposeScreen() {
         {grains.map((d) => { const on = spec.dimensions.includes(d); const hasKpi = platformKpis.some((k) => k.grain === d); return <button key={d} type="button" aria-pressed={on} title={hasKpi ? `KPIs at this grain: ${platformKpis.filter((k) => k.grain === d).map((k) => k.name).join(", ")}` : "No registered KPI breaks down by this yet; the run will report it as missing"} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={`${chip(on)} ${!hasKpi ? "border-dashed" : ""}`}>{d.replace(/_/g, " ")}</button>; })}
         <input placeholder="other… (Enter)" className={`${input} w-40`} onKeyDown={(e) => { const v = e.currentTarget.value.trim().toLowerCase().replace(/\s+/g, "_"); if (e.key === "Enter" && v) { e.preventDefault(); setField(f, [...new Set([...spec.dimensions, v])]); e.currentTarget.value = ""; } }} />
        </div>
-       <p className="mt-1.5 text-[11px] text-text-muted">A breakdown is a KPI at that grain in the registry{offered.length ? `; the ones your chosen KPIs carry come first` : ""}. A dashed one has no KPI yet — add one on the KPI screen or the report will say it is missing.</p>
+       <p className="mt-1.5 text-[11px] text-text-muted">A breakdown is a KPI at that grain in the registry{offered.length ? `; the ones your chosen KPIs carry come first` : ""}. A dashed one has no KPI yet, add one on the KPI screen or the report will say it is missing.</p>
       </Field>
      );
     }
@@ -783,7 +783,7 @@ export default function UseCaseComposeScreen() {
        {channels.map((c) => {
         const on = (spec.notifyChannels || ["in_app"]).includes(c.value);
         return (
-         <button key={c.value} type="button" aria-pressed={on} disabled={c.always || !c.configured} title={c.always ? "Always. The result lives here; other channels link to it." : c.configured ? (c.target || c.label) : `${c.label} is not connected — add it under Configure → External`} onClick={() => setSpec((s) => applyPatch(s, { notifyChannels: on ? (s.notifyChannels || []).filter((x) => x !== c.value) : [...(s.notifyChannels || ["in_app"]), c.value] }, ORIGIN.authored))} className={`${chip(on)} ${c.always ? "cursor-default opacity-90" : ""} ${!c.configured ? "cursor-not-allowed border-dashed opacity-50" : ""}`}>
+         <button key={c.value} type="button" aria-pressed={on} disabled={c.always || !c.configured} title={c.always ? "Always. The result lives here; other channels link to it." : c.configured ? (c.target || c.label) : `${c.label} is not connected: add it under Configure → External`} onClick={() => setSpec((s) => applyPatch(s, { notifyChannels: on ? (s.notifyChannels || []).filter((x) => x !== c.value) : [...(s.notifyChannels || ["in_app"]), c.value] }, ORIGIN.authored))} className={`${chip(on)} ${c.always ? "cursor-default opacity-90" : ""} ${!c.configured ? "cursor-not-allowed border-dashed opacity-50" : ""}`}>
           {c.label}{c.target && on ? <span className="ml-1 font-normal opacity-80">· {c.target.split(/\s*[-–]\s*/).pop()}</span> : null}{!c.configured && <span className="ml-1 font-normal">· not connected</span>}
          </button>
         );
@@ -802,7 +802,7 @@ export default function UseCaseComposeScreen() {
        </select>
        <input value={spec.candidates?.filter || ""} disabled={!spec.candidates?.concept} onChange={(e) => setField(f, { ...spec.candidates, filter: e.target.value })} placeholder="where… e.g. more than 8 weeks of cover" className={`${input} disabled:opacity-50`} />
       </div>
-      {spec.candidates?.conceptId && <p className="mt-1.5 font-mono text-[11px] text-text-muted">{concepts.find((c) => c.id === spec.candidates.conceptId)?.technicalName}{spec.candidates.filter ? ` WHERE ${spec.candidates.filter}` : ""} — reviewed before it becomes a filter</p>}
+      {spec.candidates?.conceptId && <p className="mt-1.5 font-mono text-[11px] text-text-muted">{concepts.find((c) => c.id === spec.candidates.conceptId)?.technicalName}{spec.candidates.filter ? ` WHERE ${spec.candidates.filter}` : ""}, reviewed before it becomes a filter</p>}
      </Field>
     );
    case "objective":
@@ -827,7 +827,7 @@ export default function UseCaseComposeScreen() {
         <li key={i} className="grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_5rem_3rem_auto] items-center gap-1.5">
          <select value={g.metric || ""} onChange={(e) => setGuardrail(i, "metric", e.target.value)} className={`${select} ${!g.metric || !registryNames.includes(g.metric) ? "border-status-warning-border" : ""}`}>
           <option value="">KPI…</option>
-          {g.metric && !registryNames.includes(g.metric) && <option value={g.metric}>"{g.metric}" — not in registry</option>}
+          {g.metric && !registryNames.includes(g.metric) && <option value={g.metric}>"{g.metric}": not in registry</option>}
           {[...new Set([...spec.metricIds, ...registryNames])].map((n) => <option key={n} value={n}>{n}</option>)}
          </select>
          <select value={g.operator} onChange={(e) => setGuardrail(i, "operator", e.target.value)} className={select}>{LIMIT_OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
@@ -916,7 +916,7 @@ export default function UseCaseComposeScreen() {
     const hasMapping = !!findMapping(spec);
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      {!hasMapping && <p className="mb-1.5 text-[11px] text-status-warning">Choose the record mapping first — which roles this use case resolves follows from what the mapping reads and the guardrails need.</p>}
+      {!hasMapping && <p className="mb-1.5 text-[11px] text-status-warning">Choose the record mapping first, which roles this use case resolves follows from what the mapping reads and the guardrails need.</p>}
       <div className="grid gap-1.5">
        {MASTER_DATA_ROLES.map((r) => {
         const why = needed.has(r.id) ? roleReason(spec, r.id) : null;
@@ -931,7 +931,7 @@ export default function UseCaseComposeScreen() {
         );
        })}
       </div>
-      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer — Customer, Contact, Location, Product, Order — not to the target's table names. Only the roles the mapping reads and the guardrails need are resolved; a document that maps no product is never asked for one.</p>
+      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer. Customer, Contact, Location, Product, Order, not to the target's table names. Only the roles the mapping reads and the guardrails need are resolved; a document that maps no product is never asked for one.</p>
      </Field>
     );
    }
@@ -946,7 +946,7 @@ export default function UseCaseComposeScreen() {
        <label className="flex items-center gap-2 text-xs text-text-secondary"><span className="w-28 font-semibold text-text-primary">Ambiguous within</span><input type="number" step="0.01" min="0" max="0.2" value={t.ambiguity ?? 0.05} onChange={(e) => setNested(f, "ambiguity", Number(e.target.value))} className={`${input} w-20`} /><span>of the best</span></label>
       </div>
       <button type="button" aria-pressed={!!t.aiDisambiguation} onClick={() => setNested(f, "aiDisambiguation", !t.aiDisambiguation)} className={`mt-2 ${chip(!!t.aiDisambiguation)}`}>AI disambiguation between candidates above threshold</button>
-      <p className="mt-1.5 text-[11px] text-text-muted">Below threshold is an exception with the closest match and its score — never a guess.</p>
+      <p className="mt-1.5 text-[11px] text-text-muted">Below threshold is an exception with the closest match and its score, never a guess.</p>
      </Field>
     );
    }
@@ -1005,7 +1005,7 @@ export default function UseCaseComposeScreen() {
     {/* Optional: say it in one go and let the form fill; otherwise fill the form directly. */}
     <div className="rounded-xl border border-dashed border-border bg-surface-secondary/60">
      <button type="button" onClick={() => setOneGo((v) => !v)} className="flex w-full items-center justify-between px-3.5 py-2 text-left">
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary"><Sparkles size={12} className="text-primary" /> Describe it in one go — optional</span>
+      <span className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary"><Sparkles size={12} className="text-primary" /> Describe it in one go, optional</span>
       {oneGo ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
      </button>
      {oneGo && (
@@ -1022,7 +1022,7 @@ export default function UseCaseComposeScreen() {
       <div className="flex flex-wrap items-start justify-between gap-2 border-t border-dashed border-border px-3.5 py-2 text-xs">
        <div className="min-w-0">
         <span className="font-semibold text-status-success"><Check size={12} className="mr-1 inline" />Filled {filledNote.filled.length} field{filledNote.filled.length === 1 ? "" : "s"}</span>
-        <span className="text-text-secondary"> — {filledNote.filled.map((h) => h.replace(/^\w/, (c) => c.toUpperCase())).join(" · ")}</span>
+        <span className="text-text-secondary"> - {filledNote.filled.map((h) => h.replace(/^\w/, (c) => c.toUpperCase())).join(" · ")}</span>
         {filledNote.open.length > 0 && <span className="text-text-secondary">. Still needed below: <strong className="text-text-primary">{filledNote.open.join(", ")}</strong>.</span>}
        </div>
        <button type="button" onClick={() => setFilledNote(null)} aria-label="Dismiss" className="text-text-muted hover:text-text-primary"><X size={13} /></button>
@@ -1033,7 +1033,7 @@ export default function UseCaseComposeScreen() {
     {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface p-3">
      <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
      <p className="mt-1 text-sm text-text-primary">{describeShape(spec)}</p>
-     {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? " — an admin, since nobody approves each change" : ""}.</p>}
+     {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? ", an admin, since nobody approves each change" : ""}.</p>}
     </div>}
 
     <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -1051,10 +1051,10 @@ export default function UseCaseComposeScreen() {
     {category.templates && !spec.template && (
      <div className="rounded-xl border border-dashed border-border bg-surface-secondary/60 px-4 py-3">
       <p className="text-sm text-text-primary">Say what arrives and the form will follow.</p>
-      <p className="mt-0.5 text-xs text-text-secondary">A KPI on a schedule — <em>“reorder SKUs below their reorder point”</em> — or a document — <em>“purchase orders arrive as PDFs in the orders mailbox”</em>. Write it in the goal above, describe it in one go, or ask the assistant.</p>
+      <p className="mt-0.5 text-xs text-text-secondary">A KPI on a schedule: <em>“reorder SKUs below their reorder point”</em>, or a document: <em>“purchase orders arrive as PDFs in the orders mailbox”</em>. Write it in the goal above, describe it in one go, or ask the assistant.</p>
       {String(spec.goal || "").trim().length > 12 && (
        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-text-muted">I couldn't tell from that — is it</span>
+        <span className="text-text-muted">I couldn't tell from that, is it</span>
         {category.templates.map((t) => <button key={t.id} type="button" onClick={() => setTemplate(t.id)} className="rounded-full border border-border-light bg-surface px-2.5 py-1 font-semibold text-text-secondary hover:border-primary hover:text-primary">{t.label.toLowerCase()}</button>)}
         <span className="text-text-muted">?</span>
        </div>
@@ -1066,7 +1066,7 @@ export default function UseCaseComposeScreen() {
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your description as</span>
       <span className="font-semibold text-text-primary">{category.templates.find((t) => t.id === spec.template)?.label.toLowerCase()}</span>
-      <span className="text-text-muted">— {category.templates.find((t) => t.id === spec.template)?.hint}</span>
+      <span className="text-text-muted">- {category.templates.find((t) => t.id === spec.template)?.hint}</span>
       <button type="button" onClick={() => setTemplate(category.templates.find((t) => t.id !== spec.template)?.id)} className="ml-auto font-semibold text-text-muted hover:text-primary">Not this? Treat it as {category.templates.find((t) => t.id !== spec.template)?.label.toLowerCase()}</button>
      </div>
     )}
@@ -1078,7 +1078,7 @@ export default function UseCaseComposeScreen() {
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your goal as</span>
       <span className="font-semibold text-text-primary">{t.label.replace(/^\w/, (c) => c.toLowerCase())}</span>
-      <span className="text-text-muted">— {t.hint}</span>
+      <span className="text-text-muted">- {t.hint}</span>
      </div>
     ); })()}
 
@@ -1141,7 +1141,7 @@ export default function UseCaseComposeScreen() {
             {shown.map((o) => { const so = sug?.options.find((x) => x.label === o); const pref = sug && sug.preferred === o; return <button key={o} type="button" title={so?.why} onClick={() => answer(g, o, so)} className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${pref ? "border-primary bg-primary-light text-primary" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`}>{pref && <Sparkles size={10} className="mr-1 inline" />}{o}</button>; })}
             {rest.map((o) => <button key={o} type="button" onClick={() => answer(g, o)} className="rounded-full border border-dashed border-border-light bg-surface px-2.5 py-1 text-xs font-semibold text-text-muted hover:border-primary hover:text-primary">{o}</button>)}
            </div>
-           {sug?.preferred && sug.options.find((x) => x.label === sug.preferred)?.why && <p className="text-[11px] text-text-muted"><Sparkles size={10} className="mr-1 inline" />suggested: {sug.preferred} — {sug.options.find((x) => x.label === sug.preferred).why}</p>}
+           {sug?.preferred && sug.options.find((x) => x.label === sug.preferred)?.why && <p className="text-[11px] text-text-muted"><Sparkles size={10} className="mr-1 inline" />suggested: {sug.preferred} - {sug.options.find((x) => x.label === sug.preferred).why}</p>}
           </div>
          );
         })}

@@ -56,7 +56,7 @@ const SEED_FIXTURES = {
  seed_salesforce_gallery: {
   state: "building",
   progress: 42,
-  step: "Profiling columns — 5 of 12 entities",
+  step: "Profiling columns: 5 of 12 entities",
   tables: 12,
   modelled: 5,
  },

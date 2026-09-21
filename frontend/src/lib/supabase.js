@@ -57,7 +57,7 @@ if (typeof window !== "undefined" && !isSupabaseEnabled()) {
     // Not an error - the app has a working seed-only fallback. But this
     // logs so a developer notices env vars aren't set.
     console.info(
-      "[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY not set — running in seed-only mode. See docs/supabase-setup.md."
+      "[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY not set, running in seed-only mode. See docs/supabase-setup.md."
     );
   }
 }

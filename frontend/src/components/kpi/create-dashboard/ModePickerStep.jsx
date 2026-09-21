@@ -31,7 +31,7 @@ export default function ModePickerStep({
      autoFocus
      value={name}
      onChange={(e) => setName(e.target.value)}
-     placeholder="e.g. Inventory health — weekly"
+     placeholder="e.g. Inventory health: weekly"
      className={`mt-1.5 ${FIELD_INPUT}`}
     />
    </div>
@@ -46,7 +46,7 @@ export default function ModePickerStep({
     )}
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
      <ModeCard selected={mode === "ai"} onClick={() => setMode("ai")} Icon={Sparkles} title="AI generated dashboard">
-      Describe what you want to track — get suggested metrics and a filter to start from.
+      Describe what you want to track, get suggested metrics and a filter to start from.
      </ModeCard>
      <ModeCard selected={mode === "manual"} onClick={() => setMode("manual")} Icon={MousePointerClick} title="Manual dashboard">
       Pick metrics yourself from the KPI catalogue.

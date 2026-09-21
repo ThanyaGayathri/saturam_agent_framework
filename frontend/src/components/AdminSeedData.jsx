@@ -29,7 +29,7 @@ const KIND_LABEL = {
 };
 
 function makeBusinessAreaLabel(areas) {
-  return (id) => areas.find((b) => b.id === id)?.label || id || "—";
+  return (id) => areas.find((b) => b.id === id)?.label || id || "-";
 }
 
 function ToggleButton({ hidden, disabled, onClick }) {
@@ -47,12 +47,12 @@ function ToggleButton({ hidden, disabled, onClick }) {
       {hidden ? (
         <>
           <EyeOff size={13} strokeWidth={2} aria-hidden />
-          Hidden — click to show
+          Hidden: click to show
         </>
       ) : (
         <>
           <Eye size={13} strokeWidth={2} aria-hidden />
-          Visible — click to hide
+          Visible: click to hide
         </>
       )}
     </button>
@@ -201,7 +201,7 @@ function ProcessTable({ processes, isHidden, onToggle, supabaseEnabled, business
                     <td className="px-4 py-2.5 text-text-secondary">
                       {businessAreaLabel(p.businessAreaId)}
                     </td>
-                    <td className="px-4 py-2.5 text-text-secondary">{p.subjectArea || "—"}</td>
+                    <td className="px-4 py-2.5 text-text-secondary">{p.subjectArea || "-"}</td>
                     <td className="px-4 py-2.5 text-right">
                       <ToggleButton
                         hidden={hidden}
@@ -300,9 +300,9 @@ function UseCaseTable({ useCases, isHidden, onToggle, supabaseEnabled }) {
                 return (
                   <tr key={u.id} className={hidden ? "bg-status-warning-light/30" : ""}>
                     <td className="px-4 py-2.5 font-medium text-text-primary">{u.title}</td>
-                    <td className="px-4 py-2.5 text-text-secondary">{u.businessArea || "—"}</td>
-                    <td className="px-4 py-2.5 text-text-secondary">{u.actionType || "—"}</td>
-                    <td className="px-4 py-2.5 text-text-secondary">{u.tier || "—"}</td>
+                    <td className="px-4 py-2.5 text-text-secondary">{u.businessArea || "-"}</td>
+                    <td className="px-4 py-2.5 text-text-secondary">{u.actionType || "-"}</td>
+                    <td className="px-4 py-2.5 text-text-secondary">{u.tier || "-"}</td>
                     <td className="px-4 py-2.5 text-right">
                       <ToggleButton
                         hidden={hidden}
@@ -486,7 +486,7 @@ export default function AdminSeedData() {
 
       {!supabaseEnabled && (
         <div className="mb-6 rounded-lg border border-status-warning-border bg-status-warning-light/50 p-3 text-sm text-status-warning">
-          Supabase isn't configured in this environment — hide toggles are disabled.
+          Supabase isn't configured in this environment, hide toggles are disabled.
           Set <span className="font-mono">VITE_SUPABASE_URL</span> and{" "}
           <span className="font-mono">VITE_SUPABASE_ANON_KEY</span> to enable.
         </div>

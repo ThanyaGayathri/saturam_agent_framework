@@ -271,7 +271,7 @@ function JourneyTimeline({ rows, spec }) {
    <li key={i}>
     <div className="absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
     <div className="text-sm font-semibold text-text-primary">
-     Step {stepNumber} — {stepTitle}
+     Step {stepNumber} - {stepTitle}
     </div>
     <div className="mt-0.5 text-xs text-text-secondary">
      {eventType ? (

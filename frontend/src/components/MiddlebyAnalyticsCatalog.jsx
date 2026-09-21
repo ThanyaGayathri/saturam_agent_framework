@@ -49,9 +49,11 @@ function CatalogSection({ title, subtitle, entries, showWorkflowBadge = false })
 
   return (
     <section>
-      <h2 className="text-base font-semibold text-text-primary">{title}</h2>
-      {subtitle ? <p className="mt-1 text-sm text-text-secondary">{subtitle}</p> : null}
-      <div className="mt-4 flex max-w-3xl flex-col gap-3">
+      <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
+      {subtitle ? <p className="mt-1 text-base leading-6 text-text-secondary">{subtitle}</p> : null}
+      {/* A grid across the page, like the other two Use Cases tabs. This was a single
+          column capped at max-w-3xl, which left most of the page empty. */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {entries.map((entry) => (
           <MiddlebyAnalyticsUseCaseCard
             key={entry.id}
@@ -200,7 +202,7 @@ export default function MiddlebyAnalyticsCatalog() {
         <div className={catalogHeaderRow}>
           <div className={catalogHeaderText}>
             <div className="flex items-center gap-3">
-              <h1 className={catalogH1}>Use cases</h1>
+              <h1 className={catalogH1}>Pre-built analytics</h1>
               <TourLaunchButton tourId="middleby-use-cases" label="Take a quick tour" />
             </div>
             <p className={catalogSubtitle}>{catalogSubtitleText}</p>
@@ -265,10 +267,10 @@ export default function MiddlebyAnalyticsCatalog() {
 
                 {clientKpiByStage.length > 0 ? (
                   <section>
-                    <h2 className="text-base font-semibold text-text-primary">
+                    <h2 className="text-xl font-semibold text-text-primary">
                       Analytics across the buyer funnel ({clientKpiTotalCount})
                     </h2>
-                    <p className="mt-1 text-sm text-text-secondary">
+                    <p className="mt-1 text-base leading-6 text-text-secondary">
                       {MIDDLEBY_CLIENT_KPI_USE_CASES_SUBTITLE}
                     </p>
                     <div className="mt-5 space-y-8">
@@ -288,7 +290,7 @@ export default function MiddlebyAnalyticsCatalog() {
                           {stage.subtitle ? (
                             <p className="mt-1 text-xs text-text-secondary">{stage.subtitle}</p>
                           ) : null}
-                          <div className="mt-3 flex max-w-3xl flex-col gap-3">
+                          <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                             {stage.entries.map((entry) => (
                               <MiddlebyAnalyticsUseCaseCard
                                 key={entry.id}

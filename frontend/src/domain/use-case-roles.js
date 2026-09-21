@@ -137,7 +137,7 @@ export function resolutionPlan(spec) {
   if (id === "customer") reads = sources.customer.name ? `the sender's email domain, then \`${sources.customer.name}\`` : "the sender's email domain";
   if (id === "contact") reads = "the sender's email address";
   if (id === "shipTo") reads = sources.ship_to.address ? `\`${sources.ship_to.address}\` against the account's sites` : "the account's only site (no address field on the document)";
-  if (id === "product") { const f = [sources.product.customer_part_number, sources.product.supplier_product_code, sources.product.description].filter(Boolean); reads = f.length ? `each line's ${f.map((x) => `\`${x}\``).join(", then ")}` : "nothing — the template has no item field"; }
+  if (id === "product") { const f = [sources.product.customer_part_number, sources.product.supplier_product_code, sources.product.description].filter(Boolean); reads = f.length ? `each line's ${f.map((x) => `\`${x}\``).join(", then ")}` : "nothing: the template has no item field"; }
   if (id === "orderHistory") reads = "the target object's own records per account";
   return { id, label: role.label, by, reads };
  });

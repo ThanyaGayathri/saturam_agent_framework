@@ -7,7 +7,7 @@
  * Every number is the decomposition's own; nothing here computes.
  */
 const fmt = (v, unit) => {
- if (v == null) return "—";
+ if (v == null) return "-";
  const n = Number(v);
  if (unit === "%") return `${n.toFixed(1)}%`;
  if (String(unit).toUpperCase() === "USD") return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -67,7 +67,7 @@ function TrendChart({ values, unit, asOf, stepDays }) {
 export function DiagnosisTiles({ diagnosis }) {
  const d = diagnosis; const h = d?.headline; if (!h) return null;
  const unit = h.unit || ""; const delta = h.delta == null ? null : Number(h.delta); const up = delta != null && delta >= 0;
- const deltaText = delta == null ? "—" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
+ const deltaText = delta == null ? "-" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
  const w = d.winner; const zBar = d.z_bar || 2;
  const tops = (d.ranking || []).map((e) => e.drivers?.[0]).filter(Boolean).slice(0, 5);
  const values = [...(h.history || [])].reverse().concat(h.current == null ? [] : [h.current]).map(Number).filter((v) => !Number.isNaN(v));
@@ -110,7 +110,7 @@ export function DiagnosisTiles({ diagnosis }) {
 export function DiagnosisKpiTile({ diagnosis }) {
  const h = diagnosis?.headline; if (!h) return null;
  const unit = h.unit || ""; const delta = h.delta == null ? null : Number(h.delta); const up = delta != null && delta >= 0;
- const deltaText = delta == null ? "—" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
+ const deltaText = delta == null ? "-" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
  const pct = h.delta_pct != null && unit !== "%" ? ` (${h.delta_pct > 0 ? "+" : ""}${h.delta_pct}%)` : "";
  return (
   <div className="rounded-xl border border-border bg-surface px-4 py-3">
@@ -129,7 +129,7 @@ export default function DiagnosisInsight({ diagnosis, compact = false, hideHero 
  const d = diagnosis; if (!d) return null;
  const h = d.headline || {}; const w = d.winner; const unit = h.unit || "";
  const delta = h.delta == null ? null : Number(h.delta); const up = delta != null && delta >= 0;
- const deltaText = delta == null ? "—" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
+ const deltaText = delta == null ? "-" : unit === "%" ? `${up ? "+" : ""}${delta.toFixed(1)} pts` : `${up ? "+" : ""}${fmt(delta, unit)}`;
  const zBar = d.z_bar || 2;
  const tops = (d.ranking || []).map((e) => e.drivers?.[0]).filter(Boolean).filter((t) => !(w && t.dimension === w.dimension && t.value === w.value)).slice(0, compact ? 3 : 5);
  const wz = w?.z == null ? null : Number(w.z); const wUnusual = wz != null && Math.abs(wz) >= zBar;
@@ -149,7 +149,7 @@ export default function DiagnosisInsight({ diagnosis, compact = false, hideHero 
      <p className="text-2xl font-bold text-text-primary">{w.value}</p>
      <p className="mt-1 text-sm text-text-secondary">{EFFECT[w.effect] || w.effect}: <b className="text-text-primary">{fmt(w.baseline, unit)} → {fmt(w.current, unit)}</b> over {w.support} rows</p>
      <div className={`mt-3 grid gap-4 ${compact ? "grid-cols-2" : "grid-cols-3"}`}>
-      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Of the change</p><p className="text-xl font-bold tabular-nums text-text-primary">{w.share_of_gap != null ? `${Math.round(w.share_of_gap * 100)}%` : "—"}</p><Bar share={w.share_of_gap} /></div>
+      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Of the change</p><p className="text-xl font-bold tabular-nums text-text-primary">{w.share_of_gap != null ? `${Math.round(w.share_of_gap * 100)}%` : "-"}</p><Bar share={w.share_of_gap} /></div>
       <div className="border-l border-primary/20 pl-4"><p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Against its usual</p><p className={`text-xl font-bold tabular-nums ${wUnusual ? "text-status-critical" : "text-text-primary"}`}>{fmt(w.norm, unit)} <span className={`text-xs font-semibold ${wUnusual ? "text-status-critical" : "text-text-muted"}`}>{wUnusual ? `unusual · z ${wz > 0 ? "+" : ""}${wz.toFixed(1)}` : wz != null ? "within its range" : "no history"}</span></p></div>
       {!compact && !hideHero && <div className="border-l border-primary/20 pl-4"><p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{h.name}, the last periods</p><History history={h.history} current={h.current} unit={unit} /></div>}
      </div>
@@ -171,7 +171,7 @@ export default function DiagnosisInsight({ diagnosis, compact = false, hideHero 
     </div>
    )}
 
-   {(d.intersections || []).slice(0, 1).map((i) => { const t = i.drivers?.[0]; return t ? <p key={i.dimension} className="text-sm text-text-secondary"><span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Inside {w?.value} · </span>{String(t.dimension).replace(/_/g, " ")} · <b className="text-text-primary">{t.value}</b> — {EFFECT[t.effect] || t.effect}, {fmt(t.baseline, unit)} → {fmt(t.current, unit)}, {t.support} rows.</p> : null; })}
+   {(d.intersections || []).slice(0, 1).map((i) => { const t = i.drivers?.[0]; return t ? <p key={i.dimension} className="text-sm text-text-secondary"><span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Inside {w?.value} · </span>{String(t.dimension).replace(/_/g, " ")} · <b className="text-text-primary">{t.value}</b> - {EFFECT[t.effect] || t.effect}, {fmt(t.baseline, unit)} → {fmt(t.current, unit)}, {t.support} rows.</p> : null; })}
 
    {tallies.length > 0 && tallies.map(([col, vals]) => { const top = Math.max(1, ...vals.map((v) => Number(v.count || 0))); return (
     <div key={col}>
@@ -185,7 +185,7 @@ export default function DiagnosisInsight({ diagnosis, compact = false, hideHero 
      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">The evidence · {d.evidence.rows.length} of the {d.evidence.count} {d.evidence.side === "losing" ? `${w?.value || ""} rows that did not convert` : `${w?.value || ""} rows`}</p>
      <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-xs"><thead className="bg-surface-secondary text-[10px] uppercase tracking-wide text-text-muted"><tr>{(d.evidence.columns || []).map((c) => <th key={c} className="px-2 py-1.5 text-left font-semibold">{c.replace(/_/g, " ")}</th>)}</tr></thead>
-       <tbody>{d.evidence.rows.slice(0, 12).map((r, i) => <tr key={i} className="border-t border-border">{(d.evidence.columns || []).map((c) => <td key={c} className="whitespace-nowrap px-2 py-1 tabular-nums text-text-secondary">{r[c] == null ? "—" : String(r[c])}</td>)}</tr>)}</tbody></table>
+       <tbody>{d.evidence.rows.slice(0, 12).map((r, i) => <tr key={i} className="border-t border-border">{(d.evidence.columns || []).map((c) => <td key={c} className="whitespace-nowrap px-2 py-1 tabular-nums text-text-secondary">{r[c] == null ? "-" : String(r[c])}</td>)}</tr>)}</tbody></table>
      </div>
      {d.evidence.rows.length > 12 && <p className="mt-1 text-[10px] text-text-muted">{d.evidence.rows.length - 12} more rows carried on the run.</p>}
     </div>

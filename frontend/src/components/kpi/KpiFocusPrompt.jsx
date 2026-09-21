@@ -96,7 +96,7 @@ export default function KpiFocusPrompt({
       <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-warning" />
       <span>
        Couldn't ask the semantic layer which areas your data supports
-       {unavailable ? " (the semantic layer is unavailable)" : ""} — showing every metric unranked.
+       {unavailable ? " (the semantic layer is unavailable)" : ""}, showing every metric unranked.
        {error?.detail ? <span className="block text-xs text-text-muted">{error.detail}</span> : null}
       </span>
      </p>
@@ -220,7 +220,7 @@ export default function KpiFocusPrompt({
     )}
     {supported.length === 0 && areas.length > 0 && (
      <p className="mt-2 text-xs text-text-muted">
-      Nothing is mapped yet — accept mappings under Configure › Proposals to unlock ranking.
+      Nothing is mapped yet, accept mappings under Configure › Proposals to unlock ranking.
      </p>
     )}
 

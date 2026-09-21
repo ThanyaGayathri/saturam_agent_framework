@@ -35,7 +35,7 @@ export const CONFIGURE_TOUR = {
       route: "/configure/hierarchy",
       anchor: "[data-tour-configure='body']",
       lines: [
-        { text: "Business hierarchy is the first tab. Every business area and subject area used across the product lives here — Playground pills, Processes filter, Alerts filter, and the KPI Registry dropdowns all read from this list.", rate: 0.97 },
+        { text: "Business hierarchy is the first tab. Every business area and subject area used across the product lives here. Playground pills, Processes filter, Alerts filter, and the KPI Registry dropdowns all read from this list.", rate: 0.97 },
         { text: "Add a new business area from the button on the top right. Click into any area to expand and manage its subject areas. Rename and delete are inline actions on each row.", rate: 0.98 },
         { text: "Delete is blocked when an area still has KPIs tagged to it, so you can't accidentally break other pages. The confirmation dialog lists everywhere the change will show up.", rate: 0.98, pauseAfter: 400 },
       ],
@@ -45,7 +45,7 @@ export const CONFIGURE_TOUR = {
       route: "/configure/internal-sources",
       anchor: "[data-tour-configure='body']",
       lines: [
-        { text: "Data Sources is the second tab. It lists the internal systems your workspace pulls data from — databases, warehouses, and analytics stores like Snowflake, SAP, or PostgreSQL.", rate: 0.97 },
+        { text: "Data Sources is the second tab. It lists the internal systems your workspace pulls data from, databases, warehouses, and analytics stores like Snowflake, SAP, or PostgreSQL.", rate: 0.97 },
         { text: "Each row is one connection. Click a row to edit credentials, refresh cadence, or the schema being pulled. Add source at the top-right opens the connection form.", rate: 0.98, pauseAfter: 400 },
       ],
     },
@@ -55,7 +55,7 @@ export const CONFIGURE_TOUR = {
       anchor: "[data-tour-configure='body']",
       lines: [
         { text: "Integrations is the third tab. It connects external SaaS tools your team already uses.", rate: 0.97 },
-        { text: "Think of the shops that live outside your data warehouse — Shopify or Salesforce Commerce for e-commerce, Salesforce CRM for accounts, Klaviyo or Braze for marketing, Stripe for payments, FedEx for shipping.", rate: 0.98 },
+        { text: "Think of the shops that live outside your data warehouse. Shopify or Salesforce Commerce for e-commerce, Salesforce CRM for accounts, Klaviyo or Braze for marketing, Stripe for payments, FedEx for shipping.", rate: 0.98 },
         { text: "When these are connected, use cases can pull live status, and Co-Pilot workflows can send actions back out, like triggering a recovery campaign or updating a case.", rate: 0.98, pauseAfter: 450 },
       ],
     },
@@ -64,7 +64,7 @@ export const CONFIGURE_TOUR = {
       route: "/configure/domain-mapping",
       anchor: "[data-tour-configure='body']",
       lines: [
-        { text: "KPIs is the fourth tab, and the primary place to manage every KPI in the workspace. Add new KPIs, rename them, change their business area or subject area, and link them to datasets and processes — all from here.", rate: 0.97 },
+        { text: "KPIs is the fourth tab, and the primary place to manage every KPI in the workspace. Add new KPIs, rename them, change their business area or subject area, and link them to datasets and processes, all from here.", rate: 0.97 },
         { text: "The Add KPI button top-right creates a new metric. Click any row to open its detail panel; the Edit KPI button opens the full form to change everything about it.", rate: 0.98, pauseAfter: 350 },
         { text: "You may have seen the KPI Registry and Data catalog under the KPIs hub. Those are read-only browse surfaces. This tab is where the actual edits happen.", rate: 0.98, pauseAfter: 400 },
       ],
@@ -86,7 +86,7 @@ export const CONFIGURE_TOUR = {
       anchor: "[data-tour-configure='body']",
       lines: [
         { text: "Model is the fifth and last tab. This is where a general-purpose language model gets connected to the workspace.", rate: 0.97 },
-        { text: "You only need to configure a model here when your business does not already have its own dedicated model. Many workspaces run on a private model tuned to their own data — in that case this tab shows the existing connection and you don't add anything.", rate: 0.98, pauseAfter: 350 },
+        { text: "You only need to configure a model here when your business does not already have its own dedicated model. Many workspaces run on a private model tuned to their own data, in that case this tab shows the existing connection and you don't add anything.", rate: 0.98, pauseAfter: 350 },
         { text: "Only one model is Active at a time. The card with the green Active pill is the one powering reasoning right now. Others show Available with a Make active button so you can swap.", rate: 0.98, pauseAfter: 400 },
       ],
     },
@@ -103,7 +103,7 @@ export const CONFIGURE_TOUR = {
       route: "/configure/hierarchy",
       anchor: null,
       lines: [
-        { text: "That's Configure. Business hierarchy, data sources, integrations, KPIs, and model — set once, and the rest of the product wires up on top of what you defined here.", rate: 0.98 },
+        { text: "That's Configure. Business hierarchy, data sources, integrations, KPIs, and model, set once, and the rest of the product wires up on top of what you defined here.", rate: 0.98 },
       ],
       advance: "manual",
     },

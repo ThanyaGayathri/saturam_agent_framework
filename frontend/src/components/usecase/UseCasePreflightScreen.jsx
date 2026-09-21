@@ -93,10 +93,10 @@ export default function UseCasePreflightScreen() {
    return [
     { id: "mailbox", title: "Source mailbox", level: spec.mailbox ? "pass" : "fail", detail: spec.mailbox ? `${spec.mailbox} is connected and readable; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.` : "No mailbox chosen.", fix: spec.mailbox ? null : { label: "Choose a mailbox", to: spec_ } },
     { id: "target", title: "Target system", level: spec.writeback ? "pass" : "fail", detail: spec.writeback ? `${spec.writeback} is connected with write permission; ${mappingLabel(spec) || (spec.targetObjects ? spec.targetObjects.replace(/_/g, " + ") : "the target objects")} will be created as ${spec.createdAs || "draft"}.` : "No target system chosen.", fix: spec.writeback ? null : { label: "Choose a target system", to: spec_ } },
-    { id: "masterdata", title: `Reference data in ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "the target"}`, level: "warn", detail: neededRoles.length ? `Probing ${neededRoles.map((r) => r.label.toLowerCase()).join(", ")} — the roles the mapping reads and the guardrails need…` : "Nothing to resolve against: the mapping reads no master-data role and no guardrail needs one.", fix: null },
+    { id: "masterdata", title: `Reference data in ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "the target"}`, level: "warn", detail: neededRoles.length ? `Probing ${neededRoles.map((r) => r.label.toLowerCase()).join(", ")}, the roles the mapping reads and the guardrails need…` : "Nothing to resolve against: the mapping reads no master-data role and no guardrail needs one.", fix: null },
     { id: "model", title: "Extraction model", level: "warn", detail: "Probing…", fix: null },
-    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. Extraction works from the template's fields alone; an example of your own format makes it better, and the rehearse screen can save one as a golden case.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
-    { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written — never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },
+    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document, the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. Extraction works from the template's fields alone; an example of your own format makes it better, and the rehearse screen can save one as a golden case.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
+    { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written, never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },
     { id: "exceptions", title: "Exceptions", level: /@/.test(spec.exceptionsTo || "") ? "pass" : "fail", detail: /@/.test(spec.exceptionsTo || "") ? `Anything the automation cannot complete goes to ${spec.exceptionsTo}, and to the Alerts page.` : "No exceptions address.", fix: /@/.test(spec.exceptionsTo || "") ? null : { label: "Set the exceptions address", to: spec_ } },
     { id: "pii", title: "Personal data", level: "warn", detail: "Buyer names and email addresses are read from the documents and written to the target as contacts. Allowed for order processing; acknowledge that this use case handles personal data.", fix: null },
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "No owner.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
@@ -148,14 +148,14 @@ export default function UseCasePreflightScreen() {
     id: "join", title: "Cross-system joins",
     level: sources.size > 1 ? "warn" : "pass",
     detail: sources.size > 1
-     ? `This spans ${[...sources].join(" and ")}. The join between them is inferred — confirm it in the semantic layer or the numbers that cross it are unverified.`
+     ? `This spans ${[...sources].join(" and ")}. The join between them is inferred, confirm it in the semantic layer or the numbers that cross it are unverified.`
      : "Everything it reads comes from one system. No join to confirm.",
     fix: sources.size > 1 ? { label: "Review joins", to: "/configure/internal-sources" } : null,
    },
    {
     id: "freshness", title: "Freshness",
     level: staleSets.length ? "warn" : "pass",
-    detail: staleSets.length ? `${staleSets.length} dataset${staleSets.length === 1 ? " is" : "s are"} stale — answers will lag until they refresh.` : "Every dataset this reads is current.",
+    detail: staleSets.length ? `${staleSets.length} dataset${staleSets.length === 1 ? " is" : "s are"} stale: answers will lag until they refresh.` : "Every dataset this reads is current.",
    },
    {
     id: "policy", title: "Permissions and guardrails",
@@ -182,7 +182,7 @@ export default function UseCasePreflightScreen() {
     id: "coverage", title: "Coverage",
     level: spec.metricIds.length <= 1 ? "warn" : "pass",
     detail: spec.metricIds.length <= 1
-     ? "Built on a single metric — it will show what moved, but not why."
+     ? "Built on a single metric, it will show what moved, but not why."
      : `${spec.metricIds.length} metrics${spec.dimensions.length ? ` across ${spec.dimensions.join(", ")}` : ""} give it enough to explain a change, not just report it.`,
     fix: spec.metricIds.length <= 1 ? { label: "Add a metric", to: spec_ } : null,
    });
@@ -203,7 +203,7 @@ export default function UseCasePreflightScreen() {
      id: "guardrails", title: "Business guardrails",
      level: spec.guardrails.length ? "pass" : "fail",
      detail: spec.guardrails.length
-      ? `${spec.guardrails.length} guardrail${spec.guardrails.length === 1 ? "" : "s"}, evaluated as deterministic checks before any change — never by the AI step.`
+      ? `${spec.guardrails.length} guardrail${spec.guardrails.length === 1 ? "" : "s"}, evaluated as deterministic checks before any change, never by the AI step.`
       : "Nothing it may not do. A use case that makes changes needs at least one business guardrail.",
      fix: spec.guardrails.length ? null : { label: "Add a guardrail", to: spec_ },
     },
@@ -286,7 +286,7 @@ export default function UseCasePreflightScreen() {
     <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 3 of 6</p>
     <h1 className="text-2xl font-bold text-text-primary">Readiness check</h1>
     <p className="mt-1 max-w-2xl text-sm text-text-secondary">
-     Checked before this goes any further. <strong className="text-text-primary">{displayName(spec)}</strong> · level {level.level} — {checks.length} checks apply. Failures must be fixed; warnings must be acknowledged.
+     Checked before this goes any further. <strong className="text-text-primary">{displayName(spec)}</strong> · level {level.level} - {checks.length} checks apply. Failures must be fixed; warnings must be acknowledged.
     </p>
    </div>
 
@@ -322,7 +322,7 @@ export default function UseCasePreflightScreen() {
        <div key={`${c.id}-arriving`}>
         {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
         <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-text-muted">
-         <Loader2 size={15} className="animate-spin text-primary" /> {c.probe ? `Connecting: ${c.title.toLowerCase()} — the platform is opening it now…` : `Checking ${c.title.toLowerCase()}…`}
+         <Loader2 size={15} className="animate-spin text-primary" /> {c.probe ? `Connecting: ${c.title.toLowerCase()}, the platform is opening it now…` : `Checking ${c.title.toLowerCase()}…`}
         </div>
        </div>
       );

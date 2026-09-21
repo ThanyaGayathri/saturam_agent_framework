@@ -154,7 +154,7 @@ export function proposeTitle(spec) {
   // The at-risk kind is named for what it watches, not for the question: a sales
   // organisation calls this its at-risk pipeline.
   const cadence = spec.schedule === "weekly" ? "weekly" : spec.schedule === "daily" ? "daily" : spec.schedule === "monthly" ? "monthly" : "";
-  return `At-risk pipeline${cadence ? ` — ${cadence}` : ""}`;
+  return `At-risk pipeline${cadence ? ` - ${cadence}` : ""}`;
  }
  if (spec.category === "analytics_automation" && spec.analytics) {
   // Named from the ask, the way a person would title a report; the identifier is not a name.
@@ -164,12 +164,12 @@ export function proposeTitle(spec) {
   const cadence = spec.schedule === "weekly" ? "weekly" : spec.schedule === "daily" ? "daily" : spec.schedule === "monthly" ? "monthly" : "";
   const words = first.split(/\s+/);
   const short = words.length > 8 ? words.slice(0, 8).join(" ") : first;
-  return short ? `${short.charAt(0).toUpperCase()}${short.slice(1)}${cadence ? ` — ${cadence} report` : ""}` : "";
+  return short ? `${short.charAt(0).toUpperCase()}${short.slice(1)}${cadence ? ` - ${cadence} report` : ""}` : "";
  }
  if (!m) return "";
  switch (spec.shape) {
   case "inform": return `${m}${spec.dimensions?.length ? ` by ${spec.dimensions.slice(0, 2).join(" and ").toLowerCase()}` : ""}`;
-  case "alert": return `${m} alert${spec.scope && spec.scope !== "Everywhere" ? ` — ${spec.scope.toLowerCase()}` : ""}`;
+  case "alert": return `${m} alert${spec.scope && spec.scope !== "Everywhere" ? ` - ${spec.scope.toLowerCase()}` : ""}`;
   case "recommend": return `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} proposals${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
   case "act":
    if (spec.template === "document_to_record") { const t = findTemplate(spec); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
@@ -208,7 +208,7 @@ export function gapsFor(spec, registryNames, measurable) {
  }
  // A category with templates, and the words have not said which yet.
  if (CATEGORIES[spec.category]?.templates && !spec.template) {
-  push({ id: "template", kind: GAP_KIND.missing, field: "template", ask: "What arrives — a KPI on a schedule, or a document (by email, in a folder)?", options: CATEGORIES[spec.category].templates.map((t) => t.label) });
+  push({ id: "template", kind: GAP_KIND.missing, field: "template", ask: "What arrives: a KPI on a schedule, or a document (by email, in a folder)?", options: CATEGORIES[spec.category].templates.map((t) => t.label) });
   return gaps;
  }
 
@@ -264,16 +264,16 @@ export function gapsFor(spec, registryNames, measurable) {
   push({ id: "threshold", kind: GAP_KIND.missing, field: "threshold", ask: "What number should trigger it?" });
  }
  if (need.has("scope") && !spec.scope) {
-  push({ id: "scope", kind: GAP_KIND.missing, field: "scope", ask: "Where should it watch — everywhere, or any store, category, brand?" });
+  push({ id: "scope", kind: GAP_KIND.missing, field: "scope", ask: "Where should it watch, everywhere, or any store, category, brand?" });
  }
  if (need.has("recipient") && !spec.notify) {
   push({ id: "recipient", kind: GAP_KIND.missing, field: "recipient", ask: spec.shape === "alert" ? "Who should hear about it?" : "Who should receive it?" });
  }
  if (need.has("candidates")) {
   if (!spec.candidates?.concept) {
-   push({ id: "candidates", kind: GAP_KIND.missing, field: "candidates", ask: "Which records should each run consider — SKUs, categories, suppliers?" });
+   push({ id: "candidates", kind: GAP_KIND.missing, field: "candidates", ask: "Which records should each run consider, SKUs, categories, suppliers?" });
   } else if (!String(spec.candidates.filter || "").trim()) {
-   push({ id: "candidates-filter", kind: GAP_KIND.missing, field: "candidates", ask: `Which ${spec.candidates.concept.toLowerCase()}? Give the filter — e.g. "more than 8 weeks of cover".` });
+   push({ id: "candidates-filter", kind: GAP_KIND.missing, field: "candidates", ask: `Which ${spec.candidates.concept.toLowerCase()}? Give the filter: e.g. "more than 8 weeks of cover".` });
   }
  }
  if (need.has("mailbox") && !spec.mailbox) {
@@ -302,7 +302,7 @@ export function gapsFor(spec, registryNames, measurable) {
  }
  if (need.has("guardrails")) {
   if (spec.guardrails.length === 0) {
-   push({ id: "guardrails", kind: GAP_KIND.missing, field: "guardrails", ask: "What may it never do? At least one business guardrail — a KPI, a floor or ceiling, and a number." });
+   push({ id: "guardrails", kind: GAP_KIND.missing, field: "guardrails", ask: "What may it never do? At least one business guardrail, a KPI, a floor or ceiling, and a number." });
   }
   for (const g of spec.guardrails) {
    if (!g.metric) {

@@ -208,19 +208,19 @@ export const SEED_DECISION_CARDS = {
   ],
   "media-uc-14-piracy-leak-monitoring": [
     { id: "dc-media-pir-1", title: "Approve takedown notices - marquee premiere leak", reasoning: "Unauthorised uploads of the marquee premiere detected on 2 torrent indexes and a Telegram channel within 6h of release. Legal-approved takedown templates ready.", action: "Send takedown notices to 3 hosting platforms via legal-authorised recipients.", value: 0, supplier: "Content Protection" },
-    { id: "dc-media-pir-2", title: "Escalate — persistent leak after first takedown wave", reasoning: "One torrent index has not honoured first takedown after 6h. Legal team's second-wave process typically resolves within 24h.", action: "Escalate to Content Protection legal team for second-wave takedown.", value: 0, supplier: "Legal" },
+    { id: "dc-media-pir-2", title: "Escalate: persistent leak after first takedown wave", reasoning: "One torrent index has not honoured first takedown after 6h. Legal team's second-wave process typically resolves within 24h.", action: "Escalate to Content Protection legal team for second-wave takedown.", value: 0, supplier: "Legal" },
   ],
   "media-uc-15-rights-window-expiry": [
     { id: "dc-media-rights-1", title: "Approve renewal negotiation - top-watched title (window closes in 30 days)", reasoning: "Title in top-20 by watch hours across last 90 days; renewal cost within 8% of previous window. Losing this title creates a measurable regional-catalog gap.", action: "Authorise licensing team to open renewal at prior-window terms.", value: 0, supplier: "Licensing" },
   ],
   "media-uc-17-content-ingestion-pipeline": [
-    { id: "dc-media-ingest-1", title: "Approve overtime — subtitle QC for marquee launch", reasoning: "Subtitle QC queue is 4 hours behind for launch T-24h. Overtime clears the queue within launch window with no publishing slip.", action: "Approve 6 hours of subtitle QC overtime tonight.", value: 0, supplier: "Content Publishing" },
+    { id: "dc-media-ingest-1", title: "Approve overtime: subtitle QC for marquee launch", reasoning: "Subtitle QC queue is 4 hours behind for launch T-24h. Overtime clears the queue within launch window with no publishing slip.", action: "Approve 6 hours of subtitle QC overtime tonight.", value: 0, supplier: "Content Publishing" },
   ],
   "media-uc-22-payment-decline-recovery": [
-    { id: "dc-media-pay-1", title: "Approve BIN-specific dunning retry — top 5 declining BINs", reasoning: "5 BINs account for 38% of failed renewals this week. BIN-uptime-aware retry recovers 41% vs 22% baseline retry cadence in shadow test.", action: "Roll BIN-aware retry to 5 highest-decline BINs.", value: 62000, supplier: "Payments" },
+    { id: "dc-media-pay-1", title: "Approve BIN-specific dunning retry, top 5 declining BINs", reasoning: "5 BINs account for 38% of failed renewals this week. BIN-uptime-aware retry recovers 41% vs 22% baseline retry cadence in shadow test.", action: "Roll BIN-aware retry to 5 highest-decline BINs.", value: 62000, supplier: "Payments" },
   ],
   "media-uc-23-content-integrity-brand-safety": [
-    { id: "dc-media-safety-1", title: "Approve ad-adjacency exclusion — sensitive-content title set", reasoning: "Brand-safety review flagged 12 titles as ad-adjacency risk for the current major-brand campaign. Excluding them protects contract compliance without hurting fill.", action: "Exclude the 12 flagged titles from the current campaign's ad-adjacency set.", value: 0, supplier: "Ad-Ops" },
+    { id: "dc-media-safety-1", title: "Approve ad-adjacency exclusion: sensitive-content title set", reasoning: "Brand-safety review flagged 12 titles as ad-adjacency risk for the current major-brand campaign. Excluding them protects contract compliance without hurting fill.", action: "Exclude the 12 flagged titles from the current campaign's ad-adjacency set.", value: 0, supplier: "Ad-Ops" },
   ],
   "media-uc-27-adops-team-workload": [
     { id: "dc-media-adops-team-1", title: "Reallocate 2 ad-ops FTEs to pacing-risk campaigns", reasoning: "3 campaigns are at 62% delivered with 25% flight remaining; pacing analysis shows manual intervention recovers 90%+ vs 65% end-of-flight.", action: "Reassign 2 ad-ops FTEs from house-sold housekeeping to pacing-risk queue this week.", value: 38000, supplier: "Ad-Ops" },

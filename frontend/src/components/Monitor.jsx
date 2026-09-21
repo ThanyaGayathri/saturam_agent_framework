@@ -374,7 +374,7 @@ export default function Monitor() {
  <td className="px-3 py-2"><p className="font-semibold text-text-primary">{u.title}</p><p className="text-[11px] text-text-muted">v{u.version} · {u.status}</p></td>
  <td className="px-3 py-2 text-xs text-text-secondary">{u.schedule ? cadenceLabel(u.schedule) : "on demand"}{u.schedule && <p className="text-[11px] text-text-muted">{u.trigger === "poller" ? "fired by the local poller" : u.trigger === "orchestrator" ? "fired by the orchestrator" : "nothing fires it here; Run now only"}</p>}</td>
  <td className="px-3 py-2 text-xs text-text-secondary">{u.last_run_at ? <><span className={u.last_run_status === "succeeded" ? "text-status-success" : u.last_run_status === "failed" ? "text-status-critical" : ""}>{u.last_run_status}</span> · {relativeTimeFromNow(new Date(u.last_run_at).getTime())}<p className="text-[11px] text-text-muted">{u.last_run_summary}</p></> : "never"}</td>
- <td className="px-3 py-2 text-xs text-text-secondary">{next ? <span className={due ? "text-status-critical" : ""}>{due ? "overdue since " : ""}{next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : "—"}</td>
+ <td className="px-3 py-2 text-xs text-text-secondary">{next ? <span className={due ? "text-status-critical" : ""}>{due ? "overdue since " : ""}{next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : "-"}</td>
  <td className="px-3 py-2 text-right tabular-nums text-text-primary">{u.runs_7d}{u.failures_7d ? <span className="ml-1 text-[11px] text-status-critical">({u.failures_7d} failed)</span> : null}</td>
  <td className="px-3 py-2 text-right tabular-nums text-status-success">{u.created_7d}</td>
  <td className="px-3 py-2 text-right tabular-nums text-status-critical">{u.exceptions_7d}</td>

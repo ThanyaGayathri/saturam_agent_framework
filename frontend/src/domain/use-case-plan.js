@@ -180,7 +180,7 @@ export function datasetsForSpec(spec) {
 }
 
 const scheduleLabel = (v) => SCHEDULES.find((s) => s.value === v)?.label || "Every morning";
-const comparisonLabel = (v) => (v ? COMPARISONS.find((c) => c.value === v)?.label?.toLowerCase() || "the period before" : "nothing — the numbers as they are");
+const comparisonLabel = (v) => (v ? COMPARISONS.find((c) => c.value === v)?.label?.toLowerCase() || "the period before" : "nothing: the numbers as they are");
 const opLabel = (op) => OPERATORS.find((o) => o.value === op)?.label || "goes above";
 const limitLabel = (op) => LIMIT_OPERATORS.find((o) => o.value === op)?.label || op;
 const timeoutLabel = (v) => TIMEOUT_BEHAVIOURS.find((t) => t.value === v)?.label?.toLowerCase() || "do nothing";
@@ -269,7 +269,7 @@ function describe(st, spec, reads) {
   case "read_gold":
    return {
     title: `Reads ${n} KPI${n === 1 ? "" : "s"}`,
-    detail: `${metrics.join(", ") || "The KPIs"} — each by its registry definition, already computed${sources.length ? ` from ${sources.join(" and ")}` : ""}. Read-only.`,
+    detail: `${metrics.join(", ") || "The KPIs"}, each by its registry definition, already computed${sources.length ? ` from ${sources.join(" and ")}` : ""}. Read-only.`,
     chips: metrics, reads,
    };
   case "compute_metrics":
@@ -288,7 +288,7 @@ function describe(st, spec, reads) {
   case "proposal":
    return {
     title: "Recommends",
-    detail: `One recommendation per record in scope, with the reasoning and the numbers behind it${spec.objective?.metric ? ` — each chosen to move ${spec.objective.metric} ${spec.objective.direction} ${spec.objective.target}${spec.objective.unit || ""}` : ""}. It recommends; it cannot write. What it may recommend is bounded by the next step. Runs on the ${TIER_FOR_ROLE.proposal} tier.`,
+    detail: `One recommendation per record in scope, with the reasoning and the numbers behind it${spec.objective?.metric ? `, each chosen to move ${spec.objective.metric} ${spec.objective.direction} ${spec.objective.target}${spec.objective.unit || ""}` : ""}. It recommends; it cannot write. What it may recommend is bounded by the next step. Runs on the ${TIER_FOR_ROLE.proposal} tier.`,
     chips: [...(spec.objective?.metric ? [`objective: ${spec.objective.metric} ${spec.objective.direction} ${spec.objective.target}${spec.objective.unit || ""}`] : []), ...ROLE_TOOLS.proposal.map((t) => `may call ${t}`)],
    };
   case "evaluate_alert_condition":
@@ -300,7 +300,7 @@ function describe(st, spec, reads) {
   case "write_alert":
    return {
     title: "Writes the alert",
-    detail: `An alert record at severity ${spec.severity || "warning"}: what breached, where, by how much. Drawn from the computed numbers — no model in the Alert shape.`,
+    detail: `An alert record at severity ${spec.severity || "warning"}: what breached, where, by how much. Drawn from the computed numbers, no model in the Alert shape.`,
     conditional: "only when it fires",
    };
   case "select_candidates":
@@ -328,34 +328,34 @@ function describe(st, spec, reads) {
     branch: { yes: "approved", no: "rejected or no answer", outcome: "Dropped, logged with who and why" },
    };
   case "apply_per_run_cap":
-   if (spec.template === "document_to_record") return { title: `Applies the change limit: ${spec.blastRadius || "not set"} per run`, detail: "Counted across every document in the poll. Beyond the limit, the message is held — unlabelled — and picked up on the next poll, never dropped.", branch: { yes: "within limit", no: "beyond limit", outcome: "Held for the next poll" } };
+   if (spec.template === "document_to_record") return { title: `Applies the change limit: ${spec.blastRadius || "not set"} per run`, detail: "Counted across every document in the poll. Beyond the limit, the message is held, unlabelled, and picked up on the next poll, never dropped.", branch: { yes: "within limit", no: "beyond limit", outcome: "Held for the next poll" } };
    return {
     title: `Applies the change limit: ${spec.blastRadius || "not set"} per run`,
     detail: "Changes beyond the limit are held for the next run, never dropped silently. The limit stands where the approver would: the most it can get wrong in one go.",
     branch: { yes: "within limit", no: "beyond limit", outcome: "Held for the next run" },
    };
   case "write_to_target":
-   if (spec.template === "document_to_record") return { title: `Creates it in ${spec.writeback || "the target system"}`, detail: `One call sequence per document — the parent record, then its lines — recorded as a unit with the request payload and the returned ids. A target error is an exception; nothing partial is left behind.` };
+   if (spec.template === "document_to_record") return { title: `Creates it in ${spec.writeback || "the target system"}`, detail: `One call sequence per document, the parent record, then its lines, recorded as a unit with the request payload and the returned ids. A target error is an exception; nothing partial is left behind.` };
    return {
     title: `Updates ${spec.writeback || "the target system"}`,
-    detail: `Through the ${spec.writeback || "target"} connector — a connected system with write permission. Each change is stamped with the run, the recommendation and ${spec.shape === "recommend" ? "who approved it" : "the change limit that admitted it"}.`,
+    detail: `Through the ${spec.writeback || "target"} connector: a connected system with write permission. Each change is stamped with the run, the recommendation and ${spec.shape === "recommend" ? "who approved it" : "the change limit that admitted it"}.`,
    };
   case "record_rollback_point":
-   if (spec.template === "document_to_record") return { title: "Records the rollback point", detail: `${spec.rollback || "The rollback plan"} — the payload and the created ids are kept per document, so a run can be reversed as a unit. The owner and any admin hold the kill switch.` };
+   if (spec.template === "document_to_record") return { title: "Records the rollback point", detail: `${spec.rollback || "The rollback plan"}, the payload and the created ids are kept per document, so a run can be reversed as a unit. The owner and any admin hold the kill switch.` };
    return {
     title: "Records the rollback point",
-    detail: `${spec.rollback || "The rollback"} — the prior value is kept per write, so any run can be reversed as a unit. The owner and any admin hold the kill switch.`,
+    detail: `${spec.rollback || "The rollback"}, the prior value is kept per write, so any run can be reversed as a unit. The owner and any admin hold the kill switch.`,
    };
   case "receive_messages":
    return { title: `Receives from ${spec.mailbox || "the mailbox"}`, detail: `${slotValue(spec, "message filter")}. Each message is processed once; the message id is the provenance key.` };
   case "screen_documents":
    return { title: "Screens the message", detail: `Exactly one ${DOCUMENT_TYPES.find((d) => d.value === spec.documentType)?.label.toLowerCase() || "document"}, from a known sender, under the size limit. Anything else is an exception before a model runs.`, branch: { yes: "one document", no: "fails", outcome: "Exception: NO_DOCUMENT · MULTIPLE · UNKNOWN_SENDER" } };
   case "extraction":
-   return { title: `Extracts the ${findTemplate(spec)?.label.toLowerCase() || "document"}`, detail: `Fills the template's schema — ${findTemplate(spec)?.header.length || 0} header fields, ${findTemplate(spec)?.lines.length || 0} per line — with a confidence and a page region per field. OCR when there is no text layer. Output validated against the schema; a field not on the document is null. Runs on the ${TIER_FOR_ROLE.extraction} tier.`, chips: [...(spec.exampleDocument ? [`example: ${spec.exampleDocument.name}`] : []), ...ROLE_TOOLS.extraction.map((t) => `may call ${t}`)] };
+   return { title: `Extracts the ${findTemplate(spec)?.label.toLowerCase() || "document"}`, detail: `Fills the template's schema: ${findTemplate(spec)?.header.length || 0} header fields, ${findTemplate(spec)?.lines.length || 0} per line: with a confidence and a page region per field. OCR when there is no text layer. Output validated against the schema; a field not on the document is null. Runs on the ${TIER_FOR_ROLE.extraction} tier.`, chips: [...(spec.exampleDocument ? [`example: ${spec.exampleDocument.name}`] : []), ...ROLE_TOOLS.extraction.map((t) => `may call ${t}`)] };
   case "resolve_entities":
   {
    const plan = resolutionPlan(spec);
-   const reads = plan.length ? plan.map((r) => `${r.label.toLowerCase()} from ${r.reads.replace(/`/g, "")}`).join("; ") : "nothing — the mapping reads no master-data role and no guardrail needs one";
+   const reads = plan.length ? plan.map((r) => `${r.label.toLowerCase()} from ${r.reads.replace(/`/g, "")}`).join("; ") : "nothing: the mapping reads no master-data role and no guardrail needs one";
    return { title: "Resolves against master data", detail: `Only the roles this use case reads: ${reads}. A fixed order of attempts, scored; thresholds ${slotValue(spec, "match thresholds")}. Every resolution records its candidates and scores.`, branch: { yes: "all resolved", no: "not found / ambiguous", outcome: "Exception with the closest match and its score" } };
   }
   case "build_record":
@@ -393,7 +393,7 @@ function describe(st, spec, reads) {
   case "decompose_change":
    return {
     title: `Finds where the change in ${spec.metricIds[0] || "the KPI"} sits`,
-    detail: `Searches ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}: each slice's contribution to the change (its own rate, or its share of the mix), how unusual it is against its own recent history -- ${slotValue(spec, "sensitivity")} -- and whether it has enough rows to be named. The winning slice is searched one level down and the rows behind it are fetched, with any reason column tallied. All arithmetic — nothing here is judged.`,
+    detail: `Searches ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}: each slice's contribution to the change (its own rate, or its share of the mix), how unusual it is against its own recent history -- ${slotValue(spec, "sensitivity")} -- and whether it has enough rows to be named. The winning slice is searched one level down and the rows behind it are fetched, with any reason column tallied. All arithmetic: nothing here is judged.`,
    };
   case "check_report_grounding":
    return {

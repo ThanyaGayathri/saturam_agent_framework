@@ -161,7 +161,7 @@ export const MEDIA_USE_CASE_CATALOG_SEED = [
     tags: ["Media", "OTT", "Personalisation", "Discovery"],
     businessArea: "OTT Platform",
     problemSignal:
-      "Recommendation rows dominate homepage real estate but their incremental lift is estimated, not measured — hard to defend against editorial curation.",
+      "Recommendation rows dominate homepage real estate but their incremental lift is estimated, not measured, hard to defend against editorial curation.",
     actionType: "Analyze",
     process: "media-eng-1, media-eng-2",
     galleryOrder: 9,

@@ -28,7 +28,7 @@ export const KPI_REGISTRY_TOUR = {
       route: "/kpis/registry",
       anchor: "[data-tour-kpi='actions']",
       lines: [
-        { text: "The Registry is read-only — a browse view of what already exists. To edit or delete a KPI, use Manage in Configure on the top right. That opens the KPIs tab in Configure, which is the primary edit surface.", rate: 0.97 },
+        { text: "The Registry is read-only, a browse view of what already exists. To edit or delete a KPI, use Manage in Configure on the top right. That opens the KPIs tab in Configure, which is the primary edit surface.", rate: 0.97 },
         { text: "Add New KPI on the far right is a shortcut to create a single metric without leaving this page, and Import CSV brings in a batch at once when you're migrating a spreadsheet.", rate: 0.98, pauseAfter: 400 },
       ],
     },
@@ -67,7 +67,7 @@ export const KPI_REGISTRY_TOUR = {
         { text: "KPI name is the canonical name used everywhere else in the product. Description explains what the metric actually measures.", rate: 0.97 },
         { text: "Maps to lists the business processes this KPI feeds into. Powered by lists every use case in the library that moves this KPI, so you can jump straight to a workflow from here.", rate: 0.98 },
         { text: "Status is the active toggle. Active KPIs feed the Dashboard tiles and the anomaly engine. Inactive KPIs stay defined but do not appear on live surfaces.", rate: 0.98 },
-        { text: "Actions on the far right are the pencil and trash icons, for editing or removing the KPI — though the primary edit surface is Configure, KPIs.", rate: 0.98, pauseAfter: 400 },
+        { text: "Actions on the far right are the pencil and trash icons, for editing or removing the KPI, though the primary edit surface is Configure, KPIs.", rate: 0.98, pauseAfter: 400 },
       ],
     },
     {

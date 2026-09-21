@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Blocks, Clock, FileText, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, Blocks, Clock, FileText, Plus, RefreshCw } from "lucide-react";
 import { clearSpecDraft, loadSpecDraft } from "../domain/use-case-draft-spec";
 import { cadenceLabel } from "../domain/use-case-platform";
 import { relativeTimeFromNow as _rel } from "../domain/alerts-view";
@@ -10,6 +10,18 @@ import { listUseCases } from "../services/use-cases-api";
 import {
   catalogPageShell, catalogPageInner, catalogHeaderRow, catalogHeaderText, catalogH1, catalogSubtitle, catalogPrimaryAction, catalogSectionBelowNav,
 } from "./shared/useCaseCatalogPageStyles";
+import {
+  useCaseCardSurface,
+  useCaseCardBody,
+  useCaseCardBadgeRow,
+  useCaseCardBadge,
+  useCaseCardTitle,
+  useCaseCardDescription,
+  useCaseCardChipRow,
+  useCaseCardTag,
+  useCaseCardFooter,
+  useCaseCardArrow,
+} from "./shared/useCaseCardStyles";
 import { UseCasePageNav } from "./shared/UseCasePageNav";
 import { CatalogSearchToolbar } from "./shared/CatalogSearchToolbar";
 import TourLaunchButton from "../tours/TourLaunchButton";
@@ -60,18 +72,18 @@ export default function UseCaseGallery() {
         <div className={catalogHeaderRow}>
           <div className={catalogHeaderText}>
             <div className="flex items-center gap-3">
-              <h1 className={catalogH1}>User built use cases</h1>
-              <TourLaunchButton tourId="use-case-gallery" label="Take a quick User built use cases tour" />
+              <h1 className={catalogH1}>User-built use cases</h1>
+              <TourLaunchButton tourId="use-case-gallery" label="Take a quick tour" />
             </div>
             <p className={catalogSubtitle}>Use cases you built on the platform, with their status, schedule and last run. Open a card to see its runs, run it now, or pause it.</p>
           </div>
-          <Button size="lg" onClick={openBuilder} className={`${catalogPrimaryAction} gap-1.5`} data-tour-uc="create"><Plus size={18} strokeWidth={2.5} /> Create Use Case</Button>
+          <Button size="lg" onClick={openBuilder} className={`${catalogPrimaryAction} gap-1.5`} data-tour-uc="create"><Plus size={18} strokeWidth={2.5} /> Create use case</Button>
         </div>
         <div data-tour-uc="tabs"><UseCasePageNav current="gallery" /></div>
 
         <div className={`${catalogSectionBelowNav} space-y-6`}>
           {draftInProgress && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-light/40 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-gradient-to-br from-surface to-primary-light px-4 py-3 shadow-sm dark:border-primary/40 dark:from-surface-secondary dark:to-primary/20">
               <div className="min-w-0 text-sm"><p className="font-semibold text-text-primary">Draft in progress: {draft.title || draft.goal}</p><p className="text-text-secondary">Not on the platform yet. Continue in the builder to rehearse and activate it.</p></div>
               <Button onClick={() => navigate("/use-cases/builder/compose")}>Continue</Button>
             </div>
@@ -89,32 +101,36 @@ export default function UseCaseGallery() {
               <Blocks size={28} className="mx-auto text-text-muted" />
               <p className="mt-2 text-sm font-semibold text-text-primary">{search ? "No use case matches your search." : "No use cases built yet."}</p>
               <p className="mt-1 text-sm text-text-secondary">{search ? "Clear the search to see them all." : "Build one from a description, rehearse it, and activate it; it appears here with its runs."}</p>
-              {!search && <Button className="mt-4" onClick={openBuilder}>Create Use Case</Button>}
+              {!search && <Button className="mt-4" onClick={openBuilder}>Create use case</Button>}
             </div>
           )}
 
           {visible.length > 0 && (
             <section aria-label="Your use cases">
-              <div className="mb-3 flex items-center gap-2"><h2 className="text-base font-bold text-text-primary">Your use cases</h2><span className="rounded-full bg-surface-secondary px-2 py-0.5 text-xs font-semibold text-text-secondary">{visible.length}</span></div>
+              <div className="mb-3 flex items-center gap-2"><h2 className="text-xl font-bold text-text-primary">Your active use cases</h2><span className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-sm font-semibold text-text-primary">{visible.length}</span></div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {visible.map((u) => {
                   const pill = STATUS_PILL[u.status] || STATUS_PILL.draft;
                   const last = u.last_run;
                   return (
-                    <button key={u.id} type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(u.id)}`)} className="group flex flex-col rounded-2xl border border-border bg-surface p-4 text-left shadow-sm transition hover:border-primary/50 hover:shadow-md">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-sm font-bold text-text-primary">{u.title}</h3>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pill.cls}`}>{pill.label}</span>
-                      </div>
-                      <p className="mt-1 line-clamp-3 text-sm text-text-secondary">{u.description}</p>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">{u.business_area}</span>
-                        {(u.tags || []).filter((t) => t !== "process_automation").map((t) => <span key={t} className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">{t.replace(/_/g, " ")}</span>)}
-                        <span className="rounded-md bg-surface-secondary px-2 py-0.5 text-text-secondary">v{u.version}</span>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between border-t border-border-light pt-2.5 text-xs">
-                        <span className="inline-flex items-center gap-1 text-text-muted"><Clock size={12} /> {last ? <><span className={RUN_PILL[last.status] || ""}>{last.status}</span> · {relativeTimeFromNow(last.started_at)}</> : "no run yet"}</span>
-                        <span className="text-primary opacity-0 transition group-hover:opacity-100">Open →</span>
+                    <button key={u.id} type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(u.id)}`)} className={useCaseCardSurface}>
+                      <div className={useCaseCardBody}>
+                        <div className="min-h-0 flex-1">
+                          <div className={useCaseCardBadgeRow}>
+                            <span className={`${useCaseCardBadge} ${pill.cls}`}>{pill.label}</span>
+                          </div>
+                          <h3 className={useCaseCardTitle}>{u.title}</h3>
+                          <p className={useCaseCardDescription}>{u.description}</p>
+                          <div className={useCaseCardChipRow}>
+                            <span className={useCaseCardTag}>{u.business_area}</span>
+                            {(u.tags || []).filter((t) => t !== "process_automation").map((t) => <span key={t} className={useCaseCardTag}>{t.replace(/_/g, " ")}</span>)}
+                            <span className={useCaseCardTag}>v{u.version}</span>
+                          </div>
+                        </div>
+                        <div className={useCaseCardFooter}>
+                          <span className="inline-flex min-w-0 items-center gap-1 text-xs text-text-muted"><Clock size={12} /> {last ? <><span className={RUN_PILL[last.status] || ""}>{last.status}</span> · {relativeTimeFromNow(last.started_at)}</> : "no run yet"}</span>
+                          <ArrowRight className={useCaseCardArrow} strokeWidth={2.5} aria-hidden />
+                        </div>
                       </div>
                     </button>
                   );

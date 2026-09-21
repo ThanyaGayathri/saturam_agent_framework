@@ -351,7 +351,7 @@ async function buildRfqFunnel(_drill, period = { label: "this week", priorLabel:
             confidence: "low",
             evidence: [
               "Trade show traffic peaks in adjacent weeks tend to depress mid-week conversions historically.",
-              "This driver is directional — the funnel numbers alone can't isolate seasonality from operational issues.",
+              "This driver is directional, the funnel numbers alone can't isolate seasonality from operational issues.",
             ],
             estimatedImpact: `~${fmtDollarsK(seasonalImpactUsd)} in pipeline over ${period.label} (best guess)`,
             suggestedFix: "Watch for a natural rebound after the next trade-show cycle; hold off on structural changes attributed to this driver.",
@@ -619,7 +619,7 @@ async function buildExecutiveBrief(_drill, period = { label: "this week", priorL
         headline: `Add to Quote errors are the top drag on quote conversion for ${period.label}; Globe and Star show the widest browse-to-quote gap`,
         bullets: [
           `The unresponsive Add to Quote button on iOS Safari hit ${fmtN(uxAffectedSessions)} sessions across ${period.label}, right at the biggest funnel drop.`,
-          "Globe and Star show the same high-traffic, low-quote pattern in the brand-gap view — worth a dealer nudge before merchandising spend increases.",
+          "Globe and Star show the same high-traffic, low-quote pattern in the brand-gap view, worth a dealer nudge before merchandising spend increases.",
           `Fixing the top two UX issues could recover an estimated ${fmtDollarsK(uxRecoverableUsd)} of at-risk pipeline over ${period.label}.`,
         ],
       }),
