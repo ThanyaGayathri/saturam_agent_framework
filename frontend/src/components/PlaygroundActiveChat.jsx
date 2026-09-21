@@ -742,28 +742,28 @@ export default function PlaygroundActiveChat() {
                             try { window.open(item.payload.href, "_blank", "noreferrer"); } catch { /* ignore */ }
                           }
                         }}
-                        onSaveMessage={isMiddleby ? () => {
+                        onSaveMessage={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const text = prevUser?.text?.trim();
                           if (!text) return;
                           savedPrompts.savePrompt({ text });
                           setSavedOpen(true);
-                        } : undefined}
-                        onScheduleMessage={isMiddleby ? () => {
+                        }}
+                        onScheduleMessage={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const text = prevUser?.text?.trim();
                           if (!text) return;
                           setScheduleTarget(text);
-                        } : undefined}
+                        }}
                         activeReportTitle={report.activeReport?.title}
-                        isMessagePinned={isMiddleby && report.activeItems.some((it) => (msg.meta?.blocks || []).some((b) => b.id === it.block.id))}
-                        onAddMessageToReport={isMiddleby ? () => {
+                        isMessagePinned={report.activeItems.some((it) => (msg.meta?.blocks || []).some((b) => b.id === it.block.id))}
+                        onAddMessageToReport={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const sourceQuestion = prevUser?.text?.trim() || msg.meta?.intro || "";
                           for (const block of msg.meta?.blocks || []) {
                             report.pin({ block, sourceQuestion, catalogId: msg.meta?.catalogId });
                           }
-                        } : undefined}
+                        }}
                       />
                     )}
                   </div>
@@ -835,7 +835,8 @@ export default function PlaygroundActiveChat() {
             {announcement}
           </p>
           <div className="mx-auto max-w-[768px]">
-            {isMiddleby ? (
+            {/* Period, quick summary, saved, scheduled and report are the same chat tools for
+                every customer profile; the state behind each is already profile-scoped. */}
               <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-1 px-1">
                 <PeriodFilterChip chatFilters={chatFilters} />
                 <button
@@ -898,7 +899,6 @@ export default function PlaygroundActiveChat() {
                   ) : null}
                 </button>
               </div>
-            ) : null}
             <div
               ref={inputBoxRef}
               className={`w-full shadow-[0px_9px_9px_0px_rgba(0,0,0,0.01)] ${
@@ -949,8 +949,7 @@ export default function PlaygroundActiveChat() {
         </div>
       </div>
 
-      {isMiddleby ? (
-        <>
+      {/* The drawers those toolbar buttons open, likewise for every profile. */}
           <SavedPromptsDrawer
             open={savedOpen}
             onClose={() => setSavedOpen(false)}
@@ -993,8 +992,6 @@ export default function PlaygroundActiveChat() {
             onUnpin={report.unpin}
             onClear={report.clear}
           />
-        </>
-      ) : null}
         </div>
       </div>
     </div>
