@@ -9,7 +9,7 @@
 // Renders nothing if the message is not an answer-block message  -  safe to
 // mount alongside legacy rendering.
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useTypewriter } from "../../../hooks/useTypewriter";
 import { getBlockComponent } from "../../../domain/answer-blocks/registry";
 import { isAnswerBlockMeta, BLOCK_TYPES } from "../../../domain/answer-blocks/schema";
@@ -47,7 +47,7 @@ function makeAutoCitation(lineage) {
   };
 }
 
-export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = false, onFollowUpSelect, onAction, onPinToggle, animate = false, onRevealTick }) {
+export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = false, onFollowUpSelect, onAction, onPinToggle, animate = false, onRevealTick, onRevealComplete }) {
   const blocksToRender = useMemo(() => {
     if (!isAnswerBlockMeta(meta)) return [];
     let list = meta.blocks || [];
@@ -63,7 +63,13 @@ export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = fa
   }, [meta, chatMode]);
 
   // The sentence that introduces the answer types out; the blocks wait for it to finish.
-  const { shown: introText, done: introDone } = useTypewriter(meta?.intro || "", { enabled: animate });
+  const reportDone = useCallback(() => {
+    if (animate) onRevealComplete?.();
+  }, [animate, onRevealComplete]);
+  const { shown: introText, done: introDone } = useTypewriter(meta?.intro || "", {
+    enabled: animate,
+    onDone: reportDone,
+  });
   const showBlocks = !animate || introDone;
   useEffect(() => {
     if (animate) onRevealTick?.();

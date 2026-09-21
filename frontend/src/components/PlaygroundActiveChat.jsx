@@ -515,6 +515,20 @@ export default function PlaygroundActiveChat() {
     }
   };
 
+  /** The reveal finished on its own: drop the animating state so send returns. */
+  const handleRevealComplete = useCallback((id) => {
+    setAnimatingMessageId((current) => (!id || current === id ? null : current));
+  }, []);
+
+  // A safety net, not the mechanism: if a reveal never reports finishing - an unmount
+  // mid-animation, a message shape nobody anticipated - the composer must not be left
+  // showing "stop" with no way back to sending.
+  useEffect(() => {
+    if (!animatingMessageId) return undefined;
+    const timer = setTimeout(() => setAnimatingMessageId(null), 15000);
+    return () => clearTimeout(timer);
+  }, [animatingMessageId]);
+
   /** Stop: discard a reply still being fetched, or finish revealing one already on screen. */
   const handleStop = () => {
     generationRef.current += 1;
@@ -714,6 +728,7 @@ export default function PlaygroundActiveChat() {
                         msg={msg}
                         animate={msg.id === animatingMessageId}
                         onRevealTick={pinchScrollToBottom}
+                        onRevealComplete={handleRevealComplete}
                         chatMode={msg.meta?.chatModeAtWrite ?? chatMode}
                         isLatestAssistant={msgIdx === arr.length - 1 || arr.slice(msgIdx + 1).every((m) => m.role !== "assistant")}
                         onRetry={async () => {

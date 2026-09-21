@@ -1,5 +1,5 @@
 // Assistant bubble layout shared by Playground active chat and Use Case builder chat.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Copy, Check, RotateCcw, ThumbsUp, ThumbsDown, Bookmark, Calendar, Pin } from "lucide-react";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import PlaygroundRichReplyBody from "./PlaygroundRichReplyBody";
@@ -7,16 +7,27 @@ import { EnterpriseProductMark } from "./EnterpriseProductMark";
 import { AnswerBlockRenderer } from "./answer-blocks";
 import { isAnswerBlockMeta } from "../../domain/answer-blocks/schema";
 
-export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetry, onFollowUpSelect, onBlockAction, onPinToggle, onSaveMessage, onScheduleMessage, onAddMessageToReport, isMessagePinned = false, activeReportTitle, chatMode, isLatestAssistant = true, animate = false, onRevealTick, children }) {
+export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetry, onFollowUpSelect, onBlockAction, onPinToggle, onSaveMessage, onScheduleMessage, onAddMessageToReport, isMessagePinned = false, activeReportTitle, chatMode, isLatestAssistant = true, animate = false, onRevealTick, onRevealComplete, children }) {
   const isAnswerBlock = isAnswerBlockMeta(msg.meta);
   const [pinFlash, setPinFlash] = useState(false);
 
   // Only a reply that arrived while you were watching is revealed; history renders whole, the
   // way it does in any chat app. Answer blocks are not typed out - their charts and tables
   // would reflow on every frame - so they fade in once the text has finished.
+  // `entered` survives the page clearing `animate`, which happens the instant the reveal
+  // reports finishing - the same instant the body first renders. Without it the panels
+  // appeared correctly but with no entrance, because the class was gone by then.
+  const [entered, setEntered] = useState(false);
+  const reportDone = useCallback(() => {
+    if (!animate) return;
+    setEntered(true);
+    onRevealComplete?.(msg.id);
+  }, [animate, onRevealComplete, msg.id]);
   const { shown: revealedText, done: revealDone } = useTypewriter(msg.text, {
     enabled: animate && !isAnswerBlock,
+    onDone: isAnswerBlock ? undefined : reportDone,
   });
+  const bodyEntrance = entered || animate ? "animate-[chat-rise_260ms_ease-out]" : undefined;
   const bodyText = animate && !isAnswerBlock ? revealedText : msg.text;
 
   useEffect(() => {
@@ -60,18 +71,23 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
           </p>
         ) : null}
 
-        {msg.meta?.variant === "playground-rich" ? (
-          <PlaygroundRichReplyBody
-            topic={msg.meta?.topic}
-            panel={msg.meta?.panel}
-            onBuildUseCase={onBuildUseCase}
-            text={msg.text ?? ""}
-            onRetry={onRetry}
-          />
+        {/* The findings and recommendations wait for the sentence above them to finish, then
+            rise in. Same treatment as answer blocks: panels appearing beside half-written
+            text read as a page still loading rather than an answer arriving. */}
+        {msg.meta?.variant === "playground-rich" && (!animate || revealDone) ? (
+          <div className={bodyEntrance}>
+            <PlaygroundRichReplyBody
+              topic={msg.meta?.topic}
+              panel={msg.meta?.panel}
+              onBuildUseCase={onBuildUseCase}
+              text={msg.text ?? ""}
+              onRetry={onRetry}
+            />
+          </div>
         ) : null}
 
         {isAnswerBlock ? (
-          <div className={animate ? "animate-[chat-rise_260ms_ease-out]" : undefined}>
+          <div className={bodyEntrance}>
           <AnswerBlockRenderer
             meta={msg.meta}
             chatMode={chatMode}
@@ -81,6 +97,7 @@ export default function PlaygroundAssistantMessage({ msg, onBuildUseCase, onRetr
             onPinToggle={onPinToggle}
             animate={animate}
             onRevealTick={onRevealTick}
+            onRevealComplete={reportDone}
           />
           </div>
         ) : null}
