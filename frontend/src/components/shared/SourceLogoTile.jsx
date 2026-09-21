@@ -47,7 +47,7 @@ export function SourceLogoTile({ sourceType, name = "", src = null }) {
   const logo = src || SOURCE_ICON[sourceType];
   const brand = BRAND_COLOR[sourceType];
   return (
-    <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-default">
+    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-default">
       {logo ? (
         <img src={logo} alt="" className="h-5 w-5 object-contain" />
       ) : (

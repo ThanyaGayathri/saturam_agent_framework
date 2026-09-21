@@ -592,17 +592,17 @@ export default function PlaygroundActiveChat() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {showSeedBuilderCta ? (
-          <div className="shrink-0 border-b border-border bg-primary-light dark:border-primary/25 dark:bg-gradient-to-r dark:from-surface-secondary dark:via-surface-tertiary/80 dark:to-surface-secondary">
-            <div className="mx-auto w-full max-w-[1145px] px-4 py-4 sm:px-8">
-              <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 lg:gap-8">
-                <p className="min-w-0 flex-1 text-sm leading-relaxed text-text-primary">
+          <div className="shrink-0 border-b border-border/60 bg-primary-light/30 backdrop-blur-sm dark:border-primary/20 dark:bg-primary/[0.06]">
+            <div className="mx-auto w-full max-w-[1145px] px-4 py-2 sm:px-8">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-secondary">
                   Chat helps you explore and sharpen the idea. When you are ready to productionize it, continue in
                   the Use Case Builder. We prefill from this catalog template and your latest question.
                 </p>
                 <button
                   type="button"
                   onClick={handleContinueToBuilder}
-                  className="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
+                  className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
                 >
                   Continue in Use Case Builder
                 </button>
