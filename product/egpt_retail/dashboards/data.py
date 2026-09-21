@@ -192,7 +192,10 @@ def _breakdown_row(row: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _tile_data(
-    tile: Tile, result: Optional[Dict[str, Any]], missing_reason: str
+    tile: Tile,
+    result: Optional[Dict[str, Any]],
+    missing_reason: str,
+    unit: str = "",
 ) -> TileData:
     if result is None:
         return _empty_tile_data(tile, _status_for_missing(missing_reason))
@@ -246,7 +249,7 @@ def _tile_data(
         kpi_identifier=tile.kpi_identifier,
         status=KpiHealthStatus.fresh,
         value=value,
-        unit="",
+        unit=unit,
         delta=delta,
         series=series,
         rows=table_rows,
@@ -355,6 +358,30 @@ def query_tile_data(tile: Tile, record: Optional[QueryResultRecord]) -> TileData
 # --- the read ------------------------------------------------------------------------------
 
 
+def _units_for(identifiers: Sequence[str]) -> Dict[str, str]:
+    """``identifier -> unit`` from the KPI registry; empty when nothing is registered or
+    the control plane does not answer (the tiles then show bare numbers, as before)."""
+    if not identifiers:
+        return {}
+    try:
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.app.settings import RetailSettings
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        connection = pooled_control_plane_connection(RetailSettings())
+        try:
+            store = KpiRegistryStore(connection)
+            return {
+                i: str(getattr(d, "unit", "") or "")
+                for i in identifiers
+                if (d := store.get(i)) is not None
+            }
+        finally:
+            connection.close()
+    except Exception:  # the registry is context, never the tile's blocker
+        return {}
+
+
 async def read_dashboard_data(
     dashboard: Dashboard,
     *,
@@ -392,6 +419,10 @@ async def read_dashboard_data(
             for entry in content.get("missing", [])
         }
 
+    # The unit each KPI declares in the registry, so a tile can say $9.67M or 18.5%
+    # rather than a bare number. Read once per dashboard; a registry that does not
+    # answer leaves the units blank, never the tiles.
+    units = _units_for(sorted({cast(str, t.kpi_identifier) for t in kpi_tiles}))
     cached = query_results or {}
     tiles = [
         (
@@ -401,6 +432,7 @@ async def read_dashboard_data(
                 tile,
                 values.get(cast(str, tile.kpi_identifier)),
                 missing_reasons.get(cast(str, tile.kpi_identifier), ""),
+                units.get(cast(str, tile.kpi_identifier), ""),
             )
         )
         for tile in dashboard.tiles

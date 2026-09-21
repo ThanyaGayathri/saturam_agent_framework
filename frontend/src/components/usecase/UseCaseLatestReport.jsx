@@ -86,12 +86,29 @@ function ReportDrawer({ report, runHref }) {
   return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = previous; };
  }, [open]);
  if (!report?.html) return null;
+ const [printing, setPrinting] = useState(false);
+ // Print-to-PDF without a popup: the report in a hidden frame on this page, the
+ // browser's print dialog opened on that frame ("Save as PDF" is its destination).
+ // A popup would be blocked, and window.open with noopener returns null by spec.
  const download = () => {
-  const w = window.open("", "_blank", "noopener,width=900,height=1000");
-  if (!w) return;
-  w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${(report.title || "Report").replace(/</g, "&lt;")}</title><style>@page{margin:14mm} body{margin:0}</style></head><body>${report.html}<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script></body></html>`);
-  w.document.close();
+  if (printing) return;
+  setPrinting(true);
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  frame.onload = () => {
+   const w = frame.contentWindow;
+   if (!w) { frame.remove(); setPrinting(false); return; }
+   setTimeout(() => {
+    try { w.focus(); w.print(); } finally {
+     // print() returns once the dialog closes (it is modal); the frame can go then.
+     setPrinting(false);
+     setTimeout(() => frame.remove(), 1000);
+    }
+   }, 200);
+  };
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>${(report.title || "Report").replace(/</g, "&lt;")}</title><style>@page{size:A4;margin:14mm} body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${report.html}</body></html>`;
+  document.body.appendChild(frame);
  };
  return (
   <>
@@ -106,7 +123,7 @@ function ReportDrawer({ report, runHref }) {
         <p className="truncate text-sm font-semibold text-text-primary">{report.title}</p>
        </div>
        <div className="flex shrink-0 items-center gap-2">
-        <button type="button" onClick={download} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"><Download size={12} /> Download as PDF</button>
+        <button type="button" onClick={download} disabled={printing} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"><Download size={12} /> {printing ? "Preparing…" : "Download as PDF"}</button>
         {runHref && <a href={runHref} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary">Open the run <ExternalLink size={11} /></a>}
         <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-md border border-border px-2 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><X size={12} /></button>
        </div>

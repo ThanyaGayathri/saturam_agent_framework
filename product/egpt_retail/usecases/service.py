@@ -794,6 +794,9 @@ class UseCaseService:
                         id=f"tl_{index + 1}",
                         kpi_identifier=identifier,
                         title=definition.name if definition else identifier,
+                        description=(definition.description or "")
+                        if definition
+                        else "",
                         chart=ChartKind.NUMBER,
                         position=TilePosition(
                             x=(index % 4) * 3, y=(index // 4) * 2, w=3, h=2
@@ -813,6 +816,9 @@ class UseCaseService:
                         id=f"tl_{len(number_row) + index + 1}",
                         kpi_identifier=identifier,
                         title=definition.name if definition else identifier,
+                        description=(definition.description or "")
+                        if definition
+                        else "",
                         chart=chart,
                         position=TilePosition(
                             x=(index % 2) * 6, y=y + (index // 2) * 4, w=6, h=4

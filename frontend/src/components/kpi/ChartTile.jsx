@@ -15,20 +15,49 @@ import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts"
  * when given, makes the description editable in place (click, edit, blur to save).
  */
 
+const CURRENCY_SYMBOL = { usd: "$", eur: "€", gbp: "£", inr: "₹" };
+
+/** A value in the KPI's own unit: money compact past ten thousand ($9.67M, $587K), a
+ *  rate with its sign, days as days, counts with separators. */
 function formatValue(unit, value) {
  if (value === null || value === undefined) return "—";
- const u = String(unit || "").toLowerCase();
+ const u = String(unit || "").toLowerCase().trim();
  const n = Number(value);
  if (Number.isNaN(n)) return String(value);
  if (u.includes("%") || u.includes("rate") || u.includes("percent")) {
   return `${n.toFixed(1)}%`;
  }
  if (u.includes("day")) return `${Math.round(n)} days`;
- if (u.includes("currency") || u.includes("$") || u.includes("£") || u.includes("€")) {
-  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+ const symbol = CURRENCY_SYMBOL[u] || (u.includes("currency") || u.includes("$") ? "$" : u.includes("£") ? "£" : u.includes("€") ? "€" : null);
+ if (symbol) {
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return `${symbol}${(n / 1_000_000).toFixed(2)}M`;
+  if (a >= 10_000) return `${symbol}${Math.round(n / 1000).toLocaleString()}K`;
+  return `${symbol}${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
  }
  if (Number.isInteger(n)) return n.toLocaleString();
  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/** Whether a fall in this KPI is good news. The registry carries no polarity yet, so the
+ *  name decides: stalled, churn, at-risk, lost, days to close, cycle length, cost, returns
+ *  are better lower; everything else better higher. */
+function lowerIsBetter(tile) {
+ const t = `${tile?.title || ""} ${tile?.kpi_identifier || ""}`.toLowerCase();
+ return /stall|churn|at[-_ ]risk|lost|lapse|days[-_ ]to[-_ ]close|cycle[-_ ]length|recency|cost|return|complaint|stockout|overdue|late|delay/.test(t);
+}
+
+/** The delta with its meaning: green when the move is good for this KPI, red when bad. */
+function DeltaBadge({ tile, unit, delta }) {
+ if (delta == null || Number.isNaN(Number(delta))) return null;
+ const d = Number(delta);
+ const good = lowerIsBetter(tile) ? d <= 0 : d >= 0;
+ if (d === 0) return <span className="text-xs font-semibold text-text-muted">— no change</span>;
+ return (
+  <span className={`text-xs font-semibold ${good ? "text-status-success" : "text-status-critical"}`} title={`${d > 0 ? "Up" : "Down"} since the previous business date${lowerIsBetter(tile) ? " · lower is better" : ""}`}>
+   {d > 0 ? "▲" : "▼"} {formatValue(unit, Math.abs(d))}
+  </span>
+ );
 }
 
 /** Why a tile has no value yet -- `TileData.status` names it, so the tile says so rather than
@@ -196,7 +225,7 @@ export default function ChartTile({
   <div className={`group flex flex-col gap-2.5 rounded-xl border border-border bg-surface p-4 ${className}`}>
    <div className="flex items-start justify-between gap-2">
     <div className="min-w-0">
-     <p className="truncate text-sm font-semibold text-text-primary">{tile.title || "Untitled chart"}</p>
+     <p className="line-clamp-2 text-sm font-semibold leading-snug text-text-primary" title={tile.title}>{tile.title || "Untitled chart"}</p>
      <p className="text-[11px] text-text-muted">
       {tile.chart}
       {data?.computed_at ? ` · computed ${new Date(data.computed_at).toLocaleString()}` : ""}
@@ -218,11 +247,7 @@ export default function ChartTile({
        <span className="text-2xl font-bold tracking-tight text-text-primary" style={{ fontVariantNumeric: "tabular-nums" }}>
         {formatValue(data?.unit, value)}
        </span>
-       {data?.delta != null && (
-        <span className={`text-xs font-semibold ${data.delta >= 0 ? "text-status-critical" : "text-status-success"}`}>
-         {data.delta >= 0 ? "▲" : "▼"} {formatValue(data?.unit, Math.abs(data.delta))}
-        </span>
-       )}
+       <DeltaBadge tile={tile} unit={data?.unit} delta={data?.delta} />
       </div>
      )}
 
@@ -231,11 +256,7 @@ export default function ChartTile({
        <div>
         <div className="mb-1 flex items-baseline gap-2">
          <span className="text-lg font-semibold text-text-primary" style={{ fontVariantNumeric: "tabular-nums" }}>{formatValue(data?.unit, value)}</span>
-         {data?.delta != null && (
-          <span className={`text-xs font-semibold ${data.delta >= 0 ? "text-status-critical" : "text-status-success"}`}>
-           {data.delta >= 0 ? "▲" : "▼"} {formatValue(data?.unit, Math.abs(data.delta))}
-          </span>
-         )}
+         <DeltaBadge tile={tile} unit={data?.unit} delta={data?.delta} />
         </div>
         <DemoAreaSpark data={series.map((p) => p.value)} viewHeight={34} maxHeight={90} stroke={hue} showGrid={false} showDots={false} />
        </div>
