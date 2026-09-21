@@ -1,0 +1,130 @@
+# The single-VM stack (deploy/vm/README.md). Standalone rather than an overlay of
+# ../compose.yaml: compose merges port lists across -f files rather than replacing them, and
+# this stack binds everything to the loopback so only nginx is reachable from outside.
+#
+#     docker compose -f deploy/vm/compose.vm.yaml --env-file ~/egpt/egpt.env up -d --build
+#
+# Secrets and per-deployment values come from ~/egpt/egpt.env (deploy/vm/egpt.env.example),
+# which lives outside the checkout so `git reset --hard` never touches it. The api service
+# also runs the use-case poller (EGPT_RETAIL_USE_CASE_POLLER), the way the local demo does,
+# so there is no separate `pipelines` service here.
+
+name: egpt-vm
+
+services:
+  postgres:
+    image: agnohq/pgvector:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai
+      POSTGRES_USER: ai
+      POSTGRES_PASSWORD: ai
+      PGDATA: /var/lib/postgresql
+    ports:
+      - "127.0.0.1:5532:5432"
+    volumes:
+      - egpt-pg:/var/lib/postgresql
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai -d ai"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  neo4j:
+    image: neo4j:5
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${EGPT_RETAIL_NEO4J_PASSWORD:-password}
+      NEO4J_server_memory_heap_max__size: 768m
+      NEO4J_server_memory_pagecache_size: 256m
+    ports:
+      - "127.0.0.1:7700:7474"
+      - "127.0.0.1:7701:7687"
+    volumes:
+      - egpt-neo4j:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7474 >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    image: egpt-retail:vm
+    command: ["migrate"]
+    environment:
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  warehouse-migrate:
+    image: egpt-retail:vm
+    command: ["warehouse-migrate"]
+    environment:
+      EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/egpt_warehouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: egpt-retail:vm
+    restart: unless-stopped
+    command: ["api"]
+    env_file:
+      - ${EGPT_VM_ENV_FILE:?set by deploy/vm/deploy.sh to the absolute path of egpt.env}
+    environment:
+      EGPT_RETAIL_ROLE: api
+      EGPT_RETAIL_USE_CASE_POLLER: "true"
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+      EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/egpt_warehouse
+      EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL: postgresql+psycopg://egpt_reader:egpt_reader@postgres:5432/egpt_warehouse
+      EGPT_RETAIL_NEO4J_URI: neo4j://neo4j:7687
+      EGPT_RETAIL_NEO4J_USER: neo4j
+      EGPT_RETAIL_NEO4J_PASSWORD: ${EGPT_RETAIL_NEO4J_PASSWORD:-password}
+      EGPT_RETAIL_MEMORY_BACKEND: pgvector
+      EGPT_RETAIL_KNOWLEDGE_BACKEND: pgvector
+      # The overlay is read by path (settings.retail_ontology_overlay); the checkout's copy is
+      # mounted below at the same relative path the local demo uses.
+      EGPT_RETAIL_ONTOLOGY_OVERLAY: product/egpt_retail/ontology/overlays/middleby.json
+      EGPT_AGENT_OS_HOST: 0.0.0.0
+      EGPT_AGENT_OS_PORT: "7777"
+    volumes:
+      - ../../product/egpt_retail/ontology/overlays:/app/product/egpt_retail/ontology/overlays:ro
+    ports:
+      - "127.0.0.1:7777:7777"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      warehouse-migrate:
+        condition: service_completed_successfully
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7777/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  consolidator:
+    image: egpt-retail:vm
+    restart: unless-stopped
+    command: ["consolidator"]
+    env_file:
+      - ${EGPT_VM_ENV_FILE:?set by deploy/vm/deploy.sh to the absolute path of egpt.env}
+    environment:
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+      EGPT_RETAIL_MEMORY_BACKEND: pgvector
+      EGPT_RETAIL_KNOWLEDGE_BACKEND: pgvector
+      EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL: "300"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  egpt-pg:
+  egpt-neo4j:

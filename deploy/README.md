@@ -12,7 +12,8 @@ deploy/
 ├── helm/egpt-local-infra/     Postgres+pgvector, PgBouncer, Neo4j x2, Redis, MinIO -- AKS-era local stand-in
 ├── helm/egpt/                 the AKS-era application chart -- superseded by D15, kept as reference
 ├── AKS_CUTOVER.md             superseded -- points to AZURE_CUTOVER.md
-└── AZURE_CUTOVER.md           the current checklist: Functions (api) + Container Apps (everything else) (D15)
+├── AZURE_CUTOVER.md           the current checklist: Functions (api) + Container Apps (everything else) (D15)
+└── vm/                        the single-VM demo stack (enterprisegpt.saturam.com): compose + nginx + one-command redeploy, see vm/README.md
 ```
 
 **D15 moved the standing compute decision from AKS to Azure Functions Flex Consumption + Azure

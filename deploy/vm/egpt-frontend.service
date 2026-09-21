@@ -1,0 +1,19 @@
+[Unit]
+Description=Enterprise GPT frontend (Node: dist/ + /api routes)
+After=network.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/saturam-agent-framework/frontend
+EnvironmentFile=/home/azureuser/egpt/frontend.env
+Environment=PORT=8081
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
