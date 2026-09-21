@@ -1,4 +1,15 @@
-import { ChevronRight, Gauge, Zap } from "lucide-react";
+import { ArrowRight, ChevronRight, Gauge, Zap } from "lucide-react";
+import { EnterpriseProductMark } from "../shared/EnterpriseProductMark";
+import {
+  useCaseCardSurface,
+  useCaseCardBody,
+  useCaseCardBadge,
+  useCaseCardTitle,
+  useCaseCardDescription,
+  useCaseCardChipRow,
+  useCaseCardFooter,
+  useCaseCardArrow,
+} from "../shared/useCaseCardStyles";
 
 /**
  * Analytics use-case card: title, prominent sample question, optional context line.
@@ -43,32 +54,34 @@ export default function MiddlebyAnalyticsUseCaseCard({
     );
   }
 
+  const hasBadges = Boolean(actionType || automationReady);
+
   return (
-    <button
-      type="button"
-      onClick={handleOpen}
-      className="group w-full rounded-xl border border-border bg-surface-default p-4 text-left transition hover:border-primary/35 hover:bg-primary-light/30 dark:hover:bg-primary/10"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-            {actionType ? (
-              <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[10px] font-medium text-text-muted">
-                {actionType}
-              </span>
-            ) : null}
-            {automationReady ? (
-              <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-100">
-                <Zap className="h-2.5 w-2.5" aria-hidden />
-                Workflow{automationPlaybookCount > 1 ? ` · ${automationPlaybookCount}` : ""}
-              </span>
-            ) : null}
-          </div>
+    <button type="button" onClick={handleOpen} className={useCaseCardSurface}>
+      <div className={useCaseCardBody}>
+        <div className="min-h-0 flex-1">
+          {/* Title first, on its own line: the badges used to share the line with it and
+              squeezed a 14px title into whatever was left. */}
+          <h3 className={useCaseCardTitle}>{title}</h3>
+          {hasBadges ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {actionType ? (
+                <span className={`${useCaseCardBadge} border-border bg-surface text-text-secondary`}>
+                  {actionType}
+                </span>
+              ) : null}
+              {automationReady ? (
+                <span
+                  className={`${useCaseCardBadge} border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-100`}
+                >
+                  <Zap className="h-3 w-3" aria-hidden />
+                  Workflow{automationPlaybookCount > 1 ? ` · ${automationPlaybookCount}` : ""}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {primaryQuestion ? (
-            <p className="mt-1.5 text-sm font-medium leading-snug text-text-primary line-clamp-3">
-              {primaryQuestion}
-            </p>
+            <p className={useCaseCardDescription}>{primaryQuestion}</p>
           ) : null}
           {showContext ? (
             <p className="mt-2 text-xs leading-relaxed text-text-muted line-clamp-2">{context}</p>
@@ -79,10 +92,10 @@ export default function MiddlebyAnalyticsUseCaseCard({
             </p>
           ) : null}
           {sourceLine ? (
-            <p className="mt-2 text-[11px] text-text-muted">Source: {sourceLine}</p>
+            <p className="mt-2 text-xs text-text-muted">Source: {sourceLine}</p>
           ) : null}
           {Array.isArray(kpiNames) && kpiNames.length > 0 ? (
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <div className={useCaseCardChipRow}>
               <span
                 className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted"
                 title="KPIs this use case moves"
@@ -102,10 +115,10 @@ export default function MiddlebyAnalyticsUseCaseCard({
             </div>
           ) : null}
         </div>
-        <ChevronRight
-          className="mt-0.5 h-5 w-5 shrink-0 text-text-muted transition group-hover:text-primary"
-          aria-hidden
-        />
+        <div className={useCaseCardFooter}>
+          <EnterpriseProductMark size="sm" tone="brand" />
+          <ArrowRight className={useCaseCardArrow} strokeWidth={2.5} aria-hidden />
+        </div>
       </div>
     </button>
   );

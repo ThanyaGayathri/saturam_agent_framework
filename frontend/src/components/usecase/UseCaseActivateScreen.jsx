@@ -182,7 +182,7 @@ export default function UseCaseActivateScreen() {
    <Card Icon={ListChecks} title="What was approved">
     <p className="text-sm text-text-secondary">
      {spec.planApprovedAt
-      ? <>The workflow — every step and who performs it — was approved by {spec.author} on {new Date(spec.planApprovedAt).toLocaleDateString()}. Going live runs that workflow and no other.</>
+      ? <>The workflow: every step and who performs it, was approved by {spec.author} on {new Date(spec.planApprovedAt).toLocaleDateString()}. Going live runs that workflow and no other.</>
       : <>The workflow has not been approved. <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className="font-semibold text-primary hover:underline">Review it</button> before going live.</>}
     </p>
    </Card>
@@ -190,7 +190,7 @@ export default function UseCaseActivateScreen() {
    <div className="grid gap-4 sm:grid-cols-2">
     <Card Icon={CircleUser} title="Owner">
      <p className="text-sm text-text-secondary">
-      {spec.owner ? <><strong className="text-text-primary">{spec.owner}</strong> is accountable for this.</> : "No owner set — go back to the spec."}
+      {spec.owner ? <><strong className="text-text-primary">{spec.owner}</strong> is accountable for this.</> : "No owner set: go back to the spec."}
       {" "}Authored by {spec.author}.
      </p>
     </Card>
@@ -248,7 +248,7 @@ export default function UseCaseActivateScreen() {
      <p className="mt-2 text-sm text-text-secondary">If {spec.approver || "the approver"} does not respond: <strong className="text-text-primary">{timeout?.label.toLowerCase()}</strong>.</p>
      {timeout?.value === "proceed" && (
       <p className="mt-2 rounded-lg border border-status-critical-border bg-status-critical-light px-3 py-2 text-xs text-status-critical">
-       This writes to {spec.writeback} with nobody watching. Silence is not consent — only keep it for changes you would be comfortable discovering after the fact.
+       This writes to {spec.writeback} with nobody watching. Silence is not consent, only keep it for changes you would be comfortable discovering after the fact.
       </p>
      )}
     </Card>
@@ -256,12 +256,12 @@ export default function UseCaseActivateScreen() {
 
    {shape.id === "act" && spec.template === "document_to_record" && (
     <Card Icon={ShieldAlert} title="Document to record, unattended" aside={<FromSpec navigate={navigate} />}>
-     <p className="text-sm text-text-secondary">Polls <strong className="text-text-primary">{spec.mailbox || "the mailbox"}</strong> {POLL_INTERVALS.find((p) => p.value === spec.schedule)?.label.toLowerCase() || ""}. Each {spec.extractionTemplate?.replace(/_/g, " ") || "document"} is extracted, resolved, checked by {(spec.recordGuardrails || []).length} guardrails, and created in <strong className="text-text-primary">{spec.writeback}</strong> as {spec.createdAs === "active" ? "activated" : "a draft"} — at most <strong className="text-text-primary">{spec.blastRadius}</strong> per poll. Exceptions go to <strong className="text-text-primary">{spec.exceptionsTo}</strong>{spec.acknowledge ? "; the sender is acknowledged either way" : ""}. Rollback: <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch stops the poll; in-flight documents complete.</p>
+     <p className="text-sm text-text-secondary">Polls <strong className="text-text-primary">{spec.mailbox || "the mailbox"}</strong> {POLL_INTERVALS.find((p) => p.value === spec.schedule)?.label.toLowerCase() || ""}. Each {spec.extractionTemplate?.replace(/_/g, " ") || "document"} is extracted, resolved, checked by {(spec.recordGuardrails || []).length} guardrails, and created in <strong className="text-text-primary">{spec.writeback}</strong> as {spec.createdAs === "active" ? "activated" : "a draft"}, at most <strong className="text-text-primary">{spec.blastRadius}</strong> per poll. Exceptions go to <strong className="text-text-primary">{spec.exceptionsTo}</strong>{spec.acknowledge ? "; the sender is acknowledged either way" : ""}. Rollback: <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch stops the poll; in-flight documents complete.</p>
     </Card>
    )}
    {shape.id === "act" && spec.template !== "document_to_record" && (
     <Card Icon={ShieldAlert} title={spec.objective?.metric ? "Optimisation, unattended" : "Unattended"} aside={<FromSpec navigate={navigate} />}>
-     <p className="text-sm text-text-secondary">{objectiveText(spec.objective) ? <>Tunes the process towards <strong className="text-text-primary">{objectiveText(spec.objective)}</strong>. </> : null}Runs unattended. {spec.guardrails.length} business guardrail{spec.guardrails.length === 1 ? "" : "s"}, then at most <strong className="text-text-primary">{spec.blastRadius}</strong> per run; every change to <strong className="text-text-primary">{spec.writeback}</strong> records its rollback point — <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch is available to the owner and any admin.</p>
+     <p className="text-sm text-text-secondary">{objectiveText(spec.objective) ? <>Tunes the process towards <strong className="text-text-primary">{objectiveText(spec.objective)}</strong>. </> : null}Runs unattended. {spec.guardrails.length} business guardrail{spec.guardrails.length === 1 ? "" : "s"}, then at most <strong className="text-text-primary">{spec.blastRadius}</strong> per run; every change to <strong className="text-text-primary">{spec.writeback}</strong> records its rollback point: <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch is available to the owner and any admin.</p>
     </Card>
    )}
 

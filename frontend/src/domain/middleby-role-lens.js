@@ -42,7 +42,7 @@ export function applyRoleLensToAnswer(answer, catalogId, _role, entry, spec, row
         n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1_000).toLocaleString()}K`;
       return {
         ...answer,
-        summary: `The top UX issue — "${top.label}" — is putting ${fmtUsd(top.dollars)} of quote pipeline at risk (${top.sessions.toLocaleString()} sessions affected, ${top.quotes} high-intent quotes). Across all tracked issues, roughly ${fmtUsd(totalDollars)} in pipeline is exposed until they're fixed.`,
+        summary: `The top UX issue, "${top.label}": is putting ${fmtUsd(top.dollars)} of quote pipeline at risk (${top.sessions.toLocaleString()} sessions affected, ${top.quotes} high-intent quotes). Across all tracked issues, roughly ${fmtUsd(totalDollars)} in pipeline is exposed until they're fixed.`,
       };
     }
   }
@@ -72,7 +72,7 @@ export function applyRoleLensToAnswer(answer, catalogId, _role, entry, spec, row
       const upliftQuotes = Math.round((gapTraffic * leader.rate) / 100) - gaps.slice(0, 3).reduce((s, r) => s + r.quotes, 0);
       return {
         ...answer,
-        summary: `${leader.label} converts traffic to quotes at ${leader.rate.toFixed(1)}% — ${ratio}x the Middleby average of ${avgRate.toFixed(1)}%. ${top.label} sits at ${((top.quotes / top.sessions) * 100).toFixed(1)}% (${top.sessions.toLocaleString()} sessions, ${top.quotes} quote${top.quotes === 1 ? "" : "s"}). Closing the top-3 gap brands to ${leader.label}'s rate would add roughly ${upliftQuotes} quotes a week — nearly doubling current volume.`,
+        summary: `${leader.label} converts traffic to quotes at ${leader.rate.toFixed(1)}%: ${ratio}x the Middleby average of ${avgRate.toFixed(1)}%. ${top.label} sits at ${((top.quotes / top.sessions) * 100).toFixed(1)}% (${top.sessions.toLocaleString()} sessions, ${top.quotes} quote${top.quotes === 1 ? "" : "s"}). Closing the top-3 gap brands to ${leader.label}'s rate would add roughly ${upliftQuotes} quotes a week: nearly doubling current volume.`,
       };
     }
   }

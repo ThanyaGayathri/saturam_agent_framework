@@ -293,7 +293,7 @@ function ProductMapSection() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-text-primary">Want to see the pieces up close?</p>
           <p className="text-sm text-text-secondary">
-            The six building blocks — Business Area, Process, KPI, Use Case, Alert, Subject Area — are defined one by one on the next page.
+            The six building blocks, Business Area, Process, KPI, Use Case, Alert, Subject Area, are defined one by one on the next page.
           </p>
         </div>
         <Link

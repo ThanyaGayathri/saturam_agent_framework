@@ -384,7 +384,7 @@ export function useSpeechQueue() {
         runCloud().catch((err) => {
           if (err?.message === "cancelled") return;
           console.error(
-            "%c[tour-tts] cloud playback FAILED — falling back to browser voice",
+            "%c[tour-tts] cloud playback FAILED, falling back to browser voice",
             "color: red; font-weight: bold",
             err
           );

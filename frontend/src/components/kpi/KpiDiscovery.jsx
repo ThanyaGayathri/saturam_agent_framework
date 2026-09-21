@@ -166,7 +166,7 @@ export const VERDICT_FILTERS = [
 const VERDICT_META = {
  ready: {
   label: "Ready to measure",
-  rule: "Every table the KPI's formula reads is present in your connected data — and, for a multi-table KPI, no join between them has been ruled out by review.",
+  rule: "Every table the KPI's formula reads is present in your connected data, and, for a multi-table KPI, no join between them has been ruled out by review.",
   Icon: CircleCheck,
   border: "border-status-success/35",
   iconWrap: "border-status-success/35 bg-status-success-light dark:bg-status-success/20",
@@ -175,7 +175,7 @@ const VERDICT_META = {
  },
  partial: {
   label: "Partially available",
-  rule: "Some of the source tables are present, not all. The KPI can't be computed yet, but the gap is one table rather than the whole subject area — the card names which.",
+  rule: "Some of the source tables are present, not all. The KPI can't be computed yet, but the gap is one table rather than the whole subject area, the card names which.",
   Icon: Clock,
   border: "border-status-warning/35",
   iconWrap: "border-status-warning/35 bg-status-warning-light dark:bg-status-warning/20",

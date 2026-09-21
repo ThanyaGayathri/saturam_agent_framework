@@ -3,6 +3,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, ClipboardCheck, XCircle } from "lucide-react";
 import Breadcrumb from "../shared/Breadcrumb";
 import {
+  catalogPageShell,
+  catalogPageInner,
+  catalogH1,
+  catalogSubtitle,
+} from "../shared/useCaseCatalogPageStyles";
+import {
   getMiddlebyDecisionSeedCards,
   getMiddlebyDecisionSeedCardsForPattern,
   MIDDLEBY_AUTOMATION_PATTERNS,
@@ -174,7 +180,8 @@ export default function MiddlebyDecisionFeed() {
   const approved = visibleCards.filter((c) => c.status === "approved").length;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className={catalogPageShell}>
+      <div className={catalogPageInner}>
       <Breadcrumb
         items={[
           { label: "Home", to: "/playground" },
@@ -188,10 +195,8 @@ export default function MiddlebyDecisionFeed() {
           <ClipboardCheck size={13} />
           Approval queue
         </div>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-text-primary">
-          Pending approvals
-        </h1>
-        <p className="mt-1 text-sm text-text-secondary">
+        <h1 className={catalogH1}>Pending approvals</h1>
+        <p className={catalogSubtitle}>
           Quick review of all automation cards. For the full walkthrough, open a workflow from the
           automation hub.
         </p>
@@ -219,7 +224,9 @@ export default function MiddlebyDecisionFeed() {
         ) : null}
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4">
+      {/* Compact: these are two counts, not two panels. Stretched across a 1440px page they
+          read as empty billboards. */}
+      <div className="mb-6 grid max-w-md grid-cols-2 gap-4">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center dark:border-amber-500/30 dark:bg-amber-500/10">
           <p className="text-2xl font-semibold text-amber-800 dark:text-amber-100">{pending}</p>
           <p className="mt-0.5 text-xs font-medium text-amber-900/80 dark:text-amber-200/80">Pending</p>
@@ -230,7 +237,7 @@ export default function MiddlebyDecisionFeed() {
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-2">
         {visibleCards.map((card) => (
           <DecisionCard
             key={card.id}
@@ -252,6 +259,7 @@ export default function MiddlebyDecisionFeed() {
           </Link>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

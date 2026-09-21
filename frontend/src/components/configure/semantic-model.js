@@ -121,9 +121,9 @@ export function decisionsForSource(sourceType) {
        recommended: true,
       },
       {
-       label: `Treat ${col.name} as system-specific — do not join`,
+       label: `Treat ${col.name} as system-specific: do not join`,
        cardinality: "none",
-       match: "—",
+       match: "-",
        recommended: false,
       },
      ],

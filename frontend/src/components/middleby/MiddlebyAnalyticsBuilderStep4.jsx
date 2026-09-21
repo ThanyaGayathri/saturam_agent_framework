@@ -101,16 +101,16 @@ export default function MiddlebyAnalyticsBuilderStep4() {
           <dl className="space-y-2 text-sm">
             <div>
               <dt className="text-text-muted">Title</dt>
-              <dd className="font-medium text-text-primary">{draft.step1.title || "—"}</dd>
+              <dd className="font-medium text-text-primary">{draft.step1.title || "-"}</dd>
             </div>
             <div>
               <dt className="text-text-muted">Question</dt>
-              <dd className="text-text-primary">{draft.step2.primaryQuestion || "—"}</dd>
+              <dd className="text-text-primary">{draft.step2.primaryQuestion || "-"}</dd>
             </div>
             <div>
               <dt className="text-text-muted">Sources</dt>
               <dd className="text-text-primary">
-                {enabledSources.length > 0 ? enabledSources.map((s) => s.name).join(", ") : "—"}
+                {enabledSources.length > 0 ? enabledSources.map((s) => s.name).join(", ") : "-"}
               </dd>
             </div>
             <div>

@@ -123,7 +123,7 @@ export default function AiPurposeStep({
      <Sparkles size={13} />
     </div>
     <p className="pt-1 text-[15px] leading-relaxed text-text-primary">
-     Tell me what you need to see, and I'll compose the charts for it — not just one per
+     Tell me what you need to see, and I'll compose the charts for it, not just one per
      metric. Point me at specific metrics or tables if you want to scope it; leave both
      empty and I'll consider everything this deployment already tracks.
     </p>
@@ -208,7 +208,7 @@ export default function AiPurposeStep({
       )}
       {allTables.length === 0 && (
        <span className="text-text-muted">
-        Nothing picked — every ready metric and its tables are in scope.
+        Nothing picked: every ready metric and its tables are in scope.
        </span>
       )}
      </div>
@@ -238,7 +238,7 @@ export default function AiPurposeStep({
        {coverage.withheld.map((c) => (
         <code key={c} className="mr-1 rounded bg-surface-tertiary px-1 text-[10px]">{c}</code>
        ))}
-       {coverage.withheld.length === 1 ? "is" : "are"} personal data — never sent to the assistant, never
+       {coverage.withheld.length === 1 ? "is" : "are"} personal data: never sent to the assistant, never
        selectable in a chart.
       </p>
      </div>
@@ -281,7 +281,7 @@ export default function AiPurposeStep({
     </div>
    </div>
    <p className="text-xs leading-relaxed text-text-muted">
-    Tip: name the audience, the cadence and the comparison you care about — "by store", "vs last
+    Tip: name the audience, the cadence and the comparison you care about, "by store", "vs last
     quarter", "top ten".
    </p>
   </>

@@ -56,7 +56,7 @@ export function formatBusinessDate(at) {
 /** The KPI's value in its unit. Mirrors `DashboardView.jsx`'s `formatValue` for `%`; counts get
  * thousands separators; anything else keeps at most two decimals. */
 export function formatKpiValue(unit, value) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
   const u = String(unit || "").toLowerCase();
   if (u.includes("%") || u.includes("percent")) return `${value.toFixed(1)}%`;
   return new Intl.NumberFormat(undefined, {
@@ -84,7 +84,7 @@ export function sameDimension(a, b) {
 
 function dimensionLabel(dimension) {
   return Object.values(dimension || {})
-    .map((v) => (v === null || v === undefined ? "—" : String(v)))
+    .map((v) => (v === null || v === undefined ? "-" : String(v)))
     .join(" · ");
 }
 
@@ -384,7 +384,7 @@ export default function KpiTrend({ state, unit, resultShape, onRetry, onCompute,
         <div className="mt-2 flex items-baseline gap-2">
           <span className="text-2xl font-bold tracking-tight text-text-primary">{formatKpiValue(valueUnit, data.value)}</span>
           {delta === null || delta === undefined ? (
-            <span className="text-xs font-semibold text-text-muted" title="No previous night to compare with">—</span>
+            <span className="text-xs font-semibold text-text-muted" title="No previous night to compare with">-</span>
           ) : (
             <span className={`text-xs font-semibold ${delta > 0 ? "text-status-success" : delta < 0 ? "text-status-critical" : "text-text-muted"}`}>
               {delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} {formatKpiValue(valueUnit, Math.abs(delta))} vs previous night

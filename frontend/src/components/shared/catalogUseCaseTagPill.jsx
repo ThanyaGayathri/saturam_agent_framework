@@ -61,17 +61,21 @@ export function CatalogTagPill({ text, surface = "template", kind = "auto" }) {
   const ThemeIcon = ACTION_THEME_TAG_ICON[text] ?? null;
   const isTemplate = surface === "template";
   const isBuilder = surface === "builder";
+  // Both use-case card surfaces share one tag look: white with a light border. They used to
+  // differ by fill (lavender, 80% white, tinted) and by icon, which made the same tag read
+  // as three different things across the three tabs.
+  const onCard = isTemplate || isBuilder;
+  const cardTag =
+    "border-border-light bg-surface text-text-tertiary shadow-sm group-hover:border-primary/30 dark:bg-surface-default";
 
   if (AreaIcon) {
     const A = AreaIcon;
     return (
       <span
         className={`${baseWrap()} ${
-          isBuilder
-            ? "border-border-light bg-surface-secondary text-text-tertiary shadow-sm group-hover:border-primary/25"
-            : isTemplate
-              ? "border-primary/20 bg-surface/90 text-text-tertiary shadow-sm group-hover:border-primary/40"
-              : "border-primary/25 bg-primary-light text-text-tertiary shadow-sm group-hover:border-primary/40 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/25 dark:group-hover:border-border-light"
+          onCard
+            ? cardTag
+            : "border-primary/25 bg-primary-light text-text-tertiary shadow-sm group-hover:border-primary/40 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/25 dark:group-hover:border-border-light"
         }`}
       >
         <A size={14} strokeWidth={2.25} className="shrink-0 text-primary" aria-hidden />
@@ -85,11 +89,9 @@ export function CatalogTagPill({ text, surface = "template", kind = "auto" }) {
     return (
       <span
         className={`${baseWrap()} ${
-          isBuilder
-            ? "border-primary/25 bg-primary-light text-text-tertiary shadow-sm group-hover:border-primary/40 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/25 dark:group-hover:border-border-light"
-            : isTemplate
-              ? "border-primary/20 bg-surface/85 text-text-tertiary shadow-sm group-hover:border-primary/35"
-              : "border-primary/20 bg-surface/90 text-text-tertiary shadow-sm group-hover:border-primary/35"
+          onCard
+            ? cardTag
+            : "border-primary/20 bg-surface/90 text-text-tertiary shadow-sm group-hover:border-primary/35"
         }`}
       >
         <T
@@ -106,11 +108,9 @@ export function CatalogTagPill({ text, surface = "template", kind = "auto" }) {
   return (
     <span
       className={`${baseWrap()} ${
-        isBuilder
-          ? "border-border-light bg-surface text-text-tertiary shadow-sm group-hover:border-border"
-          : isTemplate
-            ? "border-border-light bg-surface/80 text-text-tertiary shadow-sm group-hover:border-primary/20"
-            : "border-primary/25 bg-surface/90 text-text-tertiary shadow-sm group-hover:border-primary/30 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/20 dark:group-hover:border-border-light"
+        onCard
+          ? cardTag
+          : "border-primary/25 bg-surface/90 text-text-tertiary shadow-sm group-hover:border-primary/30 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/20 dark:group-hover:border-border-light"
       }`}
     >
       <Tag size={14} strokeWidth={2.25} className="shrink-0 text-text-muted" aria-hidden />

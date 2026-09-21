@@ -282,8 +282,8 @@ function ColumnsItUses({ columnUsage, statusByTable }) {
               {cu.used_as}
              </span>
             </td>
-            <td className="px-3 py-2 align-top text-text-secondary">{cu.definition || "—"}</td>
-            <td className="px-3 py-2 align-top text-text-secondary">{cu.why || "—"}</td>
+            <td className="px-3 py-2 align-top text-text-secondary">{cu.definition || "-"}</td>
+            <td className="px-3 py-2 align-top text-text-secondary">{cu.why || "-"}</td>
            </tr>
           ))}
          </tbody>
@@ -363,7 +363,7 @@ function WhereItComesFrom({ kpi, sourceTableStatus, columnUsage: columnUsageProp
        <li key={p.name} className="text-sm text-text-secondary">
         <span className="font-mono text-xs text-text-primary">{p.name}</span>
         <span className="text-text-muted"> · {p.kind}</span>
-        {p.description ? <span> — {p.description}</span> : null}
+        {p.description ? <span> - {p.description}</span> : null}
        </li>
       ))}
      </ul>
@@ -491,11 +491,11 @@ function WhereItComesFrom({ kpi, sourceTableStatus, columnUsage: columnUsageProp
       <>
        <div className="flex justify-between gap-3">
         <dt className="text-text-muted">Last computed</dt>
-        <dd className="text-right text-text-primary">{formatTimestamp(trendData.computed_at) || "—"}</dd>
+        <dd className="text-right text-text-primary">{formatTimestamp(trendData.computed_at) || "-"}</dd>
        </div>
        <div className="flex justify-between gap-3">
         <dt className="text-text-muted">As of</dt>
-        <dd className="text-right text-text-primary">{formatTimestamp(trendData.as_of) || "—"}</dd>
+        <dd className="text-right text-text-primary">{formatTimestamp(trendData.as_of) || "-"}</dd>
        </div>
        {trendData.provenance_ref && (
         <div className="flex justify-between gap-3">
@@ -539,7 +539,7 @@ function WhereItComesFrom({ kpi, sourceTableStatus, columnUsage: columnUsageProp
        <p className="w-full text-xs text-text-muted">
         {trend.lastCompute.status === "materialised"
          ? `Recomputed for ${trend.lastCompute.as_of}: ${trend.lastCompute.rows_written ?? 0} row${trend.lastCompute.rows_written === 1 ? "" : "s"} written.`
-         : `${trend.lastCompute.as_of}: ${trend.lastCompute.status}${trend.lastCompute.reason ? ` — ${trend.lastCompute.reason}` : ""}`}
+         : `${trend.lastCompute.as_of}: ${trend.lastCompute.status}${trend.lastCompute.reason ? ` - ${trend.lastCompute.reason}` : ""}`}
        </p>
       )}
      </div>

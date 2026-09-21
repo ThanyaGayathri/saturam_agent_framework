@@ -99,7 +99,7 @@ export const CATEGORIES = {
   id: "analytics_automation",
   label: "Analytics Automation",
   plain: "Analyse, monitor and explain",
-  blurb: "Automates the analysis a team does by hand: reads the KPIs, compares them to a baseline, explains the movement — or watches one KPI and notifies when it crosses a line. Changes nothing.",
+  blurb: "Automates the analysis a team does by hand: reads the KPIs, compares them to a baseline, explains the movement, or watches one KPI and notifies when it crosses a line. Changes nothing.",
   sideEffect: "a report or a notification",
   shapes: ["inform", "alert"],
   // Chosen on the form, not on the card: which shape an Analytics Automation is depends on
@@ -131,7 +131,7 @@ export const CATEGORIES = {
   id: "process_automation",
   label: "Process Automation",
   plain: "Execute a defined action within limits",
-  blurb: "Carries out a rule-based action unattended — reorder, re-price, create a record from a document — inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
+  blurb: "Carries out a rule-based action unattended, reorder, re-price, create a record from a document, inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
   sideEffect: "a change to a target system, unattended",
   shapes: ["act"],
   // Two templates share the shape. Which one is chosen on the form, not on the card: it is a
@@ -139,7 +139,7 @@ export const CATEGORIES = {
   // know what arrives.
   templates: [
    { id: "kpi_change", label: "Change a parameter from a KPI", hint: "Reads KPIs on a schedule, recommends a change per record, writes it within limits." },
-   { id: "document_to_record", label: "Create a record from a document", hint: "A document arrives — by email, in a folder — is extracted, resolved against master data, checked, and written as a record." },
+   { id: "document_to_record", label: "Create a record from a document", hint: "A document arrives: by email, in a folder, is extracted, resolved against master data, checked, and written as a record." },
   ],
   examples: [
    {
@@ -156,7 +156,7 @@ export const CATEGORIES = {
   id: "process_optimization",
   label: "Process Optimization",
   plain: "Tune a process towards a KPI target",
-  blurb: "Continuously adjusts the parameters of a process — safety stock, reorder points, markdown depth — to move a KPI towards a target, inside business guardrails, a change limit per run, and a rollback plan.",
+  blurb: "Continuously adjusts the parameters of a process, safety stock, reorder points, markdown depth, to move a KPI towards a target, inside business guardrails, a change limit per run, and a rollback plan.",
   sideEffect: "a change to a target system, unattended",
   shapes: ["act"],
   extraFields: ["objective"],
@@ -238,7 +238,7 @@ export const TEMPLATE_FIELDS = {
  *  the cause is searched across, its "metrics" is one KPI. */
 export const TEMPLATE_FIELD_META = {
  metric_diagnosis: {
-  metrics: { label: "The KPI", hint: "One KPI — the one that moved. Its formula is read into its parts and its fact's rows are searched." },
+  metrics: { label: "The KPI", hint: "One KPI: the one that moved. Its formula is read into its parts and its fact's rows are searched." },
   dimensions: { label: "Search the cause across", hint: "The columns of the fact a change can sit in. All of them by default; untick one to leave it out." },
   comparison: { label: "The two periods", hint: "A diagnosis compares by nature: the run's date against the period before, or the same period last year." },
  },
@@ -361,9 +361,9 @@ export const describeShape = (spec) => {
   case "act":
    if (spec.template === "document_to_record") {
     const tpl = findTemplate(spec);
-    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves ${resolvedRolesText(spec)}, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
+    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves ${resolvedRolesText(spec)}, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"}, nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
    }
-   return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
+   return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own, changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
   default:
    return "Choose what it should do.";
  }
@@ -465,7 +465,7 @@ export { SHIPPED_TEMPLATES as EXTRACTION_TEMPLATES } from "./extraction-template
  *  of them a given use case needs is not fixed here: `use-case-roles.js` derives it from the
  *  mapping's source expressions (`prefix`) and the guardrails, plus `depends`. */
 export const MASTER_DATA_ROLES = [
- { id: "customer", label: "Sender account", concept: "Customer", prefix: "customer.", depends: [], hint: "The organisation the document comes from — a customer or a supplier — matched by sender email domain, then by name." },
+ { id: "customer", label: "Sender account", concept: "Customer", prefix: "customer.", depends: [], hint: "The organisation the document comes from, a customer or a supplier, matched by sender email domain, then by name." },
  { id: "contact", label: "Sender contact", concept: "Contact", prefix: "contact.", depends: ["customer"], hint: "The person who sent it, matched by sender email." },
  { id: "shipTo", label: "Ship-to site", concept: "Location", prefix: "ship_to.", depends: ["customer"], hint: "The account's addresses; matched on postcode + street number, then full text." },
  { id: "product", label: "Product", concept: "Product", prefix: "product.", depends: [], hint: "Matched by the sender's part number, then product code, then description." },

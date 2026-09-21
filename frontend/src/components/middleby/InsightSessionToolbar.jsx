@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  ArrowRight,
   Sparkles,
   HelpCircle,
   ChevronDown,
@@ -235,7 +236,9 @@ export default function InsightSessionToolbar({
   return (
     <div className="mt-4 space-y-3">
       {/* Explainability + Export bar (data-window strip removed — Period chip at top of page is the single source of truth) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface-secondary/40 p-3">
+      {/* Same card treatment as the Answer and Recommended actions sections below it. */}
+      <div className="rounded-xl border border-border bg-surface-default p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -269,14 +272,13 @@ export default function InsightSessionToolbar({
           <button
             type="button"
             onClick={() => setConfidenceOpen((v) => !v)}
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 transition ${confidencePill.cls} ${
-              confidenceOpen ? "ring-2 ring-offset-1" : ""
-            }`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 transition ${confidencePill.cls}`}
             aria-expanded={confidenceOpen}
             title="Click to see why this confidence level applies here"
           >
-            <ConfidenceIcon size={10} />
+            <ConfidenceIcon size={12} />
             {confidencePill.label}
+            {confidenceOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         </div>
 
@@ -285,10 +287,11 @@ export default function InsightSessionToolbar({
             type="button"
             onClick={openInChat}
             title="Ask this same question in the chat where you can drill down, add follow-ups, and export"
-            className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary-light/40 px-2.5 py-1 text-xs font-medium text-primary transition hover:border-primary/50 hover:bg-primary-light/60 dark:bg-primary/10"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:border-primary/50 hover:bg-primary-light dark:bg-primary/10 dark:hover:bg-primary/20"
           >
-            <MessageSquare size={12} />
+            <MessageSquare size={13} />
             Open in chat
+            <ArrowRight size={13} />
           </button>
           <button
             type="button"
@@ -335,24 +338,22 @@ export default function InsightSessionToolbar({
             {copiedEmail ? "Copied ✓" : "Copy for email"}
           </button>
         </div>
-      </div>
-
-      {/* Confidence panel — explains what the pill means and why this rating applies to this view */}
-      {confidenceOpen ? (
-        <div className={`rounded-xl border p-3 text-xs ${confidencePill.cls.replace("bg-", "border-").split(" ")[0]} ${confidencePill.cls}`}>
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold">
-            <ConfidenceIcon size={11} />
-            {confidencePill.label}
-          </p>
-          <p className="text-text-secondary">{confidencePill.title}</p>
-          {insightMeta.reasoning?.confidenceReason ? (
-            <div className="mt-2 rounded-lg bg-surface-default p-2 text-text-primary dark:bg-surface-secondary">
-              <p className="mb-1 text-[11px] font-semibold text-text-primary">Why this rating for this view</p>
-              <p className="whitespace-pre-wrap text-text-secondary">{insightMeta.reasoning.confidenceReason}</p>
-            </div>
-          ) : null}
         </div>
-      ) : null}
+
+        {/* The explanation opens inside this card, under a divider. It used to be a separate
+            box below, which repeated the pill's own label as its heading. */}
+        {confidenceOpen ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-sm text-text-secondary">{confidencePill.title}</p>
+            {insightMeta.reasoning?.confidenceReason ? (
+              <div className="mt-3 rounded-lg bg-surface-secondary p-3 text-xs">
+                <p className="mb-1 text-[11px] font-semibold text-text-primary">Why this rating for this view</p>
+                <p className="whitespace-pre-wrap text-text-secondary">{insightMeta.reasoning.confidenceReason}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       {/* Reasoning panel */}
       {reasoningOpen && insightMeta.reasoning ? (

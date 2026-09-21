@@ -251,7 +251,7 @@ function LiveSourceSemanticLayer({ source }) {
      </span>
     }
    >
-    What the harvest read from this source. Confirm what was inferred before answers are built on it —
+    What the harvest read from this source. Confirm what was inferred before answers are built on it, 
     a wrong join produces a believable, wrong number.
    </Header>
 
@@ -268,7 +268,7 @@ function LiveSourceSemanticLayer({ source }) {
      {source.lastHarvestAt ? <span className="text-text-muted"> ({formatHarvestedAt(source.lastHarvestAt)})</span> : null}
     </span>
     <span>
-     Schema <strong className="font-mono text-text-primary">{source.schema || "—"}</strong>
+     Schema <strong className="font-mono text-text-primary">{source.schema || "-"}</strong>
     </span>
    </div>
 
@@ -351,7 +351,7 @@ function LiveSourceSemanticLayer({ source }) {
        <p className="text-sm font-semibold text-text-primary">Nothing waiting on you</p>
        <p className="mt-1 mx-auto max-w-lg text-sm text-text-muted">
         This harvest recorded tables and columns. Join-path and measure review for connected sources is
-        not built yet, so no decision is proposed here — the Tables tab is what was read.
+        not built yet, so no decision is proposed here, the Tables tab is what was read.
        </p>
       </div>
      )}
@@ -397,7 +397,7 @@ function LiveSourceSemanticLayer({ source }) {
            <td className="px-4 py-2 font-mono text-text-primary">{t.name}</td>
            <td className="px-4 py-2 font-mono text-xs text-text-secondary">{t.schema}</td>
            <td className="px-4 py-2 text-right text-text-secondary">
-            {t.row_count == null ? "—" : Number(t.row_count).toLocaleString()}
+            {t.row_count == null ? "-" : Number(t.row_count).toLocaleString()}
            </td>
           </tr>
          ))}
@@ -452,7 +452,7 @@ function DemoSourceSemanticLayer({ source }) {
      )
     }
    >
-    What we understand about this source. Confirm what was inferred before answers are built on it —
+    What we understand about this source. Confirm what was inferred before answers are built on it, 
     a wrong join produces a believable, wrong number.
    </Header>
 
@@ -505,7 +505,7 @@ function DemoSourceSemanticLayer({ source }) {
         </div>
        </div>
        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-        Grain — one row per {e.grain}
+        Grain: one row per {e.grain}
        </p>
        <div className="mt-2 flex flex-wrap gap-1.5">
         {e.columns.map((c) => (
@@ -562,7 +562,7 @@ function DemoSourceSemanticLayer({ source }) {
       <>
        <p className="font-semibold text-text-primary">{sensitive.length} columns hold personal data</p>
        <p className="text-text-muted">
-        {sensitive.map((s) => `${s.entity}.${s.column}`).join(", ")} — excluded from answers and memory
+        {sensitive.map((s) => `${s.entity}.${s.column}`).join(", ")}, excluded from answers and memory
         unless you allow them.
        </p>
       </>

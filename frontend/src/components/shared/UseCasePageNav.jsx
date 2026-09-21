@@ -26,10 +26,10 @@ export function UseCasePageNav({ current }) {
       aria-label="Catalog view"
     >
       <Tab to="/use-cases/templates" active={current === "templates"}>
-        Pre defined Use Case
+        Pre-defined use cases
       </Tab>
       <Tab to="/use-cases/gallery" active={current === "gallery"}>
-        User built use cases
+        User-built use cases
       </Tab>
     </nav>
   );

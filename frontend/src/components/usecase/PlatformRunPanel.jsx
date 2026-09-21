@@ -123,7 +123,7 @@ export function RunResultView({ run, live, createdAs, onAccept }) {
          {run.result.cases.map((v) => (
           <tr key={v.case_id} className="border-t border-border">
            <td className="px-3 py-2 text-text-primary">{v.label}</td>
-           <td className="px-3 py-2 font-mono text-xs text-text-secondary">{v.expected_outcome || "—"}</td>
+           <td className="px-3 py-2 font-mono text-xs text-text-secondary">{v.expected_outcome || "-"}</td>
            <td className="px-3 py-2 font-mono text-xs text-text-secondary">{v.outcome}{v.detail ? <span className="ml-1 font-sans text-text-muted">· {v.detail}</span> : ""}</td>
            <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${v.status === "pass" ? "bg-status-success-light text-status-success" : v.status === "fail" ? "bg-status-critical-light text-status-critical" : "bg-surface-secondary text-text-secondary"}`}>{v.status}</span>{v.status === "fail" && (v.checks || []).filter((c) => !c.passed).map((c) => <span key={c.name} className="ml-1.5 text-[11px] text-text-muted">{c.name}: {c.detail}</span>)}</td>
            <td className="px-3 py-2 text-right">{onAccept && v.status !== "pass" && v.outcome !== "not_run" && <button type="button" onClick={() => onAccept(v.case_id)} className="text-[11px] font-semibold text-primary hover:underline">Accept as expected</button>}</td>

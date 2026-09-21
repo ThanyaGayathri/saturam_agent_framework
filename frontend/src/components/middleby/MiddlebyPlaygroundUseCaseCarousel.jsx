@@ -60,7 +60,9 @@ export default function MiddlebyPlaygroundUseCaseCarousel({ useCases, onPrefill 
 
   return (
     <div className="w-full">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 sm:px-0">
+      {/* The heading keeps the page's own gutter (max-w-6xl, px-4/sm:px-6, same as the hero
+          and composer above) while the track below runs full bleed. */}
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 sm:px-6">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-medium text-text-primary sm:text-lg">Priority use cases</h2>
           <span className="rounded-full border border-primary/22 bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary dark:border-white/20 dark:bg-white/[0.1]">

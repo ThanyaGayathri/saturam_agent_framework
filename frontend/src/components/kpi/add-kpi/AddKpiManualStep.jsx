@@ -183,7 +183,7 @@ export default function AddKpiManualStep({
       </p>
      )}
      {areasEmpty && (
-      <p className={HINT}>This deployment has no business areas yet — a KPI needs one before it can be added.</p>
+      <p className={HINT}>This deployment has no business areas yet, a KPI needs one before it can be added.</p>
      )}
     </div>
     <div>
@@ -213,8 +213,8 @@ export default function AddKpiManualStep({
     <div>
      <label htmlFor="kpi-shape" className={LABEL}>Result shape</label>
      <select id="kpi-shape" value={resultShape} onChange={(e) => setResultShape(e.target.value)} disabled={saving} className={INPUT}>
-      <option value="scalar">Scalar — one number (can be trended and alerted on)</option>
-      <option value="rowset">Rowset — a table of rows</option>
+      <option value="scalar">Scalar: one number (can be trended and alerted on)</option>
+      <option value="rowset">Rowset: a table of rows</option>
      </select>
     </div>
     <div>
@@ -250,7 +250,7 @@ export default function AddKpiManualStep({
       <p className="mt-1 text-xs text-status-critical">{tableState.error}</p>
      )}
      {tableState.status === "ready" && tableState.tables.length === 0 && (
-      <p className={HINT}>The semantic layer exposes no tables yet — connect a source first.</p>
+      <p className={HINT}>The semantic layer exposes no tables yet, connect a source first.</p>
      )}
      {tableState.status === "ready" && tableState.tables.length > 0 && (
       <div className="mt-1.5 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-border bg-surface-secondary p-2 sm:grid-cols-2">

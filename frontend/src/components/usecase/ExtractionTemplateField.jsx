@@ -92,7 +92,7 @@ export default function ExtractionTemplateField({ spec, setTemplate, description
    const out = await draftExtractionTemplate({ description: description || spec.goal || "", label: label || undefined, example: { documentB64: doc.documentB64 } });
    const t = out.template;
    setEditing((e) => ({ ...(e || {}), label: e?.label || t.label, record: t.record || e?.record || "", header: (t.header || []).map(fieldOf), lines: (t.lines || []).map(fieldOf), source: "drafted" }));
-   setDraftNote(`Suggested from ${name}${out.notes ? ` — the platform noted: ${out.notes}` : ""}. Edit the fields and keep.`);
+   setDraftNote(`Suggested from ${name}${out.notes ? `, the platform noted: ${out.notes}` : ""}. Edit the fields and keep.`);
   } catch (err) {
    setDraftNote(err?.status === 503 ? "The platform has no extraction model configured, so it cannot read the sample; start from a shipped kind and edit." : `Could not read the sample: ${err?.detail || err?.message || "the platform did not answer"}.`);
   } finally { setDrafting(false); }

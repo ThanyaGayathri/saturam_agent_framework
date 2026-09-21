@@ -26,13 +26,13 @@ const META = {
       confidenceReason:
         "Every input is a direct GA4 event count (page views, dwell time, repeat visits, multi-brand browsing). The composite intent score is a weighted blend of those signals.\n\n" +
         "The 'High tier' flag applied to each session is a threshold rule: session behavior score >= 70 (out of 100) OR explicitly bucketed as tier = 'High' in the source data. That threshold is the same one used downstream by UX Insights and Revenue Recovery Simulator to define 'high-intent affected sessions'.\n\n" +
-        "The scoring weights (page depth, dwell, repeat, multi-brand) are the modeling choice — they reflect standard B2B intent patterns and can be tuned once Middleby confirms which behavior signals best predict submitted quotes in the historical data.",
+        "The scoring weights (page depth, dwell, repeat, multi-brand) are the modeling choice, they reflect standard B2B intent patterns and can be tuned once Middleby confirms which behavior signals best predict submitted quotes in the historical data.",
       caveats: [
         "Intent is scored from GA4 behavior signals (page depth, dwell, repeat, multi-brand browsing).",
       ],
     },
     askForMiddleby: {
-      text: "A customer identifier that maps sessions to HubSpot contacts sharpens the ranking further — currently sessions are anonymous, so we can't yet confirm which high-intent sessions actually converted.",
+      text: "A customer identifier that maps sessions to HubSpot contacts sharpens the ranking further, currently sessions are anonymous, so we can't yet confirm which high-intent sessions actually converted.",
       sectionId: "rfq-funnel",
     },
   },
@@ -44,7 +44,7 @@ const META = {
       { id: "middleby-ns-04", label: "Forecast 12 weeks if we lift conversion by 5 percentage points" },
     ],
     reasoning: {
-      summary: "Every quote you don't get is a session that dropped out at one of five funnel steps. This view rebuilds the RFQ funnel from GA4 events (product view → add-to-quote → cart open → form start → submit) and overlays LogRocket errors on the same page paths — so 'why did quotes decrease' has a step-and-cause answer, not a gut feel.",
+      summary: "Every quote you don't get is a session that dropped out at one of five funnel steps. This view rebuilds the RFQ funnel from GA4 events (product view → add-to-quote → cart open → form start → submit) and overlays LogRocket errors on the same page paths, so 'why did quotes decrease' has a step-and-cause answer, not a gut feel.",
       steps: [
         "Counted GA4 events at each funnel step for the selected window.",
         "Computed step-to-step conversion so the biggest single drop appears as the widest gap.",
@@ -52,9 +52,9 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "Every step count is a direct GA4 event tally (product_view, add_to_quote, cart_open, form_start, submit) for the selected window — no estimation, no averaging, ratios between adjacent steps are exact. What we don't claim as high-confidence: the specific *causes* named in the RCA block (pricing panel rage-clicks, mobile Next-button unresponsive) — those are strong LogRocket correlations, not statistically-proven causation.",
+        "Every step count is a direct GA4 event tally (product_view, add_to_quote, cart_open, form_start, submit) for the selected window, no estimation, no averaging, ratios between adjacent steps are exact. What we don't claim as high-confidence: the specific *causes* named in the RCA block (pricing panel rage-clicks, mobile Next-button unresponsive), those are strong LogRocket correlations, not statistically-proven causation.",
       caveats: [
-        "The two biggest leaks in this window are cart-open → form-start and form-start → submit — the same two steps where LogRocket surfaces the top mobile UX issue, so the correlation is worth acting on.",
+        "The two biggest leaks in this window are cart-open → form-start and form-start → submit, the same two steps where LogRocket surfaces the top mobile UX issue, so the correlation is worth acting on.",
       ],
     },
     askForMiddleby: {
@@ -70,7 +70,7 @@ const META = {
       { id: "middleby-ns-02", label: "Accounts to nudge for the gap brands" },
     ],
     reasoning: {
-      summary: "Every quote starts as a session, so a brand with heavy traffic and few quotes is either failing at PDP conversion or being mis-tagged in HubSpot — and both cost pipeline. We compare each brand's GA4 sessions against brand-tagged HubSpot quotes and rank by the gap so merchandising and dealer teams see which brand to fix this week, not next quarter.",
+      summary: "Every quote starts as a session, so a brand with heavy traffic and few quotes is either failing at PDP conversion or being mis-tagged in HubSpot, and both cost pipeline. We compare each brand's GA4 sessions against brand-tagged HubSpot quotes and rank by the gap so merchandising and dealer teams see which brand to fix this week, not next quarter.",
       steps: [
         "Pulled GA4 sessions by brand for the week of Jun 1 to 7, 2026.",
         "Pulled HubSpot deals with brand tags for the same week.",
@@ -79,9 +79,9 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "GA4 sessions per brand and HubSpot deals tagged to brand are both direct counts for the selected window — no averaging, no modeling. The ranking of gap size is exact. The one variable: Globe and Star tag their deals inconsistently in HubSpot, so their quote counts are likely undercounted by 10-15% — meaning their gap is at least what the chart shows, possibly worse.",
+        "GA4 sessions per brand and HubSpot deals tagged to brand are both direct counts for the selected window, no averaging, no modeling. The ranking of gap size is exact. The one variable: Globe and Star tag their deals inconsistently in HubSpot, so their quote counts are likely undercounted by 10-15%, meaning their gap is at least what the chart shows, possibly worse.",
       caveats: [
-        "Follett tags brand consistently on every deal; Globe and Star don't, so their quote counts are likely undercounted by roughly 10–15%. Numbers reflect brand as tagged in HubSpot today — a data-hygiene pass on those brands would tighten the gap.",
+        "Follett tags brand consistently on every deal; Globe and Star don't, so their quote counts are likely undercounted by roughly 10–15%. Numbers reflect brand as tagged in HubSpot today, a data-hygiene pass on those brands would tighten the gap.",
       ],
     },
     askForMiddleby: {
@@ -100,14 +100,14 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "Each linked record — GA4 session, LogRocket recording, HubSpot deal, Salesforce opportunity — is a direct system-of-record pull. No thresholds, no averaging, no dollar estimation.\n\n" +
-        "Confidence is High for the linked example, but the sample dataset only contains the deals where all four systems already share a matchable identifier (~15-20% of active deals today). The remaining 80% can't yet be stitched end-to-end. Writing a shared identifier (email hash or account id) into every system's records — GA4, LogRocket, HubSpot, Salesforce — lifts the coverage from ~15% to 100%, at which point every deal has a linkable journey.",
+        "Each linked record: GA4 session, LogRocket recording, HubSpot deal, Salesforce opportunity, is a direct system-of-record pull. No thresholds, no averaging, no dollar estimation.\n\n" +
+        "Confidence is High for the linked example, but the sample dataset only contains the deals where all four systems already share a matchable identifier (~15-20% of active deals today). The remaining 80% can't yet be stitched end-to-end. Writing a shared identifier (email hash or account id) into every system's records, GA4, LogRocket, HubSpot, Salesforce, lifts the coverage from ~15% to 100%, at which point every deal has a linkable journey.",
       caveats: [
         "A shared identifier across the four systems keeps this join exact as volume grows.",
       ],
     },
     askForMiddleby: {
-      text: "A shared identifier (email hash or account id) written into GA4, LogRocket, HubSpot, and Salesforce so records can be joined for real — today only ~15-20% of active deals have a matchable id across all four systems.",
+      text: "A shared identifier (email hash or account id) written into GA4, LogRocket, HubSpot, and Salesforce so records can be joined for real, today only ~15-20% of active deals have a matchable id across all four systems.",
       sectionId: "customer-journey",
     },
   },
@@ -118,7 +118,7 @@ const META = {
       { id: "middleby-ns-01", label: "Pipeline recoverable if we fix the top 3" },
     ],
     reasoning: {
-      summary: "UX bugs are quote leaks with a screen recording. We rank LogRocket issues by how many sessions they touch this window, filter to sessions that also had cart or RFQ intent, then multiply high-intent affected sessions by the per-brand average deal size — turning 'rage-clicks' into 'pipeline at risk'.",
+      summary: "UX bugs are quote leaks with a screen recording. We rank LogRocket issues by how many sessions they touch this window, filter to sessions that also had cart or RFQ intent, then multiply high-intent affected sessions by the per-brand average deal size, turning 'rage-clicks' into 'pipeline at risk'.",
       steps: [
         "Loaded LogRocket issues tagged this window with rage-clicks, dead-clicks, or JS errors.",
         "For each issue, counted unique sessions affected and the high-intent subset.",
@@ -126,13 +126,13 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Session and error counts are exact — pulled straight from LogRocket. The dollar-at-risk column is a chain of three estimates:\n\n" +
+        "Session and error counts are exact, pulled straight from LogRocket. The dollar-at-risk column is a chain of three estimates:\n\n" +
         "1. Which sessions counted as 'high intent': a threshold rule (session behavior score ≥ 70 OR reached the cart / RFQ form).\n" +
         "2. Whether those sessions would have converted: assumed at portfolio-average conversion for the affected pool.\n" +
         "3. What deal size they'd have carried: an implicit ~$3.4K per quote (portfolio average across won HubSpot deals in the current window).\n\n" +
-        "Any single link could be off 20-30% — enough to prioritize fixes, not enough to underwrite a budget.",
+        "Any single link could be off 20-30%, enough to prioritize fixes, not enough to underwrite a budget.",
       caveats: [
-        "The top issue this window — 'unresponsive Add-to-Quote on iOS Safari' — sits exactly at the biggest RFQ funnel drop-off, so the correlation is likely causal, not coincidence.",
+        "The top issue this window, 'unresponsive Add-to-Quote on iOS Safari', sits exactly at the biggest RFQ funnel drop-off, so the correlation is likely causal, not coincidence.",
       ],
     },
     askForMiddleby: {
@@ -154,7 +154,7 @@ const META = {
         "Two specific rules baked into the math:\n" +
         "• Change-detection threshold: only surface moves greater than 5% versus the prior 7-day and 30-day windows (below that is treated as noise).\n" +
         "• Attribution rule: pick the single most-likely driver from the RFQ funnel + UX layers for each surviving move; when two drivers plausibly explain the same shift, both are shown.\n\n" +
-        "Confidence is Medium because attribution is directional — a driver line is the most likely contributor, not a causal proof.",
+        "Confidence is Medium because attribution is directional, a driver line is the most likely contributor, not a causal proof.",
     },
     askForMiddleby: {
       text: "A single weekly-refreshed view combining GA4, HubSpot, LogRocket, and Salesforce keeps this brief current automatically. Add a target-vs-actual field per KPI in HubSpot so 'up' versus 'up but behind plan' is distinguishable at a glance.",
@@ -168,7 +168,7 @@ const META = {
       { id: "middleby-uc-04", label: "Dealer follow-up on quotes that reach submit" },
     ],
     reasoning: {
-      summary: "A funnel counts moves; a journey shows the sequence. This view walks the seven browse-to-quote steps a Pitco fryer buyer typically takes — from landing to Add-to-Quote to submitted deal — so dealer and merchandising teams see the drop-off moments as a story, not a percentage.",
+      summary: "A funnel counts moves; a journey shows the sequence. This view walks the seven browse-to-quote steps a Pitco fryer buyer typically takes, from landing to Add-to-Quote to submitted deal, so dealer and merchandising teams see the drop-off moments as a story, not a percentage.",
       steps: [
         "Sampled GA4 sessions that hit any Pitco fryer page in the selected window.",
         "Ordered their browse events into the seven canonical journey steps.",
@@ -176,13 +176,13 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "The seven-step journey uses direct GA4 event counts joined to HubSpot deal creation for the same window — every stage count is a measurement, not a projection. The one caveat: the journey is anchored to a specific product family (Pitco fryers) so the shape is generalizable to other brands but the drop-off ratios vary by product line.",
+        "The seven-step journey uses direct GA4 event counts joined to HubSpot deal creation for the same window, every stage count is a measurement, not a projection. The one caveat: the journey is anchored to a specific product family (Pitco fryers) so the shape is generalizable to other brands but the drop-off ratios vary by product line.",
       caveats: [
         "The path is anchored to one product family (Pitco fryers) so the counts stay comparable. The shape of the journey holds across most Middleby brands, but the drop-off ratios vary.",
       ],
     },
     askForMiddleby: {
-      text: "A shared session identifier across GA4, LogRocket, HubSpot, and Salesforce lets this follow a single named customer end to end — not just the aggregate path.",
+      text: "A shared session identifier across GA4, LogRocket, HubSpot, and Salesforce lets this follow a single named customer end to end, not just the aggregate path.",
       sectionId: "customer-journey",
     },
   },
@@ -194,7 +194,7 @@ const META = {
       { id: "middleby-ns-04", label: "What this move implies for next quarter's pipeline" },
     ],
     reasoning: {
-      summary: "An executive doesn't want a dashboard; they want the two or three moves that matter and the reason each moved. This view diffs traffic, errors, quotes, and pipeline against the prior window, keeps only the moves above the noise floor, and attaches a one-line driver from the funnel or UX layer — so a Monday briefing is a paragraph, not a review meeting.",
+      summary: "An executive doesn't want a dashboard; they want the two or three moves that matter and the reason each moved. This view diffs traffic, errors, quotes, and pipeline against the prior window, keeps only the moves above the noise floor, and attaches a one-line driver from the funnel or UX layer, so a Monday briefing is a paragraph, not a review meeting.",
       steps: [
         "Pulled weekly GA4, LogRocket, HubSpot, and Salesforce metrics for the current window.",
         "Diffed each against the prior window and dropped anything below a 5% change.",
@@ -202,9 +202,9 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "The base metrics (traffic, RFQs, conversion, pipeline) are direct source-of-truth pulls from GA4, HubSpot, LogRocket, and Salesforce. Change detection uses a 5% noise floor so we only surface real moves. The one soft edge is driver attribution — we pick the most-likely contributor for each move, but when two drivers plausibly explain the same shift the panel calls out both.",
+        "The base metrics (traffic, RFQs, conversion, pipeline) are direct source-of-truth pulls from GA4, HubSpot, LogRocket, and Salesforce. Change detection uses a 5% noise floor so we only surface real moves. The one soft edge is driver attribution, we pick the most-likely contributor for each move, but when two drivers plausibly explain the same shift the panel calls out both.",
       caveats: [
-        "Attribution is directional — a driver line is the most likely contributor, not a causal proof. When two drivers plausibly explain the same move, we surface both.",
+        "Attribution is directional: a driver line is the most likely contributor, not a causal proof. When two drivers plausibly explain the same move, we surface both.",
       ],
     },
     askForMiddleby: {
@@ -231,14 +231,14 @@ const META = {
         "The list of open UX issues and brand gaps is exact (LogRocket + HubSpot). Each fix's dollar value is then built from two estimates:\n\n" +
         "1. How many quotes it currently blocks: same 'high-intent' threshold as the UX Insights card (session behavior score ≥ 70 OR reached the cart / RFQ form).\n" +
         "2. What those quotes would be worth: the current portfolio-average deal size of ~$3.4K per quote (rolled from won HubSpot deals in the window).\n\n" +
-        "Both estimates carry the same uncertainty as UX Insights (Medium confidence). Individual dollar figures could be off by 20-30%. But because every fix uses the same math, they shift together — so the ranking (which fix to work on first) stays reliable even if the exact dollars are approximate. Use this list to decide what to fix first, not to commit to a specific dollar target.",
+        "Both estimates carry the same uncertainty as UX Insights (Medium confidence). Individual dollar figures could be off by 20-30%. But because every fix uses the same math, they shift together, so the ranking (which fix to work on first) stays reliable even if the exact dollars are approximate. Use this list to decide what to fix first, not to commit to a specific dollar target.",
       caveats: ["Effort ratings are directional and should be confirmed with engineering."],
     },
     askForMiddleby: {
       text:
         "Three specific things move this view from directional to production-grade:\n\n" +
         "1. A per-brand average deal size feed from HubSpot. Today we use a portfolio-wide average, which under-weights the recovery estimate for high-ticket brands (TurboChef, Blodgett) and over-weights it for low-ticket ones (Globe, Star).\n\n" +
-        "2. A stable session-id join between LogRocket and GA4. This replaces the 'high-intent threshold rule' we use today with an exact count of affected buyers who actually reached the RFQ funnel — removing the 20-30% estimation uncertainty behind the current confidence rating.\n\n" +
+        "2. A stable session-id join between LogRocket and GA4. This replaces the 'high-intent threshold rule' we use today with an exact count of affected buyers who actually reached the RFQ funnel, removing the 20-30% estimation uncertainty behind the current confidence rating.\n\n" +
         "3. Post-fix outcome tracking in HubSpot for the last 3-6 fixes shipped: did pipeline recover as estimated? That would let us calibrate the multiplier from anecdotal (roughly a percentage-point per fix) to statistical, moving the confidence rating from Medium to High.\n\n" +
         "Also useful (nice-to-have): engineering-confirmed effort ratings per fix, so the ROI ranking reflects actual sprint cost.",
       sectionId: "rfq-funnel",
@@ -260,7 +260,7 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "Account scoring uses direct signals — HubSpot deal age, GA4 recent intent activity, Salesforce opportunity state, LogRocket issue exposure. Each signal is a measurement. The one modeling choice is the weighting between them; we use a 0-100 blend that overweights recency and stalled-deal age, which sales-ops teams typically prefer.",
+        "Account scoring uses direct signals. HubSpot deal age, GA4 recent intent activity, Salesforce opportunity state, LogRocket issue exposure. Each signal is a measurement. The one modeling choice is the weighting between them; we use a 0-100 blend that overweights recency and stalled-deal age, which sales-ops teams typically prefer.",
     },
     askForMiddleby: {
       text: "A shared account identifier across GA4, HubSpot, and Salesforce keeps this worklist exact.",
@@ -283,7 +283,7 @@ const META = {
       ],
       confidence: "high",
       confidenceReason:
-        "Weekly session and quote counts per brand are direct pulls. The momentum index compares this window to a trailing 4-window average — a standard rolling baseline, no estimation. What's directional is calling a small move 'momentum': with low-volume brands (under 200 sessions/week) even normal variance can flag noise as signal, so the small brands sit lower on the list intentionally.",
+        "Weekly session and quote counts per brand are direct pulls. The momentum index compares this window to a trailing 4-window average, a standard rolling baseline, no estimation. What's directional is calling a small move 'momentum': with low-volume brands (under 200 sessions/week) even normal variance can flag noise as signal, so the small brands sit lower on the list intentionally.",
     },
     askForMiddleby: {
       text: "A consistent weekly GA and HubSpot brand feed keeps momentum current.",
@@ -310,7 +310,7 @@ const META = {
         "The forward projection uses two specific values baked into the math:\n" +
         "• Baseline cart→RFQ conversion rate: 15.6% (the current rolling rate across all brands).\n" +
         "• Average deal size per submitted quote: $3,582 (portfolio-wide average across won HubSpot opportunities).\n\n" +
-        "The projection itself is a linear trend fit — it ignores seasonality and any deliberate campaign timing. The +5-point and +10-point scenarios apply an even lift across all brands; in practice a UX fix helps some brands more than others, so the scenario dollars are directional, not distributional.",
+        "The projection itself is a linear trend fit, it ignores seasonality and any deliberate campaign timing. The +5-point and +10-point scenarios apply an even lift across all brands; in practice a UX fix helps some brands more than others, so the scenario dollars are directional, not distributional.",
       caveats: ["The projection is a trend fit and is directional, not a commitment."],
     },
     askForMiddleby: {
@@ -328,7 +328,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Sessions and quote counts are direct pulls from GA4 (by channel + device) and HubSpot (deals for the same window). No thresholds or dollar-value estimation are applied. Confidence is Medium because GA4 device categorization (desktop/mobile/tablet) sometimes mis-labels tablets as mobile — a well-known GA4 limitation. A ~5-10% shift in the mobile row would resolve if the device-type feed is upgraded.",
+        "Sessions and quote counts are direct pulls from GA4 (by channel + device) and HubSpot (deals for the same window). No thresholds or dollar-value estimation are applied. Confidence is Medium because GA4 device categorization (desktop/mobile/tablet) sometimes mis-labels tablets as mobile, a well-known GA4 limitation. A ~5-10% shift in the mobile row would resolve if the device-type feed is upgraded.",
       caveats: ["Device mix is sample-aligned for the demo week."],
     },
     askForMiddleby: {
@@ -346,12 +346,12 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Closed-won and closed-lost counts are direct HubSpot deal-stage tallies — exact for the window. The closed-won rate (% of total closed opportunities) is arithmetic, not estimation.\n\n" +
+        "Closed-won and closed-lost counts are direct HubSpot deal-stage tallies, exact for the window. The closed-won rate (% of total closed opportunities) is arithmetic, not estimation.\n\n" +
         "Confidence is Medium because the lost-reason breakdown depends on the HubSpot 'lost reason' picklist being filled in consistently. Today roughly 10-15% of closed-lost deals in the sample don't have a lost reason set, so 'Price' and 'Competitor' are likely slightly under-counted. Making the field required at close moves this to High.",
       caveats: ["Lost reasons depend on consistent HubSpot field usage."],
     },
     askForMiddleby: {
-      text: "Required lost-reason picklists on closed-lost deals improve this view — currently ~10-15% of closed-lost deals in the sample don't have a lost reason populated, so 'Price' and 'Competitor' shares are slightly understated.",
+      text: "Required lost-reason picklists on closed-lost deals improve this view, currently ~10-15% of closed-lost deals in the sample don't have a lost reason populated, so 'Price' and 'Competitor' shares are slightly understated.",
       sectionId: "platform-performance",
     },
   },
@@ -365,7 +365,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Chat thread counts by intent are direct HubSpot Chat pulls. Conversion percent is arithmetic (converted_to_quote / inquiries) — no thresholds applied.\n\n" +
+        "Chat thread counts by intent are direct HubSpot Chat pulls. Conversion percent is arithmetic (converted_to_quote / inquiries), no thresholds applied.\n\n" +
         "Confidence is Medium because 'chat intent' is currently inferred from the opening message pattern (buy-intent keywords like 'buy now', 'available for purchase'). It works cleanly for the 4 named intents, but ~5% of chats sit in an 'ambiguous' bucket that's excluded from the table. A HubSpot intent-tagging convention (agent tags each thread) removes the ambiguity and moves this to High.",
     },
     askForMiddleby: {
@@ -384,10 +384,10 @@ const META = {
       confidence: "example",
       confidenceReason:
         "This card uses example numbers to show the shape of the answer. The guided-shopping tools (Fryer selector, Oven configurator, Ice-machine finder, Brand comparison guide) don't currently emit LogRocket events on start/complete/submit, so we have no source data to pull.\n\n" +
-        "To move from 'example' to Medium, add three custom LogRocket events per tool: tool_start, tool_complete, tool_submitted_quote. Once instrumented, this becomes a direct funnel count — no thresholds, no dollar estimation — and jumps straight to High confidence.",
+        "To move from 'example' to Medium, add three custom LogRocket events per tool: tool_start, tool_complete, tool_submitted_quote. Once instrumented, this becomes a direct funnel count, no thresholds, no dollar estimation, and jumps straight to High confidence.",
     },
     askForMiddleby: {
-      text: "Add three custom LogRocket events per guided tool: tool_start, tool_complete, tool_submitted_quote. Once instrumented, this becomes a direct funnel count and jumps to High confidence — the current example numbers become real numbers.",
+      text: "Add three custom LogRocket events per guided tool: tool_start, tool_complete, tool_submitted_quote. Once instrumented, this becomes a direct funnel count and jumps to High confidence, the current example numbers become real numbers.",
       sectionId: "user-behavior",
     },
   },
@@ -401,11 +401,11 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "All three metrics — bounce rate, pages per session, average session duration — are direct GA4 landing-page counts for the selected window.\n\n" +
+        "All three metrics: bounce rate, pages per session, average session duration, are direct GA4 landing-page counts for the selected window.\n\n" +
         "Confidence is Medium because 'bounce' in GA4 uses the engaged-session model: a session is a bounce if it lasts under 10 seconds AND has no conversion event AND fewer than 2 pageviews. That's a threshold rule from GA4, not one we set. It's stricter than the old GA (single-pageview) model but slightly looser than what most Middleby stakeholders imagine. Explaining the definition alongside the number moves it to High.",
     },
     askForMiddleby: {
-      text: "A weekly GA4 landing-page export keeps bounce and engagement current. Also useful: alignment on Middleby's preferred bounce definition (GA4 engaged-session model vs single-pageview) — the current values follow the GA4 default.",
+      text: "A weekly GA4 landing-page export keeps bounce and engagement current. Also useful: alignment on Middleby's preferred bounce definition (GA4 engaged-session model vs single-pageview), the current values follow the GA4 default.",
       sectionId: "user-behavior",
     },
   },
@@ -419,17 +419,17 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Closed-won deal counts per brand are exact HubSpot pulls. PO coverage percent is arithmetic (po_reference_set / closed_won) — no thresholds or dollar estimation applied.\n\n" +
+        "Closed-won deal counts per brand are exact HubSpot pulls. PO coverage percent is arithmetic (po_reference_set / closed_won), no thresholds or dollar estimation applied.\n\n" +
         "Confidence is Medium because the PO-reference field is optional at close today, so the coverage percent reflects both actual data hygiene AND administrative discipline (a rep who forgets to fill the field looks the same as a deal that genuinely has no PO). Making the field required at close removes the ambiguity and moves this to High.",
     },
     askForMiddleby: {
-      text: "Making the PO-reference field required before HubSpot deal stage moves to 'Closed-Won' would remove the ambiguity between 'no PO exists' and 'rep forgot to fill it in' — moving this KPI from Medium to High confidence.",
+      text: "Making the PO-reference field required before HubSpot deal stage moves to 'Closed-Won' would remove the ambiguity between 'no PO exists' and 'rep forgot to fill it in', moving this KPI from Medium to High confidence.",
       sectionId: "platform-performance",
     },
   },
   "middleby-kpi-07": {
     seeNext: [
-      { id: "middleby-kpi-12", label: "Which brand wins where — brand × territory drill" },
+      { id: "middleby-kpi-12", label: "Which brand wins where, brand × territory drill" },
       { id: "middleby-kpi-11", label: "State-level quote volume" },
       { id: "middleby-kpi-02", label: "Closed-won rate + lost reasons" },
     ],
@@ -442,10 +442,10 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Quote counts per territory are direct HubSpot pulls. Closed-won rate per territory is arithmetic (closed_won / total_closed) — no thresholds applied.\n\n" +
+        "Quote counts per territory are direct HubSpot pulls. Closed-won rate per territory is arithmetic (closed_won / total_closed), no thresholds applied.\n\n" +
         "Confidence is Medium because 'territory' is derived from the HubSpot deal-owner field today, mapped via a lookup to the sales-region hierarchy. Deals with an unassigned owner (~3-5% of the sample) fall into 'Unknown' and are excluded from the ranking. A canonical territory field on the deal record itself removes the derivation and moves this to High.",
       caveats: [
-        "Territory mapping follows HubSpot owner / region fields in the sample. Use the Brand × Territory drill for the level-2 view (which brand wins in which territory) — it's the natural follow-up when a territory looks strong or weak overall.",
+        "Territory mapping follows HubSpot owner / region fields in the sample. Use the Brand × Territory drill for the level-2 view (which brand wins in which territory), it's the natural follow-up when a territory looks strong or weak overall.",
       ],
     },
     askForMiddleby: {
@@ -463,7 +463,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Quote counts per segment are direct HubSpot pulls. Win rate per segment is arithmetic (closed_won / total_closed) — no thresholds or dollar estimation applied.\n\n" +
+        "Quote counts per segment are direct HubSpot pulls. Win rate per segment is arithmetic (closed_won / total_closed), no thresholds or dollar estimation applied.\n\n" +
         "Confidence is Medium because 'customer segment' is a HubSpot company property (Restaurant / QSR, Hotel, Institutional, etc.), and today ~7% of companies in the sample sit in 'Other / Unclassified'. That bucket dilutes both the volume and win-rate numbers for the named segments. Standardizing the picklist and routing new companies into the 6 canonical buckets moves this to High.",
     },
     askForMiddleby: {
@@ -499,7 +499,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Quote counts per L1 category are direct HubSpot rollups from deal line items. Share percent is arithmetic — no thresholds or dollar estimation applied.\n\n" +
+        "Quote counts per L1 category are direct HubSpot rollups from deal line items. Share percent is arithmetic, no thresholds or dollar estimation applied.\n\n" +
         "Confidence is Medium because category tagging on line items depends on the shop-taxonomy mapping being current. Deals with unclassified line items (~2-4% of the sample) fall into 'Other' and are excluded from the ranking. A canonical L1 category field on the deal record itself (rather than derived line-by-line) would move this to High.",
     },
     askForMiddleby: {
@@ -517,7 +517,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Quote counts per state are direct HubSpot pulls (shipping-state postal code on the deal). Closed-won rate per state is arithmetic — no thresholds or dollar estimation applied.\n\n" +
+        "Quote counts per state are direct HubSpot pulls (shipping-state postal code on the deal). Closed-won rate per state is arithmetic, no thresholds or dollar estimation applied.\n\n" +
         "Confidence is Medium because deals with a missing shipping-state (~3-5% of the sample) are excluded from the state map and rolled into 'Unknown' at the territory level. Making shipping-state required on new deals moves this to High.",
     },
     askForMiddleby: {
@@ -535,8 +535,8 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Counts per brand-territory cell are direct HubSpot pulls — no thresholds or dollar estimation applied. Share-of-territory and closed-won rate are arithmetic.\n\n" +
-        "Confidence is Medium because the cross-cut is only as clean as the two source tags: HubSpot brand tag AND HubSpot territory field. Both have known gaps today: inconsistent brand tagging on Globe / Star (see the brand-gap view) and 3-5% of deals with unassigned territory (see the territory view). A brand-territory cell that looks weak may be under-counted rather than genuinely weak — pair with the brand-gap view before drawing conclusions.",
+        "Counts per brand-territory cell are direct HubSpot pulls, no thresholds or dollar estimation applied. Share-of-territory and closed-won rate are arithmetic.\n\n" +
+        "Confidence is Medium because the cross-cut is only as clean as the two source tags: HubSpot brand tag AND HubSpot territory field. Both have known gaps today: inconsistent brand tagging on Globe / Star (see the brand-gap view) and 3-5% of deals with unassigned territory (see the territory view). A brand-territory cell that looks weak may be under-counted rather than genuinely weak, pair with the brand-gap view before drawing conclusions.",
     },
     askForMiddleby: {
       text: "This cross-cut depends on two source tags being clean: HubSpot brand tag AND HubSpot territory field. Both have known gaps today (see the brand-gap and territory KPI cards for specifics). Fixing those two upstream cleans this view automatically.",
@@ -545,7 +545,7 @@ const META = {
   },
   "middleby-kpi-13": {
     reasoning: {
-      summary: "We cross-cut quote volume by HubSpot customer segment against L1 product category, so category teams can see which segments over-index on which categories — a cross-sell targeting map.",
+      summary: "We cross-cut quote volume by HubSpot customer segment against L1 product category, so category teams can see which segments over-index on which categories, a cross-sell targeting map.",
       steps: [
         "Joined HubSpot deals on customer segment (company property) AND L1 category (from line items).",
         "Counted quotes per segment-category cell and computed each cell's share of its segment.",
@@ -553,7 +553,7 @@ const META = {
       ],
       confidence: "medium",
       confidenceReason:
-        "Counts per segment-category cell are direct HubSpot rollups. Share-of-segment percent is arithmetic — no thresholds or dollar estimation applied.\n\n" +
+        "Counts per segment-category cell are direct HubSpot rollups. Share-of-segment percent is arithmetic, no thresholds or dollar estimation applied.\n\n" +
         "Confidence is Medium because both source dimensions have known gaps today: ~7% of companies fall into 'Other / Unclassified' segment (see Quotes by Customer Segment), and ~2-4% of deals have unclassified line-item categories (see Quotes by Product Category). Both are excluded from this cross-cut, so under-counted cells are directional, not exact. Cleaning either source upstream cleans this view.",
     },
     askForMiddleby: {
@@ -568,22 +568,22 @@ const META = {
       { id: "middleby-uc-19", label: "SKUs with traffic but no quotes" },
     ],
     reasoning: {
-      summary: "Site search is a demand-signal channel — a query that hits zero results is a buyer telling you what your catalog is missing. This view ranks searches by volume, flags the ones that fail most often, and maps each to the L1 category that should have satisfied it so merchandising has a specific fix, not just a 'search is broken' feeling.",
+      summary: "Site search is a demand-signal channel, a query that hits zero results is a buyer telling you what your catalog is missing. This view ranks searches by volume, flags the ones that fail most often, and maps each to the L1 category that should have satisfied it so merchandising has a specific fix, not just a 'search is broken' feeling.",
       steps: [
         "Loaded the top site-search terms by volume from the Adobe search log for the selected window.",
         "Ranked by zero-result rate and by the count of lost searches (volume × zero-result rate).",
         "Tagged each term with the L1 catalog category (or a non-product bucket like Support or Dealer) it should route to.",
-        "Attached a concrete resolution — index existing SKUs, add a landing page, or redirect to a partner marketplace — so the fix is actionable per row.",
+        "Attached a concrete resolution, index existing SKUs, add a landing page, or redirect to a partner marketplace, so the fix is actionable per row.",
       ],
       confidence: "medium",
       confidenceReason:
-        "Search volume and zero-result rate are direct Adobe Site Search log counts for the window — no thresholds, no estimation.\n\n" +
+        "Search volume and zero-result rate are direct Adobe Site Search log counts for the window, no thresholds, no estimation.\n\n" +
         "Two specific rules baked into the ranking:\n" +
         "• Lost-searches score: volume × zero-result rate (so a term with 610 searches and 73% zero-result ranks ahead of one with 200 searches and 90% zero-result).\n" +
         "• Suggested-category tag: a manual mapping today (search term → L1 catalog category or a non-product bucket like 'Support' or 'Dealer / Refurbished').\n\n" +
-        "Confidence is Medium because the suggested-category mapping is domain-authored, not machine-learned — it works cleanly for the top ~20 search terms but the long tail will need a fuzzy-match rule or a manual review pass as new zero-result queries appear.",
+        "Confidence is Medium because the suggested-category mapping is domain-authored, not machine-learned, it works cleanly for the top ~20 search terms but the long tail will need a fuzzy-match rule or a manual review pass as new zero-result queries appear.",
       caveats: [
-        "The two biggest catalog gaps in this window are 'ice machine parts' (73% zero-result, 610 searches) and 'used equipment' (88% zero-result, 430 searches). Both point at content types Middleby doesn't stock centrally today — the resolutions route to dealer parts pages or a refurbished marketplace rather than net-new SKUs.",
+        "The two biggest catalog gaps in this window are 'ice machine parts' (73% zero-result, 610 searches) and 'used equipment' (88% zero-result, 430 searches). Both point at content types Middleby doesn't stock centrally today, the resolutions route to dealer parts pages or a refurbished marketplace rather than net-new SKUs.",
       ],
     },
     askForMiddleby: {
@@ -612,7 +612,7 @@ const AUTO_META = {
       ],
       confidence: "medium",
       confidenceReason: "Category demand and session counts are direct pulls. Conversion-gap ranking uses a portfolio-average benchmark that may be tuned once Middleby confirms category-level conversion baselines.",
-      caveats: ["The 'demand index' is a normalized composite of sessions and dwell — treat as directional, not absolute."],
+      caveats: ["The 'demand index' is a normalized composite of sessions and dwell, treat as directional, not absolute."],
     },
     askForMiddleby: { text: "A recurring GA4-to-HubSpot join at L1 category level and a stable per-category conversion baseline lift this from directional to production-grade.", sectionId: "category-demand" },
   },
@@ -633,7 +633,7 @@ const AUTO_META = {
   },
   "middleby-uc-06": {
     reasoning: {
-      summary: "Some dealer regions are systematically leaking pipeline — either through slow rep follow-up, coverage gaps, or spam / test deals that pollute the counts. We aggregate HubSpot outcomes by rep-group and dealer region to expose where opportunity is being lost.",
+      summary: "Some dealer regions are systematically leaking pipeline, either through slow rep follow-up, coverage gaps, or spam / test deals that pollute the counts. We aggregate HubSpot outcomes by rep-group and dealer region to expose where opportunity is being lost.",
       steps: [
         "Aggregated open, won, and lost HubSpot deals by rep-group and dealer region for the last 90 days.",
         "Filtered spam and test deals per the HubSpot dealer-hygiene rules.",
@@ -642,13 +642,13 @@ const AUTO_META = {
       ],
       confidence: "medium",
       confidenceReason: "Deal counts are direct HubSpot pulls. The 'unactioned' definition uses a rule-based threshold (>7 days without rep touch) that Middleby can tune.",
-      caveats: ["Spam-filter rules are conservative; a small volume of legitimate first-contact deals may be excluded — review filter thresholds periodically."],
+      caveats: ["Spam-filter rules are conservative; a small volume of legitimate first-contact deals may be excluded, review filter thresholds periodically."],
     },
     askForMiddleby: { text: "A rep-touch SLA field on every HubSpot deal, plus a shared list of spam-source domains, tightens the leakage numbers to production-grade.", sectionId: "dealer-performance" },
   },
   "middleby-uc-09": {
     reasoning: {
-      summary: "Not every quote is 0-1 month buy-ready — mixing all quotes together hides what sales capacity is actually needed. We take the HubSpot quote-form timeframe field and split submitted quotes into buy-now vs long-horizon vs consultation-required to reveal the true intent mix.",
+      summary: "Not every quote is 0-1 month buy-ready, mixing all quotes together hides what sales capacity is actually needed. We take the HubSpot quote-form timeframe field and split submitted quotes into buy-now vs long-horizon vs consultation-required to reveal the true intent mix.",
       steps: [
         "Loaded submitted HubSpot quotes with purchase-timeframe and consultation-request fields for the last 60 days.",
         "Bucketed quotes by timeframe: 0-1 month, 2-3 months, 4-12 months, and 12+ months.",
@@ -663,7 +663,7 @@ const AUTO_META = {
   },
   "middleby-uc-10": {
     reasoning: {
-      summary: "Consultation requests are premium leads — the buyer has signaled they want a person, not just a quote. This view compares consultation=yes vs consultation=no cohorts on follow-up time, conversion, and deal size to test whether Middleby's consultation service is actually paying off.",
+      summary: "Consultation requests are premium leads, the buyer has signaled they want a person, not just a quote. This view compares consultation=yes vs consultation=no cohorts on follow-up time, conversion, and deal size to test whether Middleby's consultation service is actually paying off.",
       steps: [
         "Split HubSpot deals by consultation flag over the last 90 days.",
         "Computed hours-to-first-rep-touch, conversion rate, and average deal size for each cohort.",
@@ -671,14 +671,14 @@ const AUTO_META = {
         "Attributed conversion-lift dollars to consultation and ranked the strongest and weakest performing brands within it.",
       ],
       confidence: "medium",
-      confidenceReason: "Cohort counts and conversion rates are exact HubSpot pulls. The consultation-lift attribution assumes brand-and-region control — a formal A/B test would tighten causal claim.",
-      caveats: ["Consultation quality varies by dealer — some reps convert consultations at 60%, others at 10%; the average understates the best-case."],
+      confidenceReason: "Cohort counts and conversion rates are exact HubSpot pulls. The consultation-lift attribution assumes brand-and-region control, a formal A/B test would tighten causal claim.",
+      caveats: ["Consultation quality varies by dealer, some reps convert consultations at 60%, others at 10%; the average understates the best-case."],
     },
     askForMiddleby: { text: "A structured post-consultation feedback capture (fit, urgency, action taken) turns this view into a coaching tool, not just a dashboard.", sectionId: "consultation-pipeline" },
   },
   "middleby-uc-11": {
     reasoning: {
-      summary: "A repeat buyer costs 5x less to convert than a new one. Middleby doesn't yet have a prior-brand-buyer flag in HubSpot, so we derive it by joining contact history with deal-line brand tags — then compare repeat vs first-time cohorts on quote frequency and deal size.",
+      summary: "A repeat buyer costs 5x less to convert than a new one. Middleby doesn't yet have a prior-brand-buyer flag in HubSpot, so we derive it by joining contact history with deal-line brand tags, then compare repeat vs first-time cohorts on quote frequency and deal size.",
       steps: [
         "Pulled HubSpot contacts with their historical deal-line brand tags.",
         "Derived a repeat-brand-buyer flag: contact has a prior submitted deal for the same brand in the last 18 months.",
@@ -687,7 +687,7 @@ const AUTO_META = {
       ],
       confidence: "medium",
       confidenceReason: "The repeat-buyer derivation depends on stable contact-id joins across deals. Deal-line brand tagging inconsistencies (see uc-18) may misclassify a small share of repeats.",
-      caveats: ["The derivation is a demo approximation — the direct 'prior brand' field, if captured on RFQ, would remove ambiguity."],
+      caveats: ["The derivation is a demo approximation, the direct 'prior brand' field, if captured on RFQ, would remove ambiguity."],
     },
     askForMiddleby: { text: "A dedicated 'prior brand purchased' or 'existing customer' field on the RFQ form, plus stable contact-id-to-deal mapping, sharpens repeat vs new segmentation from directional to definitive.", sectionId: "repeat-buyer" },
   },
@@ -702,7 +702,7 @@ const AUTO_META = {
       ],
       confidence: "high",
       confidenceReason: "Deal geography and preference fields are direct HubSpot pulls. Regional capacity data is provided by the ops team on a defined cadence.",
-      caveats: ["A small share of deals have unpopulated preference fields — they're excluded from the split view but included in the overall regional count."],
+      caveats: ["A small share of deals have unpopulated preference fields, they're excluded from the split view but included in the overall regional count."],
     },
     askForMiddleby: { text: "A required install-vs-delivery preference at RFQ submission and a real-time install-partner capacity feed keep this view current for capacity planning.", sectionId: "region-preferences" },
   },
@@ -717,7 +717,7 @@ const AUTO_META = {
       ],
       confidence: "high",
       confidenceReason: "Deal, brand, region, and stage are direct HubSpot fields. Stall detection uses stage-duration expectations that Middleby has defined for each stage.",
-      caveats: ["Expected stage durations are Middleby's operating norm today — a data-driven refit against 12 months of actuals would sharpen the stall threshold."],
+      caveats: ["Expected stage durations are Middleby's operating norm today, a data-driven refit against 12 months of actuals would sharpen the stall threshold."],
     },
     askForMiddleby: { text: "A HubSpot pipeline data model where every deal is tagged with brand + region + expected-stage-duration, plus quarterly refit of stage-duration norms, keeps this heatmap trustworthy.", sectionId: "pipeline-heatmap" },
   },
@@ -731,8 +731,8 @@ const AUTO_META = {
         "Ranked channels by quality-adjusted pipeline value (quality × conversion × volume).",
       ],
       confidence: "medium",
-      confidenceReason: "Session and engagement metrics are direct GA4 pulls. Channel-to-quote attribution uses GA4's default last-non-direct model — a first-touch or multi-touch model would tell a different story for some brands.",
-      caveats: ["Direct traffic is over-represented in this default view — a channel-tagging discipline sweep would reduce that."],
+      confidenceReason: "Session and engagement metrics are direct GA4 pulls. Channel-to-quote attribution uses GA4's default last-non-direct model, a first-touch or multi-touch model would tell a different story for some brands.",
+      caveats: ["Direct traffic is over-represented in this default view, a channel-tagging discipline sweep would reduce that."],
     },
     askForMiddleby: { text: "Consistent UTM tagging on every campaign plus a multi-touch attribution feed lifts this view from single-touch to full-journey.", sectionId: "marketing-channels" },
   },
@@ -746,8 +746,8 @@ const AUTO_META = {
         "Ranked brand pairs by co-visit frequency and by expected quote-attach opportunity.",
       ],
       confidence: "medium",
-      confidenceReason: "Session-brand joins are exact GA4 pulls. Quote-attach opportunity uses observed pair co-occurrence — the causal claim of cross-sell impact needs a proper test to confirm.",
-      caveats: ["Bot or crawler traffic can inflate multi-brand session counts — GA4 filters remove most but not all."],
+      confidenceReason: "Session-brand joins are exact GA4 pulls. Quote-attach opportunity uses observed pair co-occurrence, the causal claim of cross-sell impact needs a proper test to confirm.",
+      caveats: ["Bot or crawler traffic can inflate multi-brand session counts, GA4 filters remove most but not all."],
     },
     askForMiddleby: { text: "A stable session-id join between GA and HubSpot converts observed brand co-visits into confirmed multi-brand quotes, enabling causal cross-sell insight.", sectionId: "multi-brand" },
   },
@@ -761,14 +761,14 @@ const AUTO_META = {
         "Rendered the chart with data-caveat footnote and confidence indicator.",
       ],
       confidence: "medium",
-      confidenceReason: "The data pull is direct GA4. The NL-to-spec resolution uses a rule-based grammar today — a machine-learned version would handle broader prompt variety with the same safety guarantees.",
+      confidenceReason: "The data pull is direct GA4. The NL-to-spec resolution uses a rule-based grammar today, a machine-learned version would handle broader prompt variety with the same safety guarantees.",
       caveats: ["Only GA brand-session data is currently in scope for NL prompts; HubSpot and LogRocket prompts are on the roadmap."],
     },
     askForMiddleby: { text: "An expanded schema map covering HubSpot deal fields and LogRocket issue tags, plus a curated prompt library, extends this from GA-only to full-portfolio Q&A.", sectionId: "nl-prompt" },
   },
   "middleby-uc-19": {
     reasoning: {
-      summary: "Some products get heavy browse traffic but almost no quotes — a hidden signal that the catalog, PDP, or dealer coverage is failing them. We cross-reference per-SKU browse volume with quote counts to surface these outliers so merchandising can act on them.",
+      summary: "Some products get heavy browse traffic but almost no quotes, a hidden signal that the catalog, PDP, or dealer coverage is failing them. We cross-reference per-SKU browse volume with quote counts to surface these outliers so merchandising can act on them.",
       steps: [
         "Loaded per-SKU browse volume from GA product-detail-page views for the last 30 days.",
         "Joined HubSpot quote counts per SKU using deal-line SKU tags.",
@@ -777,13 +777,13 @@ const AUTO_META = {
       ],
       confidence: "medium",
       confidenceReason: "Browse counts are exact GA4 pulls. Quote-per-SKU joins depend on complete deal-line SKU tagging in HubSpot, which is inconsistent for some brands (see uc-18 caveats).",
-      caveats: ["SKUs without a stable HubSpot deal-line tag show as zero-quote outliers — a data-hygiene pass would reduce the false-positive rate."],
+      caveats: ["SKUs without a stable HubSpot deal-line tag show as zero-quote outliers, a data-hygiene pass would reduce the false-positive rate."],
     },
     askForMiddleby: { text: "Consistent SKU tagging on every HubSpot deal-line, plus a stable GA product-id feed, makes this catalog-gap view fully reliable.", sectionId: "catalog-gap" },
   },
   "middleby-uc-20": {
     reasoning: {
-      summary: "Any release can accidentally break the funnel. This view overlays site-error rates and quote counts on the deploy calendar, so regressions get caught within the same window they were introduced — not weeks later at a QBR.",
+      summary: "Any release can accidentally break the funnel. This view overlays site-error rates and quote counts on the deploy calendar, so regressions get caught within the same window they were introduced, not weeks later at a QBR.",
       steps: [
         "Loaded LogRocket error rates and GA session-level quote outcomes around each release deploy.",
         "Anchored the timeline to release markers from the deploy calendar.",
@@ -791,7 +791,7 @@ const AUTO_META = {
         "Ranked releases by aggregate error-and-quote-impact dollars and by rollback-vs-fix trade-off.",
       ],
       confidence: "high",
-      confidenceReason: "Deploy calendar dates and post-release error / quote counts are direct pulls. Correlation is time-window based, not causal — a proper canary or A/B rollout would tighten this to causation.",
+      confidenceReason: "Deploy calendar dates and post-release error / quote counts are direct pulls. Correlation is time-window based, not causal, a proper canary or A/B rollout would tighten this to causation.",
       caveats: ["A same-day-release + traffic-spike coincidence can look like a regression when it isn't; large moves should be confirmed with engineering."],
     },
     askForMiddleby: { text: "A release feature-flag registry plus canary-rollout capability turns this from correlation-detection into causal regression watch.", sectionId: "release-regression" },
@@ -807,7 +807,7 @@ const AUTO_META = {
       ],
       confidence: "medium",
       confidenceReason: "GA view counts are exact. Quote-per-page attribution uses page-to-deal joins that occasionally miss when a buyer browses multiple PDPs before quoting.",
-      caveats: ["Multi-page browsing before quoting is common — a session-level path model would attribute more accurately but wasn't scoped for this view."],
+      caveats: ["Multi-page browsing before quoting is common, a session-level path model would attribute more accurately but wasn't scoped for this view."],
     },
     askForMiddleby: { text: "A per-session multi-page attribution model plus consistent SKU tagging on each PDP move this from single-page attribution to full-path attribution.", sectionId: "pdp-effectiveness" },
   },
@@ -821,7 +821,7 @@ const AUTO_META = {
         "Ranked clusters by hidden-pipeline exposure and by activatability through re-marketing or content.",
       ],
       confidence: "medium",
-      confidenceReason: "Behavior features are exact GA4 pulls. Cluster-to-buyer-signature matching uses the same behavior score threshold as uc-01 — the assumption is that non-quoting sessions with buyer-like behavior are latent buyers, which requires proof through activation testing.",
+      confidenceReason: "Behavior features are exact GA4 pulls. Cluster-to-buyer-signature matching uses the same behavior score threshold as uc-01, the assumption is that non-quoting sessions with buyer-like behavior are latent buyers, which requires proof through activation testing.",
       caveats: ["Some high-behavior sessions may simply be researchers or competitors; a small share of the cluster is expected to be non-buyer traffic."],
     },
     askForMiddleby: { text: "A retargeting-consent flag on every session plus an outreach delivery capability activates this cluster from insight into pipeline.", sectionId: "hidden-intent" },
@@ -836,14 +836,14 @@ const AUTO_META = {
         "Ranked divergences by executive-narrative value.",
       ],
       confidence: "high",
-      confidenceReason: "All three source pulls are direct — no averaging. The attribution is directional, matching the confidence of uc-07.",
-      caveats: ["Cross-tool timing can differ by minutes — a same-hour granularity view is planned once the systems join fully."],
+      confidenceReason: "All three source pulls are direct, no averaging. The attribution is directional, matching the confidence of uc-07.",
+      caveats: ["Cross-tool timing can differ by minutes, a same-hour granularity view is planned once the systems join fully."],
     },
-    askForMiddleby: { text: "A shared session-and-deal identifier written into GA, LogRocket, and HubSpot lets Enterprise GPT reconcile the three tools automatically — no more manual stitching.", sectionId: "unified-analytics" },
+    askForMiddleby: { text: "A shared session-and-deal identifier written into GA, LogRocket, and HubSpot lets Enterprise GPT reconcile the three tools automatically, no more manual stitching.", sectionId: "unified-analytics" },
   },
   "middleby-uc-25": {
     reasoning: {
-      summary: "Buyers who quote one SKU often also quote a complementary one. Understanding which SKUs travel together — and at what attach rate — makes cross-sell surfaces smarter, and reveals where merchandising should preemptively bundle products.",
+      summary: "Buyers who quote one SKU often also quote a complementary one. Understanding which SKUs travel together, and at what attach rate, makes cross-sell surfaces smarter, and reveals where merchandising should preemptively bundle products.",
       steps: [
         "Loaded HubSpot RFQ carts containing more than one SKU line for the last 90 days.",
         "Computed co-quote frequency for every observed SKU pair.",
@@ -851,7 +851,7 @@ const AUTO_META = {
         "Ranked pairs by projected quote-attach lift if surfaced as a recommendation.",
       ],
       confidence: "medium",
-      confidenceReason: "SKU pair counts are exact. The 'lift if surfaced as a recommendation' is a modeling estimate based on standard e-commerce cross-sell response rates — a proper A/B test would confirm.",
+      confidenceReason: "SKU pair counts are exact. The 'lift if surfaced as a recommendation' is a modeling estimate based on standard e-commerce cross-sell response rates, a proper A/B test would confirm.",
       caveats: ["Very rare SKU pairs (< 20 co-quotes) are noisy and are filtered out of the ranked list."],
     },
     askForMiddleby: { text: "A dedicated cross-sell recommendation surface in the RFQ cart plus a controlled A/B test on the top-ranked pairs converts this from analysis into a live merchandising engine.", sectionId: "multi-product-quote" },
@@ -867,7 +867,7 @@ const AUTO_META = {
       ],
       confidence: "high",
       confidenceReason: "Cohort classification uses direct HubSpot fields (registered flag, sales-rep source, guest fallback). Journey metrics are exact pulls.",
-      caveats: ["Sales-rep-originated deals sometimes have upstream buyer research invisible in GA — the observed journey may understate actual engagement."],
+      caveats: ["Sales-rep-originated deals sometimes have upstream buyer research invisible in GA, the observed journey may understate actual engagement."],
     },
     askForMiddleby: { text: "A consistent sales-rep source flag on every HubSpot deal plus an upstream tracking hook for rep-assisted browsing tightens the cohort segmentation.", sectionId: "buyer-paths" },
   },
@@ -881,14 +881,14 @@ const AUTO_META = {
         "Ranked recommendations by expected attach-lift and by dealer-support confidence for the pairing.",
       ],
       confidence: "medium",
-      confidenceReason: "Candidate lookups use exact history data. Attach-lift is a modeling estimate — a proper cart-side A/B test would confirm and refine.",
+      confidenceReason: "Candidate lookups use exact history data. Attach-lift is a modeling estimate, a proper cart-side A/B test would confirm and refine.",
       caveats: ["First-time SKU-pair recommendations lack co-quote history; taxonomy adjacency is used as a fallback with lower confidence."],
     },
     askForMiddleby: { text: "A cart-side recommendation surface capable of A/B testing pair-vs-single recommendations converts this from analysis into revenue.", sectionId: "cross-sell-cart" },
   },
   "middleby-ex-01": {
     reasoning: {
-      summary: "When RFQ conversion drops, the question is always 'why now, and where in the funnel'. This view decomposes the decline across the last 3 months to attribute it to specific funnel steps, brands, or campaigns — turning a headline metric into a specific action list.",
+      summary: "When RFQ conversion drops, the question is always 'why now, and where in the funnel'. This view decomposes the decline across the last 3 months to attribute it to specific funnel steps, brands, or campaigns, turning a headline metric into a specific action list.",
       steps: [
         "Loaded RFQ funnel step-conversion data segmented by week for the last 3 months.",
         "Compared each week to the trailing 4-week baseline to isolate the specific decline period.",
@@ -897,7 +897,7 @@ const AUTO_META = {
       ],
       confidence: "high",
       confidenceReason: "Funnel and quote counts are direct pulls. Attribution decomposition uses variance ratios that Middleby ops has defined.",
-      caveats: ["A campaign end + release + seasonality co-occurring can inflate one driver's attribution weight — engineering should confirm before large actions."],
+      caveats: ["A campaign end + release + seasonality co-occurring can inflate one driver's attribution weight, engineering should confirm before large actions."],
     },
     askForMiddleby: { text: "A tagged campaign calendar plus a machine-readable release feature-flag registry lets this attribution split multi-cause weeks cleanly.", sectionId: "rfq-decline" },
   },
@@ -941,8 +941,8 @@ const AUTO_META = {
         "Ranked categories by dollars at risk and by intervention-cost trade-off.",
       ],
       confidence: "medium",
-      confidenceReason: "Pipeline dollars and stall detection use direct HubSpot pulls and defined stage-duration norms. Attribution to root cause is directional — for cross-cause weeks, both are shown.",
-      caveats: ["A category with several small stalls can look larger than one with one big stall — the dollar view is always the source-of-truth."],
+      confidenceReason: "Pipeline dollars and stall detection use direct HubSpot pulls and defined stage-duration norms. Attribution to root cause is directional, for cross-cause weeks, both are shown.",
+      caveats: ["A category with several small stalls can look larger than one with one big stall, the dollar view is always the source-of-truth."],
     },
     askForMiddleby: { text: "A stage-duration norm refit against 12 months of actuals plus category-level priority weights approved by the CFO turn this from directional to boardroom-ready.", sectionId: "category-risk" },
   },
@@ -956,7 +956,7 @@ const AUTO_META = {
         "Ranked drivers by dollar impact and by strategic relevance for the executive narrative overlay.",
       ],
       confidence: "medium",
-      confidenceReason: "KPI values are direct source-of-truth pulls. Attribution is directional — matches uc-07 confidence.",
+      confidenceReason: "KPI values are direct source-of-truth pulls. Attribution is directional: matches uc-07 confidence.",
       caveats: ["Directional attribution can misattribute when two drivers correlate strongly; the KPI strip always shows the raw number as source-of-truth."],
     },
     askForMiddleby: { text: "A tagged strategic-priority framework from leadership plus a weekly-refreshed multi-source KPI feed makes this brief current automatically.", sectionId: "growth-intelligence" },

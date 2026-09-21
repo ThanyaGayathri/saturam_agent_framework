@@ -308,7 +308,7 @@ export default function ConfigureBusinessHierarchy() {
           <p className="mt-1 leading-6">
             Business areas group Processes, KPIs, Use Cases, and Alerts. Subject areas nest inside a business area
             and group related KPIs. Adding, renaming, or deleting an entry here updates every surface that shows
-            the hierarchy — Playground pills, Processes and Alerts filters, KPI Registry dropdowns, and more.
+            the hierarchy. Playground pills, Processes and Alerts filters, KPI Registry dropdowns, and more.
           </p>
         </div>
       </div>

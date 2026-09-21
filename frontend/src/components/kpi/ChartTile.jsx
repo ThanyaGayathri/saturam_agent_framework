@@ -20,7 +20,7 @@ const CURRENCY_SYMBOL = { usd: "$", eur: "€", gbp: "£", inr: "₹" };
 /** A value in the KPI's own unit: money compact past ten thousand ($9.67M, $587K), a
  *  rate with its sign, days as days, counts with separators. */
 function formatValue(unit, value) {
- if (value === null || value === undefined) return "—";
+ if (value === null || value === undefined) return "-";
  const u = String(unit || "").toLowerCase().trim();
  const n = Number(value);
  if (Number.isNaN(n)) return String(value);
@@ -52,7 +52,7 @@ function DeltaBadge({ tile, unit, delta }) {
  if (delta == null || Number.isNaN(Number(delta))) return null;
  const d = Number(delta);
  const good = lowerIsBetter(tile) ? d <= 0 : d >= 0;
- if (d === 0) return <span className="text-xs font-semibold text-text-muted">— no change</span>;
+ if (d === 0) return <span className="text-xs font-semibold text-text-muted">, no change</span>;
  return (
   <span className={`text-xs font-semibold ${good ? "text-status-success" : "text-status-critical"}`} title={`${d > 0 ? "Up" : "Down"} since the previous business date${lowerIsBetter(tile) ? " · lower is better" : ""}`}>
    {d > 0 ? "▲" : "▼"} {formatValue(unit, Math.abs(d))}
@@ -98,7 +98,7 @@ export const chartHue = (index) => `var(--chart-${(Math.max(0, Number(index) || 
 
 function CategoryBars({ rows, xColumn, yColumn, unit, hue }) {
  const items = rows
-  .map((row) => ({ label: String(row[xColumn] ?? "—"), value: Number(row[yColumn]) }))
+  .map((row) => ({ label: String(row[xColumn] ?? "-"), value: Number(row[yColumn]) }))
   .filter((d) => !Number.isNaN(d.value))
   .slice(0, 8);
  if (!items.length) return null;
@@ -295,7 +295,7 @@ export default function ChartTile({
            <tr key={i} className="border-t border-border first:border-t-0">
             {(columns.length ? columns : Object.keys(row)).map((key) => (
              <td key={key} className="py-1 pr-2 text-text-muted last:pr-0 last:text-right last:font-medium last:text-text-primary" style={{ fontVariantNumeric: "tabular-nums" }}>
-              {row[key] === null || row[key] === undefined ? "—" : String(row[key])}
+              {row[key] === null || row[key] === undefined ? "-" : String(row[key])}
              </td>
             ))}
            </tr>

@@ -43,6 +43,17 @@ import {
   catalogPrimaryAction,
   catalogSectionBelowNav,
 } from "./shared/useCaseCatalogPageStyles";
+import {
+  useCaseCardSurface,
+  useCaseCardBody,
+  useCaseCardBadgeRow,
+  useCaseCardBadge,
+  useCaseCardTitle,
+  useCaseCardDescription,
+  useCaseCardChipRow,
+  useCaseCardFooter,
+  useCaseCardArrow,
+} from "./shared/useCaseCardStyles";
 
 const ROLE_ICON = { executive: Crown, operations: Cog, analyst: ScanLine };
 
@@ -93,20 +104,21 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
   const feas = isUserCreated ? { state: "unknown" } : feasibilityForUseCase(useCase.id);
   const feasMeta = FEASIBILITY[feas.state];
 
-  // Pre-defined (seed) templates: utility indigo-50 / indigo-100 surface
-  // User-created: white + subtle purple gradient
+  // A badge row that renders with nothing in it still reserves its height, which is the gap
+  // that used to appear above the title on cards with no badges.
+  const hasBadges = Boolean(
+    (isUserCreated && useCase.status === "draft") ||
+      feas.state !== "unknown" ||
+      (!isUserCreated && featured && roleStyle && RoleIcon) ||
+      (!isUserCreated && tierKey && TIER_BADGE_CLS[tierKey])
+  );
+
   return (
-    <div
-      onClick={onCardClick}
-      className={`group relative flex h-full min-h-0 cursor-pointer flex-col rounded-xl p-5 transition-all duration-200 hover:-translate-y-0.5 ${
-        isUserCreated
-          ? "border border-border bg-surface bg-[linear-gradient(45deg,_rgba(255,255,255,0)_-0.12%,_rgba(189,161,255,0.10)_56.37%,_rgba(105,65,198,0.10)_91.36%)] hover:shadow-[0_10px_24px_-10px_rgba(105,65,198,0.25)] dark:border-border dark:bg-gradient-to-br dark:from-surface-secondary dark:to-surface-tertiary dark:hover:shadow-[0_10px_24px_-10px_rgba(105,65,198,0.2)]"
-          : "border border-primary/25 bg-primary-light hover:shadow-[0_10px_24px_-10px_rgba(105,65,198,0.25)] dark:border-primary/30 dark:bg-gradient-to-br dark:from-surface-secondary dark:to-surface-default dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] dark:hover:shadow-[0_10px_24px_-10px_rgba(105,65,198,0.2)]"
-      }`}
-    >
-      <div className="flex min-h-0 flex-1 flex-col">
+    <div onClick={onCardClick} className={useCaseCardSurface}>
+      <div className={useCaseCardBody}>
         <div className="min-h-0 flex-1">
-        <div className="mb-2.5 flex flex-wrap items-center gap-2">
+        {hasBadges ? (
+          <div className={useCaseCardBadgeRow}>
           {isUserCreated && useCase.status === "draft" && (
             <span className="inline-flex items-center rounded-md border border-amber-200/90 bg-amber-50/90 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#b45309]">
               Draft
@@ -121,7 +133,7 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
                   ? "Every metric this moves is measurable from your connected data."
                   : `Missing: ${feas.missing.join(", ")}`
               }
-              className={`inline-flex ${TEMPLATE_CARD_BADGE_STYLE} items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold leading-[1.2] ${feasMeta.cls}`}
+              className={`${useCaseCardBadge} ${feasMeta.cls}`}
             >
               {feas.state === "ready"
                 ? "Ready"
@@ -132,7 +144,7 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
           )}
           {!isUserCreated && featured && roleStyle && RoleIcon && (
             <span
-              className={`inline-flex max-w-full ${TEMPLATE_CARD_BADGE_STYLE} gap-1 rounded-full py-0.5 pl-0.5 pr-2.5 text-[11px] font-semibold leading-snug ${roleStyle.badgeCls}`}
+              className={`inline-flex max-w-full ${TEMPLATE_CARD_BADGE_STYLE} gap-1 rounded-full py-0.5 pl-0.5 pr-2.5 text-xs font-semibold leading-snug ${roleStyle.badgeCls}`}
             >
               <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-surface-default shadow-sm ring-1 ring-border/55 dark:bg-surface-secondary dark:ring-border-light/55">
                 <RoleIcon size={12} strokeWidth={2.25} className={roleStyle.iconCls} />
@@ -142,21 +154,18 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
           )}
           {!isUserCreated && tierKey && TIER_BADGE_CLS[tierKey] && (
             <span
-              className={`inline-flex ${TEMPLATE_CARD_BADGE_STYLE} gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase leading-[1.2] tracking-wide ${TIER_BADGE_CLS[tierKey]}`}
+              className={`${useCaseCardBadge} uppercase tracking-wide ${TIER_BADGE_CLS[tierKey]}`}
             >
               {TierGlyph ? <TierGlyph size={12} strokeWidth={2.25} className="shrink-0 opacity-90" /> : null}
               {TIER_LABELS[tierKey]}
             </span>
           )}
-        </div>
-        <h3 className="text-lg font-semibold leading-7 tracking-[-0.2px] text-text-primary">
-          {useCase.title}
-        </h3>
-        {summary ? (
-          <p className="mt-2.5 line-clamp-2 text-sm leading-6 text-text-secondary">{summary}</p>
+          </div>
         ) : null}
+        <h3 className={useCaseCardTitle}>{useCase.title}</h3>
+        {summary ? <p className={useCaseCardDescription}>{summary}</p> : null}
         {tags.length > 0 ? (
-          <div className="mb-3 mt-3.5 flex flex-wrap items-start gap-2">
+          <div className={useCaseCardChipRow}>
             {tags.map((tag, ti) => (
               <CatalogTagPill key={`${tag}-${ti}`} text={String(tag)} surface={tagSurface} />
             ))}
@@ -166,7 +175,7 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
           </div>
         ) : null}
         {kpiNames.length > 0 ? (
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+          <div className={useCaseCardChipRow}>
             <span
               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted"
               title="KPIs this use case moves"
@@ -186,18 +195,10 @@ function UseCaseCard({ useCase, featured = false, isUserCreated = false, roleSty
           </div>
         ) : null}
         </div>
-        {isUserCreated ? (
-          <div className="mt-auto border-t border-white/60 pt-3.5 dark:border-border">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-primary opacity-80 transition group-hover:opacity-100">
-              <ArrowRight size={14} strokeWidth={2.5} />
-              {useCase.status === "draft" ? "Continue building" : "Open in builder"}
-            </div>
-          </div>
-        ) : (
-          <div className="mt-auto border-t border-primary/25 pt-3.5 dark:border-border">
-            <EnterpriseProductMark />
-          </div>
-        )}
+        <div className={useCaseCardFooter}>
+          <EnterpriseProductMark size="sm" tone="brand" />
+          <ArrowRight className={useCaseCardArrow} strokeWidth={2.5} aria-hidden />
+        </div>
       </div>
     </div>
   );
@@ -299,8 +300,8 @@ export default function UseCaseTemplates() {
         <div className={catalogHeaderRow}>
           <div className={catalogHeaderText}>
             <div className="flex items-center gap-3">
-              <h1 className={catalogH1}>Pre defined Use Case</h1>
-              <TourLaunchButton tourId="use-case-templates" label="Take a quick Pre-defined Use Cases tour" />
+              <h1 className={catalogH1}>Pre-defined use cases</h1>
+              <TourLaunchButton tourId="use-case-templates" label="Take a quick tour" />
             </div>
             <p className={catalogSubtitle}>
               Pre-built use case templates you can launch. After launch, active runs appear under User built use cases.
@@ -313,7 +314,7 @@ export default function UseCaseTemplates() {
             data-tour-uc="create"
           >
             <Plus size={18} strokeWidth={2.5} />
-            Create Use Case
+            Create use case
           </Button>
         </div>
 
