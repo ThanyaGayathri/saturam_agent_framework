@@ -75,7 +75,7 @@ function NextBestActions({ recommendations }) {
  *  right, the dashboard still in view behind it; Esc or the backdrop closes it. Download
  *  as PDF opens the report in its own window and the browser's print dialog offers
  *  "Save as PDF". */
-function ReportDrawer({ report, runHref }) {
+function ReportDrawer({ report, runHref, name }) {
  const [open, setOpen] = useState(false);
  useEffect(() => {
   if (!open) return undefined;
@@ -96,18 +96,24 @@ function ReportDrawer({ report, runHref }) {
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
   frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  // The PDF's name and page header come from the top document's title while the
+  // dialog is open: the use case's name and the run date, not the app's.
+  const fileName = `${name || report.title || "Report"} — ${report.asOf || ""}`.trim();
+  const appTitle = document.title;
   frame.onload = () => {
    const w = frame.contentWindow;
    if (!w) { frame.remove(); setPrinting(false); return; }
    setTimeout(() => {
+    document.title = fileName;
     try { w.focus(); w.print(); } finally {
      // print() returns once the dialog closes (it is modal); the frame can go then.
+     document.title = appTitle;
      setPrinting(false);
      setTimeout(() => frame.remove(), 1000);
     }
    }, 200);
   };
-  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>${(report.title || "Report").replace(/</g, "&lt;")}</title><style>@page{size:A4;margin:14mm} body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${report.html}</body></html>`;
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>${fileName.replace(/</g, "&lt;")}</title><style>@page{size:A4;margin:14mm} body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${report.html}</body></html>`;
   document.body.appendChild(frame);
  };
  return (
@@ -120,7 +126,7 @@ function ReportDrawer({ report, runHref }) {
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
        <div className="min-w-0">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">The report · as sent</p>
-        <p className="truncate text-sm font-semibold text-text-primary">{report.title}</p>
+        <p className="truncate text-sm font-semibold text-text-primary">{name || report.title}</p>
        </div>
        <div className="flex shrink-0 items-center gap-2">
         <button type="button" onClick={download} disabled={printing} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"><Download size={12} /> {printing ? "Preparing…" : "Download as PDF"}</button>
@@ -175,7 +181,7 @@ export default function UseCaseLatestReport({ title }) {
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
    {risk && <NextBestActions recommendations={report.recommendations} />}
-   {risk && <ReportDrawer report={report} runHref={`/use-cases/platform/${encodeURIComponent(useCase.id)}`} />}
+   {risk && <ReportDrawer report={report} name={useCase.title} runHref={`/use-cases/platform/${encodeURIComponent(useCase.id)}`} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>
    </div>
   </section>
