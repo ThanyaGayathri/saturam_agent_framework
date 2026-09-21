@@ -883,13 +883,19 @@ def report_text(
     return "\n".join(lines)
 
 
-def _bar(value: Optional[float], maximum: float) -> str:
+#: The chart hues in fixed order -- the interface's ``--chart-1..6`` -- one per
+#: breakdown table, so the report's tables read as different things, as the dashboard's
+#: tiles do. Never a status colour.
+CHART_HUES = ("#731dd8", "#0d9488", "#4361ee", "#d97706", "#db2777", "#0891b2")
+
+
+def _bar(value: Optional[float], maximum: float, colour: str = CHART_HUES[0]) -> str:
     if value is None or maximum <= 0:
         return ""
     width = max(2, int(round(100.0 * abs(value) / maximum)))
     return (
         f'<span style="display:inline-block;height:10px;width:{width}px;'
-        'background:#6d28d9;border-radius:2px;vertical-align:middle"></span>'
+        f'background:{colour};border-radius:2px;vertical-align:middle"></span>'
     )
 
 
@@ -1135,7 +1141,7 @@ def report_html(
             + "</div></div></td>"
         )
 
-    def table(kpi: Mapping[str, Any]) -> str:
+    def table(kpi: Mapping[str, Any], colour: str = CHART_HUES[0]) -> str:
         rows = list(kpi.get("rows") or [])
         rows.sort(key=lambda r: -(r.get("current") or 0))
         maximum = max((abs(r.get("current") or 0) for r in rows), default=0.0)
@@ -1165,7 +1171,7 @@ def report_html(
             body += (
                 f"<tr>{cells}"
                 f'<td style="padding:6px 8px;font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111827;text-align:right;border-bottom:1px solid #f3f4f6;white-space:nowrap">{e(_fmt(row.get("current"), kpi.get("unit", "")))}</td>'
-                f'<td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">{_bar(row.get("current"), maximum)}</td>'
+                f'<td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">{_bar(row.get("current"), maximum, colour)}</td>'
                 f'<td style="padding:6px 8px;font:12px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:{colour};text-align:right;border-bottom:1px solid #f3f4f6;white-space:nowrap">{e(_delta_text({**row, "unit": kpi.get("unit", "")}))}</td>'
                 "</tr>"
             )
@@ -1220,7 +1226,9 @@ def report_html(
     tiles = "".join(
         tile(k) for k in scalars if str(k.get("identifier")) not in diagnosed
     )
-    tables = "".join(table(k) for k in breakdowns)
+    tables = "".join(
+        table(k, CHART_HUES[i % len(CHART_HUES)]) for i, k in enumerate(breakdowns)
+    )
     link = (
         f'<p style="font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:14px 0 0"><a href="{e(dashboard_url)}" style="color:#6d28d9">Open the live dashboard</a></p>'
         if dashboard_url

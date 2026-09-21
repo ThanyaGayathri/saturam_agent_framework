@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Download, ExternalLink, FileText, ShieldCheck, ShieldAlert, X } from "lucide-react";
 import { listUseCaseRuns, listUseCases } from "../../services/use-cases-api";
 import { reportResult } from "../../domain/use-case-analytics";
 import DiagnosisInsight, { DiagnosisTiles } from "./DiagnosisInsight";
@@ -70,15 +70,43 @@ function NextBestActions({ recommendations }) {
  );
 }
 
-/** The report itself -- the same document the email carries -- shown on request. */
-function ReportToggle({ report }) {
+/** The report itself -- the same document the email carries -- in a dialog on request,
+ *  with a print-to-PDF: the report opens in its own window and the browser's print
+ *  dialog offers "Save as PDF". */
+function ReportDialog({ report }) {
  const [open, setOpen] = useState(false);
+ useEffect(() => {
+  if (!open) return undefined;
+  const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+ }, [open]);
  if (!report?.html) return null;
+ const download = () => {
+  const w = window.open("", "_blank", "noopener,width=900,height=1000");
+  if (!w) return;
+  w.document.open();
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${(report.title || "Report").replace(/</g, "&lt;")}</title><style>@page{margin:14mm} body{margin:0}</style></head><body>${report.html}<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script></body></html>`);
+  w.document.close();
+ };
  return (
-  <div className="mt-2">
-   <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary">{open ? "Hide the report" : "View the report"}</button>
-   {open && <div className="mt-2 overflow-hidden rounded-lg border border-border bg-surface"><iframe title={report.title} srcDoc={report.html} sandbox="" className="h-[720px] w-full bg-[#f9fafb]" /></div>}
-  </div>
+  <>
+   <button type="button" onClick={() => setOpen(true)} className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><FileText size={12} /> View the report</button>
+   {open && (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)} role="dialog" aria-modal="true" aria-label={report.title}>
+     <div className="flex h-[90vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+       <p className="truncate text-sm font-semibold text-text-primary">{report.title}</p>
+       <div className="flex items-center gap-2">
+        <button type="button" onClick={download} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"><Download size={12} /> Download as PDF</button>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-md border border-border px-2 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><X size={12} /></button>
+       </div>
+      </div>
+      <iframe title={report.title} srcDoc={report.html} sandbox="" className="h-full w-full flex-1 bg-[#f9fafb]" />
+     </div>
+    </div>
+   )}
+  </>
  );
 }
 
@@ -120,7 +148,7 @@ export default function UseCaseLatestReport({ title }) {
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
    {risk && <NextBestActions recommendations={report.recommendations} />}
-   {risk && <ReportToggle report={report} />}
+   {risk && <ReportDialog report={report} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>
    </div>
   </section>

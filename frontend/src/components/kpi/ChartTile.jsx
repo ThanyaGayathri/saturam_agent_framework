@@ -63,7 +63,11 @@ export function GuardPill({ guard }) {
 
 /** Horizontal bars for a category x axis - the one shape `DemoSparkCharts.jsx` has no
  * component for. Drawn to one scale, labels from the rows themselves. */
-function CategoryBars({ rows, xColumn, yColumn, unit }) {
+/** The chart's own hue: the series tokens in fixed order, one per tile, so six charts on a
+ *  dashboard are six entities and not one shape repeated. */
+export const chartHue = (index) => `var(--chart-${(Math.max(0, Number(index) || 0) % 6) + 1})`;
+
+function CategoryBars({ rows, xColumn, yColumn, unit, hue }) {
  const items = rows
   .map((row) => ({ label: String(row[xColumn] ?? "—"), value: Number(row[yColumn]) }))
   .filter((d) => !Number.isNaN(d.value))
@@ -84,7 +88,7 @@ function CategoryBars({ rows, xColumn, yColumn, unit }) {
       <text x={labelW - 8} y={y + rowH / 2 + 3.5} textAnchor="end" className="fill-text-muted" style={{ fontSize: 9.5 }}>
        {d.label.length > 16 ? `${d.label.slice(0, 15)}…` : d.label}
       </text>
-      <rect x={labelW} y={y + 3} width={w} height={rowH - 6} rx={2} className="fill-primary" />
+      <rect x={labelW} y={y + 3} width={w} height={rowH - 6} rx={2} style={{ fill: hue || "var(--chart-1)" }} />
       <text x={labelW + w + 5} y={y + rowH / 2 + 3.5} className="fill-text-secondary" style={{ fontSize: 9.5, fontVariantNumeric: "tabular-nums" }}>
        {formatValue(unit, d.value)}
       </text>
@@ -166,7 +170,9 @@ export default function ChartTile({
  onDescriptionChange,
  placeholder,
  className = "",
+ hue: hueIndex = 0,
 }) {
+ const hue = chartHue(hueIndex);
  const value = data?.value ?? null;
  // A `SeriesPoint.value` of `null` means the formula returned NULL for that date -- a real
  // gap, not a zero -- so it's dropped rather than charted as 0 (`dashboards/data.py`'s own
@@ -231,7 +237,7 @@ export default function ChartTile({
           </span>
          )}
         </div>
-        <DemoAreaSpark data={series.map((p) => p.value)} viewHeight={34} maxHeight={90} stroke="#731dd8" showGrid={false} showDots={false} />
+        <DemoAreaSpark data={series.map((p) => p.value)} viewHeight={34} maxHeight={90} stroke={hue} showGrid={false} showDots={false} />
        </div>
       ) : showScalar ? (
        <span className="text-2xl font-bold tracking-tight text-text-primary">{formatValue(data?.unit, value)}</span>
@@ -241,9 +247,9 @@ export default function ChartTile({
 
      {tile.chart === "bar" &&
       (hasTrend ? (
-       <DemoAreaSparkWithAxes data={series.slice(-12).map((p) => p.value)} viewHeight={44} stroke="#731dd8" fillOpacityTop={0.22} />
+       <DemoAreaSparkWithAxes data={series.slice(-12).map((p) => p.value)} viewHeight={44} stroke={hue} fillOpacityTop={0.22} />
       ) : categoryBars ? (
-       <CategoryBars rows={rows} xColumn={xColumn} yColumn={yColumn} unit={data?.unit} />
+       <CategoryBars rows={rows} xColumn={xColumn} yColumn={yColumn} unit={data?.unit} hue={hue} />
       ) : showScalar ? (
        <span className="text-2xl font-bold tracking-tight text-text-primary">{formatValue(data?.unit, value)}</span>
       ) : !statusMessage ? (

@@ -331,10 +331,11 @@ export default function DashboardView() {
    {dashboard.owner === "use_case" && <UseCaseLatestReport title={dashboard.name} />}
 
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-    {dashboard.tiles.map((tile) => (
+    {dashboard.tiles.map((tile, index) => (
      <ChartTile
       key={tile.id}
       tile={tile}
+      hue={index}
       data={dataState.byTileId[tile.id]}
       className={spanForChart(tile.chart) === 2 ? "sm:col-span-2 xl:col-span-2" : ""}
       onDescriptionChange={(text) => saveDescription(tile, text)}
