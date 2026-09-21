@@ -60,11 +60,16 @@ await Promise.all([
 ]);
 const start = bodies.find((b) => b && b.includes("source_id"));
 check(!!start && JSON.parse(start).source_id === source.id, `POST /kpis/suggestions carried source_id ${source.id}`);
-await page.getByText(/KPIs? proposed|No KPIs proposed/).first().waitFor({ timeout: 40_000 });
-check((await banner.count()) === 0, "the banner is gone once the run has succeeded");
+// The run is generating (the notice), then lands: the banner and the notice both go, the list stays.
+await page.getByTestId("suggestions-generating").waitFor({ timeout: 15_000 }).catch(() => {});
+await page.getByTestId("suggestions-generating").waitFor({ state: "detached", timeout: 60_000 });
+// Another connected source's own failure may still be reported (one at a time, newest first) --
+// what must be gone is this source's.
+const bannerText = (await banner.count()) ? await banner.innerText() : "";
+check(!bannerText.includes(source.name), "this source's failure banner is gone once its run has succeeded");
 await page.getByText("Store Visit Count", { exact: true }).first().waitFor({ state: "attached", timeout: 20_000 });
 const after = await (await fetch(`${API}/kpis/suggestions/current`)).json();
-check(after.failed === null, "the backend no longer reports a failure");
+check(after.failed === null || after.failed.source_id !== source.id, "the backend no longer reports this source's failure");
 check(after.suggestions.some((s) => s.source_id === source.id), "the source's suggestions are current");
 
 console.log("-- a suggestion from a connected source cannot be added yet, and says why");

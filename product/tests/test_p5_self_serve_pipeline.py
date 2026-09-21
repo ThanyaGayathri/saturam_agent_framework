@@ -43,6 +43,8 @@ FRONTEND_MODEL_STATES = (
 FRONTEND_SOURCES_API = REPO_ROOT / "frontend/src/services/sources-api.js"
 FRONTEND_CATALOGS = REPO_ROOT / "frontend/src/domain/configure-catalogs.js"
 CONFIGURE_DIR = REPO_ROOT / "frontend/src/components/configure"
+KPI_DIR = REPO_ROOT / "frontend/src/components/kpi"
+FRONTEND_KPIS_API = REPO_ROOT / "frontend/src/services/kpis-api.js"
 
 
 def _settings() -> RetailSettings:
@@ -337,3 +339,80 @@ class TestNeedsReviewHasAWayOut:
     def test_removing_a_modelled_source_says_what_goes_with_it(self) -> None:
         js = self._read("ConfigureInternalSources.jsx")
         assert "Its tables are removed from the semantic layer" in js
+
+
+class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
+    """KPI suggestions are proposed for a source when its harvest ends, so the KPIs page has no
+    "Suggest KPIs" button, no run panel (stepper, stopwatch, cancel, receipt) and no "AI generated
+    KPI" tab in Add KPI -- which started the same run. What remains is a notice while a run works
+    and a failure banner with one retry. The frontend has no test runner; these read the JS source,
+    so reintroducing the manual flow fails in the ordinary unit run."""
+
+    @staticmethod
+    def _read(path: Path) -> str:
+        if not path.exists():
+            pytest.skip("frontend not checked out alongside product")
+        return path.read_text()
+
+    def test_the_run_panel_and_the_ai_step_are_deleted(self) -> None:
+        if not KPI_DIR.exists():
+            pytest.skip("frontend not checked out alongside product")
+        assert not (KPI_DIR / "SuggestionRunPanel.jsx").exists()
+        assert not (KPI_DIR / "add-kpi" / "AddKpiAiStep.jsx").exists()
+        assert (KPI_DIR / "SuggestionStatus.jsx").exists()
+
+    def test_the_page_has_no_way_to_start_a_run_from_a_button(self) -> None:
+        js = self._read(KPI_DIR / "KpiDiscoveryPage.jsx")
+        for gone in (
+            "SuggestionRunPanel",
+            "runSuggestions",
+            "watchRun",
+            "cancelSuggestions",
+            "dismissReceipt",
+            "fetchKpiSuggestionRun",
+            'params.get("run")',
+            "RUN_PARAM",
+        ):
+            assert gone not in js, gone
+        assert "Suggest KPIs" not in re.sub(r"/\*.*?\*/", "", js, flags=re.DOTALL)
+
+    def test_the_only_run_the_page_starts_is_a_retry_for_one_source(self) -> None:
+        js = self._read(KPI_DIR / "KpiDiscoveryPage.jsx")
+        calls = re.findall(r"startKpiSuggestionRun\(([^)]*)\)", js)
+        assert calls == ["{ sourceId }"], calls
+
+    def test_the_service_sends_only_a_source_id(self) -> None:
+        js = self._read(FRONTEND_KPIS_API)
+        match = re.search(
+            r"export function startKpiSuggestionRun\(.*?\n\}\n", js, flags=re.DOTALL
+        )
+        assert match is not None
+        body = match.group(0)
+        assert "source_id" in body
+        assert "business_areas" not in body and "body.ask" not in body
+        assert "fetchKpiSuggestionRun" not in js  # nothing reads a run by id any more
+
+    def test_what_remains_is_a_notice_while_generating_and_a_failure_banner(
+        self,
+    ) -> None:
+        js = self._read(KPI_DIR / "KpiDiscoveryPage.jsx")
+        assert "SuggestionsGenerating" in js and "SourceRunFailure" in js
+        status = self._read(KPI_DIR / "SuggestionStatus.jsx")
+        # no stage, clock, cancel or receipt -- and no button that starts a general run
+        for gone in ('label="Suggest KPIs"', "Suggest again", "Cancel", "elapsed"):
+            assert gone not in status, gone
+        assert "Try again" in status
+
+    def test_add_kpi_is_the_manual_form_only(self) -> None:
+        modal = self._read(KPI_DIR / "add-kpi" / "AddKpiModal.jsx")
+        assert "AddKpiManualStep" in modal
+        for gone in (
+            "AddKpiAiStep",
+            "onStartAi",
+            "ModeCard",
+            "runInFlight",
+            "focusAreaLabels",
+        ):
+            assert gone not in modal, gone
+        manual = self._read(KPI_DIR / "add-kpi" / "AddKpiManualStep.jsx")
+        assert "Change how" not in manual and "onBack" not in manual

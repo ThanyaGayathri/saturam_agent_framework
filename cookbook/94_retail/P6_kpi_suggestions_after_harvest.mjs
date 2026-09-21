@@ -1,7 +1,8 @@
 // P6 -- KPI suggestions after a harvest, kept between visits, removable; the harvested tables in the
 // Data catalog. Drives the real flow in a headless browser against a running API and the Vite dev
 // server: connect a source -> its harvest ends -> KPI suggestions are proposed automatically -> the
-// KPIs page shows them (attaching to the run while it is still working) -> they survive a reload ->
+// KPIs page shows them (saying so while the run works; there is no "Suggest KPIs" button and no
+// AI-generated Add KPI to start one) -> they survive a reload ->
 // a dismissed one stays gone, also after a new run proposes it again -> the harvested tables and
 // their columns are in the Data catalog.
 //
@@ -93,17 +94,26 @@ await step("02b-page-attaches-to-the-run-still-generating", async () => {
   // then the suggestions themselves.
   apiCalls.length = 0;
   await page.goto(BASE + "/kpis/discover");
-  const progress = page.getByText(/Reading your data|Proposing candidates|Checking feasibility/).first();
-  await progress.waitFor({ timeout: 8_000 }).then(
-    () => check(true, "the page shows the run that is still generating"),
-    () => check(false, "the page shows the run that is still generating")
+  const generating = page.getByTestId("suggestions-generating");
+  await generating.waitFor({ timeout: 8_000 }).then(
+    () => check(true, "the page says a run is still generating"),
+    () => check(false, "the page says a run is still generating")
   );
+  check(/Suggesting KPIs for P6 e2e warehouse/.test((await generating.innerText().catch(() => "")) || ""), "and names the source");
   await page.getByText("Store Visit Count", { exact: true }).first().waitFor({ state: "attached", timeout: 40_000 }).then(
     () => check(true, "the suggestions appear on their own when the run lands"),
     () => check(false, "the suggestions appear on their own when the run lands")
   );
   check(apiCalls.includes("GET /kpis/suggestions/current"), "the page asked for the standing suggestions on open");
   check(!apiCalls.some((c) => c === "POST /kpis/suggestions"), "nobody had to start a run");
+  await page.getByTestId("suggestions-generating").waitFor({ state: "detached", timeout: 40_000 }).then(
+    () => check(true, "the generating notice is gone once the run has landed"),
+    () => check(false, "the generating notice is gone once the run has landed")
+  );
+  check((await page.getByRole("button", { name: /Suggest KPIs/i }).count()) === 0, 'there is no "Suggest KPIs" button');
+  check((await page.getByText(/Ask the model what else/).count()) === 0, "and no idle bar inviting one");
+  const pageText = await page.locator("body").innerText();
+  check(!pageText.includes("*/") && !pageText.includes("{/*"), "no stray source comment text is rendered on the page");
 });
 
 let sourceId;
@@ -127,6 +137,16 @@ await step("04-kpis-page-shows-them", async () => {
   await page.getByText("Store Visit Count", { exact: true }).first().waitFor({ state: "attached", timeout: 30_000 }).catch(() => {});
   await openAllGroups();
   for (const name of OWN) check((await rowCount(name)) >= 1, `"${name}" is on the KPIs page`);
+});
+
+await step("04b-add-kpi-is-the-manual-form-only", async () => {
+  await page.goto(`${BASE}/kpis/discover?add=1`);
+  await page.getByLabel("Name").waitFor({ timeout: 15_000 });
+  check(true, "Add KPI opens straight onto the form that posts to the registry");
+  check((await page.getByText(/AI generated KPI/).count()) === 0, "there is no AI-generated option to pick");
+  check((await page.getByText(/Change how/).count()) === 0, "and no mode picker to go back to");
+  await page.goto(`${BASE}/kpis/discover`);
+  await page.getByText("Store Visit Count", { exact: true }).first().waitFor({ state: "attached", timeout: 30_000 }).catch(() => {});
 });
 
 await step("05-survives-a-reload", async () => {
@@ -186,8 +206,10 @@ await step("08-dismissed-stays-gone-after-a-new-run", async () => {
 
 await step("09-data-catalog-has-the-tables", async () => {
   await page.goto(`${BASE}/kpis/gallery`);
-  await page.getByTestId("source-sync").waitFor({ timeout: 30_000 });
-  const sync = await page.getByTestId("source-sync").first().innerText();
+  // Other connected sources are listed too (the catalog lists every modelled source); pick ours.
+  const ours = page.getByTestId("source-sync").filter({ hasText: SOURCE_NAME });
+  await ours.waitFor({ timeout: 30_000 });
+  const sync = await ours.first().innerText();
   console.log("   sync line:", sync);
   check(sync.includes(SOURCE_NAME) && sync.includes("2 tables"), "the catalog says the source contributed 2 tables");
   const chips = await page.getByTestId("dataset-source").allInnerTexts();

@@ -6204,7 +6204,7 @@ else is real: the workflow, the run rows, the graph, the API and the pages.
 `P6_kpi_suggestions_after_harvest.mjs` registers a Postgres source through the Configure form and
 saves it, then: the source reaches Modelled; the `suggest-kpis` step proposes its four
 suggestions on its own, each stamped with the source; opening the KPIs page while that run is
-still working shows its progress and then the suggestions with no run started by the page;
+still working says so ("Suggesting KPIs for ...") and then shows the suggestions with no run started by the page;
 reloading keeps all four and starts no run; dismissing one (trash, confirm) posts the dismissal,
 removes the row, leaves the other three, and the backend stops listing it; after a reload it is
 still gone; a second harvest (the replay proposes all four again) does not bring it back and
@@ -6303,5 +6303,37 @@ source's and the operator's do not, the shared concept stays and its other links
 idempotent, and the empty id is refused; runs likewise. Router, executor (stale claim reclaimed once,
 a live owner and the operator's `""` never), the graph store's statements, and the frontend's
 source-reading tests are DB-free.
+
+---
+
+### P6 scripts, after removing the manual "Suggest KPIs" flow
+
+**Status:** PASS
+
+**Description:** KPI suggestions are proposed for a connected source automatically when its harvest
+ends, so the KPIs page no longer has a "Suggest KPIs" button, the run panel (idle bar, three-step
+stepper with a stopwatch and typical-duration estimate, Cancel, receipt, "Suggest again"), the
+`?run=` URL mirroring and restore, the focus and free-text request sent to a run, or the "AI generated
+KPI" tab of Add KPI (which started the same run, on a button also labelled "Suggest KPIs"). Add KPI
+opens straight onto the manual form. What stays is small: a "Suggesting KPIs for <source>" notice
+while a run is working (the page reads the standing list every 3s, 6s after a minute, giving up at 5,
+and replaces the list only when the run lands, so an edit to a suggestion's draft is not overwritten
+by a poll), and the failure banner with one "Try again" for that source. The API and its contract are
+unchanged.
+
+Re-ran `P6_kpi_suggestions_after_harvest.mjs` and `P6_kpi_suggestion_failure.mjs` (both updated: the
+stepper and receipt waits are gone) in headless Chromium against the real API, Postgres and Neo4j, with
+the model replaced by the replay fixture: every existing check still passes, plus new ones -- the
+generating notice appears, names the source and goes when the run lands; no "Suggest KPIs" button or
+idle bar; Add KPI has no AI-generated option or mode picker; no stray source text is rendered. No
+console errors, no failed API calls.
+
+**Found while running it:** my first edit left a fragment of a JSX comment behind, which rendered as a
+line of prose above the failure banner -- the screenshot showed it, the build did not, so the script
+now asserts no `*/` or `{/*` text reaches the page. The retry check also assumed a single failure
+existed; on this database another source's own suggestion run (`Nandha-Sep-21-test1`, failed at 07:10:
+the model answered with prose instead of structured drafts) is correctly reported too, one at a time,
+newest first, so the check now asserts *this* source's failure clears. Both scripts assume a clean slate
+(no leftover dismissal or replay-fixture runs), which my earlier runs had violated.
 
 ---

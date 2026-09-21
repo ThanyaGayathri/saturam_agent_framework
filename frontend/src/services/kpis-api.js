@@ -23,27 +23,16 @@ export function fetchKpi(identifier, { signal } = {}) {
   return apiGet(`/kpis/${encodeURIComponent(identifier)}`, { signal });
 }
 
-/** `POST /kpis/suggestions` - start a run of the `kpi_suggestion` agent over the current
- * semantic layer and get it back `queued` (a `KpiSuggestionRun`: `{id, status, business_area,
- * created_at, started_at, finished_at, result, error}`). A run is two frontier-tier model calls
- * and takes minutes, so it is a resource to poll (issue #254), not a response to await:
- * `fetchKpiSuggestionRun` until `status` is `succeeded` (then `result` is the suggestion list)
- * or `failed` (then `error` says why). `businessAreas` is the focus (contract 1.1.8): the
- * areas the customer cares about, handed to the agents as a priority -- "propose for these
- * first" -- never as a filter, so nothing is dropped for being outside them. An empty list (or
- * none at all) means no focus -- the backend leaves the prompt untouched in that case, so there
- * is nothing to gain by listing every supported area when nothing was actually chosen. `ask`
- * (contract 1.2.3) is what the customer wants to measure, in their own words -- "Add KPI" ->
- * AI generated -- handed to the agents as the request to answer first; blank is the same as
- * none. A finished run's suggestions are kept (`fetchCurrentKpiSuggestions`) but nothing else is stored -
- * a suggestion becomes a KPI only through `createKpi`. */
-export function startKpiSuggestionRun(businessAreas, { ask, sourceId, signal } = {}) {
-  const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
-  const body = areas.length ? { business_areas: areas } : {};
-  const request = typeof ask === "string" ? ask.trim() : "";
-  if (request) body.ask = request;
-  // Contract 1.2.9: run for one connected source (how a run that failed after its harvest is
-  // started again). Absent is the deployment's own warehouse. 404 unknown, 409 not yet harvested.
+/** `POST /kpis/suggestions` - start a suggestion run for one connected source and get it back
+ * `queued` (a `KpiSuggestionRun`). Nothing in the app *starts* a run any more except this: KPIs
+ * the data supports are proposed for a source automatically when its harvest ends (the
+ * `suggest-kpis` step of the `harvest-source` workflow), so this is only how a run that failed
+ * after a harvest is started again, for the same source (contract 1.2.9). `sourceId` names it;
+ * `404` for an unknown source, `409` while its harvest has not finished. Read the result with
+ * `fetchCurrentKpiSuggestions`, which names the new run as `generating` and returns the suggestions
+ * when it lands. (The request also accepts `business_areas` and `ask`; nothing here sends them.) */
+export function startKpiSuggestionRun({ sourceId, signal } = {}) {
+  const body = {};
   if (typeof sourceId === "string" && sourceId) body.source_id = sourceId;
   return apiJson("/kpis/suggestions", "POST", body, { signal });
 }
@@ -54,8 +43,8 @@ export function startKpiSuggestionRun(businessAreas, { ask, sourceId, signal } =
  * in the registry and what a person dismissed -- so it is still there after a reload and on the
  * next visit, where a run read by id only lasted as long as the page that started it. A source's
  * suggestions are proposed automatically when its harvest finishes. `generating` is a run still
- * working (a `KpiSuggestionRun`, poll it with `fetchKpiSuggestionRun`; its `source_id` says which
- * source) and `failed` the newest run that failed with no later success for its source (its
+ * working (a `KpiSuggestionRun`; its `source_id` says which source -- read this again until it is
+ * null) and `failed` the newest run that failed with no later success for its source (its
  * `error` is written for the reader); either may be null. `proposed_sql` is present only for a
  * caller holding `kpis:write`, as everywhere else. */
 export function fetchCurrentKpiSuggestions({ signal } = {}) {
@@ -69,25 +58,6 @@ export function fetchCurrentKpiSuggestions({ signal } = {}) {
  * `{identifier, dismissed_at}`. Nothing else changes: no KPI is created or removed. */
 export function dismissKpiSuggestion(identifier, { signal } = {}) {
   return apiJson("/kpis/suggestions/dismissals", "POST", { identifier }, { signal });
-}
-
-/** `GET /kpis/suggestions/{run_id}` - one run, for polling. `result.suggestions[].proposed_sql`
- * is only present for a caller holding `kpis:write`, as on every other KPI read. The backend
- * closes a run whose serving instance was lost mid-run as `failed` after its timeout plus a
- * grace period, so polling always reaches a terminal status - but see `KpiDiscoveryPage.jsx`'s
- * own client-side ceiling for the stub server, which serves the `queued` example forever. */
-export function fetchKpiSuggestionRun(runId, { signal } = {}) {
-  return apiGet(`/kpis/suggestions/${encodeURIComponent(runId)}`, { signal });
-}
-
-/** `GET /kpis/suggestions` - the synchronous form of the run above, deprecated by it (#254):
- * the whole run happens inside one request, now bounded by the deployment's suggestion timeout
- * (504 past it). Kept because the contract keeps the path; nothing in this app calls it any
- * more. `businessArea` narrows the agent's search; omit it to suggest across every area.
- * @deprecated Use `startKpiSuggestionRun` + `fetchKpiSuggestionRun`. */
-export function fetchKpiSuggestions(businessArea, { signal } = {}) {
-  const query = businessArea ? `?business_area=${encodeURIComponent(businessArea)}` : "";
-  return apiGet(`/kpis/suggestions${query}`, { signal });
 }
 
 /** `POST /kpis` - `body` is a `KpiWrite`: `{name, description, business_area, grain, sql,
