@@ -171,7 +171,7 @@ export default function ConfigureSemanticLayer() {
      </button>
      <h2 className="text-xl font-bold text-text-primary">{source.name}</h2>
      <p className="mt-0.5 max-w-2xl text-sm text-text-secondary">
-      What we understand about this source. Confirm what was inferred before answers are built on it —
+      What we understand about this source. Confirm what was inferred before answers are built on it, 
       a wrong join produces a believable, wrong number.
      </p>
     </div>
@@ -248,7 +248,7 @@ export default function ConfigureSemanticLayer() {
         </div>
        </div>
        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-        Grain — one row per {e.grain}
+        Grain: one row per {e.grain}
        </p>
        <div className="mt-2 flex flex-wrap gap-1.5">
         {e.columns.map((c) => (
@@ -305,7 +305,7 @@ export default function ConfigureSemanticLayer() {
       <>
        <p className="font-semibold text-text-primary">{sensitive.length} columns hold personal data</p>
        <p className="text-text-muted">
-        {sensitive.map((s) => `${s.entity}.${s.column}`).join(", ")} — excluded from answers and memory
+        {sensitive.map((s) => `${s.entity}.${s.column}`).join(", ")}, excluded from answers and memory
         unless you allow them.
        </p>
       </>

@@ -7,10 +7,10 @@ export const MIDDLEBY_ADDITIONAL_USE_CASES_SUBTITLE =
   "Additional analytics in the catalog. Supported with export snapshots or illustrative samples for deeper drill-down.";
 
 export const MIDDLEBY_CLIENT_KPI_USE_CASES_SUBTITLE =
-  "From first visit to closed deal — all the traffic, quote, and pipeline analytics grouped by where they land in the funnel.";
+  "From first visit to closed deal, all the traffic, quote, and pipeline analytics grouped by where they land in the funnel.";
 
 export const MIDDLEBY_FUTURE_USE_CASES_SUBTITLE =
-  "Vision scenarios you can explore today with sample data — where the platform is headed once live feeds and richer HubSpot fields are in place.";
+  "Vision scenarios you can explore today with sample data, where the platform is headed once live feeds and richer HubSpot fields are in place.";
 
 /**
  * Vivek McFadyen use cases of interest (five themes).
@@ -33,7 +33,7 @@ export const MIDDLEBY_CLIENT_KPI_STAGES = [
     id: "awareness",
     label: "Awareness",
     subtitle:
-      "How buyers arrive and what they see first — traffic sources, top product pages, and site-search discovery.",
+      "How buyers arrive and what they see first, traffic sources, top product pages, and site-search discovery.",
     ids: [
       "middleby-kpi-01", // Traffic Source and Device Analysis (GA4)
       "middleby-uc-03",  // Product Demand & Opportunity Discovery (category)
@@ -45,7 +45,7 @@ export const MIDDLEBY_CLIENT_KPI_STAGES = [
     id: "engagement",
     label: "Engagement",
     subtitle:
-      "How buyers behave once on site — bounce, depth, dwell, and guided-shopping tool completion.",
+      "How buyers behave once on site, bounce, depth, dwell, and guided-shopping tool completion.",
     ids: [
       "middleby-kpi-05", // Bounce and Engagement by Entry Page
       "middleby-kpi-04", // Guided Shopping Tool Conversion
@@ -54,7 +54,7 @@ export const MIDDLEBY_CLIENT_KPI_STAGES = [
   {
     id: "intent",
     label: "Intent",
-    subtitle: "Where buyers signal purchase intent — live chat inquiries and SKU-level interest.",
+    subtitle: "Where buyers signal purchase intent, live chat inquiries and SKU-level interest.",
     ids: [
       "middleby-kpi-03", // Live Chat Buy Intent
       "middleby-uc-19",  // Catalog / SKU Gap - High Traffic, Low Quotes
@@ -64,7 +64,7 @@ export const MIDDLEBY_CLIENT_KPI_STAGES = [
     id: "conversion",
     label: "Conversion",
     subtitle:
-      "Where quotes are formed and stall — RFQ drop-off, category quote volume, and pipeline stage.",
+      "Where quotes are formed and stall, RFQ drop-off, category quote volume, and pipeline stage.",
     ids: [
       "middleby-uc-02",  // RFQ Funnel Intelligence (drop-off) — also in Recommended
       "middleby-kpi-10", // Quotes by Product Category

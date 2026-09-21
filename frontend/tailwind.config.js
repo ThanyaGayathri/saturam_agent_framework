@@ -1,4 +1,23 @@
 /** @type {import('tailwindcss').Config} */
+
+// Every semantic colour below is a CSS variable with a hex fallback, so `useTheme()` can
+// repaint the app at runtime. A bare `var(...)` string, though, is opaque to Tailwind's
+// opacity modifier: it cannot parse the channels, so `bg-primary/10`, `border-primary/40`
+// and `ring-primary/25` compiled to no rule at all -- over a thousand of them across the
+// app, which is why tints, soft borders and focus rings were invisible.
+//
+// Returning a function instead lets Tailwind hand us the requested alpha, and `color-mix`
+// applies it to the variable without needing to know its channels. `opacityValue` arrives
+// undefined for the plain utility, as a number-ish string for `/40`, and as a var reference
+// for the legacy `bg-opacity-*` classes -- `calc()` covers the last two.
+const themed = (variable, fallback) => {
+  const base = `var(${variable}, ${fallback})`;
+  return ({ opacityValue }) =>
+    opacityValue === undefined
+      ? base
+      : `color-mix(in srgb, ${base} calc(${opacityValue} * 100%), transparent)`;
+};
+
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   // Dark mode is toggled via `.dark` class on <html> by the useTheme hook.
@@ -12,73 +31,73 @@ export default {
         // Primary — driven by CSS variables set by useTheme(). The hex
         // fallbacks preserve the previous palette if the variable is missing.
         primary: {
-          DEFAULT:       "var(--theme-brand, #731dd8)",
-          hover:         "var(--theme-brand-hover, #5d18ad)",
-          light:         "var(--theme-brand-light, #f3e9ff)",
-          "light-hover": "var(--theme-brand-light-hover, #e9d6ff)",
+          DEFAULT:       themed("--theme-brand", "#731dd8"),
+          hover:         themed("--theme-brand-hover", "#5d18ad"),
+          light:         themed("--theme-brand-light", "#f3e9ff"),
+          "light-hover": themed("--theme-brand-light-hover", "#e9d6ff"),
         },
         // Text — CSS vars toggle in dark mode (`index.css` → `html.dark`)
         text: {
-          primary: "var(--app-text-primary, #181d27)",
-          secondary: "var(--app-text-secondary, #535862)",
-          tertiary: "var(--app-text-tertiary, #414651)",
-          muted: "var(--app-text-muted, #717680)",
+          primary: themed("--app-text-primary", "#181d27"),
+          secondary: themed("--app-text-secondary", "#535862"),
+          tertiary: themed("--app-text-tertiary", "#414651"),
+          muted: themed("--app-text-muted", "#717680"),
         },
         // Backgrounds — same semantic tokens.
         // Both `DEFAULT` (→ `bg-surface`) and `default` (→ `bg-surface-default`)
         // are exposed so either utility name works in components.
         surface: {
-          DEFAULT: "var(--app-surface-default, #ffffff)",
-          default: "var(--app-surface-default, #ffffff)",
-          secondary: "var(--app-surface-secondary, #fafafa)",
-          tertiary: "var(--app-surface-tertiary, #f7f7f7)",
-          page: "var(--app-surface-page, #f8f9ff)",
-          "page-top": "var(--app-surface-page-top, #f5f7ff)",
+          DEFAULT: themed("--app-surface-default", "#ffffff"),
+          default: themed("--app-surface-default", "#ffffff"),
+          secondary: themed("--app-surface-secondary", "#fafafa"),
+          tertiary: themed("--app-surface-tertiary", "#f7f7f7"),
+          page: themed("--app-surface-page", "#f8f9ff"),
+          "page-top": themed("--app-surface-page-top", "#f5f7ff"),
         },
         // Borders — same dual-key pattern.
         border: {
-          DEFAULT: "var(--app-border, #e9e9eb)",
-          default: "var(--app-border, #e9e9eb)",
-          light: "var(--app-border-light, #d5d7da)",
+          DEFAULT: themed("--app-border", "#e9e9eb"),
+          default: themed("--app-border", "#e9e9eb"),
+          light: themed("--app-border-light", "#d5d7da"),
         },
         // Brand
         brand: {
           dark: "#2a2a37",
         },
         danger: {
-          DEFAULT: "var(--theme-danger, #f44708)",
+          DEFAULT: themed("--theme-danger", "#f44708"),
         },
         // Status (alerts, KPI deltas, health). Driven by theme preset via CSS vars.
         status: {
           success: {
-            DEFAULT: "var(--theme-status-success, #05a8aa)",
-            light: "var(--theme-status-success-light, #e6fffe)",
-            border: "var(--theme-status-success-border, #5eead4)",
-            muted: "var(--theme-status-success-muted, #ccfbf1)",
-            dot: "var(--theme-status-success-dot, #0d9488)",
+            DEFAULT: themed("--theme-status-success", "#05a8aa"),
+            light: themed("--theme-status-success-light", "#e6fffe"),
+            border: themed("--theme-status-success-border", "#5eead4"),
+            muted: themed("--theme-status-success-muted", "#ccfbf1"),
+            dot: themed("--theme-status-success-dot", "#0d9488"),
           },
           warning: {
-            DEFAULT: "var(--theme-status-warning, #d97706)",
-            light: "var(--theme-status-warning-light, #fffbeb)",
-            border: "var(--theme-status-warning-border, #fde68a)",
-            ring: "var(--theme-status-warning-ring, #fcd34d)",
-            dot: "var(--theme-status-warning-dot, #d97706)",
-            accent: "var(--theme-status-warning-accent, #fcd34d)",
+            DEFAULT: themed("--theme-status-warning", "#d97706"),
+            light: themed("--theme-status-warning-light", "#fffbeb"),
+            border: themed("--theme-status-warning-border", "#fde68a"),
+            ring: themed("--theme-status-warning-ring", "#fcd34d"),
+            dot: themed("--theme-status-warning-dot", "#d97706"),
+            accent: themed("--theme-status-warning-accent", "#fcd34d"),
           },
           critical: {
-            DEFAULT: "var(--theme-status-critical, #dc2626)",
-            light: "var(--theme-status-critical-light, #fef2f2)",
-            border: "var(--theme-status-critical-border, #fecaca)",
-            ring: "var(--theme-status-critical-ring, #f87171)",
-            dot: "var(--theme-status-critical-dot, #dc2626)",
-            accent: "var(--theme-status-critical-accent, #ef4444)",
+            DEFAULT: themed("--theme-status-critical", "#dc2626"),
+            light: themed("--theme-status-critical-light", "#fef2f2"),
+            border: themed("--theme-status-critical-border", "#fecaca"),
+            ring: themed("--theme-status-critical-ring", "#f87171"),
+            dot: themed("--theme-status-critical-dot", "#dc2626"),
+            accent: themed("--theme-status-critical-accent", "#ef4444"),
           },
           info: {
-            DEFAULT: "var(--theme-status-info, #5271ff)",
-            light: "var(--theme-status-info-light, #f0f4ff)",
-            border: "var(--theme-status-info-border, #b4c4ff)",
-            accent: "var(--theme-status-info-accent, #4361ee)",
-            dot: "var(--theme-status-info-dot, #5271ff)",
+            DEFAULT: themed("--theme-status-info", "#5271ff"),
+            light: themed("--theme-status-info-light", "#f0f4ff"),
+            border: themed("--theme-status-info-border", "#b4c4ff"),
+            accent: themed("--theme-status-info-accent", "#4361ee"),
+            dot: themed("--theme-status-info-dot", "#5271ff"),
           },
         },
         // Avatar

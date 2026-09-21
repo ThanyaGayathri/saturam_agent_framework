@@ -55,8 +55,8 @@ export function patchFromSuggestion(suggestion, spec) {
  else if (suggestion?.kind === "diagnostic") understood.push(`a diagnosis of ${patch.metricIds[0] || "one KPI"}: the change decomposed across every dimension the data carries`);
  else if (ids.length) understood.push(`${ids.length} KPI${ids.length === 1 ? "" : "s"} the data supports: ${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}`);
  if (patch.dimensions?.length) understood.push(`broken down by ${patch.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}`);
- if (suggestion?.comparison_reason) understood.push(suggestion.comparison ? `compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} — ${suggestion.comparison_reason}` : `not compared — ${suggestion.comparison_reason}`);
- if (suggestion?.schedule_reason) understood.push(`${suggestion.schedule} — ${suggestion.schedule_reason}`);
+ if (suggestion?.comparison_reason) understood.push(suggestion.comparison ? `compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} - ${suggestion.comparison_reason}` : `not compared: ${suggestion.comparison_reason}`);
+ if (suggestion?.schedule_reason) understood.push(`${suggestion.schedule} - ${suggestion.schedule_reason}`);
  if (suggestion?.window) understood.push(`the numbers cover the last ${suggestion.window} day${suggestion.window === 1 ? "" : "s"}`);
 
  if (suggestion?.recipients?.length) understood.push(`to ${suggestion.recipients.join(", ")}`);
@@ -113,7 +113,7 @@ export function analyticsSuggestionFor(field, spec) {
    return {
     show: true,
     lead: `From your goal and the registry: ${names.slice(0, 5).join(", ")}${names.length > 5 ? ` and ${names.length - 5} more` : ""}.`,
-    options: [{ label, why: `${names.slice(0, 3).join(", ")}${names.length > 3 ? ", …" : ""} — each chosen by words in your goal`, patch: { metricIds: [...new Set([...(spec.metricIds || []), ...missing])], metricTerms: [] } }],
+    options: [{ label, why: `${names.slice(0, 3).join(", ")}${names.length > 3 ? ", …" : ""}, each chosen by words in your goal`, patch: { metricIds: [...new Set([...(spec.metricIds || []), ...missing])], metricTerms: [] } }],
     preferred: label,
    };
   }

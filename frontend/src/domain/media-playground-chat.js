@@ -79,12 +79,12 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Under-represented",
         value: "3 formats",
         change: "in slate",
-        desc: "Three related format variants are absent or thin in our current slate — a gap the Content Strategy Advisor has flagged.",
+        desc: "Three related format variants are absent or thin in our current slate, a gap the Content Strategy Advisor has flagged.",
       },
     ],
     recommendations: [
       "Fact: 6-month sustained rise on competitive-cooking search + social signals; multiple regional-language sub-clusters visible in the Consumer signals.",
-      "Inferred trend (Anticipate): trajectory suggests this stays elevated 3-6 months out on the current growth curve — decision support, not a hit prediction.",
+      "Inferred trend (Anticipate): trajectory suggests this stays elevated 3-6 months out on the current growth curve, decision support, not a hit prediction.",
       "Recommendation (Advise): mark this a content opportunity worth deeper research; open a scoping brief for content-development and consumer insights.",
     ],
   },
@@ -133,7 +133,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Recommend for research",
         value: "3 themes",
         change: "quarter",
-        desc: "Regional mythology (Marathi + Tamil), women-led mythology reboots, and youth-led courtroom drama — all sustained AND under-represented in our current slate.",
+        desc: "Regional mythology (Marathi + Tamil), women-led mythology reboots, and youth-led courtroom drama, all sustained AND under-represented in our current slate.",
       },
       {
         title: "Historical fit",
@@ -145,13 +145,13 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Confidence framing",
         value: "Fact + Inferred",
         change: "labelled",
-        desc: "The brief separates observed fact from inferred trajectory and the recommendation — clear decision support for commissioning research.",
+        desc: "The brief separates observed fact from inferred trajectory and the recommendation, clear decision support for commissioning research.",
       },
     ],
     recommendations: [
       "Fact: three themes cleared both the sustained-momentum threshold AND the slate-gap check this quarter, with 12+ weeks of source-linked evidence.",
       "Inferred trend (Anticipate): trajectory extrapolation suggests all three stay elevated 3-6 months forward on their current growth curves.",
-      "Recommendation (Advise): open commissioning research shortlists for all three themes — decision support for the Head of Content Strategy, not a hit prediction.",
+      "Recommendation (Advise): open commissioning research shortlists for all three themes, decision support for the Head of Content Strategy, not a hit prediction.",
     ],
   },
 
@@ -326,7 +326,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Women-led mythology",
         value: "1 in dev",
         change: "0 in market",
-        desc: "Women-led mythology theme thin: one title in development, none in market — matches historical audience over-index.",
+        desc: "Women-led mythology theme thin: one title in development, none in market, matches historical audience over-index.",
       },
       {
         title: "Regional cricket",
@@ -382,7 +382,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Structural driver 1",
         value: "Content pacing",
         change: "45% of churn",
-        desc: "Marquee-title finish gaps account for ~45% of voluntary churn this quarter — the largest structural driver.",
+        desc: "Marquee-title finish gaps account for ~45% of voluntary churn this quarter, the largest structural driver.",
       },
       {
         title: "Structural driver 2",
@@ -413,7 +413,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Connected TV fill",
         value: "72%",
         change: "-8 pts vs target",
-        desc: "AVOD fill on connected TV averaged 72% over the last 24 hours vs. an 80% target — largest weekly slippage.",
+        desc: "AVOD fill on connected TV averaged 72% over the last 24 hours vs. an 80% target: largest weekly slippage.",
       },
       {
         title: "Mobile eCPM",
@@ -425,7 +425,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "VPAID error rate",
         value: "3.1%",
         change: "+0.8 pts",
-        desc: "VPAID timeout / error rate elevated on 2 demand partners this week — creative fatigue on 3 top campaigns.",
+        desc: "VPAID timeout / error rate elevated on 2 demand partners this week, creative fatigue on 3 top campaigns.",
       },
     ],
     recommendations: [
@@ -444,7 +444,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Blended eCPM trend",
         value: "Flat",
         change: "vs plan",
-        desc: "Blended eCPM has held flat quarter-over-quarter while AVOD watch hours grew 12% — structural yield gap.",
+        desc: "Blended eCPM has held flat quarter-over-quarter while AVOD watch hours grew 12%, structural yield gap.",
       },
       {
         title: "CTV drift",
@@ -512,7 +512,7 @@ export const MEDIA_TOPIC_PANELS = {
         title: "Leader gap",
         value: "9 pts",
         change: "widened from 5",
-        desc: "Gap to the category leader has widened from 5 pts to 9 pts over the quarter — the leader is investing faster.",
+        desc: "Gap to the category leader has widened from 5 pts to 9 pts over the quarter, the leader is investing faster.",
       },
       {
         title: "Fastest lever",

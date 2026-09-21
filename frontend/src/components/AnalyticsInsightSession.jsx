@@ -578,7 +578,7 @@ export default function AnalyticsInsightSession() {
 
   return (
 
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
 
       <Breadcrumb
 
@@ -863,7 +863,7 @@ export default function AnalyticsInsightSession() {
                   Open the full executive dashboard
                 </Link>
                 <p className="mt-2 text-xs text-text-muted">
-                  Cross-portfolio KPIs, brand momentum, and category demand in one view — pulled from
+                  Cross-portfolio KPIs, brand momentum, and category demand in one view, pulled from
                   HubSpot, GA4, and LogRocket for the selected window.
                 </p>
               </div>

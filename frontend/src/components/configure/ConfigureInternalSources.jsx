@@ -2,20 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Database, Link2, MoreVertical, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { CatalogSearchToolbar } from "../shared/CatalogSearchToolbar";
+import { SOURCE_ICON, BRAND_COLOR } from "../shared/SourceLogoTile";
 import { useConfigureWorkspace } from "../../context/ConfigureWorkspaceContext";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { internalSourceTypeLabel, externalIntegrationsForProfile } from "../../domain/configure-catalogs";
 import { MODEL_STATES, formatSync, metricsUnlockedBy, modelStateFor, workspaceReadiness } from "./source-model-state";
-import postgresSvg from "../../assets/postgres.svg";
-import snowflakeSvg from "../../assets/snowflake.svg";
-import sapSvg from "../../assets/sap.svg";
-import salesforceSvg from "../../assets/salesforce.svg";
-import airflowSvg from "../../assets/airflow.svg";
-import awsGlueSvg from "../../assets/aws-glue.svg";
-import azureAdfSvg from "../../assets/azure-data-factory.svg";
-import netSuiteSvg from "../../assets/netsuite.svg";
-import shopifySvg from "../../assets/shopify.svg";
-import slackSvg from "../../assets/slack.svg";
 
 /**
  * Everything the workspace is connected to, in one place.
@@ -29,35 +20,6 @@ import slackSvg from "../../assets/slack.svg";
  * alive says nothing about whether the product can answer a question from it, and readiness is
  * the thing that gates suggestions, dashboards and the playground.
  */
-
-const SOURCE_ICON = {
- postgres: postgresSvg,
- snowflake: snowflakeSvg,
- sap_s4hana: sapSvg,
- salesforce: salesforceSvg,
- hubspot: salesforceSvg,
- logrocket: postgresSvg,
- bigquery: snowflakeSvg,
- s3: awsGlueSvg,
- airflow: airflowSvg,
- aws_glue: awsGlueSvg,
- mssql: azureAdfSvg,
- dynamics365: azureAdfSvg,
- netsuite: netSuiteSvg,
- shopify: shopifySvg,
- slack: slackSvg,
- sfcc: salesforceSvg,
-};
-
-const BRAND_COLOR = {
- klaviyo: { bg: "#00b8d9", initial: "K" },
- stripe: { bg: "#635bff", initial: "S" },
- magento: { bg: "#ee6723", initial: "M" },
- braze: { bg: "#09c", initial: "B" },
- teams: { bg: "#5059c9", initial: "T" },
- fedex: { bg: "#4d148c", initial: "F" },
- webhook: { bg: "#535862", initial: "W" },
-};
 
 /** Warehouses answer analytical questions; the split matters when choosing what to model first. */
 const WAREHOUSE_TYPES = new Set(["snowflake", "bigquery", "redshift"]);
@@ -373,7 +335,7 @@ export default function ConfigureInternalSources() {
       </div>
       <div className="min-w-0 flex-1">
        <p className="text-sm font-bold text-text-primary">
-        {justCompleted.name} is modelled — {unlocked.length} new metrics you can measure
+        {justCompleted.name} is modelled: {unlocked.length} new metrics you can measure
        </p>
        <p className="mt-0.5 text-sm text-text-secondary">
         Including {unlocked.slice(0, 3).join(", ")}

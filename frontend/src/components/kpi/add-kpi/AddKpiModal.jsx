@@ -59,7 +59,7 @@ export default function AddKpiModal({
      <p className="mb-2.5 text-sm font-semibold text-text-primary">How do you want to add it?</p>
      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <ModeCard selected={mode === "ai"} onClick={() => setMode("ai")} Icon={Sparkles} title="AI generated KPI">
-       Describe what you want to measure — the model proposes KPIs your connected data supports, for you to adopt.
+       Describe what you want to measure, the model proposes KPIs your connected data supports, for you to adopt.
       </ModeCard>
       <ModeCard selected={mode === "manual"} onClick={() => setMode("manual")} Icon={MousePointerClick} title="Define it myself">
        Name it, pick the area and grain, write the SQL and tick the tables it reads.

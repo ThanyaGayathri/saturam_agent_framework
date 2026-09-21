@@ -52,7 +52,7 @@ export const KPI_GALLERY_TOUR = {
         { text: "Rows and Attributes give you a quick read on scale and shape.", rate: 0.98 },
         { text: "Just below that, the KPIs linked count tells you how many metrics in the registry actually declare this table as a source.", rate: 0.98 },
         { text: "Attribute chips list the columns exposed by the table. Below them, business area chips are drawn from the linked KPIs' own business areas.", rate: 0.98 },
-        { text: "The KPIs linked count is the same relationship you see the other way around on a KPI's own detail panel — this is the dataset view of it.", rate: 0.98, pauseAfter: 400 },
+        { text: "The KPIs linked count is the same relationship you see the other way around on a KPI's own detail panel, this is the dataset view of it.", rate: 0.98, pauseAfter: 400 },
       ],
     },
     {
@@ -60,7 +60,7 @@ export const KPI_GALLERY_TOUR = {
       route: "/kpis/gallery",
       anchor: null,
       lines: [
-        { text: "That's the Data catalog. A table appears here once it's been connected and modelled in Configure — this page never shows a table that isn't real.", rate: 0.98 },
+        { text: "That's the Data catalog. A table appears here once it's been connected and modelled in Configure, this page never shows a table that isn't real.", rate: 0.98 },
       ],
       advance: "manual",
     },

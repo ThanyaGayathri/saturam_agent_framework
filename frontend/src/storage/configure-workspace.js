@@ -196,9 +196,16 @@ export function normalizeInternal(s) {
  // for a mailbox or a CRM: it holds a reference ("env:gmail", "env:salesforce"; a vault path
  // in the cloud) and the platform resolves it where the platform runs.
  credentialRef: s.credentialRef || defaultCredentialRef(s.sourceType),
+ // Reachability, which is separate from semantic-layer readiness (see `source-model-state`).
+ // "untested" until a connection test runs; a "failed" source cannot be switched on for
+ // answers. External integrations already carried this field; databases had no equivalent,
+ // so a broken connection looked identical to a working one everywhere but the form.
+ connectionStatus: CONNECTION_STATUSES.has(s.connectionStatus) ? s.connectionStatus : "untested",
  seed: !!s.seed,
  };
 }
+
+const CONNECTION_STATUSES = new Set(["untested", "connected", "failed"]);
 
 /** The credential reference a source type resolves to when none was set. */
 export function defaultCredentialRef(sourceType) {

@@ -37,7 +37,7 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
       "Use cases"
     ],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "When RFQ submissions dip, walk the funnel step-by-step to see exactly where sessions leak — so digital and dev teams can fix the tallest drop-off first, not chase the whole thing at once.",
+    "problemSignal": "When RFQ submissions dip, walk the funnel step-by-step to see exactly where sessions leak, so digital and dev teams can fix the tallest drop-off first, not chase the whole thing at once.",
     "actionType": "Diagnose",
     "analyticsUcNumber": 2,
     "analyticsSheet": "Use cases",
@@ -100,7 +100,7 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
       "Use cases"
     ],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "A funnel counts moves; a journey shows the sequence. Follow one product family end-to-end so dealer and ops teams see the drop-off moments as a story — where a buyer stalled, and where they could be re-engaged.",
+    "problemSignal": "A funnel counts moves; a journey shows the sequence. Follow one product family end-to-end so dealer and ops teams see the drop-off moments as a story, where a buyer stalled, and where they could be re-engaged.",
     "actionType": "Analyze",
     "analyticsUcNumber": 5,
     "analyticsSheet": "Use cases",
@@ -164,7 +164,7 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
       "Use cases"
     ],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "Site errors don't just annoy — they cost quotes. Rank LogRocket issues by sessions affected, then convert affected high-intent traffic into pipeline at risk so digital and eng know which single fix moves the number most.",
+    "problemSignal": "Site errors don't just annoy, they cost quotes. Rank LogRocket issues by sessions affected, then convert affected high-intent traffic into pipeline at risk so digital and eng know which single fix moves the number most.",
     "actionType": "Analyze",
     "analyticsUcNumber": 8,
     "analyticsSheet": "Use cases",
@@ -333,7 +333,7 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
       "Use cases"
     ],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "One page for leadership: what moved this week, why it moved, what to do about it. No dashboard-hopping — just the two or three changes worth attention, each with its driver line already attached.",
+    "problemSignal": "One page for leadership: what moved this week, why it moved, what to do about it. No dashboard-hopping: just the two or three changes worth attention, each with its driver line already attached.",
     "actionType": "Diagnose",
     "analyticsUcNumber": 16,
     "analyticsSheet": "Use cases",
@@ -376,7 +376,7 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
       "Use cases"
     ],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "Some brands pull heavy traffic but almost no quotes — surface the biggest browse-to-quote gaps so merchandising and dealer teams can act on the right brand this week.",
+    "problemSignal": "Some brands pull heavy traffic but almost no quotes, surface the biggest browse-to-quote gaps so merchandising and dealer teams can act on the right brand this week.",
     "actionType": "Analyze",
     "analyticsUcNumber": 18,
     "analyticsSheet": "Use cases",
@@ -947,11 +947,11 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
     "id": "middleby-kpi-12",
     "title": "Where each brand wins geographically",
     "items": [
-      "HubSpot quote volume and win rate for each brand within each sales territory — highlights where a brand over- or under-performs geographically."
+      "HubSpot quote volume and win rate for each brand within each sales territory, highlights where a brand over- or under-performs geographically."
     ],
     "tags": ["Middleby", "Analytics", "Client KPI"],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "Where each brand is strong or weak across the sales territories — so merchandising and dealer teams see the brand-territory pockets worth doubling down on or fixing.",
+    "problemSignal": "Where each brand is strong or weak across the sales territories, so merchandising and dealer teams see the brand-territory pockets worth doubling down on or fixing.",
     "actionType": "Analyze",
     "analyticsSheet": "Client KPIs",
     "dataReadiness": "Partly Ready",
@@ -963,11 +963,11 @@ export const MIDDLEBY_USE_CASE_CATALOG_SEED = [
     "id": "middleby-kpi-13",
     "title": "What each customer segment buys",
     "items": [
-      "How each customer segment splits quote volume across L1 product categories — e.g., Dealer segment weighting on Refrigeration vs Restaurant / QSR weighting on Cooking."
+      "How each customer segment splits quote volume across L1 product categories, e.g., Dealer segment weighting on Refrigeration vs Restaurant / QSR weighting on Cooking."
     ],
     "tags": ["Middleby", "Analytics", "Client KPI"],
     "businessArea": "Digital & RFQ",
-    "problemSignal": "How each customer segment splits its quote mix across L1 product categories — for cross-sell targeting and category-team account planning.",
+    "problemSignal": "How each customer segment splits its quote mix across L1 product categories, for cross-sell targeting and category-team account planning.",
     "actionType": "Analyze",
     "analyticsSheet": "Client KPIs",
     "dataReadiness": "Partly Ready",

@@ -268,7 +268,7 @@ export default function KpiDataGallery() {
       {status === "error" ? (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
           <AlertTriangle size={15} className="shrink-0 text-status-warning" />
-          <span className="flex-1">{error || "Couldn't load the data catalog — try again shortly."}</span>
+          <span className="flex-1">{error || "Couldn't load the data catalog, try again shortly."}</span>
           <button
             type="button"
             onClick={reload}
@@ -366,7 +366,7 @@ export default function KpiDataGallery() {
           </p>
           <p className="mt-1 text-[13px] text-text-muted">
             {status === "error"
-              ? "The catalog couldn't be loaded — see the message above."
+              ? "The catalog couldn't be loaded, see the message above."
               : "Try clearing a filter or widening your search."}
           </p>
         </div>

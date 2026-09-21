@@ -7,6 +7,7 @@ import { DemoProfileProvider } from "./context/DemoProfileContext";
 import { PrototypeAuthProvider } from "./context/PrototypeAuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { KpiRegistryProvider } from "./context/KpiRegistryContext";
+import { SourcePrefsProvider } from "./context/SourcePrefsContext";
 import { TourProvider } from "./tours/TourContext";
 import TourOverlay from "./tours/TourOverlay";
 import { initThemeOnStartup } from "./hooks/useTheme";
@@ -95,10 +96,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <ThemeProvider>
           <DemoProfileProvider>
             <KpiRegistryProvider>
+              <SourcePrefsProvider>
               <TourProvider>
                 <App />
                 <TourOverlay />
               </TourProvider>
+              </SourcePrefsProvider>
             </KpiRegistryProvider>
           </DemoProfileProvider>
         </ThemeProvider>

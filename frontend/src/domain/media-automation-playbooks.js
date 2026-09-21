@@ -26,7 +26,7 @@ export const MEDIA_AUTOMATION_PLAYBOOKS = [
     automatedActions: [
       { what: "Ingest open-web + social signals", where: "Social listening · YouTube · Google Trends", detail: "Topic extraction across trade press, Instagram Reels, Twitter, YouTube shorts, and search interest." },
       { what: "Score topic momentum", where: "Enterprise GPT", detail: "4-week growth, sentiment, and audience spread; separate spikes from sustained trends." },
-      { what: "Explain each trend", where: "Enterprise GPT", detail: "What is trending, why, who is driving it — with source citations traceable per topic." },
+      { what: "Explain each trend", where: "Enterprise GPT", detail: "What is trending, why, who is driving it, with source citations traceable per topic." },
       { what: "Compose weekly digest", where: "Enterprise GPT", detail: "One-page content-team digest plus a full topic table with evidence links." },
       { what: "Schedule Monday distribution", where: "Email", detail: "7 AM send to Content Strategy, Programming, Development, and Consumer Insights." },
     ],

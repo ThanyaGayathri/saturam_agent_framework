@@ -35,7 +35,7 @@ export default function PlanViews({ spec, generatedNote = true }) {
      <div className="min-w-0 text-sm">
       <p className="font-semibold text-text-primary">Workflow generated from the specification</p>
       <p className="text-text-secondary">
-       The <strong className="text-text-primary">{displayName(spec)}</strong> workflow — {plan.stages.length} steps in a fixed order — with {plan.steps.reduce((n, st) => n + (st.consumes || []).filter((c) => c.value != null).length, 0)} values taken from the specification. Nothing is decided at run time; the workflow was generated once, and every run replays it.
+       The <strong className="text-text-primary">{displayName(spec)}</strong> workflow: {plan.stages.length} steps in a fixed order, with {plan.steps.reduce((n, st) => n + (st.consumes || []).filter((c) => c.value != null).length, 0)} values taken from the specification. Nothing is decided at run time; the workflow was generated once, and every run replays it.
       </p>
      </div>
     </div>
@@ -52,7 +52,7 @@ export default function PlanViews({ spec, generatedNote = true }) {
     <span className="text-text-secondary">
      {{
       inform: "Nothing is changed. It reads, compares and explains.",
-      alert: "Nothing is changed, and no AI runs on a run — every step is automated: a threshold decides, and it notifies only when it fires.",
+      alert: "Nothing is changed, and no AI runs on a run, every step is automated: a threshold decides, and it notifies only when it fires.",
       recommend: "Nothing is changed without passing every business guardrail and an approver releasing it.",
       act: "Nothing is changed beyond the business guardrails and the change limit, and every change records its rollback point.",
      }[plan.shape.id]}

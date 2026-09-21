@@ -35,7 +35,7 @@ export default function AddKpiAiStep({ focusAreaLabels = [], runInFlight = false
    <p className="mb-1 text-sm font-semibold text-text-primary">What do you want to measure?</p>
    <p className="mb-3 text-xs leading-relaxed text-text-muted">
     The model reads your connected data and proposes the KPIs that answer this, checked against
-    the tables you actually have. Proposals land on this page with "Add to my metrics" — nothing
+    the tables you actually have. Proposals land on this page with "Add to my metrics", nothing
     is added until you pick one.
     {focusAreaLabels.length > 0 && (
      <>
@@ -52,7 +52,7 @@ export default function AddKpiAiStep({ focusAreaLabels = [], runInFlight = false
      <AlertTriangle size={13} className="mt-0.5 shrink-0 text-status-warning" />
      <span>
       A suggestion run is already in progress. Submitting this request stops waiting for it and
-      starts a new run in its place — its results won't be shown.
+      starts a new run in its place, its results won't be shown.
      </span>
     </p>
    )}
@@ -67,7 +67,7 @@ export default function AddKpiAiStep({ focusAreaLabels = [], runInFlight = false
      onKeyDown={(e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canStart) onStart(ask.trim());
      }}
-     placeholder="e.g. How many quote requests turn into deals each week, by brand — and which brands are slipping."
+     placeholder="e.g. How many quote requests turn into deals each week, by brand, and which brands are slipping."
      className="w-full resize-none bg-transparent text-sm leading-relaxed text-text-primary placeholder:text-text-muted focus:outline-none"
      aria-label="What do you want to measure?"
     />

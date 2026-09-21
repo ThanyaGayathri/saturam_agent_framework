@@ -73,7 +73,7 @@ function NextBestActions({ recommendations }) {
      {recs.map((r, i) => { const a = r.action || {}; const ctx = r.context || {}; const acct = ctx.account || {}; return (
       <div key={r.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto_minmax(0,1.4fr)] items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
        <span className="pt-0.5 tabular-nums text-text-muted">{all.indexOf(r) + 1}</span>
-       <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="truncate text-[11px] text-text-muted">RFM {acct.segment || "—"}{acct.at_risk ? " · account at risk of churn" : ""}{r.owner ? ` · rep ${r.owner}` : ""}</p></div>
+       <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="truncate text-[11px] text-text-muted">RFM {acct.segment || "-"}{acct.at_risk ? " · account at risk of churn" : ""}{r.owner ? ` · rep ${r.owner}` : ""}</p></div>
        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[r.risk_level] || ""}`}>{r.risk_level} · {Math.round((r.risk_score || 0) * 100)}%</span>
        <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
       </div>
@@ -111,7 +111,7 @@ function ReportDrawer({ report, runHref, name }) {
   frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
   // The PDF's name and page header come from the top document's title while the
   // dialog is open: the use case's name and the run date, not the app's.
-  const fileName = `${name || report.title || "Report"} — ${report.asOf || ""}`.trim();
+  const fileName = `${name || report.title || "Report"} - ${report.asOf || ""}`.trim();
   const appTitle = document.title;
   frame.onload = () => {
    const w = frame.contentWindow;

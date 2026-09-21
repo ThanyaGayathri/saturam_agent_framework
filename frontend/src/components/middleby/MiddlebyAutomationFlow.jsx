@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, BarChart3, LayoutDashboard } from "lucide-react";
 import Breadcrumb from "../shared/Breadcrumb";
+import {
+  catalogPageShell,
+  catalogPageInner,
+  catalogEyebrow,
+  catalogH1,
+  catalogSubtitle,
+} from "../shared/useCaseCatalogPageStyles";
 import MiddlebyAutomationFlowStepper from "./MiddlebyAutomationFlowStepper";
 import MiddlebyAutomationFlowAutomateStep from "./MiddlebyAutomationFlowAutomateStep";
 import AnalyticsChartRenderer from "./AnalyticsChartRenderer";
@@ -425,30 +432,30 @@ export default function MiddlebyAutomationFlow({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <Breadcrumb
-        items={[
-          { label: "Home", to: "/playground" },
-          { label: "Automation", to: "/analytics/automation" },
-          { label: playbook.label || "Automation flow" },
-        ]}
-      />
-      <div className="mt-4 mb-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Guided automation flow · {playbook.owner}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold text-text-primary">{playbook.label}</h1>
-        <p className="mt-2 text-sm text-text-secondary">
-          Three steps on one screen: detect the signal, confirm on the business monitor, then run
-          the follow-up workflow.
+    <div className={catalogPageShell}>
+      <div className={catalogPageInner}>
+        <Breadcrumb
+          items={[
+            { label: "Home", to: "/playground" },
+            { label: "Automation", to: "/analytics/automation" },
+            { label: playbook.label || "Automation flow" },
+          ]}
+        />
+        <div className="mt-4 mb-2">
+          <p className={catalogEyebrow}>Guided automation flow · {playbook.owner}</p>
+          <h1 className={catalogH1}>{playbook.label}</h1>
+          <p className={catalogSubtitle}>
+            Three steps on one screen: detect the signal, confirm on the business monitor, then run
+            the follow-up workflow.
+          </p>
+        </div>
+        {flowBody}
+        <p className="mt-8 text-center text-xs text-text-muted">
+          <Link to="/analytics/automation" className="font-semibold text-primary hover:underline">
+            Back to automation hub
+          </Link>
         </p>
       </div>
-      {flowBody}
-      <p className="mt-8 text-center text-xs text-text-muted">
-        <Link to="/analytics/automation" className="font-semibold text-primary hover:underline">
-          Back to automation hub
-        </Link>
-      </p>
     </div>
   );
 }

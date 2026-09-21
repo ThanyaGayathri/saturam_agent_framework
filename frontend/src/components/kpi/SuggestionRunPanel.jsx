@@ -180,7 +180,7 @@ function RunningPanel({ phase, elapsed, typicalDuration, ask, onCancel }) {
  if (slow) {
   expectation = (
    <>
-    Taking longer than usual — still working. It stops on its own if it exceeds the
+    Taking longer than usual, still working. It stops on its own if it exceeds the
     deployment's limit.
    </>
   );
@@ -268,7 +268,7 @@ function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, ask
        <strong className="font-semibold">
         {total} KPI{total === 1 ? "" : "s"} proposed
        </strong>
-       {took ? ` in ${took}` : ""} — {ready} ready to adopt
+       {took ? ` in ${took}` : ""} - {ready} ready to adopt
        {notReady > 0 ? `, ${notReady} need${notReady === 1 ? "s" : ""} data you haven't connected` : ""}.
       </>
      )}

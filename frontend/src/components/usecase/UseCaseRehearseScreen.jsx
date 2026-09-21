@@ -213,7 +213,7 @@ export default function UseCaseRehearseScreen() {
     <Section title={`It would have fired ${alert.events.length} time${alert.events.length === 1 ? "" : "s"} in 90 days`}>
      <p className="text-sm text-text-secondary">
       {alert.events.length >= 5 ? "That is often. Consider a higher threshold or a longer window before this goes live." : "A manageable number for the people it notifies."}
-      {" "}It stayed quiet on the other {alert.quiet} days — each of those runs is still logged.
+      {" "}It stayed quiet on the other {alert.quiet} days: each of those runs is still logged.
      </p>
      <ul className="mt-3 space-y-1.5">
       {alert.events.map((a, i) => (
@@ -282,7 +282,7 @@ export default function UseCaseRehearseScreen() {
         {propose.cap
          ? propose.held > 0
           ? <> Your change limit is <strong className="text-text-primary">{spec.blastRadius}</strong>, so <strong className="text-text-primary">{propose.held}</strong> per run would have been held for the next run rather than made.</>
-          : <> Your change limit is <strong className="text-text-primary">{spec.blastRadius}</strong> — every run would have fitted inside it.</>
+          : <> Your change limit is <strong className="text-text-primary">{spec.blastRadius}</strong>, every run would have fitted inside it.</>
          : " No change limit is set."}
        </p>
        <p className="mt-2 rounded-lg border border-status-warning-border bg-status-warning-light px-3 py-2 text-xs text-status-warning">
@@ -304,10 +304,10 @@ export default function UseCaseRehearseScreen() {
 
    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
     <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
-     That's not right — back to the plan
+     That's not right: back to the plan
     </button>
     <button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
-     Looks right — continue <ArrowRight size={15} />
+     Looks right: continue <ArrowRight size={15} />
     </button>
    </div>
   </div>

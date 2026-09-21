@@ -31,14 +31,14 @@ const TAB_COPY = {
   gallery: {
     title: "Data catalog",
     description:
-      "Every table the semantic layer exposes, with the attributes and KPIs it actually powers. Read-only — connect and model new sources from Configure.",
+      "Every table the semantic layer exposes, with the attributes and KPIs it actually powers. Read-only: connect and model new sources from Configure.",
     tourId: "kpi-gallery",
     tourLabel: "Take a quick Data catalog tour",
   },
   dashboards: {
     title: "Dashboards",
     description:
-      "Dashboards you have built from selected metrics. Every figure is computed against the definition in Configure — change it there and every dashboard follows.",
+      "Dashboards you have built from selected metrics. Every figure is computed against the definition in Configure, change it there and every dashboard follows.",
     // No tour here on purpose: the only tour that used to launch from this tab was the KPI health
     // tour, which walks `/kpis/dashboard` -- a page that is no longer a tab, so it would drop the
     // customer on a screen they cannot navigate back to. `TourLaunchButton` renders nothing

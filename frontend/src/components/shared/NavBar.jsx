@@ -21,8 +21,12 @@ export default function NavBar() {
         : "text-text-tertiary hover:bg-surface-secondary hover:text-text-primary dark:text-text-secondary dark:hover:bg-surface/[0.06] dark:hover:text-text-primary"
     }`;
 
+  // On wide screens the side columns share the leftover space equally, so the nav sits in the
+  // middle of the header rather than in the middle of whatever the brand and the profile
+  // cluster leave over -- those two are different widths, which is what pushed it right
+  // before. Narrow screens keep the auto/1fr/auto split, where the nav scrolls instead.
   return (
-    <header className="sticky top-0 z-40 grid h-[72px] w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-[var(--app-surface-default)] px-3 shadow-[0_1px_0_0_rgba(0,0,0,0.04)] backdrop-blur-md backdrop-saturate-150 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)] sm:gap-3 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 grid h-[72px] w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-[var(--app-surface-default)] px-3 shadow-[0_1px_0_0_rgba(0,0,0,0.04)] backdrop-blur-md backdrop-saturate-150 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)] sm:gap-3 sm:px-6 lg:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] lg:px-8">
         <Link
           to={homePath}
           className="retailgpt-nav-brand flex items-center gap-1.5 justify-self-start rounded-md outline-none sm:gap-2 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-surface-default)]"
@@ -55,7 +59,11 @@ export default function NavBar() {
           </div>
         </nav>
 
-        <HeaderNotificationsAndProfile />
+        {/* The centred layout gives this column the same width as the brand's, so the bell
+            and avatar have to be pinned to its end or they drift inward from the page edge. */}
+        <div className="flex min-w-0 items-center justify-self-end">
+          <HeaderNotificationsAndProfile />
+        </div>
     </header>
   );
 }

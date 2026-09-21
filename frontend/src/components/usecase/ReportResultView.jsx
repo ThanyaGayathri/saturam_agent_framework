@@ -10,7 +10,7 @@ import DiagnosisInsight from "./DiagnosisInsight";
  * document.
  */
 const fmt = (v, unit) => {
- if (v == null) return "—";
+ if (v == null) return "-";
  const n = Number(v);
  if (unit === "%") return `${n.toFixed(1)}%`;
  if (String(unit).toUpperCase() === "USD") return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -25,7 +25,7 @@ function ActionsView({ r }) {
  const recs = r.recommendations?.recommendations || [];
  const alerts = r.recommendations?.alerts || [];
  const plays = Object.entries(r.recommendations?.plays || {}).sort((a, b) => b[1] - a[1]);
- const byRep = alerts.reduce((m, a) => { const k = a.owner || "—"; m[k] = (m[k] || 0) + 1; return m; }, {});
+ const byRep = alerts.reduce((m, a) => { const k = a.owner || "-"; m[k] = (m[k] || 0) + 1; return m; }, {});
  return (
   <div className="space-y-3">
    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
@@ -38,7 +38,7 @@ function ActionsView({ r }) {
      <tbody>
       {recs.map((x) => { const ctx = x.context || {}; const acct = ctx.account || {}; const a = x.action || {}; return (
        <tr key={x.id} className="border-t border-border align-top">
-        <td className="px-3 py-2"><p className="font-semibold text-text-primary">{x.subject_label}</p><p className="text-xs text-text-secondary">{x.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="text-[11px] text-text-muted">RFM {acct.segment || "—"}{acct.at_risk ? " · account at risk of churn" : ""}</p></td>
+        <td className="px-3 py-2"><p className="font-semibold text-text-primary">{x.subject_label}</p><p className="text-xs text-text-secondary">{x.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="text-[11px] text-text-muted">RFM {acct.segment || "-"}{acct.at_risk ? " · account at risk of churn" : ""}</p></td>
         <td className="px-3 py-2 text-center"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[x.risk_level] || ""}`}>{x.risk_level}</span><p className="text-xs tabular-nums text-text-secondary">{Math.round((x.risk_score || 0) * 100)}%</p></td>
         <td className="px-3 py-2"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-xs text-text-secondary">{a.because}</p><p className="text-[11px] text-text-muted">{(x.drivers || []).filter((d) => !(a.because || "").includes(d.text)).slice(0, 2).map((d) => d.text).join("; ")}</p></td>
         <td className="px-3 py-2 text-xs text-text-secondary">{a.owner}{a.sla_hours ? <><br />{a.sla_hours >= 24 ? `within ${Math.round(a.sla_hours / 24)}d` : `within ${a.sla_hours}h`}</> : null}</td>
@@ -47,7 +47,7 @@ function ActionsView({ r }) {
      </tbody>
     </table>
    </div>
-   {alerts.length > 0 && <p className="text-xs text-text-secondary"><strong className="text-text-primary">{alerts.length}</strong> high-risk quotes in one alert digest, a section per rep: {Object.entries(byRep).sort((a, b) => b[1] - a[1]).map(([rep, n]) => `${rep} (${n})`).join(", ")}{r.alerts?.status === "held" ? " — composed, not sent (rehearsal)" : r.alerts?.status === "sent" ? " — emailed" : ""}.</p>}
+   {alerts.length > 0 && <p className="text-xs text-text-secondary"><strong className="text-text-primary">{alerts.length}</strong> high-risk quotes in one alert digest, a section per rep: {Object.entries(byRep).sort((a, b) => b[1] - a[1]).map(([rep, n]) => `${rep} (${n})`).join(", ")}{r.alerts?.status === "held" ? ", composed, not sent (rehearsal)" : r.alerts?.status === "sent" ? ", emailed" : ""}.</p>}
   </div>
  );
 }
@@ -101,8 +101,8 @@ export default function ReportResultView({ run, live }) {
      : <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">Not compared</p><p className="text-[11px] text-text-muted">the numbers as they are{r.computedNow.length ? ` (${r.computedNow.length} computed for this date)` : ""}</p></div>}
     <div className={`rounded-lg px-3 py-2.5 ${r.grounding?.passed === false ? "bg-status-warning-light" : "bg-status-success-light"}`}><p className={`text-2xl font-bold tabular-nums ${r.grounding?.passed === false ? "text-status-warning" : "text-status-success"}`}>{r.grounding?.checked ?? 0}</p><p className="text-[11px] text-text-muted">{r.grounding?.passed === false ? "figures checked · narrative withheld" : "figures checked, all in the numbers"}</p></div>
     </>}
-    {r.risk && <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">{r.delivery?.status === "sent" ? "Report emailed" : r.delivery?.status === "held" ? "Report composed" : r.delivery?.status === "no_recipient" ? "In-app only" : r.delivery?.status || "—"}</p><p className="text-[11px] text-text-muted">{r.alerts?.status === "sent" ? `alert digest emailed · ${r.recommendations?.summary?.alerts || 0} quotes, ${r.recommendations?.summary?.owners || 0} reps` : r.alerts?.status === "held" ? `alert digest composed · ${r.recommendations?.summary?.alerts || 0} quotes, ${r.recommendations?.summary?.owners || 0} reps` : r.alerts?.status === "not_requested" ? "no alerts asked for" : r.alerts?.status || ""} · grounding {r.grounding?.passed === false ? "withheld" : `${r.grounding?.checked ?? 0} figures ok`}</p></div>}
-    {!r.risk && <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">{r.delivery?.status === "sent" ? "Emailed" : r.delivery?.status === "held" ? "Composed, not sent" : r.delivery?.status === "no_recipient" ? "In-app only" : r.delivery?.status || "—"}</p><p className="text-[11px] text-text-muted">{(r.delivery?.to || []).join(", ") || (live ? "no address" : "rehearsal")}</p></div>}
+    {r.risk && <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">{r.delivery?.status === "sent" ? "Report emailed" : r.delivery?.status === "held" ? "Report composed" : r.delivery?.status === "no_recipient" ? "In-app only" : r.delivery?.status || "-"}</p><p className="text-[11px] text-text-muted">{r.alerts?.status === "sent" ? `alert digest emailed · ${r.recommendations?.summary?.alerts || 0} quotes, ${r.recommendations?.summary?.owners || 0} reps` : r.alerts?.status === "held" ? `alert digest composed · ${r.recommendations?.summary?.alerts || 0} quotes, ${r.recommendations?.summary?.owners || 0} reps` : r.alerts?.status === "not_requested" ? "no alerts asked for" : r.alerts?.status || ""} · grounding {r.grounding?.passed === false ? "withheld" : `${r.grounding?.checked ?? 0} figures ok`}</p></div>}
+    {!r.risk && <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-sm font-bold text-text-primary">{r.delivery?.status === "sent" ? "Emailed" : r.delivery?.status === "held" ? "Composed, not sent" : r.delivery?.status === "no_recipient" ? "In-app only" : r.delivery?.status || "-"}</p><p className="text-[11px] text-text-muted">{(r.delivery?.to || []).join(", ") || (live ? "no address" : "rehearsal")}</p></div>}
    </div>
 
    <p className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
@@ -144,7 +144,7 @@ export default function ReportResultView({ run, live }) {
          <td className="px-3 py-2"><span className="font-semibold text-text-primary">{k.name}</span><span className="ml-1.5 font-mono text-[10px] text-text-muted">{k.id}</span></td>
          <td className="px-3 py-2 text-right tabular-nums text-text-primary">{fmt(k.current, k.unit)}</td>
          <td className="px-3 py-2 text-right tabular-nums text-text-secondary">{fmt(k.baseline, k.unit)}</td>
-         <td className={`px-3 py-2 text-right tabular-nums ${k.delta == null ? "text-text-muted" : k.delta >= 0 ? "text-status-success" : "text-status-critical"}`}>{k.delta == null ? (k.reason || "—") : `${k.delta > 0 ? "+" : ""}${fmt(k.delta, k.unit === "%" ? "pts" : k.unit)}${k.deltaPct != null && k.unit !== "%" ? ` (${k.deltaPct > 0 ? "+" : ""}${k.deltaPct}%)` : ""}`}</td>
+         <td className={`px-3 py-2 text-right tabular-nums ${k.delta == null ? "text-text-muted" : k.delta >= 0 ? "text-status-success" : "text-status-critical"}`}>{k.delta == null ? (k.reason || "-") : `${k.delta > 0 ? "+" : ""}${fmt(k.delta, k.unit === "%" ? "pts" : k.unit)}${k.deltaPct != null && k.unit !== "%" ? ` (${k.deltaPct > 0 ? "+" : ""}${k.deltaPct}%)` : ""}`}</td>
          <td className="px-3 py-2 text-xs text-text-muted">{k.rows ? `${k.rows} rows by ${k.grain.replace(/_/g, " ")}` : ""}</td>
         </tr>
        ))}

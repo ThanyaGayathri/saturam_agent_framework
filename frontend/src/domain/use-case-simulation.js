@@ -103,7 +103,7 @@ export function simulateEmail(spec, email, alreadyCreated) {
   const product = byPart ? SAMPLE_PRODUCTS.find((p) => p.id === byPart) : line.product && line.score >= (t.product ?? 0.85) ? SAMPLE_PRODUCTS.find((p) => p.id === line.product) : null;
   if (!product) {
    const closest = SAMPLE_PRODUCTS.find((p) => p.id === line.closest);
-   return stop("PRODUCT_NOT_FOUND", `Line "${line.desc}": ${closest ? `closest match ${closest.name} (${line.score.toFixed(2)})` : "no candidate"} — below the ${t.product ?? 0.85} threshold.`);
+   return stop("PRODUCT_NOT_FOUND", `Line "${line.desc}": ${closest ? `closest match ${closest.name} (${line.score.toFixed(2)})` : "no candidate"}, below the ${t.product ?? 0.85} threshold.`);
   }
   resolved.push({ ...line, productRec: product });
  }

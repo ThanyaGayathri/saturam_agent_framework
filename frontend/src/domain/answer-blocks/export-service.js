@@ -9,7 +9,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { BLOCK_TYPES } from "./schema";
 
-const REPORT_TITLE = "Enterprise GPT — Middleby report";
+const REPORT_TITLE = "Enterprise GPT: Middleby report";
 
 // ---------- helpers -------------------------------------------------------
 
@@ -21,7 +21,7 @@ function stringifyBlockLead(block) {
       return {
         title: block.title || "Key numbers",
         body: (block.items || [])
-          .map((it) => `${it.title}: ${it.value}${it.change ? ` (${it.change})` : ""}${it.desc ? ` — ${it.desc}` : ""}`)
+          .map((it) => `${it.title}: ${it.value}${it.change ? ` (${it.change})` : ""}${it.desc ? ` - ${it.desc}` : ""}`)
           .join("\n"),
       };
     case BLOCK_TYPES.CHART:
@@ -50,7 +50,7 @@ function stringifyBlockLead(block) {
       return {
         title: "Where this came from",
         body: (block.sources || [])
-          .map((s) => `${s.system} — ${s.scope} (${s.isReal ? "Real data" : "Example data"})`)
+          .map((s) => `${s.system} - ${s.scope} (${s.isReal ? "Real data" : "Example data"})`)
           .join("\n"),
       };
     case BLOCK_TYPES.JOURNEY:
@@ -77,7 +77,7 @@ function pptxAddTable(slide, block) {
   }));
   const bodyRows = rows.slice(0, 12).map((r) =>
     cols.map((c) => ({
-      text: String(r[c.key] ?? "—"),
+      text: String(r[c.key] ?? "-"),
       options: { color: "1D2939" },
     }))
   );
@@ -206,7 +206,7 @@ export function exportBlocksAsPdf(items, opts = {}) {
         autoTable(doc, {
           startY: y,
           head: [cols.map((c) => c.label)],
-          body: rows.slice(0, 20).map((r) => cols.map((c) => String(r[c.key] ?? "—"))),
+          body: rows.slice(0, 20).map((r) => cols.map((c) => String(r[c.key] ?? "-"))),
           margin: { left: margin, right: margin },
           styles: { fontSize: 9, cellPadding: 4 },
           headStyles: { fillColor: [242, 244, 247], textColor: [52, 64, 84] },

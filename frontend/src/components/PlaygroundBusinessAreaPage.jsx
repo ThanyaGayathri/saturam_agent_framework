@@ -4,9 +4,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
-  Database,
-  ExternalLink,
-  LayoutGrid,
   Paperclip,
   Plus,
   Search,
@@ -31,13 +28,6 @@ import { PLAYGROUND_HUB_CHAT_MESSAGE_KEY, HUB_CHAT_ATTACH_HANDOFF_KEY } from "..
 import { serializePlaygroundHubHandoff } from "../domain/playground-hub-handoff";
 import { useProcesses } from "../hooks/useProcesses";
 import { formatProcessFieldForUi } from "../storage/processes";
-import snowflakeSvg from "../assets/snowflake.svg";
-import airflowSvg from "../assets/airflow.svg";
-import awsGlueSvg from "../assets/aws-glue.svg";
-import adfSvg from "../assets/azure-data-factory.svg";
-import salesforceSvg from "../assets/salesforce.svg";
-import sapSvg from "../assets/sap.svg";
-import netsuiteSvg from "../assets/netsuite.svg";
 import {
   catalogPageShell,
   catalogPageInner,
@@ -46,21 +36,8 @@ import {
   catalogSectionBelowNav,
 } from "./shared/useCaseCatalogPageStyles";
 import { playgroundUseCaseCardSurfaceClasses } from "./shared/playgroundUseCaseCardSurface";
+import ComposerSourceMenus from "./shared/ComposerSourceMenus";
 import { CatalogTagPill } from "./shared/catalogUseCaseTagPill";
-import Switch from "./ui/Switch";
-
-const DATABASES = [
-  { name: "Snowflake", img: snowflakeSvg },
-  { name: "Airflow", img: airflowSvg },
-  { name: "Amazon Glue", img: awsGlueSvg },
-  { name: "Azure Data Factory", img: adfSvg },
-];
-
-const CONNECTOR_ITEMS = [
-  { id: "salesforce", name: "Salesforce", img: salesforceSvg },
-  { id: "sap", name: "SAP", img: sapSvg },
-  { id: "netsuite", name: "Oracle NetSuite", img: netsuiteSvg },
-];
 
 function catalogEntryMatchesSubjectArea(entry, subjectAreaLabel, processById) {
   const needle = String(subjectAreaLabel || "").trim();
@@ -78,18 +55,6 @@ function isAllSubjectAreas(subjectAreaState) {
   return !String(subjectAreaState ?? "").trim();
 }
 
-function ConnectorToggle({ enabled, onChange, name }) {
-  return (
-    <Switch
-      checked={enabled}
-      onCheckedChange={onChange}
-      size="comfortable"
-      stopClickPropagation
-      aria-label={enabled ? `Disable connection for ${name}` : `Enable connection for ${name}`}
-    />
-  );
-}
-
 export default function PlaygroundBusinessAreaPage() {
   const { areaSlug } = useParams();
   const navigate = useNavigate();
@@ -103,15 +68,6 @@ export default function PlaygroundBusinessAreaPage() {
   }, []);
   const dictation = useDictation({ onFinalText: appendDictation });
   const composerRef = useRef(null);
-  const dbDropdownRef = useRef(null);
-  const connDropdownRef = useRef(null);
-  const [showDbDropdown, setShowDbDropdown] = useState(false);
-  const [showConnDropdown, setShowConnDropdown] = useState(false);
-  const [connectorEnabled, setConnectorEnabled] = useState({
-    salesforce: true,
-    sap: false,
-    netsuite: false,
-  });
   const [subjectArea, setSubjectArea] = useState("");
   const [pendingPromptMeta, setPendingPromptMeta] = useState(null);
   const { areas: BUSINESS_AREAS } = useBusinessAreas();
@@ -158,7 +114,6 @@ export default function PlaygroundBusinessAreaPage() {
   }, [areaEntries, subjectArea, processById]);
 
   const hasInput = query.trim().length > 0 || attachments.staged.length > 0;
-  const enabledConnectorCount = Object.values(connectorEnabled).filter(Boolean).length;
 
   const searchFiltered = useMemo(() => {
     if (!search.trim()) return subjectScopedEntries;
@@ -221,22 +176,6 @@ export default function PlaygroundBusinessAreaPage() {
   useEffect(() => {
     setSearch("");
   }, [areaSlug]);
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (dbDropdownRef.current && !dbDropdownRef.current.contains(e.target)) {
-        setShowDbDropdown(false);
-      }
-      if (connDropdownRef.current && !connDropdownRef.current.contains(e.target)) {
-        setShowConnDropdown(false);
-      }
-    }
-    if (showDbDropdown || showConnDropdown) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-    return undefined;
-  }, [showDbDropdown, showConnDropdown]);
 
   if (!isPlaygroundAreaSlug(areaSlug)) {
     return <Navigate to="/playground" replace />;
@@ -337,120 +276,7 @@ export default function PlaygroundBusinessAreaPage() {
                     <input ref={attachments.inputRef} {...attachments.fileInputProps} />
                     <Paperclip size={18} className="pointer-events-none" />
                   </label>
-                  <div ref={dbDropdownRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowConnDropdown(false);
-                        setShowDbDropdown(!showDbDropdown);
-                      }}
-                      className={`rounded p-1.5 hover:bg-surface-secondary ${showDbDropdown ? "text-primary bg-surface-secondary" : "text-text-muted hover:text-primary"}`}
-                      title="Database"
-                    >
-                      <Database size={18} />
-                    </button>
-                    {showDbDropdown && (
-                      <div className="absolute left-0 top-full z-30 mt-2 w-[280px] rounded-xl border border-border bg-surface p-3 shadow-xl">
-                        <p className="mb-2 px-1 text-sm font-semibold text-text-primary">Database</p>
-                        <div className="space-y-1">
-                          {DATABASES.map((db) => (
-                            <div
-                              key={db.name}
-                              className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-surface-secondary"
-                            >
-                              <div className="flex items-center gap-3">
-                                <img src={db.img} alt={db.name} className="h-6 w-6" />
-                                <span className="text-sm text-text-primary">{db.name}</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowDbDropdown(false);
-                                  navigate("/configure/database");
-                                }}
-                                className="text-sm font-semibold text-primary hover:text-primary-hover"
-                              >
-                                Configure
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="my-2 h-px bg-border" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowDbDropdown(false);
-                            navigate("/configure/create-datasource");
-                          }}
-                          className="flex w-full items-center justify-between rounded-lg px-2 py-2.5 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
-                        >
-                          <span className="flex items-center gap-2">
-                            <Plus size={18} className="text-text-muted" />
-                            Add New Database
-                          </span>
-                          <ExternalLink size={18} className="shrink-0 text-text-muted" aria-hidden />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div ref={connDropdownRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowDbDropdown(false);
-                        setShowConnDropdown(!showConnDropdown);
-                      }}
-                      className={`flex w-fit items-center gap-1.5 rounded-lg border px-2 py-1.5 text-sm transition ${
-                        showConnDropdown
-                          ? "border-primary-light bg-surface-tertiary text-primary"
-                          : "border-border-light bg-surface-secondary text-text-muted hover:border-border hover:text-text-tertiary"
-                      }`}
-                      title="Connectors"
-                    >
-                      <LayoutGrid size={18} />
-                      <span className="font-medium tabular-nums">{enabledConnectorCount} of {CONNECTOR_ITEMS.length}</span>
-                    </button>
-                    {showConnDropdown && (
-                      <div className="absolute left-0 top-full z-30 mt-2 w-[300px] rounded-xl border border-border bg-surface p-3 shadow-xl">
-                        <p className="mb-2 px-1 text-sm font-semibold text-text-primary">Connectors</p>
-                        <div className="space-y-0.5">
-                          {CONNECTOR_ITEMS.map((c) => (
-                            <div
-                              key={c.id}
-                              className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-surface-secondary"
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <img src={c.img} alt="" className="h-7 w-7 shrink-0 object-contain" />
-                                <span className="truncate text-sm text-text-primary">{c.name}</span>
-                              </div>
-                              <ConnectorToggle
-                                name={c.name}
-                                enabled={connectorEnabled[c.id]}
-                                onChange={(next) =>
-                                  setConnectorEnabled((prev) => ({ ...prev, [c.id]: next }))
-                                }
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="my-2 h-px bg-border" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowConnDropdown(false);
-                            navigate("/configure/external");
-                          }}
-                          className="flex w-full items-center justify-between rounded-lg px-2 py-2.5 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
-                        >
-                          <span className="flex items-center gap-2">
-                            <Plus size={18} className="text-text-muted" />
-                            Manage Connectors
-                          </span>
-                          <ExternalLink size={18} className="shrink-0 text-text-muted" aria-hidden />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <ComposerSourceMenus direction="down" />
                   <div className="relative w-fit min-w-0 max-w-[16rem] sm:max-w-xs">
                     <div className="inline-flex h-[34px] w-fit min-w-0 max-w-full items-center gap-2 rounded-[8px] border border-primary/30 bg-primary-light py-0 pl-2.5 pr-7 shadow-sm transition hover:border-primary/50 hover:bg-primary-light-hover focus-within:ring-2 focus-within:ring-primary/40 focus-within:ring-offset-1 dark:border-border dark:bg-surface-secondary dark:ring-1 dark:ring-primary/25 dark:hover:border-border-light dark:hover:bg-surface-tertiary dark:focus-within:ring-primary/35 dark:focus-within:ring-offset-[var(--app-surface-page)]">
                       {subjectArea.trim() ? (

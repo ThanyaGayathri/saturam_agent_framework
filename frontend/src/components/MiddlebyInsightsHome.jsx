@@ -188,7 +188,9 @@ export default function MiddlebyInsightsHome() {
         ) : null}
       </div>
 
-      <div className="relative z-10 mt-10 w-full max-w-6xl" data-tour-mb-home="carousel">
+      {/* Full-bleed: the track scrolls edge to edge, so capping it here is what cut the cards
+          off on both sides. The carousel keeps its own heading inside the page's gutter. */}
+      <div className="relative z-10 mt-10 w-full" data-tour-mb-home="carousel">
         <MiddlebyPlaygroundUseCaseCarousel useCases={tierAUseCases} onPrefill={handlePrefill} />
       </div>
 

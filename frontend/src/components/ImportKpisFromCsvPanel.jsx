@@ -127,13 +127,13 @@ function rowsToRecords(rows, areas) {
     const rawBusinessArea = cell("businessArea");
     const subjectArea = cell("subjectArea");
     if (!rawBusinessArea || !subjectArea) {
-      warnings.push(`Row ${r + 1} "${name}": missing businessArea or subjectArea — skipped`);
+      warnings.push(`Row ${r + 1} "${name}": missing businessArea or subjectArea, skipped`);
       continue;
     }
     const businessAreaId = resolveBusinessAreaId(rawBusinessArea, areas);
     if (!validBusinessAreaIds.has(businessAreaId)) {
       warnings.push(
-        `Row ${r + 1} "${name}": unknown businessArea "${rawBusinessArea}" — imported anyway`
+        `Row ${r + 1} "${name}": unknown businessArea "${rawBusinessArea}": imported anyway`
       );
     }
     // subjectArea: warn if it isn't one of the standard subjects under that
@@ -145,7 +145,7 @@ function rowsToRecords(rows, areas) {
     ) {
       const baLabel = labelForBusinessArea(businessAreaId, areas) || rawBusinessArea;
       warnings.push(
-        `Row ${r + 1} "${name}": "${subjectArea}" isn't a standard subject area for ${baLabel} — imported anyway`
+        `Row ${r + 1} "${name}": "${subjectArea}" isn't a standard subject area for ${baLabel}, imported anyway`
       );
     }
     // level: warn if non-standard, coerce to Operational so the row still has
@@ -157,7 +157,7 @@ function rowsToRecords(rows, areas) {
         level = rawLevel;
       } else {
         warnings.push(
-          `Row ${r + 1} "${name}": level "${rawLevel}" isn't standard (Executive / Operational / Tactical) — set to Operational`
+          `Row ${r + 1} "${name}": level "${rawLevel}" isn't standard (Executive / Operational / Tactical), set to Operational`
         );
       }
     }
@@ -168,7 +168,7 @@ function rowsToRecords(rows, areas) {
     if (rawUnit) {
       if (!KNOWN_UNITS.includes(rawUnit)) {
         warnings.push(
-          `Row ${r + 1} "${name}": unit "${rawUnit}" isn't standard (Count / Percentage / Currency / Time) — imported as-is`
+          `Row ${r + 1} "${name}": unit "${rawUnit}" isn't standard (Count / Percentage / Currency / Time), imported as-is`
         );
       }
       unit = rawUnit;
@@ -468,7 +468,7 @@ export default function ImportKpisFromCsvPanel({ open, onClose }) {
             <div className="min-w-0 text-sm">
               <p className="font-semibold text-text-primary">
                 Imported {result.imported} KPI{result.imported === 1 ? "" : "s"}
-                {result.failed > 0 && ` — ${result.failed} failed`}
+                {result.failed > 0 && ` - ${result.failed} failed`}
               </p>
             </div>
           </div>

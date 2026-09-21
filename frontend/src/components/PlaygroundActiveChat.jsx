@@ -761,6 +761,7 @@ export default function PlaygroundActiveChat() {
                 <PlaygroundHubComposerOptions
                   attachments={attachments}
                   dictation={dictation}
+                  menuDirection="up"
                   onSend={() => void handleSend()}
                 />
               </div>

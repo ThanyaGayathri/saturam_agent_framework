@@ -339,7 +339,7 @@ export default function DashboardBuilderStep({
     {aiSuggested && (
      <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-light px-2.5 py-1 text-xs font-semibold text-primary">
       <Sparkles size={11} />
-      AI generated — edit anything
+      AI generated: edit anything
      </span>
     )}
    </div>
