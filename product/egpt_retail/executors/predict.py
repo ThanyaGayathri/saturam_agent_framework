@@ -403,6 +403,8 @@ async def score_risk(step_input: StepInput) -> StepOutput:
             "stalled": sum(1 for s in subjects if s["stalled"]),
             "within_range": len(in_range),
             "at_risk_within_range": sum(1 for s in in_range if s["level"] != "low"),
+            "high_within_range": sum(1 for s in in_range if s["level"] == "high"),
+            "medium_within_range": sum(1 for s in in_range if s["level"] == "medium"),
             "value_at_risk_within_range": round(
                 sum(s["value"] for s in in_range if s["level"] != "low"), 2
             ),

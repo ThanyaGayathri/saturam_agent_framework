@@ -1426,7 +1426,9 @@ def _risk_html(
         + stat(
             "Act now",
             str(summary.get("at_risk_within_range", 0)),
-            f"of {summary.get('within_range', 0)} still inside their window are at risk · {_money(summary.get('value_at_risk_within_range'))}",
+            f"of {summary.get('within_range', 0)} still inside their window are at risk "
+            f"({summary.get('high_within_range', 0)} high + {summary.get('medium_within_range', 0)} medium) · "
+            f"{_money(summary.get('value_at_risk_within_range'))}",
             "#b91c1c",
         )
         + stat(

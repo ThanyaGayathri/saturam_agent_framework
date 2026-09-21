@@ -25,7 +25,7 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
   { label: "Act now", value: s.at_risk_within_range ?? 0, note: `of ${s.within_range ?? 0} still inside their window are at risk · ${money(s.value_at_risk_within_range)}`, tone: "text-status-critical" },
   { label: "Already stalled", value: s.stalled ?? 0, note: `of ${(s.open_quotes ?? 0).toLocaleString()} open quotes past the usual time to close`, tone: "text-text-primary" },
   { label: "Accounts at risk", value: s.at_risk_accounts ?? 0, note: `of ${(s.accounts_scored ?? 0).toLocaleString()} · no quote in ${risk.churn_days} days`, tone: "text-status-warning" },
-  { label: "Handed to Decision Intelligence", value: rs.recommendations ?? 0, note: `recommendations, one per at-risk quote · ${rs.alerts ?? 0} of them high risk, alerted to ${rs.owners ?? 0} reps${high?.named ? ` · so far ${high.did_not_convert} of ${high.named} named high risk did not convert` : ""}`, tone: "text-primary" },
+  { label: "Handed to Decision Intelligence", value: <>{rs.recommendations ?? 0} <span className="text-base font-semibold text-text-secondary">({s.high_within_range ?? rs.alerts ?? 0} high + {s.medium_within_range ?? Math.max(0, (rs.recommendations ?? 0) - (rs.alerts ?? 0))} medium)</span></>, note: `recommendations, one per at-risk quote · the ${rs.alerts ?? 0} high-risk ones also alerted to ${rs.owners ?? 0} reps${high?.named ? ` · so far ${high.did_not_convert} of ${high.named} named high risk did not convert` : ""}`, tone: "text-primary" },
  ];
  return (
   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
