@@ -24,16 +24,18 @@ ScheduleExecutor``), so the frontend (#308) does the same thing a scheduled trig
 2. *Permission level.* A ``read_write``-declared source is refused -- the wire contract's
    own words are "never exposed to a model" (``PermissionLevel``'s docstring), and a
    harvest is the first step of exactly that exposure.
-3. *The SSRF guard* (:func:`_resolve_allowed_addresses`, the same policy as
-   ``api/routers/sources.py``'s ``_refused_host_reason``, duplicated rather than imported --
-   this codebase's own convention for a small helper two call sites need; see that module's
-   docstring). A registered source's host was checked once, at registration, by
-   ``test-connection`` -- but nothing forces a caller to have called it first, and a harvest
-   is a second, independent connection attempt that deserves the same guard, not an
-   inherited assumption. Unlike that helper, the host is resolved **once** and the
-   connection is then made to the addresses that passed (``hostaddr=``), so a hostname
-   cannot answer with a public address for the check and rebind to loopback or a cloud
-   metadata address for the connect.
+3. *The SSRF guard* (``configure/host_guard.py``'s :func:`~egpt_retail.configure.host_guard.
+   check_host`, the one policy ``api/routers/sources.py``'s test-connection route uses too). A
+   registered source's host was checked once, at registration, by ``test-connection`` -- but
+   nothing forces a caller to have called it first, and a harvest is a second, independent
+   connection attempt that deserves the same guard, not an inherited assumption. Loopback,
+   link-local and unspecified (``0.0.0.0``/``::``) addresses are refused, every address the
+   host resolves to is checked, and resolution is bounded, so a name served by an unresponsive
+   DNS server cannot stall the step. The host is resolved **once** and the connection is then
+   made to the addresses that passed (``hostaddr=``), so a hostname cannot answer with a public
+   address for the check and rebind to loopback or a cloud metadata address for the connect.
+   This module used to carry its own copy of the check; the copy had no ``is_unspecified`` and
+   no timeout, and the two drifted -- there is nothing here to keep in step now.
 4. *The schema-collision guard*, enforced by
    :meth:`~egpt_retail.semantic.store.SemanticGraphStore.write_harvest` itself, which raises
    :class:`~egpt_retail.semantic.store.SchemaOwnedByOtherSource` from inside its write
@@ -53,16 +55,16 @@ already ended.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import socket
 from datetime import datetime, timezone
-from ipaddress import ip_address
 from typing import Any, Optional, Tuple
 
 from egpt.workflow.types import StepInput, StepOutput
 
 from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.host_guard import check_host
 from egpt_retail.configure.secrets import build_secret_store
 from egpt_retail.configure.store import DataSourceStore
 from egpt_retail.contracts.data_source import (
@@ -78,40 +80,6 @@ __all__ = ["harvest_source"]
 log = logging.getLogger("egpt_retail.executors.data_source_harvest")
 
 _CONNECT_TIMEOUT_SECONDS = 10.0
-
-
-def _resolve_allowed_addresses(host: str) -> Tuple[Tuple[str, ...], Optional[str]]:
-    """Resolve ``host`` once and return ``(addresses, refusal)``.
-
-    Refuses loopback and link-local addresses (link-local is where a cloud metadata endpoint
-    lives), checked against every *resolved* address rather than the literal string, so a
-    hostname pointing at ``169.254.169.254`` is caught like the literal IP. RFC1918 is
-    allowed: that is where a customer's own warehouse legitimately lives. A host that does
-    not resolve is refused too -- letting it through to the driver would resolve it a second
-    time, which is the window this function exists to close.
-
-    Returns the addresses in resolver order, for the caller to connect to directly.
-    """
-    try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return (), "refused: this host does not resolve, so there is no address to try."
-    addresses: list = []
-    for info in infos:
-        text = info[4][0]
-        addr = ip_address(text)
-        if addr.version == 6 and addr.ipv4_mapped is not None:
-            addr = addr.ipv4_mapped
-        if addr.is_loopback or addr.is_link_local:
-            return (), (
-                "refused: this host resolves to a loopback or link-local address, which "
-                "this deployment does not connect to."
-            )
-        if text not in addresses:
-            addresses.append(text)
-    if not addresses:
-        return (), "refused: this host resolves to no address."
-    return tuple(addresses), None
 
 
 def _neo4j_driver(settings: RetailSettings) -> Any:
@@ -131,8 +99,8 @@ def _open_source_connection(
     source: DataSource, credential: Any, addresses: Tuple[str, ...]
 ) -> Any:
     """Connect to ``source`` at one of ``addresses``, the ones
-    :func:`_resolve_allowed_addresses` already vetted, trying each in order as the driver
-    would have. ``host`` is still passed so ``verify-full`` checks the certificate against
+    :func:`~egpt_retail.configure.host_guard.check_host` already vetted, trying each in order
+    as the driver would have. ``host`` is still passed so ``verify-full`` checks the certificate against
     the name, not the address."""
     import psycopg
 
@@ -225,9 +193,14 @@ async def harvest_source(step_input: StepInput) -> StepOutput:
 
         store.set_harvest_state(source_id, HarvestState.BUILDING, run_id=run_id)
 
-        addresses, refusal = _resolve_allowed_addresses(source.host)
-        if refusal is not None:
-            return _fail(store, source_id, HarvestState.ERROR, refusal, run_id=run_id)
+        # On a worker thread: resolution is bounded, but a bound is still up to a few seconds of
+        # blocking, and this step runs on the framework's event loop.
+        checked = await asyncio.to_thread(check_host, source.host, source.port or 5432)
+        if checked.message is not None:
+            return _fail(
+                store, source_id, HarvestState.ERROR, checked.message, run_id=run_id
+            )
+        addresses = checked.addresses
 
         try:
             credential = secret_store.read(source.secret_ref)

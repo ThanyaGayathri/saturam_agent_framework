@@ -415,7 +415,7 @@ def _public(monkeypatch: pytest.MonkeyPatch, address: str = "93.184.216.34") -> 
     monkeypatch.setattr(
         sources_module,
         "check_host",
-        lambda host, port=None, **kw: HostCheck(address=address),
+        lambda host, port=None, **kw: HostCheck(addresses=(address,)),
     )
 
 

@@ -91,7 +91,7 @@ class TestAllowedAddresses:
     def test_a_private_rfc1918_literal_is_allowed_and_returned(self) -> None:
         """Deliberately allowed: a customer's own warehouse legitimately lives here."""
         checked = check_host("10.0.5.20", 5432)
-        assert checked == HostCheck(address="10.0.5.20")
+        assert checked == HostCheck(addresses=("10.0.5.20",))
         assert checked.ok
 
     def test_a_public_hostname_returns_the_address_it_resolved_to(
@@ -101,6 +101,47 @@ class TestAllowedAddresses:
             socket, "getaddrinfo", lambda *a, **k: _answer("93.184.216.34")
         )
         assert check_host("db.customer.example", 5432).address == "93.184.216.34"
+
+
+class TestEveryVettedAddressIsReturned:
+    """The harvest tries each address in turn, as a driver resolving the name would; the
+    connection test uses the first. Both read the one answer."""
+
+    def test_addresses_come_back_in_resolver_order_without_repeats(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **k: _answer("10.1.2.3", "10.1.2.4", "10.1.2.3"),
+        )
+        checked = check_host("multi.example", 5432)
+        assert checked.addresses == ("10.1.2.3", "10.1.2.4")
+        assert checked.address == "10.1.2.3"  # the first, for a caller that dials one
+
+    def test_a_refusal_carries_no_address(self) -> None:
+        checked = check_host("127.0.0.1", 5432)
+        assert checked.addresses == ()
+        assert checked.address is None
+        assert not checked.ok
+
+    def test_the_bound_is_read_when_called_not_when_defined(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        release = threading.Event()
+
+        def hanging(*args: Any, **kwargs: Any) -> None:
+            release.wait(30)
+
+        monkeypatch.setattr(socket, "getaddrinfo", hanging)
+        monkeypatch.setattr(host_guard, "RESOLVE_TIMEOUT_SECONDS", 0.1)
+        started = time.monotonic()
+        try:
+            checked = check_host("slow-dns.example", 5432)  # no explicit timeout
+        finally:
+            release.set()
+        assert time.monotonic() - started < 2
+        assert checked.message == "Connection timed out."
 
 
 class TestResolvesOnce:

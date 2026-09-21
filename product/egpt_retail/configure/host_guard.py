@@ -26,8 +26,11 @@ connection to. That is an SSRF surface, and this module is the one place its pol
   caller-supplied host can never surface as a raw 500.
 
 Pure standard library, no database and no driver, so it is importable from anywhere that opens
-a connection to a registered source -- the test-connection route today, the harvest executor
-next (which still carries its own older copy of the check, without the pinning).
+a connection to a registered source. Both do, and both use this and nothing else: the
+test-connection route (``api/routers/sources.py``) and the harvest executor
+(``executors/data_source_harvest.py``). The executor once carried its own copy of the check,
+which had drifted -- no ``is_unspecified``, no bound on resolution -- so the policy lives here
+and there is nothing to keep in step.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ import socket
 import threading
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, Tuple, TypeVar
 
 __all__ = [
     "HostCheck",
@@ -60,18 +63,26 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class HostCheck:
-    """The outcome of :func:`check_host`. Exactly one of ``address`` and ``message`` is set.
+    """The outcome of :func:`check_host`. Exactly one of ``addresses`` and ``message`` is set.
 
-    ``address`` is the checked address to connect to. ``message`` is a fixed-vocabulary reason
-    the host must not (or cannot) be connected to -- never text taken from an exception, so an
-    internal hostname or resolver detail cannot reach a response through it."""
+    ``addresses`` are the checked addresses the host resolved to, in resolver order without
+    repeats -- what a caller connects to, trying each in turn as a driver resolving the name
+    itself would have (a host with both an IPv6 and an IPv4 address answers on whichever
+    works). Every one of them passed the policy. ``address`` is the first, for a caller that
+    connects to one. ``message`` is a fixed-vocabulary reason the host must not (or cannot) be
+    connected to -- never text taken from an exception, so an internal hostname or resolver
+    detail cannot reach a response through it."""
 
-    address: Optional[str] = None
+    addresses: Tuple[str, ...] = ()
     message: Optional[str] = None
 
     @property
+    def address(self) -> Optional[str]:
+        return self.addresses[0] if self.addresses else None
+
+    @property
     def ok(self) -> bool:
-        return self.address is not None
+        return bool(self.addresses)
 
 
 def run_with_timeout(
@@ -108,11 +119,17 @@ def _is_blocked(address: "IPv4Address | IPv6Address") -> bool:
 
 
 def check_host(
-    host: str, port: Optional[int] = None, *, timeout: float = RESOLVE_TIMEOUT_SECONDS
+    host: str, port: Optional[int] = None, *, timeout: Optional[float] = None
 ) -> HostCheck:
-    """Resolves ``host`` once and returns the address to connect to, or why not. See the
+    """Resolves ``host`` once and returns the addresses to connect to, or why not. See the
     module docstring for the policy and for why the caller must connect to the returned
-    address rather than to ``host`` again."""
+    addresses rather than to ``host`` again.
+
+    ``timeout`` defaults to :data:`RESOLVE_TIMEOUT_SECONDS`, read when called rather than when
+    the function was defined, so the bound is one setting that a deployment or a test can
+    move."""
+    if timeout is None:
+        timeout = RESOLVE_TIMEOUT_SECONDS
     try:
         infos = run_with_timeout(
             socket.getaddrinfo, timeout, host, port, type=socket.SOCK_STREAM
@@ -124,7 +141,7 @@ def check_host(
         # getaddrinfo's own encoding step.
         return HostCheck(message=_UNRESOLVED)
 
-    addresses = []
+    addresses: list = []
     for info in infos:
         # The scope id on an IPv6 literal ("fe80::1%eth0") is not part of the address.
         text = str(info[4][0]).split("%", 1)[0]
@@ -133,8 +150,10 @@ def check_host(
         except ValueError:
             return HostCheck(message=_UNRESOLVED)
         if _is_blocked(address):
+            # One bad address refuses the host: it is not connected to at its good ones.
             return HostCheck(message=_REFUSED)
-        addresses.append(str(info[4][0]))
+        if str(info[4][0]) not in addresses:
+            addresses.append(str(info[4][0]))
     if not addresses:
         return HostCheck(message=_UNRESOLVED)
-    return HostCheck(address=addresses[0])
+    return HostCheck(addresses=tuple(addresses))

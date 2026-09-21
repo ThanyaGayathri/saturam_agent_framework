@@ -4,7 +4,7 @@ harvest target) and real Neo4j.
 Two things this cookbook cannot demonstrate through the actual ``harvest_source(step_input)``
 entry point in this environment, and why: a genuinely *successful* end-to-end run needs a
 target host that both resolves and is not loopback/link-local -- the SSRF guard
-(``_resolve_allowed_addresses``) correctly refuses ``localhost``, which is the only reachable
+(``configure/host_guard.py``'s ``check_host``) correctly refuses ``localhost``, which is the only reachable
 Postgres this local Docker Desktop setup offers from the host machine. So this cookbook
 proves every real piece the entry point composes individually, against real infrastructure,
 and separately proves the *refusal* path for real through the actual entry point.

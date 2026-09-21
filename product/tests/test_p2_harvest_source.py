@@ -9,6 +9,9 @@ to end through the actual workflow step), are proved by
 from __future__ import annotations
 
 from dataclasses import replace
+import socket
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -23,6 +26,8 @@ from egpt_retail.contracts.data_source import (
     HarvestState,
     PermissionLevel,
 )
+from egpt_retail.configure import host_guard
+from egpt_retail.configure.host_guard import HostCheck
 from egpt_retail.executors import data_source_harvest as harvest_module
 from egpt_retail.semantic.harvest import Harvest, HarvestedColumn, HarvestedTable
 from egpt_retail.semantic.store import SchemaOwnedByOtherSource
@@ -176,13 +181,13 @@ def _install_fakes(
 
     monkeypatch.setattr(harvest_module, "_neo4j_driver", _driver)
     # The default source host is not a real name; resolution is the one network step every
-    # test would otherwise depend on the machine's DNS for. Tests of the resolver itself
-    # (below) call it directly.
+    # test would otherwise depend on the machine's DNS for. The tests of the guard itself
+    # (``TestTheSharedHostGuard``) pass ``real_resolver=True`` and stub ``socket.getaddrinfo``.
     if not real_resolver:
         monkeypatch.setattr(
             harvest_module,
-            "_resolve_allowed_addresses",
-            lambda host: (addresses, None),
+            "check_host",
+            lambda host, port=None, **kwargs: HostCheck(addresses=tuple(addresses)),
         )
     monkeypatch.setattr(
         harvest_module, "SemanticGraphStore", lambda driver, database: graph
@@ -422,37 +427,52 @@ class TestFailuresNeverStrandBuilding:
         assert driver.closed is True
 
 
-class TestResolveAllowedAddresses:
+def _answer(*addresses: str) -> list:
+    """What ``socket.getaddrinfo`` returns for ``addresses``."""
+    return [
+        (
+            socket.AF_INET6 if ":" in a else socket.AF_INET,
+            socket.SOCK_STREAM,
+            6,
+            "",
+            (a, 5432, 0, 0) if ":" in a else (a, 5432),
+        )
+        for a in addresses
+    ]
+
+
+@pytest.mark.asyncio
+class TestTheSharedHostGuard:
+    """The executor's host check is ``configure/host_guard.py``'s -- the one the
+    test-connection route uses -- not a copy of it. It used to be a copy, and the copy had no
+    ``is_unspecified`` (``0.0.0.0`` reads as loopback on some kernels) and no bound on name
+    resolution. These run the real guard through ``harvest_source`` with only the resolver
+    stubbed, so what is asserted is what the executor does with the guard's answer."""
+
     @staticmethod
     def _resolves_to(monkeypatch, *addresses: str) -> None:
-        import socket
-
-        def _getaddrinfo(host, port, **kwargs):
-            return [
-                (
-                    socket.AF_INET6 if ":" in a else socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    6,
-                    "",
-                    (a, 0),
-                )
-                for a in addresses
-            ]
-
-        monkeypatch.setattr(harvest_module.socket, "getaddrinfo", _getaddrinfo)
-
-    def test_a_private_address_is_allowed_and_returned(self, monkeypatch):
-        self._resolves_to(monkeypatch, "10.1.2.3")
-        assert harvest_module._resolve_allowed_addresses("db.customer.example") == (
-            ("10.1.2.3",),
-            None,
+        monkeypatch.setattr(
+            socket, "getaddrinfo", lambda host, port, **kw: _answer(*addresses)
         )
 
-    def test_duplicate_addresses_collapse_in_resolver_order(self, monkeypatch):
-        self._resolves_to(monkeypatch, "10.1.2.3", "10.1.2.4", "10.1.2.3")
-        addresses, refusal = harvest_module._resolve_allowed_addresses("db.example")
-        assert refusal is None
-        assert addresses == ("10.1.2.3", "10.1.2.4")
+    @staticmethod
+    async def _harvest(monkeypatch, **fakes):
+        calls: list = []
+        store = _install_fakes(
+            monkeypatch,
+            source=_source(host="db.customer.example"),
+            real_resolver=True,
+            connect_calls=calls,
+            **fakes,
+        )
+        result = await harvest_module.harvest_source(_step_input())
+        return result, store, calls
+
+    async def test_the_executor_uses_the_shared_guard_and_carries_no_copy_of_it(
+        self,
+    ):
+        assert harvest_module.check_host is host_guard.check_host
+        assert not hasattr(harvest_module, "_resolve_allowed_addresses")
 
     @pytest.mark.parametrize(
         "address",
@@ -463,34 +483,92 @@ class TestResolveAllowedAddresses:
             "fe80::1",
             "::ffff:127.0.0.1",  # IPv4 loopback wearing an IPv6 mapping
             "::ffff:169.254.169.254",
+            "0.0.0.0",  # unspecified: the kernel connects to it as loopback
+            "::",
+            "::ffff:0.0.0.0",
         ],
     )
-    def test_loopback_and_link_local_are_refused(self, monkeypatch, address):
+    async def test_a_refused_address_ends_the_harvest_in_error_and_is_never_dialled(
+        self, monkeypatch, address
+    ):
         self._resolves_to(monkeypatch, address)
-        addresses, refusal = harvest_module._resolve_allowed_addresses("evil.example")
-        assert addresses == ()
-        assert refusal is not None and "loopback or link-local" in refusal
+        result, store, calls = await self._harvest(monkeypatch)
+        assert result.success is False
+        assert "loopback or link-local" in result.error
+        assert store.rows["ds_1"].harvest_state is HarvestState.ERROR
+        assert calls == []
 
-    def test_one_bad_address_among_good_ones_refuses_the_host(self, monkeypatch):
-        """A host answering with a public and a loopback address is refused outright,
-        not connected to at the public one."""
+    async def test_one_bad_address_among_good_ones_refuses_the_host(self, monkeypatch):
+        """A host answering with a public and a loopback address is refused outright, not
+        connected to at the public one."""
         self._resolves_to(monkeypatch, "10.1.2.3", "127.0.0.1")
-        addresses, refusal = harvest_module._resolve_allowed_addresses("mixed.example")
-        assert addresses == ()
-        assert refusal is not None
+        result, store, calls = await self._harvest(monkeypatch)
+        assert result.success is False
+        assert store.rows["ds_1"].harvest_state is HarvestState.ERROR
+        assert calls == []
 
-    def test_a_host_that_does_not_resolve_is_refused(self, monkeypatch):
+    async def test_a_host_that_does_not_resolve_is_refused(self, monkeypatch):
         """Letting it through would make the driver resolve it a second time, which is the
         rebinding window the pinning exists to close."""
-        import socket
 
         def _fail(host, port, **kwargs):
             raise socket.gaierror("no such host")
 
-        monkeypatch.setattr(harvest_module.socket, "getaddrinfo", _fail)
-        addresses, refusal = harvest_module._resolve_allowed_addresses("nope.example")
-        assert addresses == ()
-        assert refusal is not None and "does not resolve" in refusal
+        monkeypatch.setattr(socket, "getaddrinfo", _fail)
+        result, store, calls = await self._harvest(monkeypatch)
+        assert result.success is False
+        assert result.error == "The host name could not be resolved."
+        assert store.rows["ds_1"].harvest_state is HarvestState.ERROR
+        assert calls == []
+
+    async def test_a_resolver_that_never_answers_cannot_stall_the_harvest(
+        self, monkeypatch
+    ):
+        release = threading.Event()
+
+        def _hang(host, port, **kwargs):
+            release.wait(30)
+            return _answer("10.1.2.3")
+
+        monkeypatch.setattr(socket, "getaddrinfo", _hang)
+        monkeypatch.setattr(host_guard, "RESOLVE_TIMEOUT_SECONDS", 0.1)
+        started = time.monotonic()
+        try:
+            result, store, calls = await self._harvest(monkeypatch)
+        finally:
+            release.set()
+
+        assert time.monotonic() - started < 3
+        assert result.success is False
+        assert result.error == "Connection timed out."
+        assert store.rows["ds_1"].harvest_state is HarvestState.ERROR
+        assert calls == []
+
+    async def test_every_vetted_address_is_handed_to_the_driver_in_resolver_order(
+        self, monkeypatch
+    ):
+        """Duplicates collapse; the driver tries each in turn, as it would have resolving
+        the name itself."""
+        self._resolves_to(monkeypatch, "10.1.2.3", "10.1.2.4", "10.1.2.3")
+        result, store, calls = await self._harvest(monkeypatch)
+        assert result.success is True
+        assert calls == [("10.1.2.3", "10.1.2.4")]
+
+    async def test_the_sources_port_reaches_the_resolver(self, monkeypatch):
+        seen: list = []
+
+        def _record(host, port, **kwargs):
+            seen.append((host, port))
+            return _answer("10.1.2.3")
+
+        monkeypatch.setattr(socket, "getaddrinfo", _record)
+        _install_fakes(
+            monkeypatch,
+            source=_source(host="db.customer.example", port=6543),
+            real_resolver=True,
+        )
+        await harvest_module.harvest_source(_step_input())
+        assert seen == [("db.customer.example", 6543)]
 
 
 class TestOpenSourceConnection:
