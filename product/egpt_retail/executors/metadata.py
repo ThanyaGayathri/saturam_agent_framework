@@ -390,7 +390,7 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
         ),
         "send_alerts": ExecutorMetadata(
             "Send the alerts",
-            "One alert email per rep with their high-risk quotes and the catalogue's play for each, to the alert recipient (the report's recipient when unset); composed and held under dry run; nothing when the outcome asked for recommendations only.",
+            "The alerts as one digest: the high-risk quotes grouped by the rep who owns each, with the catalogue's play, to the alert recipient (the report's recipient when unset); composed and held under dry run; nothing when the outcome asked for recommendations only.",
             ("recommendation_result", "recipient", "outcome"),
             ("alerts",),
             False,

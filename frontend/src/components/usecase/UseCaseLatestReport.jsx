@@ -39,20 +39,45 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
  );
 }
 
-/** The top of the ranked list, as the report shows it. */
+/** The whole ranked list, as the report shows it: every recommendation the run made, with
+ *  the play and why; the plays tallied above it. */
 function NextBestActions({ recommendations }) {
- const recs = (recommendations?.recommendations || []).slice(0, 5);
+ const recs = recommendations?.recommendations || [];
+ const [open, setOpen] = useState(true);
  if (!recs.length) return null;
+ const plays = Object.entries(recommendations?.plays || {}).sort((a, b) => b[1] - a[1]);
+ const value = recs.reduce((s, r) => s + (Number(r.value_at_stake) || 0), 0);
  return (
-  <div className="mt-3 grid gap-1.5">
-   <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · ranked by what can still be saved</p>
-   {recs.map((r) => { const a = r.action || {}; const ctx = r.context || {}; return (
-    <div key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1.4fr)] items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
-     <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label} · {ctx.age_days} of {ctx.usual_days} days</p></div>
-     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[r.risk_level] || ""}`}>{r.risk_level} · {Math.round((r.risk_score || 0) * 100)}%</span>
-     <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="truncate text-text-secondary">{a.because}</p></div>
+  <div className="mt-3">
+   <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+    <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · {recs.length} recommendations · {money(value)} at stake · ranked by what can still be saved</span>
+    <span className="ml-auto text-[11px] font-semibold text-primary">{open ? "Hide" : "Show all"}</span>
+   </button>
+   <div className="mt-1 flex flex-wrap gap-1.5">{plays.map(([code, n]) => <span key={code} className="rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">{code.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} · {n}</span>)}</div>
+   {open && (
+    <div className="mt-2 grid max-h-[520px] gap-1.5 overflow-y-auto pr-1">
+     {recs.map((r, i) => { const a = r.action || {}; const ctx = r.context || {}; const acct = ctx.account || {}; return (
+      <div key={r.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto_minmax(0,1.4fr)] items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+       <span className="pt-0.5 tabular-nums text-text-muted">{i + 1}</span>
+       <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="truncate text-[11px] text-text-muted">RFM {acct.segment || "—"}{acct.at_risk ? " · account at risk of churn" : ""}{r.owner ? ` · rep ${r.owner}` : ""}</p></div>
+       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[r.risk_level] || ""}`}>{r.risk_level} · {Math.round((r.risk_score || 0) * 100)}%</span>
+       <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+      </div>
+     ); })}
     </div>
-   ); })}
+   )}
+  </div>
+ );
+}
+
+/** The report itself -- the same document the email carries -- shown on request. */
+function ReportToggle({ report }) {
+ const [open, setOpen] = useState(false);
+ if (!report?.html) return null;
+ return (
+  <div className="mt-2">
+   <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text-secondary hover:text-text-primary">{open ? "Hide the report" : "View the report"}</button>
+   {open && <div className="mt-2 overflow-hidden rounded-lg border border-border bg-surface"><iframe title={report.title} srcDoc={report.html} sandbox="" className="h-[720px] w-full bg-[#f9fafb]" /></div>}
   </div>
  );
 }
@@ -95,6 +120,7 @@ export default function UseCaseLatestReport({ title }) {
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
    {risk && <NextBestActions recommendations={report.recommendations} />}
+   {risk && <ReportToggle report={report} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>
    </div>
   </section>

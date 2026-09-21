@@ -1290,7 +1290,7 @@ def _risk_text(
             f"  Recommendations: {rs.get('recommendations')} worth {_money(rs.get('value_at_stake'))}; "
             f"alerts: {rs.get('alerts')} to {rs.get('owners')} reps"
         )
-        for record in (recommendation_result.get("recommendations") or [])[:15]:
+        for record in recommendation_result.get("recommendations") or []:
             action = record.get("action") or {}
             lines.append(
                 f"    {record.get('subject_label')} | {record.get('account_label')} | "
@@ -1378,7 +1378,7 @@ def _risk_html(
     if recommendation_result:
         records = list(recommendation_result.get("recommendations") or [])
         rows = ""
-        for record in records[:15]:
+        for record in records:
             context = record.get("context") or {}
             account = context.get("account") or {}
             action = record.get("action") or {}
@@ -1422,11 +1422,7 @@ def _risk_html(
             for k, v in sorted(plays.items(), key=lambda kv: -kv[1])
         )
         rs = recommendation_result.get("summary") or {}
-        more = (
-            f'<p style="font:12px {_FONT};color:#9ca3af;margin:6px 0 0">{len(records) - 15} more in the recommendations screen</p>'
-            if len(records) > 15
-            else ""
-        )
+        more = ""
         alerts = list(recommendation_result.get("alerts") or [])
         by_rep: Dict[str, int] = {}
         for a in alerts:

@@ -244,28 +244,24 @@ def recommendations_of(step_input: StepInput) -> Optional[Dict[str, Any]]:
 # --- send_alerts ---------------------------------------------------------------------------
 
 
-def _alert_html(
-    rep: str,
-    alerts: List[Mapping[str, Any]],
-    plays: Mapping[str, Mapping[str, Any]],
-    *,
-    as_of: str,
-    title: str,
+def _alert_rows(
+    alerts: List[Mapping[str, Any]], plays: Mapping[str, Mapping[str, Any]]
 ) -> str:
     import html as _html
 
     e = _html.escape
     font = "-apple-system,Segoe UI,Helvetica,Arial,sans-serif"
     rows = ""
-    total = 0.0
     for alert in alerts:
         context = alert.get("context") or {}
         account = context.get("account") or {}
         play = plays.get(str(alert.get("subject_id"))) or {}
-        total += float(alert.get("value_at_stake") or 0)
+        because = str(play.get("because") or "")
         drivers = "; ".join(
-            str(d.get("text") or "") for d in (alert.get("drivers") or [])[:2]
-        )
+            str(d.get("text") or "")
+            for d in (alert.get("drivers") or [])
+            if str(d.get("text") or "") not in because
+        )[:160]
         age = f"{context.get('age_days')} of {context.get('usual_days')} days" + (
             " · past usual" if context.get("stalled") else ""
         )
@@ -281,53 +277,88 @@ def _alert_html(
             f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {font};color:#111827;vertical-align:top">'
             + (
                 f'<div style="font-weight:600">{e(str(play.get("title") or ""))}</div>'
-                f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(play.get("because") or ""))}</div>'
+                f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(because)}</div>'
                 if play
                 else '<div style="color:#6b7280;font-size:12px">See the weekly report for the play.</div>'
             )
             + f'<div style="color:#6b7280;font-size:12px;margin-top:2px">{e(drivers)}</div>'
             "</td></tr>"
         )
+    return rows
+
+
+def _alert_html(
+    by_rep: Mapping[str, List[Mapping[str, Any]]],
+    plays: Mapping[str, Mapping[str, Any]],
+    *,
+    as_of: str,
+    title: str,
+) -> str:
+    """One digest: the high-risk quotes grouped by rep, each rep's section headed with
+    their count and value at stake, the whole headed with the totals."""
+    import html as _html
+
+    e = _html.escape
+    font = "-apple-system,Segoe UI,Helvetica,Arial,sans-serif"
+    total_alerts = sum(len(v) for v in by_rep.values())
+    total_value = sum(
+        float(a.get("value_at_stake") or 0) for v in by_rep.values() for a in v
+    )
+    sections = ""
+    for rep, items in sorted(by_rep.items(), key=lambda kv: -len(kv[1])):
+        value = sum(float(a.get("value_at_stake") or 0) for a in items)
+        sections += (
+            '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 16px;margin:12px 0;background:#fff">'
+            f'<div style="font:600 14px {font};color:#111827">{e(rep)}'
+            f' <span style="font-weight:500;color:#6b7280">· {len(items)} quote{"s" if len(items) != 1 else ""} at high risk · ${value:,.0f} at stake</span></div>'
+            f'<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr>'
+            f'<th style="text-align:left;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Quote · account</th>'
+            f'<th style="text-align:center;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Risk</th>'
+            f'<th style="text-align:left;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Play · why</th>'
+            f"</tr></thead><tbody>{_alert_rows(items, plays)}</tbody></table></div>"
+        )
+    reps = ", ".join(
+        f"{rep} ({len(items)})"
+        for rep, items in sorted(by_rep.items(), key=lambda kv: -len(kv[1]))
+    )
     return (
         f'<div style="max-width:720px;margin:0 auto;padding:20px;background:#f9fafb;font-family:{font}">'
         f'<p style="font:600 11px {font};color:#b91c1c;text-transform:uppercase;letter-spacing:.06em;margin:0">Alert · {e(title)}</p>'
-        f'<h1 style="font:700 20px/1.3 {font};color:#111827;margin:4px 0 2px">{e(rep)}: {len(alerts)} quote{"s" if len(alerts) != 1 else ""} at high risk, ${total:,.0f} at stake</h1>'
-        f"<p style=\"font:13px {font};color:#6b7280;margin:0 0 12px\">As of {e(as_of)}. Each is at high risk of not closing within its category's usual time; the play beside it is the catalogue's suggestion.</p>"
-        '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;background:#fff">'
-        f'<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><thead><tr>'
-        f'<th style="text-align:left;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Quote · account</th>'
-        f'<th style="text-align:center;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Risk</th>'
-        f'<th style="text-align:left;padding:6px 8px;font:600 11px {font};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Play · why</th>'
-        f"</tr></thead><tbody>{rows}</tbody></table></div>"
+        f'<h1 style="font:700 20px/1.3 {font};color:#111827;margin:4px 0 2px">{total_alerts} quote{"s" if total_alerts != 1 else ""} at high risk across {len(by_rep)} rep{"s" if len(by_rep) != 1 else ""}, ${total_value:,.0f} at stake</h1>'
+        f"<p style=\"font:13px {font};color:#6b7280;margin:0 0 4px\">As of {e(as_of)}. Each is at high risk of not closing within its category's usual time; the play beside it is the catalogue's suggestion. Grouped by the rep who owns the quote.</p>"
+        f'<p style="font:12px {font};color:#374151;margin:0 0 8px">{e(reps)}</p>'
+        f"{sections}"
         f'<p style="font:11px {font};color:#9ca3af;margin:18px 0 0">Generated by Enterprise GPT. Scores from a model trained on this pipeline\'s own history; plays from the sales play catalogue.</p>'
         "</div>"
     )
 
 
 def _alert_text(
-    rep: str,
-    alerts: List[Mapping[str, Any]],
+    by_rep: Mapping[str, List[Mapping[str, Any]]],
     plays: Mapping[str, Mapping[str, Any]],
     *,
     as_of: str,
     title: str,
 ) -> str:
-    lines = [f"{title} — alert for {rep} as of {as_of}", ""]
-    for alert in alerts:
-        play = plays.get(str(alert.get("subject_id"))) or {}
-        lines.append(
-            f"- {alert.get('subject_label')} | {alert.get('account_label')} | risk "
-            f"{float(alert.get('risk_score') or 0) * 100:.0f}%"
-            + (f" | {play.get('title')} — {play.get('because')}" if play else "")
-        )
+    lines = [f"{title} — at-risk alerts as of {as_of}", ""]
+    for rep, items in sorted(by_rep.items(), key=lambda kv: -len(kv[1])):
+        lines.append(f"{rep} — {len(items)} at high risk")
+        for alert in items:
+            play = plays.get(str(alert.get("subject_id"))) or {}
+            lines.append(
+                f"- {alert.get('subject_label')} | {alert.get('account_label')} | risk "
+                f"{float(alert.get('risk_score') or 0) * 100:.0f}%"
+                + (f" | {play.get('title')} — {play.get('because')}" if play else "")
+            )
+        lines.append("")
     return "\n".join(lines)
 
 
 async def send_alerts(step_input: StepInput) -> StepOutput:
-    """One alert email per rep with their high-risk quotes and the plays, to the
-    ``alert recipient`` slot (the ``recipient`` slot when unset -- a demo sends every
-    rep's alert to one inbox, the rep named in the subject). Composed and held under dry
-    run; nothing to send when the outcome asked for recommendations only."""
+    """The alerts as one digest -- the high-risk quotes grouped by the rep who owns each,
+    with the play -- to the ``alert recipient`` slot (the ``recipient`` slot when unset).
+    Composed and held under dry run; nothing to send when the outcome asked for
+    recommendations only."""
     result = recommendations_of(step_input)
     previous = step_input.previous_step_content
     carried = dict(previous) if isinstance(previous, Mapping) else {}
@@ -374,18 +405,23 @@ async def send_alerts(step_input: StepInput) -> StepOutput:
         slot(step_input, "title") or options.get("use_case_title") or "At-risk pipeline"
     )
     as_of = str(result.get("as_of") or options.get("as_of") or "")
-    messages: List[Dict[str, Any]] = []
-    for rep, items in sorted(by_rep.items(), key=lambda kv: -len(kv[1])):
-        messages.append(
-            {
-                "rep": rep,
-                "to": recipients,
-                "subject": f"[Enterprise GPT] {len(items)} at-risk quote{'s' if len(items) != 1 else ''} for {rep} — {as_of}",
-                "quotes": [a.get("subject_id") for a in items],
-                "html": _alert_html(rep, items, plays, as_of=as_of, title=title),
-                "text": _alert_text(rep, items, plays, as_of=as_of, title=title),
-            }
-        )
+    # One digest, the reps as sections: the fact carries no rep addresses, so every
+    # alert goes to the alert recipient. A rep-address map (a later slot) would split
+    # this into one message per rep with the same composer.
+    total = sum(len(v) for v in by_rep.values())
+    messages: List[Dict[str, Any]] = [
+        {
+            "reps": sorted(by_rep, key=lambda r: -len(by_rep[r])),
+            "to": recipients,
+            "subject": (
+                f"[Enterprise GPT] {total} quote{'s' if total != 1 else ''} at high risk "
+                f"across {len(by_rep)} rep{'s' if len(by_rep) != 1 else ''} — {as_of}"
+            ),
+            "quotes": [a.get("subject_id") for v in by_rep.values() for a in v],
+            "html": _alert_html(by_rep, plays, as_of=as_of, title=title),
+            "text": _alert_text(by_rep, plays, as_of=as_of, title=title),
+        }
+    ]
     if is_dry_run(step_input):
         return StepOutput(
             content={
@@ -393,7 +429,7 @@ async def send_alerts(step_input: StepInput) -> StepOutput:
                 "alerts": {
                     "status": "held",
                     "sent": [
-                        {k: m[k] for k in ("rep", "to", "subject", "quotes")}
+                        {k: m[k] for k in ("reps", "to", "subject", "quotes")}
                         for m in messages
                     ],
                     "notes": "dry run: the alerts were composed and not sent",
@@ -415,9 +451,9 @@ async def send_alerts(step_input: StepInput) -> StepOutput:
                 body=str(m["text"]),
                 html=str(m["html"]),
             )
-            sent.append({k: m[k] for k in ("rep", "to", "subject", "quotes")})
-        except Exception as exc:  # one rep's mail failing does not stop the rest
-            failed.append({"rep": m["rep"], "error": f"{type(exc).__name__}: {exc}"})
+            sent.append({k: m[k] for k in ("reps", "to", "subject", "quotes")})
+        except Exception as exc:  # the mailbox refused; the run still records it
+            failed.append({"reps": m["reps"], "error": f"{type(exc).__name__}: {exc}"})
     return StepOutput(
         content={
             **carried,
