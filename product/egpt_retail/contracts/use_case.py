@@ -145,6 +145,11 @@ class UseCaseTemplate(str, Enum):
     #: The Inform sequence that explains a change (K25): one KPI, two periods, the change
     #: decomposed across the fact's dimensions by arithmetic before the model narrates it.
     METRIC_DIAGNOSIS = "metric_diagnosis"
+    #: The Inform sequence that finds who or what is at risk (K26): every open subject
+    #: scored by a model trained on the fact's own history, the account's context
+    #: attached, and the outcome a recommendation or an alert handed to Decision
+    #: Intelligence -- never a bare number.
+    AT_RISK = "at_risk"
 
 
 #: Which shape each template is a sequence of. Both are Act today; a template of another shape
@@ -154,6 +159,7 @@ TEMPLATE_SHAPE: Mapping[UseCaseTemplate, UseCaseShape] = MappingProxyType(
         UseCaseTemplate.KPI_CHANGE: UseCaseShape.ACT,
         UseCaseTemplate.DOCUMENT_TO_RECORD: UseCaseShape.ACT,
         UseCaseTemplate.METRIC_DIAGNOSIS: UseCaseShape.INFORM,
+        UseCaseTemplate.AT_RISK: UseCaseShape.INFORM,
     }
 )
 
@@ -192,6 +198,20 @@ TEMPLATE_PARAMETERS: Mapping[UseCaseTemplate, Tuple[str, ...]] = MappingProxyTyp
             "dimensions",
             "sensitivity",
             "evidence columns",
+            "schedule",
+            "recipient",
+            "title",
+            "outputs",
+        ),
+        # The at-risk kind (K26): the KPIs it reads for context, the churn window and the
+        # outcome the person wants; the risk lines and the run's size keep their
+        # defaults unless the spec sets them.
+        UseCaseTemplate.AT_RISK: (
+            "metrics",
+            "churn window",
+            "outcome",
+            "risk levels",
+            "top n",
             "schedule",
             "recipient",
             "title",

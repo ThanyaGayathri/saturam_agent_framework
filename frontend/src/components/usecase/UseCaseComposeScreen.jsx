@@ -85,6 +85,9 @@ const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 t
 const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
 
+/** The registry KPIs that give the at-risk kind its context (K26), offered in this order. */
+const AT_RISK_KPI_IDS = ["rfq__stalled_quotes", "rfq__stalled_pipeline_value", "rfq__quote_conversion_within_usual", "rfq__customer_churn_rate_60d", "rfq__at_risk_accounts", "rfq__rfm_segments", "rfq__stalled_quotes_by_territory", "rfq__at_risk_accounts_by_segment", "rfq__sales_cycle_length_by_category"];
+
 function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, template }) {
  const meta = fieldMetaFor(name, { template });
  const o = origin && ORIGIN_LABEL[origin];
@@ -546,6 +549,33 @@ export default function UseCaseComposeScreen() {
       </Field>
      );
     }
+    if (spec.template === "at_risk") {
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     const offered = platformKpis.filter((k) => AT_RISK_KPI_IDS.includes(k.identifier) && !spec.metricIds.includes(k.identifier));
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="grid gap-1">
+        {spec.metricIds.map((m) => (
+         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
+          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}</span></div>
+          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+         </div>
+        ))}
+        {offered.length > 0 && (
+         <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />The at-risk KPIs your data supports — click to add:</span>
+          {offered.map((k) => <button key={k.identifier} type="button" title={k.identifier} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>)}
+          {offered.length > 1 && <button type="button" onClick={() => setField(f, [...new Set([...spec.metricIds, ...offered.map((k) => k.identifier)])])} className="text-[11px] font-semibold text-primary hover:underline">add all</button>}
+         </div>
+        )}
+        <select value="" onChange={(e) => e.target.value && setField(f, [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[20rem]`}>
+         <option value="">Add a KPI from the registry…</option>
+         {platformKpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+        </select>
+       </div>
+      </Field>
+     );
+    }
     if (isAnalyticsInform(spec)) {
      const byId = Object.fromEntries((spec.analytics?.kpis || []).map((k) => [k.identifier, k]));
      const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
@@ -691,6 +721,32 @@ export default function UseCaseComposeScreen() {
      );
     }
     return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{COMPARISONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>;
+   case "churnWindow": {
+    const days = Number(spec.churnWindow) || 60;
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap items-center gap-1.5">
+       {[30, 45, 60, 90].map((d) => <button key={d} type="button" aria-pressed={days === d} onClick={() => setField(f, d)} className={chip(days === d)}>{d} days{d === 60 ? <span className="ml-1 text-[10px] font-normal opacity-70">industry line</span> : null}</button>)}
+       <input type="number" min={7} max={365} value={days} onChange={(e) => setField(f, Math.max(7, Math.min(365, Number(e.target.value) || 60)))} className={`${select} w-24 tabular-nums`} aria-label="Days without a quote" />
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">An account that quoted in the {days + 180} days before and not in the last {days} is flagged at risk of churn on every quote it has open; the registry's churn KPIs count the same accounts.</p>
+     </Field>
+    );
+   }
+   case "outcome": {
+    const options = [["both", "Recommend and alert", "A play per at-risk quote for Decision Intelligence and the weekly report, plus an alert per high-risk quote to its rep."], ["recommend", "Recommend only", "Plays for Decision Intelligence and the report; no email to the reps."], ["alert", "Alert only", "An alert per high-risk quote to its rep; no plays chosen."]];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="grid gap-2 sm:grid-cols-3">{options.map(([v, label, why]) => { const on = (spec.outcome || "both") === v; return (
+       <button key={v} type="button" aria-pressed={on} onClick={() => setField(f, v)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+        <span className="block text-sm font-semibold text-text-primary">{label}{v === "both" ? <span className="ml-1.5 text-[10px] font-normal text-text-muted">default</span> : null}</span>
+        <span className="block text-xs text-text-muted">{why}</span>
+       </button>
+      ); })}</div>
+      <p className="mt-1.5 text-[11px] text-text-muted">Every recommendation is a record: the quote, its risk and drivers, the play with who owns it and by when. Decision Intelligence, or a person on the Recommendations screen, accepts or dismisses it; the run after the horizon writes what happened.</p>
+     </Field>
+    );
+   }
    case "outputs":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>

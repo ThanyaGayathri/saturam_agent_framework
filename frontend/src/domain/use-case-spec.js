@@ -65,6 +65,8 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   comparison: null,
   sensitivity: "usual", // the diagnostic kind (K25): clear | usual | more
   evidenceColumns: [],
+  churnWindow: 60, // the at-risk kind (K26): days without a quote before an account is at risk
+  outcome: "both", // the at-risk kind (K26): recommend | alert | both
   // alert
   condition: null,
   scope: "",
@@ -237,6 +239,9 @@ export function gapsFor(spec, registryNames, measurable) {
   }
  }
 
+ if (spec.template === "at_risk" && spec.metricIds.length === 0) {
+  push({ id: "metric-context", kind: GAP_KIND.missing, field: "metrics", ask: "Which KPIs give the risk its context (stalled quotes, churn rate, at-risk accounts)?", options: [] });
+ }
  if (spec.template === "metric_diagnosis" && spec.metricIds.length !== 1) {
   push({ id: "metric-one", kind: GAP_KIND.missing, field: "metrics", ask: spec.metricIds.length ? "A diagnosis explains one KPI. Which one?" : "Which KPI changed?", options: spec.metricIds.slice(0, 8) });
  }

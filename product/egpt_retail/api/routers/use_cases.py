@@ -161,6 +161,122 @@ async def diagnosis_options_for_kpi(
     return wire.DiagnosisOptions.model_validate(options)
 
 
+@lru_cache(maxsize=None)
+def _recommendation_store_for(db_url: str) -> Any:
+    from egpt_retail.recommendations import (
+        RecommendationStore,
+        apply_recommendations_ddl,
+    )
+
+    engine = pooled_control_plane_engine(RetailSettings())
+    apply_recommendations_ddl(engine)
+    return RecommendationStore(engine)
+
+
+def recommendation_store() -> Any:
+    """The recommendations store (K26); one per process. Overridden in tests."""
+    return _recommendation_store_for(RetailSettings().retail_db_url)
+
+
+def _recommendation_list(store: Any, **filters: Any) -> wire.RecommendationList:
+    items = store.list(**filters)
+    counts = store.counts(filters.get("use_case_id"))
+    return wire.RecommendationList(
+        items=[wire.Recommendation.model_validate(r) for r in items], counts=counts
+    )
+
+
+@router.get(
+    "/use-cases/{use_case_id}/recommendations",
+    response_model=wire.RecommendationList,
+)
+async def list_use_case_recommendations(
+    use_case_id: str,
+    status: Optional[str] = None,
+    kind: Optional[str] = None,
+    level: Optional[str] = None,
+    limit: int = 200,
+    service: UseCaseService = Depends(use_case_service),
+    store: Any = Depends(recommendation_store),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> wire.RecommendationList:
+    """The records one use case's recommend stage wrote (K26)."""
+    if await service.store.aget(use_case_id) is None:
+        raise _not_found(use_case_id)
+    return await asyncio.to_thread(
+        _recommendation_list,
+        store,
+        use_case_id=use_case_id,
+        status=status,
+        kind=kind,
+        level=level,
+        limit=limit,
+    )
+
+
+@router.get("/recommendations", response_model=wire.RecommendationList)
+async def list_recommendations(
+    use_case_id: Optional[str] = None,
+    status: Optional[str] = None,
+    kind: Optional[str] = None,
+    level: Optional[str] = None,
+    owner: Optional[str] = None,
+    limit: int = 200,
+    store: Any = Depends(recommendation_store),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> wire.RecommendationList:
+    """Recommendations and alerts across use cases: what Decision Intelligence pulls."""
+    return await asyncio.to_thread(
+        _recommendation_list,
+        store,
+        use_case_id=use_case_id,
+        status=status,
+        kind=kind,
+        level=level,
+        owner=owner,
+        limit=limit,
+    )
+
+
+@router.get("/recommendations/{recommendation_id}", response_model=wire.Recommendation)
+async def get_recommendation(
+    recommendation_id: str,
+    store: Any = Depends(recommendation_store),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> wire.Recommendation:
+    found = await asyncio.to_thread(store.get, recommendation_id)
+    if found is None:
+        raise HTTPException(
+            status_code=404, detail=f"No recommendation {recommendation_id!r}."
+        )
+    return wire.Recommendation.model_validate(found)
+
+
+@router.post(
+    "/recommendations/{recommendation_id}/status",
+    response_model=wire.Recommendation,
+)
+async def set_recommendation_status(
+    recommendation_id: str,
+    body: wire.RecommendationStatusWrite,
+    store: Any = Depends(recommendation_store),
+    _: None = Depends(require_scopes("use-cases:write")),
+) -> wire.Recommendation:
+    """What Decision Intelligence, or a person on the screen, writes back."""
+    if await asyncio.to_thread(store.get, recommendation_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"No recommendation {recommendation_id!r}."
+        )
+    updated = await asyncio.to_thread(
+        store.set_status,
+        recommendation_id,
+        body.status.value if hasattr(body.status, "value") else str(body.status),
+        note=body.note or "",
+        by=body.by or "",
+    )
+    return wire.Recommendation.model_validate(updated)
+
+
 def _suggest_analytics_sync(question: str, recipient: str) -> Dict[str, Any]:
     from egpt_retail.app.db import (
         build_warehouse_engine,
@@ -262,10 +378,14 @@ async def update_use_case(
 async def delete_use_case(
     use_case_id: str,
     service: UseCaseService = Depends(use_case_service),
+    store: Any = Depends(recommendation_store),
     _: None = Depends(require_scopes("use-cases:write")),
 ) -> None:
     if not await service.store.adelete(use_case_id):
         raise _not_found(use_case_id)
+    # The recommendations it produced go with it (K26); a decided one has been acted on
+    # already, and the consuming side keeps its own record of what it did.
+    await asyncio.to_thread(store.delete_for_use_case, use_case_id)
     return None
 
 

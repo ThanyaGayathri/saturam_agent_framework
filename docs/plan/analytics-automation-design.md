@@ -333,3 +333,187 @@ Targets (no plan data); the collinear web-session funnel flags; daily grain on t
 fact; seasonality in the norm (same-weekday history -- a later refinement); cross-KPI
 causes ("win rate fell because volume rose") -- the first release names *where* the change
 sits, not the mechanism behind it.
+
+## 12. The predictive and prescriptive kinds -- plan (20 Sep 2026, agreed in brainstorm; not built)
+
+Decided 20 Sep with the CEO's steer: the purpose of Analytics Automation is **insight as a
+recommendation or an alert**, which a Decision Intelligence use case then acts on. The
+report and the dashboard present the outcome; they are not the outcome. Two kinds join the
+monitoring report and the diagnosis: **at-risk** (who or what is about to go wrong) and,
+designed on synthetic inventory data, **stockout risk**.
+
+### 12.1 One chain, four kinds
+
+```
+Define → Measure → Detect → Predict → Explain → Recommend / Alert → Hand off → Track
+```
+
+| Stage | Monitoring | Diagnosis | At-risk (K26) | Stockout (K27) |
+|---|---|---|---|---|
+| Define (registry + what my data supports) | KPIs | one KPI | the KPIs the score reads | days of cover |
+| Measure (gold) | ✓ | ✓ | ✓ | ✓ |
+| Detect (compare / decompose) | compare, optional | decompose | *not run* -- a risk is not a change | compare (optional) |
+| **Predict** | -- | -- | `score_risk`: a trained model over each open quote and its account | `forecast_demand`: demand over the lead time |
+| Explain (grounded) | narrative | the sentence | per subject: why it is at risk | per SKU: why it will run out |
+| **Recommend / Alert** | -- | -- | from the catalogue, by risk level | from the catalogue, by days of cover |
+| Hand off | -- | -- | the recommendations store | the recommendations store |
+| Track | -- | -- | did it convert / lapse | did it stock out |
+
+**Detect → Predict, answered.** The stages are not a strict pipe; each reads what it needs
+from the run's context. Predict reads *Measure* (gold and the rows) and, when Detect ran,
+its drivers as features and as explanation. For the at-risk kind Detect does not run at
+all: nothing changed that needs decomposing, the question is who will fail next. For
+stockout Detect is optional (a demand shift is worth naming next to the forecast).
+
+**Recommendation, alert, or both** is a per-use-case choice on the form: *recommend*
+produces a recommendation for every subject above the risk line; *alert* fires only when a
+subject crosses it (or when the count above the line crosses a number); *both* does both.
+
+**More than one KPI** is normal for these kinds: the at-risk score reads quote-level KPIs
+(days open vs typical time to close, stage) and account-level RFM (recency, frequency,
+monetary); each is a registered KPI, each checked against what the data supports, so the
+"story" the demo needs -- registry → data supports → KPIs → score → outcome -- holds.
+
+### 12.2 At-risk pipeline (K26) -- the Middleby demo
+
+**Subject:** an open quote, with its account. **Terminology:** *quote conversion risk*
+("stalled pipeline") for the quote; *at-risk account* (RFM churn) for the account.
+
+**Decided:** risk = the quote will not convert within its usual range (the category's
+90th-percentile time to close, 27 days on this data); an account has churned when it has
+placed no quote for **60 days**; a **trained model**, not a rule table; delivery **both** --
+a weekly ranked report to sales and an alert per account to its rep; actions from a
+**catalogue**.
+
+**KPIs (registered, data-supported; `PA06_middleby_at_risk_kpis.py`):** only genuine
+industry KPIs -- `rfq__sales_cycle_length_by_category` (the usual, p90),
+`rfq__stalled_quotes` and `_by_territory`, `rfq__stalled_pipeline_value`,
+`rfq__quote_conversion_within_usual`, `rfq__customer_churn_rate_60d`,
+`rfq__at_risk_accounts` and `_by_segment`, `rfq__rfm_segments`, `rfq__avg_account_recency`,
+`rfq__avg_account_frequency_180d`, `rfq__avg_account_monetary_180d`. A per-quote age or a
+per-account win rate is a model feature, not a KPI. Existing: `rfq__open_pipeline_value`,
+`rfq__average_days_to_close`, `rfq__closed_won_rate`.
+
+**The model.** Labels from history: every quote closed in the past is a training row (won
+= converted, lost or lapsed past the usual range = not); features are the KPIs above at the
+quote's own date (no leakage: computed as-of, the way gold is). Logistic regression with
+calibrated probabilities first -- explainable per row as feature contributions, which is
+what the grounded narrative needs -- gradient boosting behind a flag once there is a
+holdout to justify it. Trained at activation and retrained on the schedule; readiness
+shows the holdout AUC, calibration and the base rate, and refuses activation below a floor
+(AUC 0.65) with the reason. Scoring is per run over every open quote; the account's RFM
+segment (Champions / Loyal / At risk / Can't lose them / Hibernating / Lost, the standard
+quintile scheme) is attached as context, and "at-risk account" is its own flag when
+recency exceeds 60 days on an account that was active.
+
+**Outcome -- the Recommendation record** (an Alert is one with `kind = alert`):
+
+```
+id, use_case_id, run_id, kind: recommendation | alert
+subject: {type: quote, id, label, account_id, account_label}
+risk: {score 0..1, level: high | medium | low, horizon_days, model_version}
+drivers: [{feature, value, typical, contribution, text}]      -- grounded
+recommended_action: {code, text, from_catalogue}              -- null on an alert
+value_at_stake: {amount, unit}
+evidence: {columns, rows}
+status: open | accepted | dismissed | actioned | expired      -- Decision Intelligence writes these
+expires_at, created_at, owner
+```
+
+**The action catalogue -- "next best action".** Shipped as data the use case author can
+edit, worded the way a sales organisation already talks (sales plays, owners, SLAs). The
+recommend step picks by rule from the drivers and the risk level, never by the model, and
+the record shows the play, who owns it, by when, and why it was chosen.
+
+| Code | Sales play | When (drivers) | Owner · SLA |
+|---|---|---|---|
+| `RE_ENGAGE` | **Re-engage before the quote lapses** -- personal follow-up, confirm the requirement is still live | stalled past the typical time to close, no recent activity | Sales rep · 48 h |
+| `ESCALATE` | **Bring in the territory manager** -- senior contact on a high-value, high-risk quote | high risk and value above the territory's median open quote | Territory manager · 3 days |
+| `REQUOTE_SPEC` | **Re-quote with the alternative specification** -- match the configuration the customer compared us against | account's last loss: *specification alternative* | Sales rep · 5 days |
+| `COMMERCIAL_OFFER` | **Targeted commercial offer within policy** -- discount tier or financing on the open quote | account's last loss: *price too high* / *budget constraints* | Sales rep + pricing desk · 3 days |
+| `COMPETITIVE_RESPONSE` | **Position against the named competitor** -- comparison sheet, reference site, warranty terms | account's last loss: *chosen competitor* | Sales rep · 3 days |
+| `DECISION_SUPPORT` | **Send the total-cost-of-ownership summary to the decision maker** | account's last loss: *decision delayed* / *no response* | Sales rep · 5 days |
+| `CHANNEL_PARTNER` | **Engage the dealer or foodservice consultant on the account** | segment dealer / distributor / consultant; quote stalled in *Qualification* | Channel manager · 5 days |
+| `ACCOUNT_REVIEW` | **Account review call; refresh the pricing agreement** -- win-back for a valuable account gone quiet | at-risk account: recency > 60 days, RFM *Can't lose them* / *At risk* | Account owner · 7 days |
+| `REACTIVATE` | **Reactivation touch** -- marketing sequence for a small account gone quiet | at-risk account: RFM *Hibernating*, low monetary | Marketing · next campaign |
+| `RELEASE` | **Release from the active pipeline** -- move to nurture, stop counting it as open | low value, no reply after re-engagement, past twice the typical time | Sales rep · on the run |
+
+An **alert** carries the same drivers and no play -- it says *what*; a recommendation says
+*what to do*. The demo's use case produces both: the weekly ranked report to sales, and an
+alert to the rep for each high-risk quote of theirs.
+
+### 12.3 Hand off and track
+
+**Hand off** is a store, not a message: `retail_recommendations` on the control plane,
+written by the recommend step, read by `GET /use-cases/{id}/recommendations` and
+`GET /recommendations?status=open&kind=...` (contract 1.13.0). A Decision Intelligence use
+case's *Read gold* becomes *Read recommendations* -- its candidates are the open ones --
+and its write step sets `status` and records what was done. Until that type exists, the
+screen lets a person accept or dismiss, which is the same contract. Nothing is pushed;
+the poller of the consuming use case pulls, so the two types stay independently
+versioned and a recommendation is never lost between them.
+
+**Track** closes the loop on the schedule: when a recommendation's horizon ends, the run
+looks up the outcome on the fact -- the quote converted, lapsed or is still open; the
+account quoted again or not -- and writes it on the record (`outcome`, `outcome_at`). From
+those the use case reports its own precision ("of the 40 quotes named high risk in
+August, 31 did not convert") on the dashboard and in Monitor, and the retraining reads
+them. That is the feedback that lets the number be trusted, and it is the same table.
+
+### 12.4 Stockout risk (K27) -- on curated synthetic data
+
+`silver.inv_stock_snapshot` (sku, location, on_hand, on_order, as_of), `silver.inv_demand`
+(sku, location, date, quantity), `silver.inv_supplier_leadtime` (sku, supplier, lead_days).
+KPIs: `days_of_cover`, `forecast_daily_demand`, `reorder_point`. Predict: exponential
+smoothing per SKU (Croston for intermittent demand), lead-time demand distribution, risk =
+P(demand over the lead time > on hand + on order). Recommend: reorder quantity to the
+order-up-to level, from the catalogue (*reorder now*, *expedite the open PO*, *transfer
+from another location*). Alert when days of cover < lead time. The same record, the same
+store, the same hand off.
+
+### 12.5 "What my data supports" carries every KPI the story needs
+
+The demo's story is *registry → what my data supports → KPIs → score → outcome*, so before
+the use case is built, the KPI screen must show, under **Ready to measure**, every KPI the
+score reads -- each with a gold formula the data can run, a description a business user
+reads, and its business area and function set:
+
+| KPI | Grain | Reads | Status |
+|---|---|---|---|
+| Open pipeline value | overall | dc_rfq_quotes | exists |
+| Average days to close | overall | dc_rfq_quotes | exists |
+| Closed-won rate | overall | dc_rfq_quotes | exists |
+| Typical time to close | product category | dc_rfq_quotes (90th percentile of days_to_close) | register |
+| Open quotes past typical time (stalled) | overall, and by territory | dc_rfq_quotes | register |
+| Stalled pipeline value | overall | dc_rfq_quotes | register |
+| Quote age (days open) | per quote | dc_rfq_quotes | register (row-level feature KPI) |
+| Account recency (days since last quote) | per account | dc_rfq_quotes | register |
+| Account frequency (quotes, trailing 180 days) | per account | dc_rfq_quotes | register |
+| Account monetary (won value, trailing 180 days) | per account | dc_rfq_quotes | register |
+| Account win rate (trailing 12 months) | per account | dc_rfq_quotes | register |
+| At-risk accounts (no quote in 60 days, previously active) | overall, and by segment | dc_rfq_quotes | register |
+| RFM segment distribution | rfm_segment | derived | register (grain vocabulary + overlay) |
+
+Registered through the same path a customer would use (the K12 proposal and accept flow
+or `PA05`-style registration), materialised into gold, so the screen's *Ready to measure*
+bucket is honest -- the deciding demo cannot rest on a KPI the platform only pretends to
+have. The K12 suggester should also *propose* these from the harvest when asked "which
+KPIs tell me about quote conversion risk", which is the first thing to try on the screen.
+
+### 12.6 Not in this plan
+
+Deep-learning forecasters; a model choosing the action (the catalogue is rules); pushing
+recommendations into external systems (that is Decision Intelligence's write); account
+churn without quote context on a data set where the median account has one quote.
+
+### 12.7 Implementation phases (K26, built 20 Sep 2026 -- phases 1-6; evidence in `cookbook/94_retail/TEST_LOG.md`)
+
+| Phase | Delivers | Proof |
+|---|---|---|
+| **1 · KPIs** | `PA06_middleby_at_risk_kpis.py`: the eleven at-risk KPIs registered through `POST /kpis` (sales cycle length by category; stalled quotes, by territory; stalled pipeline value; quote conversion within the usual range; 60-day churn rate; at-risk accounts, by segment; RFM segment distribution; average account recency / frequency / monetary), the `rfm_segment` grain in the Middleby overlay, gold materialised | every one under *Ready to measure* on "What my data supports", with today's value |
+| **2 · Score** | `product/egpt_retail/predict/`: features per open quote as-of a date (no leakage), labels from closed history, logistic regression in numpy with L2 and calibration, holdout AUC / Brier / base rate; RFM quintile segmentation; `score_risk` executor; readiness `risk_model` (AUC floor 0.65) | unit tests on synthetic rows; the real data's holdout metrics in the TEST_LOG |
+| **3 · Outcome** | the Recommendation record; `retail_recommendations` store; `recommend` executor with the next-best-action catalogue (rules over drivers and level); `GET /recommendations`, `GET /use-cases/{id}/recommendations`, `POST /recommendations/{id}/status`; contract 1.13.0 | records written by a run, read back, accepted / dismissed |
+| **4 · Chain** | `at_risk` template (Inform): Read gold → Take the numbers as they are → Track what happened → Score risk → Recommend → Explain → Check grounding → Record provenance → Render report → Deliver → Send report → Send alerts; the report as a ranked list with plays; the dashboard's tiles from the at-risk KPIs and its panel the open recommendations | a rehearsal and a live run from the API |
+| **5 · Form** | the fourth kind ("find who or what is at risk"): subject, horizon (usual range), churn window, KPIs read (suggested), outcome (recommend / alert / both), catalogue, delivery; readiness, plan mirror, rehearse, run view, a Recommendations screen | built end to end in the browser, alerts and report emailed |
+| **6 · Track** | outcome at horizon end written on each record; precision on the dashboard and in Monitor; retraining reads outcomes | a run after the horizon labels earlier records |
+| **7 · Stockout (K27)** | curated synthetic inventory tables; `days_of_cover` KPI; `forecast_demand`; the same record and store | designed here, built after the demo |

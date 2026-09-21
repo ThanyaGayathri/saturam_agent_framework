@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from egpt.workflow.types import StepInput, StepOutput
 
-from egpt_retail.executors.batch import is_dry_run, slot
+from egpt_retail.executors.batch import earlier_outputs, is_dry_run, slot
 from egpt_retail.executors.gold import materialise_gold, read_gold
 
 __all__ = [
@@ -99,13 +99,25 @@ def comparison_of(step_input: StepInput) -> Optional[Dict[str, Any]]:
         carried = previous.get("comparison_result")
         if isinstance(carried, Mapping):
             return dict(carried)
-    for name in ("Compare to baseline", "compare_to_baseline"):
+    for name in (
+        "Compare to baseline",
+        "Take the numbers as they are",
+        "compare_to_baseline",
+    ):
         try:
             output = step_input.get_step_content(name)
         except Exception:
             output = None
         if isinstance(output, Mapping) and "kpis" in output:
             return dict(output)
+    # A later step that carried it forward under its own key (the at-risk kind's
+    # scoring and recommendation, K26).
+    for output in earlier_outputs(step_input):
+        content = getattr(output, "content", None)
+        if isinstance(content, Mapping) and isinstance(
+            content.get("comparison_result"), Mapping
+        ):
+            return dict(content["comparison_result"])
     return None
 
 
@@ -520,6 +532,80 @@ def _figures_in(comparison: Mapping[str, Any]) -> set:
     return figures
 
 
+def _figures_in_risk(
+    risk: Mapping[str, Any], recommendation_result: Optional[Mapping[str, Any]]
+) -> set:
+    """The figures an at-risk briefing may quote (K26): the summary's counts and values,
+    the model's evaluation, every carried subject's value, age, usual, risk and its
+    account's RFM numbers, the plays' counts and the recommendations' totals."""
+    figures: set = set()
+
+    def add(value: Any) -> None:
+        number = _number(value)
+        if number is None:
+            return
+        for rounded in (number, round(number, 1), round(number, 2), round(number)):
+            figures.add(float(rounded))
+        if 0 <= number <= 1:
+            for rounded in (round(number * 100), round(number * 100, 1)):
+                figures.add(float(rounded))
+        if number >= 1000:
+            figures.add(float(round(number / 1000, 1)))
+            figures.add(float(round(number / 1000)))
+            figures.add(float(round(number / 1_000_000, 1)))
+            figures.add(float(round(number / 1_000_000, 2)))
+
+    for value in (risk.get("summary") or {}).values():
+        if isinstance(value, Mapping):
+            for v in value.values():
+                add(v)
+        else:
+            add(value)
+    for key in (
+        "auc",
+        "brier",
+        "base_rate",
+        "training_rows",
+        "holdout_rows",
+        "closed_quotes",
+    ):
+        add((risk.get("model") or {}).get(key))
+    add(risk.get("churn_days"))
+    add(risk.get("subjects_total"))
+    for number in _numbers_in(str(risk.get("horizon") or "")):
+        add(number)
+    for level in (risk.get("levels") or {}).values():
+        add(level)
+    for subject in risk.get("subjects") or []:
+        for key in (
+            "quote_id",
+            "value",
+            "age_days",
+            "usual_days",
+            "risk",
+            "p_convert",
+            "value_at_risk",
+        ):
+            add(subject.get(key))
+        for key in ("recency_days", "frequency", "monetary", "won", "lost"):
+            add((subject.get("account") or {}).get(key))
+        for driver in subject.get("drivers") or []:
+            add(driver.get("value"))
+            add(driver.get("typical"))
+    if recommendation_result:
+        for value in (recommendation_result.get("summary") or {}).values():
+            add(value)
+        for value in (recommendation_result.get("plays") or {}).values():
+            add(value)
+        for record in list(recommendation_result.get("recommendations") or []) + list(
+            recommendation_result.get("alerts") or []
+        ):
+            add(record.get("value_at_stake"))
+            add(record.get("risk_score"))
+            add((record.get("action") or {}).get("sla_hours"))
+    return figures
+
+
 def _figures_in_diagnosis(diagnosis: Mapping[str, Any]) -> set:
     """Every number the decomposition produced -- headline, drivers, intersections,
     evidence counts and tallies -- at whole, one- and two-decimal precision. Dates and
@@ -592,21 +678,37 @@ async def check_report_grounding(step_input: StepInput) -> StepOutput:
     whose ``findings`` name a KPI the comparison did not cover.
     """
     from egpt_retail.executors.diagnostics import diagnosis_of
+    from egpt_retail.executors.predict import risk_of
+    from egpt_retail.executors.recommend import recommendations_of
 
     comparison = comparison_of(step_input)
     explanation = explanation_of(step_input)
     diagnosis = diagnosis_of(step_input)
-    if comparison is None and diagnosis is None:
+    # The at-risk kind (K26): the briefing quotes the scoring's and the plays' figures.
+    risk = risk_of(step_input)
+    recommendation_result = recommendations_of(step_input)
+    from egpt_retail.executors.recommend import outcomes_of
+
+    outcomes = outcomes_of(step_input)
+    if comparison is None and diagnosis is None and risk is None:
         return StepOutput(
             content={"refused": "no comparison to check against"},
             success=False,
             stop=True,
         )
     comparison = comparison or {
-        "as_of": (diagnosis or {}).get("headline", {}).get("as_of"),
+        "as_of": (diagnosis or {}).get("headline", {}).get("as_of")
+        if diagnosis
+        else (risk or {}).get("as_of"),
         "kpis": [],
     }
     extra: Dict[str, Any] = {"diagnosis": diagnosis} if diagnosis is not None else {}
+    if risk is not None:
+        extra["risk"] = risk
+    if recommendation_result is not None:
+        extra["recommendation_result"] = recommendation_result
+    if outcomes is not None:
+        extra["outcomes"] = outcomes
     if explanation is None:
         return StepOutput(
             content={
@@ -624,6 +726,15 @@ async def check_report_grounding(step_input: StepInput) -> StepOutput:
         # The diagnostic kind (K25): the narrative quotes the decomposition's figures.
         allowed |= _figures_in_diagnosis(diagnosis)
         covered.add(str((diagnosis.get("headline") or {}).get("kpi_identifier") or ""))
+    if risk is not None:
+        allowed |= _figures_in_risk(risk, recommendation_result)
+        for level in ((outcomes or {}).get("precision") or {}).values():
+            for value in (level or {}).values():
+                number = _number(value)
+                if number is not None:
+                    allowed.add(float(number))
+                    if 0 <= number <= 1:
+                        allowed.add(float(round(number * 100)))
     texts: List[str] = [str(explanation.get("headline") or "")]
     repaired: List[str] = []
     findings: List[Dict[str, Any]] = []
@@ -704,6 +815,8 @@ def report_text(
     *,
     title: str,
     diagnosis: Optional[Mapping[str, Any]] = None,
+    risk: Optional[Mapping[str, Any]] = None,
+    recommendation_result: Optional[Mapping[str, Any]] = None,
 ) -> str:
     lines = [
         title,
@@ -748,6 +861,8 @@ def report_text(
             if str(caveat) not in already:
                 lines.append(f"  note: {caveat}")
         lines.append("")
+    if risk:
+        lines += _risk_text(risk, recommendation_result)
     lines.append("KPIs")
     for kpi in comparison.get("kpis") or []:
         lines.append(
@@ -988,10 +1103,14 @@ def report_html(
     dashboard_url: str = "",
     grounding: Optional[Mapping[str, Any]] = None,
     diagnosis: Optional[Mapping[str, Any]] = None,
+    risk: Optional[Mapping[str, Any]] = None,
+    recommendation_result: Optional[Mapping[str, Any]] = None,
+    outcomes: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """An email-safe HTML report: inline styles, tables, CSS-free bars. Headline and
     findings when the explanation passed grounding; the numbers either way; the
-    decomposition when the run made one (K25)."""
+    decomposition when the run made one (K25); the at-risk list and its plays when the
+    run scored one (K26)."""
     e = html.escape
     kpis = list(comparison.get("kpis") or [])
     scalars = [k for k in kpis if not k.get("rows")]
@@ -1121,6 +1240,7 @@ def report_html(
         + "</p>"
         f"{narrative}"
         + (_diagnosis_html(diagnosis) if diagnosis else "")
+        + (_risk_html(risk, recommendation_result, outcomes) if risk else "")
         + f'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:6px -6px"><tr>{tiles}</tr></table>'
         f"{tables}{link}"
         '<p style="font:11px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#9ca3af;margin:18px 0 0">Generated by Enterprise GPT. Numbers from the governed KPI registry; every narrative figure checked against them before sending.</p>'
@@ -1128,20 +1248,259 @@ def report_html(
     )
 
 
+# --- the at-risk section (K26) ------------------------------------------------------------
+
+_FONT = "-apple-system,Segoe UI,Helvetica,Arial,sans-serif"
+_LEVEL_COLOUR = {"high": "#b91c1c", "medium": "#b45309", "low": "#15803d"}
+_LEVEL_FILL = {"high": "#fee2e2", "medium": "#fef3c7", "low": "#dcfce7"}
+
+
+def _money(value: Any) -> str:
+    number = _number(value)
+    if number is None:
+        return "—"
+    if abs(number) >= 1_000_000:
+        return f"${number / 1_000_000:.2f}M"
+    if abs(number) >= 10_000:
+        return f"${number / 1000:.0f}K"
+    return f"${number:,.0f}"
+
+
+def _risk_text(
+    risk: Mapping[str, Any], recommendation_result: Optional[Mapping[str, Any]]
+) -> List[str]:
+    summary = risk.get("summary") or {}
+    model = risk.get("model") or {}
+    lines = [
+        "At-risk pipeline",
+        f"  Open quotes: {summary.get('open_quotes')} worth {_money(summary.get('value_open'))}; "
+        f"{summary.get('stalled')} already past the usual time to close",
+        f"  Still within the usual range: {summary.get('within_range')}, of which "
+        f"{summary.get('at_risk_within_range')} at risk worth "
+        f"{_money(summary.get('value_at_risk_within_range'))}",
+        f"  Accounts: {summary.get('at_risk_accounts')} of {summary.get('accounts_scored')} at risk "
+        f"of churn ({risk.get('churn_days')} days without a quote)",
+        f"  Model: AUC {model.get('auc')} on {model.get('holdout_rows')} held-out rows, "
+        f"trained on {model.get('closed_quotes')} closed quotes",
+    ]
+    if recommendation_result:
+        plays = recommendation_result.get("plays") or {}
+        rs = recommendation_result.get("summary") or {}
+        lines.append(
+            f"  Recommendations: {rs.get('recommendations')} worth {_money(rs.get('value_at_stake'))}; "
+            f"alerts: {rs.get('alerts')} to {rs.get('owners')} reps"
+        )
+        for record in (recommendation_result.get("recommendations") or [])[:15]:
+            action = record.get("action") or {}
+            lines.append(
+                f"    {record.get('subject_label')} | {record.get('account_label')} | "
+                f"risk {record.get('risk_score')} ({record.get('risk_level')}) | "
+                f"{action.get('title')} — {action.get('because')} | {action.get('owner')}"
+            )
+        if plays:
+            lines.append(
+                "  Plays: "
+                + ", ".join(
+                    f"{k} {v}" for k, v in sorted(plays.items(), key=lambda kv: -kv[1])
+                )
+            )
+    lines.append("")
+    return lines
+
+
+def _precision_words(outcomes: Optional[Mapping[str, Any]]) -> str:
+    """The use case's own precision so far, in one clause: of the quotes named high
+    risk whose horizon has ended, how many did not convert."""
+    precision = (outcomes or {}).get("precision") or {}
+    parts = []
+    for level in ("high", "medium"):
+        p = precision.get(level) or {}
+        if p.get("named"):
+            parts.append(
+                f"of {p['named']} named {level} risk, {p['did_not_convert']} did not "
+                f"convert ({float(p['rate'] or 0) * 100:.0f}%)"
+            )
+    return "; ".join(parts)
+
+
+def _risk_html(
+    risk: Mapping[str, Any],
+    recommendation_result: Optional[Mapping[str, Any]],
+    outcomes: Optional[Mapping[str, Any]] = None,
+) -> str:
+    e = html.escape
+    summary = risk.get("summary") or {}
+    model = risk.get("model") or {}
+    churn = risk.get("churn_days")
+
+    def stat(label: str, value: str, note: str = "", colour: str = "#111827") -> str:
+        return (
+            '<td style="padding:6px" valign="top"><div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;min-width:140px;background:#fff">'
+            f'<div style="font:600 11px/1.3 {_FONT};color:#6b7280;text-transform:uppercase;letter-spacing:.04em">{e(label)}</div>'
+            f'<div style="font:700 24px/1.2 {_FONT};color:{colour};margin-top:6px">{e(value)}</div>'
+            + (
+                f'<div style="font:500 12px/1.4 {_FONT};color:#6b7280;margin-top:4px">{e(note)}</div>'
+                if note
+                else ""
+            )
+            + "</div></td>"
+        )
+
+    hero = (
+        '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:6px -6px"><tr>'
+        + stat(
+            "Act now",
+            str(summary.get("at_risk_within_range", 0)),
+            f"quotes at risk, still in range · {_money(summary.get('value_at_risk_within_range'))}",
+            "#b91c1c",
+        )
+        + stat(
+            "Already stalled",
+            str(summary.get("stalled", 0)),
+            f"of {summary.get('open_quotes', 0)} open quotes past the usual time to close",
+        )
+        + stat(
+            "Accounts at risk",
+            str(summary.get("at_risk_accounts", 0)),
+            f"of {summary.get('accounts_scored', 0)} · no quote in {churn} days",
+            "#b45309",
+        )
+        + "</tr></table>"
+    )
+
+    def pill(level: str) -> str:
+        return (
+            f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;font:600 11px {_FONT};'
+            f'color:{_LEVEL_COLOUR.get(level, "#374151")};background:{_LEVEL_FILL.get(level, "#f3f4f6")}">{e(level)}</span>'
+        )
+
+    ranked = ""
+    if recommendation_result:
+        records = list(recommendation_result.get("recommendations") or [])
+        rows = ""
+        for record in records[:15]:
+            context = record.get("context") or {}
+            account = context.get("account") or {}
+            action = record.get("action") or {}
+            because = str(action.get("because") or "")
+            # The play's reason and a driver can be the same fact; say it once.
+            drivers = "; ".join(
+                str(d.get("text") or "")
+                for d in (record.get("drivers") or [])
+                if str(d.get("text") or "") not in because
+            )[:160]
+            stalled = context.get("stalled")
+            pct = f"{float(record.get('risk_score') or 0) * 100:.0f}%"
+            hours = int(action.get("sla_hours") or 0)
+            sla = (
+                f" · within {hours // 24}d"
+                if hours >= 24
+                else (f" · within {hours}h" if hours else "")
+            )
+            age = f"{context.get('age_days')} of {context.get('usual_days')} days" + (
+                " · past usual" if stalled else ""
+            )
+            rows += (
+                "<tr>"
+                f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
+                f'<div style="font-weight:600">{e(str(record.get("subject_label") or ""))}</div>'
+                f'<div style="color:#6b7280;font-size:12px">{e(str(record.get("account_label") or ""))} · {e(str(context.get("territory") or ""))} · {e(age)}</div>'
+                f'<div style="color:#6b7280;font-size:12px">RFM {e(str(account.get("segment") or "—"))}{" · account at risk of churn" if account.get("at_risk") else ""}</div>'
+                "</td>"
+                f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:center;vertical-align:top">{pill(str(record.get("risk_level")))}<div style="font:12px {_FONT};color:#6b7280;margin-top:4px">{e(pct)}</div></td>'
+                f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
+                f'<div style="font-weight:600">{e(str(action.get("title") or ""))}</div>'
+                f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(action.get("because") or ""))}</div>'
+                f'<div style="color:#6b7280;font-size:12px;margin-top:2px">{e(drivers)}</div>'
+                f'<div style="color:#6d28d9;font-size:12px;margin-top:4px">{e(str(action.get("owner") or ""))}'
+                + sla
+                + "</div></td></tr>"
+            )
+        plays = recommendation_result.get("plays") or {}
+        chips = "".join(
+            f'<span style="display:inline-block;margin:2px 6px 2px 0;padding:3px 10px;border-radius:999px;background:#ede9fe;color:#4c1d95;font:600 11px {_FONT}">{e(str(k).replace("_", " ").title())} · {v}</span>'
+            for k, v in sorted(plays.items(), key=lambda kv: -kv[1])
+        )
+        rs = recommendation_result.get("summary") or {}
+        more = (
+            f'<p style="font:12px {_FONT};color:#9ca3af;margin:6px 0 0">{len(records) - 15} more in the recommendations screen</p>'
+            if len(records) > 15
+            else ""
+        )
+        alerts = list(recommendation_result.get("alerts") or [])
+        by_rep: Dict[str, int] = {}
+        for a in alerts:
+            by_rep[str(a.get("owner") or "—")] = (
+                by_rep.get(str(a.get("owner") or "—"), 0) + 1
+            )
+        alert_line = (
+            f'<p style="font:13px {_FONT};color:#374151;margin:10px 0 0">Alerts sent to {len(by_rep)} reps for {len(alerts)} high-risk quotes: '
+            + e(
+                ", ".join(
+                    f"{rep} ({n})"
+                    for rep, n in sorted(by_rep.items(), key=lambda kv: -kv[1])[:8]
+                )
+            )
+            + "</p>"
+            if alerts
+            else ""
+        )
+        ranked = (
+            '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:12px 0;background:#fff">'
+            f'<div style="font:600 14px {_FONT};color:#111827">Next best actions'
+            f' <span style="font-weight:500;color:#6b7280">· {rs.get("recommendations")} recommendations worth {e(_money(rs.get("value_at_stake")))}, ranked by what can still be saved</span></div>'
+            f'<div style="margin:8px 0 10px">{chips}</div>'
+            f'<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><thead><tr>'
+            f'<th style="text-align:left;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Quote · account</th>'
+            f'<th style="text-align:center;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Risk</th>'
+            f'<th style="text-align:left;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Play · why</th>'
+            f"</tr></thead><tbody>{rows}</tbody></table>{more}{alert_line}</div>"
+        )
+
+    segments = risk.get("summary", {}).get("rfm_segments") or {}
+    seg_chips = "".join(
+        f'<span style="display:inline-block;margin:2px 6px 2px 0;padding:3px 10px;border-radius:999px;background:#f3f4f6;color:#374151;font:600 11px {_FONT}">{e(str(k))} · {v}</span>'
+        for k, v in sorted(segments.items(), key=lambda kv: -kv[1])
+    )
+    auc_pct = f"{float(model.get('auc') or 0) * 100:.0f}%"
+    honesty = (
+        f'<p style="font:11px {_FONT};color:#6b7280;margin:8px 0 0">Risk = the chance a quote does not close within its category\'s usual time (the 90th percentile). '
+        f"Model trained on {model.get('closed_quotes')} closed quotes at this run; on the newest {model.get('holdout_rows')} held-out rows it ranks correctly {e(auc_pct)} of the time (AUC {model.get('auc')}). "
+        + (
+            f" Tracked so far: {e(_precision_words(outcomes))}."
+            if _precision_words(outcomes)
+            else ""
+        )
+        + f" Accounts by RFM over the trailing year: {seg_chips or '—'}</p>"
+    )
+    return (
+        '<div style="margin:12px 0 4px">'
+        f'<div style="font:600 11px {_FONT};color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin:0 0 4px">Pipeline at risk · as of {e(str(risk.get("as_of")))}</div>'
+        f"{hero}{ranked}{honesty}</div>"
+    )
+
+
 async def render_report(step_input: StepInput) -> StepOutput:
     """The report as HTML and text from the comparison and the (grounded) explanation.
     Reads the ``title`` slot (default: the use case's question) and ``dashboard_url``."""
     from egpt_retail.executors.diagnostics import diagnosis_of
+    from egpt_retail.executors.predict import risk_of
+    from egpt_retail.executors.recommend import outcomes_of, recommendations_of
 
     options = _options(step_input)
     comparison = comparison_of(step_input)
     diagnosis = diagnosis_of(step_input)
-    if comparison is None and diagnosis is None:
+    risk = risk_of(step_input)
+    recommendation_result = recommendations_of(step_input)
+    outcomes = outcomes_of(step_input)
+    if comparison is None and diagnosis is None and risk is None:
         return StepOutput(
             content={"refused": "no comparison to render"}, success=False, stop=True
         )
     comparison = comparison or {
-        "as_of": (diagnosis or {}).get("headline", {}).get("as_of"),
+        "as_of": (diagnosis or risk or {}).get("headline", {}).get("as_of")
+        if diagnosis
+        else (risk or {}).get("as_of"),
         "kpis": [],
         "comparison": NO_COMPARISON,
     }
@@ -1168,8 +1527,18 @@ async def render_report(step_input: StepInput) -> StepOutput:
         dashboard_url=str(options.get("dashboard_url") or ""),
         grounding=grounding,
         diagnosis=diagnosis,
+        risk=risk,
+        recommendation_result=recommendation_result,
+        outcomes=outcomes,
     )
-    text_body = report_text(comparison, explanation, title=title, diagnosis=diagnosis)
+    text_body = report_text(
+        comparison,
+        explanation,
+        title=title,
+        diagnosis=diagnosis,
+        risk=risk,
+        recommendation_result=recommendation_result,
+    )
     headline = (
         str(explanation.get("headline"))
         if explanation and explanation.get("headline")
@@ -1190,6 +1559,13 @@ async def render_report(step_input: StepInput) -> StepOutput:
             },
             "dashboard_url": str(options.get("dashboard_url") or ""),
             **({"diagnosis": diagnosis} if diagnosis is not None else {}),
+            **({"risk": risk} if risk is not None else {}),
+            **(
+                {"recommendation_result": recommendation_result}
+                if recommendation_result is not None
+                else {}
+            ),
+            **({"outcomes": outcomes} if outcomes is not None else {}),
             # deliver_in_app reads these two.
             "headline": headline,
             "provenance_ref": (
@@ -1248,6 +1624,9 @@ async def send_report(step_input: StepInput) -> StepOutput:
             "headline",
             "provenance_ref",
             "diagnosis",
+            "risk",
+            "recommendation_result",
+            "outcomes",
         )
         if key in rendered
     }

@@ -110,6 +110,7 @@ export const CATEGORIES = {
   trigger: [
    { shape: "inform", template: null, label: "Report the numbers, every run", hint: "Several KPIs with their breakdowns, on a schedule; a comparison if you want one." },
    { shape: "inform", template: "metric_diagnosis", label: "Explain why one KPI changed, every run", hint: "Two periods, the change decomposed across every dimension the data carries; one sentence whose subject changes with the data." },
+   { shape: "inform", template: "at_risk", label: "Find who or what is at risk, every run", hint: "A model trained on your own history scores every open quote; each at-risk one gets a play from the catalogue; a recommendation or an alert goes to Decision Intelligence and the reps." },
    { shape: "alert", template: null, label: "Only when a KPI crosses a threshold", hint: "Notifies when it fires. A quiet day sends nothing." },
   ],
   examples: [
@@ -209,6 +210,10 @@ export const TEMPLATE_FIELDS = {
  // with a default. Not asked: outputs (always the report and a dashboard), the evidence
  // columns (derived from the fact), the support floor and the norm (derived, shown).
  metric_diagnosis: ["metrics", "comparison", "dimensions", "sensitivity", "schedule", "recipient"],
+ // The at-risk kind (K26): the KPIs that give the risk its context, the churn line, what the
+ // run ends in; then the delivery. Not asked: the risk lines (the model's own), the run's
+ // size (fifty subjects carried), the outputs (report and dashboard).
+ at_risk: ["metrics", "churnWindow", "outcome", "schedule", "recipient"],
 };
 
 /** Field labels a template reads differently: the diagnostic's "dimensions" are the columns
@@ -218,6 +223,9 @@ export const TEMPLATE_FIELD_META = {
   metrics: { label: "The KPI", hint: "One KPI — the one that moved. Its formula is read into its parts and its fact's rows are searched." },
   dimensions: { label: "Search the cause across", hint: "The columns of the fact a change can sit in. All of them by default; untick one to leave it out." },
   comparison: { label: "The two periods", hint: "A diagnosis compares by nature: the run's date against the period before, or the same period last year." },
+ },
+ at_risk: {
+  metrics: { label: "The KPIs behind the picture", hint: "The registry KPIs the report shows beside the scored list: stalled quotes, stalled pipeline value, conversion within the usual range, churn rate, at-risk accounts, RFM segments. The model does not read these; it reads the quotes themselves." },
  },
 };
 export const fieldMetaFor = (field, spec) => TEMPLATE_FIELD_META[spec?.template]?.[field] || FIELD_META[field] || { label: field, hint: "" };
@@ -259,6 +267,8 @@ export const FIELD_META = {
  outputs: { slot: "outputs", key: "outputs", label: "Outputs", hint: "What each run produces: the report (email + in-app), a dashboard composed at activation, or both." },
  sensitivity: { slot: "sensitivity", key: "sensitivity", label: "How sure before naming a cause", hint: "Balanced is the default and fits most data. Very sure names a slice only when it is far outside its own history (fewer findings, rarely noise); Show more names smaller departures too (more findings, some may be noise). Change it after your first run." },
  evidenceColumns: { slot: "evidence columns", key: "evidenceColumns", label: "Evidence columns", hint: "Which columns to show on the rows behind the finding. A reason column is always tallied." },
+ churnWindow: { slot: "churn window", key: "churnWindow", label: "An account is at risk of churn after", hint: "Days without a new quote, on an account that quoted in the 180 days before. Sixty is the industry line for a quote-driven pipeline; the registry's churn KPIs use the same." },
+ outcome: { slot: "outcome", key: "outcome", label: "What the run ends in", hint: "A recommendation is a quote with the play the catalogue chose for it, handed to Decision Intelligence and shown in the weekly report. An alert is the same record without a play, emailed to the quote's rep. Both is the usual choice." },
  operator: { slot: "operator", key: "condition", label: "Trigger condition", hint: "The direction of the breach." },
  threshold: { slot: "threshold", key: "condition", label: "Threshold", hint: "The number worth notifying someone for." },
  scope: { slot: "scope", key: "scope", label: "Scope", hint: "Where the condition is evaluated." },
@@ -294,7 +304,7 @@ export const FIELD_META = {
 
 /** The slots the backend has no contract field for yet (open item R-15). Shown on the form, sent
  *  as flat keys, and flagged so a demo audience knows which fields are proposed. */
-export const PROPOSED_CONTRACT_FIELDS = new Set(["sensitivity", "evidenceColumns", "operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
+export const PROPOSED_CONTRACT_FIELDS = new Set(["sensitivity", "evidenceColumns", "churnWindow", "outcome", "operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
 
 /** The roles a document is resolved against follow from the mapping and the guardrails and
  *  are read from the target's own data (K24); the plan names them one by one. */
@@ -307,6 +317,11 @@ export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
  switch (spec.shape) {
   case "inform": {
+   if (spec.template === "at_risk") {
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    const ends = { recommend: "a recommendation per at-risk quote, handed to Decision Intelligence", alert: "an alert per high-risk quote, emailed to its rep", both: "a recommendation per at-risk quote for Decision Intelligence and an alert per high-risk quote to its rep" }[spec.outcome || "both"];
+    return `Finds the open quotes at risk of not converting within their category's usual time to close, ${cadence}: a model trained on your own closed history at each run (checked on a time holdout before it is trusted) scores every open quote, the drivers behind each score are put in words, the account's RFM segment and its churn flag (no quote in ${spec.churnWindow || 60} days) are attached, and the catalogue chooses a sales play for each at-risk quote by rule. The run ends in ${ends}; the AI step writes the briefing from that list -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Writes nothing to any system of record.`;
+   }
    if (spec.template === "metric_diagnosis") {
     const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
     const sens = { clear: "very sure -- only a slice far outside its own history", usual: "balanced", more: "show more -- smaller departures count" }[spec.sensitivity || "usual"];

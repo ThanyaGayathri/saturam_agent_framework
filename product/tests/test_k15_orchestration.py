@@ -45,6 +45,10 @@ FULL = frozenset(
         "read_gold",
         "compare_to_baseline",
         "decompose_change",
+        "score_risk",
+        "recommend",
+        "send_alerts",
+        "track_outcomes",
         "check_report_grounding",
         "render_report",
         "send_report",
@@ -441,6 +445,7 @@ def test_capability_report_names_what_each_shape_still_needs():
     assert set(report) == {s.value for s in UseCaseShape} | {
         "act/document_to_record",
         "inform/metric_diagnosis",
+        "inform/at_risk",
     }
     assert "Compare to baseline" in report["inform"]["missing"]
     assert "Receive" in report["act/document_to_record"]["missing"]

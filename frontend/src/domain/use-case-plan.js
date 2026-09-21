@@ -123,6 +123,23 @@ export const TEMPLATE_STAGES = {
   stage("Deliver", STAGE_KIND.executor, "deliver_in_app", { consumes: ["recipient"] }),
   stage("Send report", STAGE_KIND.executor, "send_report", { consumes: ["recipient"], description: "The HTML report by email to the recipients; held in a rehearsal." }),
  ],
+ // The at-risk kind (K26): the Inform sequence with the scoring and the catalogue before the
+ // model, and the alerts after the report.
+ at_risk: [
+  stage("Read gold", STAGE_KIND.executor, "read_gold", { consumes: ["metrics"] }),
+  computeSatisfied("Compute metrics", []),
+  stage("Take the numbers as they are", STAGE_KIND.executor, "compare_to_baseline", { consumes: ["window"], description: "The context KPIs at the run's date, carried forward as they are. Nothing is compared." }),
+  stage("Track what happened", STAGE_KIND.executor, "track_outcomes", { description: "Every earlier recommendation whose horizon has ended is looked up on the fact -- converted in time, lapsed, still open -- and the outcome written on its record; from those, the use case's own precision per risk level." }),
+  stage("Score risk", STAGE_KIND.executor, "score_risk", { consumes: ["metrics", "churn window", "risk levels", "top n"], description: "Every open quote's risk of not converting within its category's usual time to close, from a model trained on the fact's own closed history at each run and checked on a time holdout; the drivers behind each score in words; the account's RFM segment and its churn flag attached." }),
+  stage("Recommend", STAGE_KIND.executor, "recommend", { consumes: ["outcome", "top n"], description: "One Recommendation record per at-risk quote, with the sales play the catalogue chose by rule from its drivers and why; an alert per high-risk quote for its rep. Written to the recommendations store, where Decision Intelligence reads them." }),
+  stage("Explain", STAGE_KIND.model, null, { role: "explanation", description: "One model step. Writes the briefing from the scored list and the plays; every figure is one the scoring produced." }),
+  stage("Check grounding", STAGE_KIND.executor, "check_report_grounding", { description: "Every figure in the briefing must be one the scoring carried; a briefing that invents one is withheld and the report carries the list alone." }),
+  stage("Record provenance", STAGE_KIND.executor, "record_provenance"),
+  stage("Render report", STAGE_KIND.executor, "render_report", { consumes: ["title", "outputs"], description: "The briefing, the pipeline at a glance, the ranked next best actions and the context KPIs as an HTML report and its text twin." }),
+  stage("Deliver", STAGE_KIND.executor, "deliver_in_app", { consumes: ["recipient"] }),
+  stage("Send report", STAGE_KIND.executor, "send_report", { consumes: ["recipient"], description: "The HTML report by email to the recipients; held in a rehearsal." }),
+  stage("Send alerts", STAGE_KIND.executor, "send_alerts", { consumes: ["recipient", "outcome"], description: "One alert email per rep with their high-risk quotes and the plays; held in a rehearsal." }),
+ ],
  document_to_record: [
   stage("Receive", STAGE_KIND.executor, "receive_messages", { consumes: ["source mailbox", "message filter"], description: "New messages matching the filter. None → run logged, nothing else." }),
   stage("Screen", STAGE_KIND.branch, "screen_documents", { consumes: ["document type"], description: "One document of the right type, from a known sender, under the size limit. Fails → exception." }),
@@ -183,6 +200,8 @@ export function slotValue(spec, slot) {
   case "comparison": return spec.template === "metric_diagnosis" && !spec.comparison ? "the period before (a diagnosis compares by nature)" : comparisonLabel(spec.comparison);
   case "sensitivity": return { clear: "very sure (only a slice far outside its own history)", usual: "balanced", more: "show more (smaller departures count)" }[spec.sensitivity || "usual"];
   case "evidenceColumns": return (spec.evidenceColumns || []).length ? spec.evidenceColumns.join(", ") : "the fact's own columns";
+  case "churnWindow": return `${spec.churnWindow || 60} days without a quote`;
+  case "outcome": return { recommend: "recommendations", alert: "alerts", both: "recommendations and alerts" }[spec.outcome || "both"];
   case "outputs": return (spec.outputs || []).length ? spec.outputs.join(" + ") : "report";
   case "operator": return spec.condition?.operator ? opLabel(spec.condition.operator) : null;
   case "threshold": return spec.condition?.threshold != null ? `${spec.condition.threshold}${spec.condition.unit || ""}` : null;
@@ -258,11 +277,6 @@ function describe(st, spec, reads) {
     detail: spec.shape === "alert"
      ? `Evaluated ${spec.scope ? `per ${spec.scope.replace(/^any /i, "").toLowerCase()}` : "overall"}. ${st.satisfiedBecause}`
      : `${spec.dimensions.length ? `Broken down by ${spec.dimensions.join(", ").toLowerCase()}. ` : ""}${st.satisfiedBecause}`,
-   };
-  case "compare_to_baseline":
-   return {
-    title: "Compares to baseline",
-    detail: `Against ${comparisonLabel(spec.comparison)}. Ranks which ${spec.dimensions[0]?.toLowerCase() || "segment"} moved most. All arithmetic — nothing here is judged.`,
    };
   case "explanation":
    return {
@@ -354,6 +368,26 @@ function describe(st, spec, reads) {
    } : {
     title: "Takes the numbers as they are",
     detail: `Each KPI at the run's date${spec.dimensions?.length ? `, broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, carried forward as it is. Nothing is compared; choose a baseline on the form to see what moved. A date gold does not hold yet is computed from the KPI's formula, once.`,
+   };
+  case "track_outcomes":
+   return {
+    title: "Tracks what happened to earlier recommendations",
+    detail: "Each recommendation carries a horizon: the rest of the quote's usual time to close. Once it has passed, this step looks the quote up on the fact -- converted in time, lapsed, or still open -- and writes the outcome on the record. From every tracked record it reports the use case's own precision: of the quotes named high risk, how many did not convert. The retraining reads the same table. Nothing is judged by a model.",
+   };
+  case "score_risk":
+   return {
+    title: "Scores every open quote's risk",
+    detail: `A logistic model trained at each run on the fact's own closed quotes -- won within the category's usual time to close, or not -- with the newest quarter held back and scored first (AUC, Brier, calibration shown on readiness; the run refuses under AUC 0.65). Every open quote scored; risk = the chance it does not convert in time; the three strongest drivers put in words; the account's RFM segment and its churn flag (${slotValue(spec, "churn window")}) attached. Still-in-range quotes ranked first by value at risk.`,
+   };
+  case "recommend":
+   return {
+    title: `Chooses a play for each at-risk quote; ends in ${slotValue(spec, "outcome")}`,
+    detail: "By rule from the catalogue, never by the model: the account's last loss first (specification, price, competitor, decision), then its churn state and RFM segment, a channel account still in qualification, a low-value quote past twice the usual (release), high risk above the territory's typical quote (escalate), else re-engage. Each record carries the play, who owns it, by when and why; written to the recommendations store where Decision Intelligence and the Recommendations screen read them. An open record is refreshed by the next run; a decided one is kept.",
+   };
+  case "send_alerts":
+   return {
+    title: (spec.outcome || "both") === "recommend" ? "No alerts: recommendations only" : /@/.test(spec.notify || "") ? "Emails each rep their high-risk quotes" : "No email address: alerts stay in-app",
+    detail: (spec.outcome || "both") === "recommend" ? "The run ends in recommendations; choose alerts or both above to email the reps." : "One email per rep: their high-risk quotes, the risk, the drivers and the play. Composed and held in a rehearsal.",
    };
   case "decompose_change":
    return {

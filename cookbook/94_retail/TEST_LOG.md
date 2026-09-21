@@ -6465,6 +6465,128 @@ nine for that goal. `vite build` clean; suite 1517 passed.
 
 ---
 
+### K26 -- the at-risk kind: who or what is at risk, ending in a recommendation
+
+**Package:** K26, branch `usecase_processautomation`. Contract 1.13.0 (additive):
+`Recommendation`, `RecommendedAction`, `RecommendationDriver`, `RecommendationList`,
+`RecommendationStatusWrite`; `GET /use-cases/{id}/recommendations`, `GET /recommendations`,
+`GET /recommendations/{id}`, `POST /recommendations/{id}/status`;
+`UseCaseTemplate.at_risk`; `AnalyticsSuggestion.kind: at_risk`; probe `risk_model`. Design:
+`docs/plan/analytics-automation-design.md` §12.
+
+**Status:** PASS (20 Sep 2026): unit tests (`test_k26_predict.py` 16, `test_k26_recommend.py`
+17), the model and the executors over the real quote fact, the whole chain through the
+service (rehearsal, then three live runs -- report and fourteen rep alerts emailed,
+recommendations written, one accepted on the screen, outcomes tracked after the horizon),
+and the builder end to end in the browser: the ask read as the at-risk kind, readiness with
+the real model numbers, the plan mirror, the run view, the Recommendations tab, the
+dashboard.
+
+**Description:** Analytics Automation gains a third kind next to the monitoring report and
+the diagnostic. The direction is the CEO's: an analysis must end in a *recommendation* or an
+*alert* that Decision Intelligence can act on, never a bare number. The Middleby demo is the
+at-risk pipeline: every open quote scored for the risk of not converting within its
+category's usual time to close, the account's RFM context attached, and a sales play chosen
+for each at-risk one.
+
+- **KPIs (Phase 1, `PA06_middleby_at_risk_kpis.py`):** twelve industry KPIs registered through
+  `POST /kpis` and computed -- sales cycle length by category (the usual, p90), stalled quotes
+  (by territory), stalled pipeline value, quote conversion within the usual range, 60-day
+  churn rate, at-risk accounts (by segment), RFM segment distribution (`rfm_segment` grain
+  added to the Middleby overlay), average account recency / frequency (180 d) / monetary
+  (180 d). All under *Ready to measure*. No per-quote or per-account number is a KPI; those
+  are the model's features.
+- **The model (Phase 2, `predict/`):** `features.py` builds the training frame in SQL --
+  genuinely closed quotes only (`closed_date <= as_of`, the fact carries a planned close date
+  on open quotes and the first cut leaked through it), seen at ages 0 / 7 / 14 / 21 / 28
+  days, label = closed won within the category's usual; the account's history through window
+  functions (prior quotes, win rate, days since the previous quote, won value, last lost
+  reason). `model.py` is logistic regression in numpy (standardised numerics, one-hot
+  categoricals with an *other* bucket, L2, gradient descent), returning per-row
+  contributions; `auc`, `brier`, `calibration`. `rfm.py` is the standard quintile scheme
+  (Champions … Lost), the same rule as the `rfq__rfm_segments` KPI. `executors/predict.py`:
+  `score_risk` trains at each run with the newest quarter by quote date held back and scored
+  first, then refits on everything; scores every open quote; risk = 1 − p(convert); three
+  drivers in words (age against the usual said once); the account's RFM segment and its
+  churn flag (the registry's rule: quoted in the 180 days before the churn line, not since
+  -- 1,663, the same count `rfq__at_risk_accounts` gives); still-in-range quotes ranked
+  first by value at risk. `risk_model_readiness` is what readiness shows; floor AUC 0.65.
+- **Real numbers:** 484 closed quotes → 1,254 snapshot rows, base rate 0.464; time holdout
+  314 rows: **AUC 0.806, Brier 0.195**. Top coefficients: no last lost reason +1.35,
+  Portal Dealer −0.69, Griddles −0.66. Scoring 2,116 open quotes: 1,928 already past the
+  usual time to close; **188 still within range, 120 of them at risk, $591K**; 1,830 high
+  overall because most of the backlog is far past the usual -- so the report separates
+  "act now" (in range) from "already stalled", and the list ranks in-range first.
+- **The outcome (Phase 3, `recommendations/`):** the Recommendation record
+  (`retail_recommendations` on the control plane: subject, risk and level, drivers, action,
+  value at stake, context, status, outcome, horizon); `RecommendationStore.upsert_open`
+  writes one open record per (use case, subject), refreshed by the next run, a decided one
+  kept -- proven: accept one, rerun, `kept: 1`, the other 61 refreshed. The catalogue
+  (`catalogue.py`) is ten sales plays as data -- RE_ENGAGE, ESCALATE, REQUOTE_SPEC,
+  COMMERCIAL_OFFER, COMPETITIVE_RESPONSE, DECISION_SUPPORT, CHANNEL_PARTNER, ACCOUNT_REVIEW,
+  REACTIVATE, RELEASE -- each with what to do, when, who owns it, by when. `play_for` chooses
+  by rule, never by the model: the account's last loss first (the data scrambles word order
+  -- "High Too Price", "Too High Price" -- so the rule matches words), then the account's
+  churn state and RFM segment, a channel account still in qualification, a low-value quote
+  past twice the usual (release), high risk above the territory's typical quote (escalate),
+  else re-engage; the record carries *why*. `recommend` writes the records (held under dry
+  run); `send_alerts` emails each rep their high-risk quotes with the plays (the
+  `alert recipient` slot, the report's recipient when unset).
+- **The chain (Phase 4):** `at_risk` template (Inform): Read gold → Take the numbers as they
+  are → **Track what happened** → **Score risk** → **Recommend** → Explain → Check grounding →
+  Record provenance → Render report → Deliver → Send report → **Send alerts**; slots `churn
+  window` (60), `outcome` (both), `risk levels`, `top n` (50) with defaults. The report: a
+  hero strip (act now / already stalled / accounts at risk), the ranked *next best actions*
+  with the play, why, the drivers, the owner and SLA, the alerts per rep, and an honesty
+  line (what risk means, the model's holdout numbers, the precision tracked so far). The
+  briefing model reads the `at_risk_explanation` skill; grounding admits the scoring's,
+  the plays', the horizon's and the precision's figures, money as the report prints it
+  ($591K, $10.57M -- the first draft wrote 591088.8). Readiness: `risk_outcome`,
+  `risk_model`, `risk_subjects`.
+- **The form (Phase 5):** the fourth kind on the Analytics Automation card ("Find who or what
+  is at risk, every run"); fields: the context KPIs (the at-risk ones offered), the churn
+  line (30 / 45 / 60 / 90 or a number), what the run ends in (recommend / alert / both);
+  the suggestion reads an at-risk ask ("at risk", "churn", "not convert", "stalled") as
+  the kind and fills the six context KPIs; the plan mirror names the three new stages; the
+  preflight probes `risk_model`; the run view gets at-risk header tiles, a *Next best
+  actions* tab and a *The model* tab (holdout numbers, calibration, coefficients); the use
+  case page gets a **Recommendations** tab (filters by status and kind, accept / dismiss /
+  done / reopen -- the same write a consuming use case makes); the dashboard's latest-report
+  panel shows the hero tiles and the top five actions.
+- **Track (Phase 6):** `track_outcomes` at the head of the chain: every record whose horizon
+  has ended is looked up on the fact -- converted, lapsed (closed lost, or still open past
+  the horizon), still open -- the outcome written, and the use case's precision per level
+  reported in the briefing's caveat and the report's honesty line. Proven by backdating six
+  horizons and running live: 5 expired as lapsed, the accepted one kept its status with its
+  outcome written; the next run said "of 2 named high risk, 2 did not convert".
+
+**Fixed along the way:**
+
+- `comparison_of` looked the comparison up by the stage name "Compare to baseline" only;
+  the no-comparison stage is "Take the numbers as they are", so a K23/K25 run without a
+  comparison lost its KPI tiles once a later step did not carry the content. Both names
+  now, and a carried `comparison_result` on any earlier output.
+- Five `*_of` helpers iterated `previous_step_outputs` as a list; the engine hands a
+  mapping by step name, so the fallback never fired. One `earlier_outputs` helper.
+- `permits_or_blocks` was false on `decompose_change` although it stops on a refusal;
+  true now, with `score_risk` and `recommend`, and the R9 test lists all three.
+- The plan mirror had two `case "compare_to_baseline"` labels; the first (generic) won, so
+  the K23 "Takes the numbers as they are" wording never showed. The stale one removed.
+- The `risk_model` probe needed adding to the contract's `ProbeName` enum, or the readiness
+  screen reported "the platform could not be reached".
+- A use case's compiled workflow is frozen at activation, so an executor added later
+  reaches an activated use case only after re-saving the spec and activating again
+  (version 2) -- by design; noted here because it cost one confused run.
+
+**Not in this package:** stockout risk on curated synthetic data (K27, §12.4); gradient
+boosting behind a flag; a Decision Intelligence use case type whose *Read* is the
+recommendations store (the screen's accept / dismiss is the same contract today); alerts
+to real rep addresses (the fact carries none; every rep's alert goes to the report's
+recipient, the rep in the subject); retraining that reads the tracked outcomes as labels
+(the table holds them; the training frame still reads the fact).
+
+---
+
 ### K25 -- the diagnostic kind: why one KPI changed, computed fresh every run
 
 **Package:** K25, branch `usecase_processautomation`. Contract 1.12.0 (additive):

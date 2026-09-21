@@ -56,8 +56,8 @@ from egpt_retail.executors.analytics import (
     send_report,
 )
 from egpt_retail.executors.areas import detect_business_areas
-from egpt_retail.executors.diagnostics import decompose_change
 from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.diagnostics import decompose_change
 from egpt_retail.executors.documents import DOCUMENT_EXECUTORS
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
@@ -69,8 +69,10 @@ from egpt_retail.executors.monitoring import (
     list_silent_schedules,
 )
 from egpt_retail.executors.plan import derive_plan
+from egpt_retail.executors.predict import score_risk
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
+from egpt_retail.executors.recommend import recommend, send_alerts, track_outcomes
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.rfq import check_explanation_grounding, sample_rows
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
@@ -225,6 +227,8 @@ K23_EXECUTORS = (
 )
 #: The diagnostic kind's one new stage (K25): the decomposition between Compare and Explain.
 K25_EXECUTORS = (decompose_change,)
+#: The at-risk kind's predictive stage (K26).
+K26_EXECUTORS = (score_risk, recommend, send_alerts, track_outcomes)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -588,6 +592,7 @@ def build_registry() -> Registry:
         + K15_EXECUTORS
         + K23_EXECUTORS
         + K25_EXECUTORS
+        + K26_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.12.0",
+    "version": "1.13.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -562,9 +562,10 @@
             "type": "string",
             "enum": [
               "monitoring",
-              "diagnostic"
+              "diagnostic",
+              "at_risk"
             ],
-            "description": "A standing report, or a question about one movement run once and promoted if kept."
+            "description": "A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert."
           },
           "title": {
             "type": "string"
@@ -4290,7 +4291,8 @@
           "gold",
           "delivery",
           "dry_answer",
-          "diagnosis"
+          "diagnosis",
+          "risk_model"
         ]
       },
       "ProbeResult": {
@@ -4770,6 +4772,300 @@
             "type": "string",
             "default": "",
             "description": "An email address or a Slack channel. Empty for `in_app`."
+          }
+        }
+      },
+      "Recommendation": {
+        "type": "object",
+        "required": [
+          "id",
+          "use_case_id",
+          "kind",
+          "subject_type",
+          "subject_id",
+          "subject_label",
+          "risk_score",
+          "risk_level",
+          "drivers",
+          "value_at_stake",
+          "value_unit",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an\nopen quote and its account), its risk and the drivers behind it, and -- on a\nrecommendation -- the sales play the catalogue chose. An alert is the same record with\nno action. Decision Intelligence, or a person on the screen, writes `status`; the use\ncase writes `outcome` when the horizon ends.\n",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "use_case_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "recommendation",
+              "alert"
+            ]
+          },
+          "subject_type": {
+            "type": "string",
+            "description": "quote today; the kind's subject."
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "subject_label": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "account_label": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Who acts: the rep on the quote."
+          },
+          "risk_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "The probability the subject does not convert within the horizon."
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "horizon_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The category's usual time to close."
+          },
+          "model_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "drivers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecommendationDriver"
+            }
+          },
+          "action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The play; null on an alert."
+          },
+          "value_at_stake": {
+            "type": "number"
+          },
+          "value_unit": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "dismissed",
+              "actioned",
+              "expired"
+            ]
+          },
+          "status_note": {
+            "type": "string"
+          },
+          "status_by": {
+            "type": "string"
+          },
+          "status_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet."
+          },
+          "outcome_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the horizon ends and the outcome is looked up."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RecommendationDriver": {
+        "type": "object",
+        "required": [
+          "feature",
+          "text",
+          "contribution"
+        ],
+        "description": "One reason behind a risk score, grounded in the row's own value against the typical.",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "value": {
+            "description": "The row's own value: a number, or the category level."
+          },
+          "typical": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "What the scored population averages; null for a category."
+          },
+          "contribution": {
+            "type": "number",
+            "description": "The feature's push on the log-odds of converting; negative is towards risk."
+          },
+          "text": {
+            "type": "string",
+            "description": "The driver in words, for the report and the alert."
+          }
+        }
+      },
+      "RecommendationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Records per status across the filter's use case (or all), for the screen's chips."
+          }
+        }
+      },
+      "RecommendationStatusWrite": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "dismissed",
+              "actioned"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "default": ""
+          },
+          "by": {
+            "type": "string",
+            "default": "",
+            "description": "Who decided; the screen's user or the consuming use case."
+          }
+        }
+      },
+      "RecommendedAction": {
+        "type": "object",
+        "required": [
+          "code",
+          "title",
+          "action",
+          "owner",
+          "from_catalogue",
+          "because"
+        ],
+        "description": "The sales play the catalogue chose, who owns it, by when, and why it was chosen.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The catalogue code (RE_ENGAGE, ESCALATE, ...)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "What to do, in the organisation's words."
+          },
+          "owner": {
+            "type": "string",
+            "description": "The role that owns the play."
+          },
+          "sla_hours": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "from_catalogue": {
+            "type": "boolean"
+          },
+          "because": {
+            "type": "string",
+            "description": "The rule that chose it, in words."
           }
         }
       },
@@ -6583,7 +6879,8 @@
         "enum": [
           "kpi_change",
           "document_to_record",
-          "metric_diagnosis"
+          "metric_diagnosis",
+          "at_risk"
         ],
         "description": "The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the\nAct sequence as section 07 describes it; `document_to_record` is the Act sequence a\ndocument-driven automation needs -- receive, screen, extract, resolve -- before the same\nguarded write. Both are Act. The interface reads the template from the requirement's own\nwords and never asks for it; the compiler checks it belongs to the shape.\n"
       },
@@ -13414,6 +13711,526 @@
                       "passed": false,
                       "reason": "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment",
                       "elapsed_ms": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/recommendations": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listUseCaseRecommendations",
+        "summary": "The recommendations and alerts one use case has produced (1.13.0).",
+        "description": "The hand-off from Analytics Automation to Decision Intelligence (K26): the records the\nuse case's `recommend` stage wrote, by value at stake. Filter by status to read the\nopen ones -- what a consuming use case, or the screen, acts on.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "accepted",
+                "dismissed",
+                "actioned",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "alert"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records and the counts per status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "items": [
+                        {
+                          "id": "rec_300fd589",
+                          "use_case_id": "uc_1f2e3d4c",
+                          "run_id": "run_9a8b7c6d",
+                          "kind": "recommendation",
+                          "subject_type": "quote",
+                          "subject_id": "486",
+                          "subject_label": "Quote 486 · Griddles · $9,256",
+                          "account_id": "12",
+                          "account_label": "Sanne Hendriks",
+                          "owner": "M. Nambiar",
+                          "risk_score": 0.981,
+                          "risk_level": "high",
+                          "horizon_days": 26,
+                          "model_version": "60523454c1",
+                          "drivers": [
+                            {
+                              "feature": "last_lost_reason",
+                              "value": "Decision Delayed",
+                              "typical": null,
+                              "contribution": -1.35,
+                              "text": "the account's last quote was lost: Decision Delayed"
+                            },
+                            {
+                              "feature": "customer_segment",
+                              "value": "SMB",
+                              "typical": null,
+                              "contribution": -0.41,
+                              "text": "SMB accounts convert less often"
+                            }
+                          ],
+                          "action": {
+                            "code": "DECISION_SUPPORT",
+                            "title": "Send the total-cost-of-ownership summary to the decision maker",
+                            "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                            "owner": "Sales rep",
+                            "sla_hours": 120,
+                            "from_catalogue": true,
+                            "because": "the account's last quote was lost: Decision Delayed"
+                          },
+                          "value_at_stake": 9256,
+                          "value_unit": "USD",
+                          "context": {
+                            "category": "Griddles",
+                            "territory": "India East",
+                            "stage": "Proposal Sent",
+                            "age_days": 17,
+                            "usual_days": 26,
+                            "stalled": false,
+                            "account": {
+                              "segment": "Champions",
+                              "at_risk": false,
+                              "recency_days": 20
+                            }
+                          },
+                          "status": "open",
+                          "status_note": "",
+                          "status_by": "",
+                          "status_at": null,
+                          "outcome": null,
+                          "outcome_at": null,
+                          "expires_at": "2026-09-29T00:00:00Z",
+                          "created_at": "2026-09-20T06:00:00Z",
+                          "updated_at": "2026-09-20T06:00:00Z"
+                        }
+                      ],
+                      "counts": {
+                        "open": 61,
+                        "accepted": 1,
+                        "dismissed": 0,
+                        "actioned": 0,
+                        "expired": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listRecommendations",
+        "summary": "Recommendations and alerts across use cases (1.13.0).",
+        "description": "The same records as `/use-cases/{use_case_id}/recommendations`, across every use case:\nwhat Decision Intelligence pulls. Filter by status, kind, level or owner.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "accepted",
+                "dismissed",
+                "actioned",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "alert"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records and the counts per status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "items": [],
+                      "counts": {
+                        "open": 0,
+                        "accepted": 0,
+                        "dismissed": 0,
+                        "actioned": 0,
+                        "expired": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations/{recommendation_id}": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "getRecommendation",
+        "summary": "One recommendation or alert (1.13.0).",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recommendation"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "rec_300fd589",
+                      "use_case_id": "uc_1f2e3d4c",
+                      "run_id": "run_9a8b7c6d",
+                      "kind": "recommendation",
+                      "subject_type": "quote",
+                      "subject_id": "486",
+                      "subject_label": "Quote 486 · Griddles · $9,256",
+                      "account_id": "12",
+                      "account_label": "Sanne Hendriks",
+                      "owner": "M. Nambiar",
+                      "risk_score": 0.981,
+                      "risk_level": "high",
+                      "horizon_days": 26,
+                      "model_version": "60523454c1",
+                      "drivers": [
+                        {
+                          "feature": "last_lost_reason",
+                          "value": "Decision Delayed",
+                          "typical": null,
+                          "contribution": -1.35,
+                          "text": "the account's last quote was lost: Decision Delayed"
+                        }
+                      ],
+                      "action": {
+                        "code": "DECISION_SUPPORT",
+                        "title": "Send the total-cost-of-ownership summary to the decision maker",
+                        "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                        "owner": "Sales rep",
+                        "sla_hours": 120,
+                        "from_catalogue": true,
+                        "because": "the account's last quote was lost: Decision Delayed"
+                      },
+                      "value_at_stake": 9256,
+                      "value_unit": "USD",
+                      "context": {
+                        "category": "Griddles",
+                        "territory": "India East",
+                        "stage": "Proposal Sent",
+                        "age_days": 17,
+                        "usual_days": 26,
+                        "stalled": false
+                      },
+                      "status": "open",
+                      "status_note": "",
+                      "status_by": "",
+                      "status_at": null,
+                      "outcome": null,
+                      "outcome_at": null,
+                      "expires_at": "2026-09-29T00:00:00Z",
+                      "created_at": "2026-09-20T06:00:00Z",
+                      "updated_at": "2026-09-20T07:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations/{recommendation_id}/status": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "setRecommendationStatus",
+        "summary": "Accept, dismiss or mark actioned (1.13.0).",
+        "description": "What Decision Intelligence -- or a person on the Recommendations screen, which is the\nsame contract -- writes back. A decided record is kept as decided by later runs of\nthe producing use case; only an open one is refreshed.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationStatusWrite"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "status": "accepted",
+                    "note": "Called the buyer; TCO summary sent.",
+                    "by": "M. Nambiar"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The record after the write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recommendation"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "rec_300fd589",
+                      "use_case_id": "uc_1f2e3d4c",
+                      "run_id": "run_9a8b7c6d",
+                      "kind": "recommendation",
+                      "subject_type": "quote",
+                      "subject_id": "486",
+                      "subject_label": "Quote 486 · Griddles · $9,256",
+                      "account_id": "12",
+                      "account_label": "Sanne Hendriks",
+                      "owner": "M. Nambiar",
+                      "risk_score": 0.981,
+                      "risk_level": "high",
+                      "horizon_days": 26,
+                      "model_version": "60523454c1",
+                      "drivers": [
+                        {
+                          "feature": "last_lost_reason",
+                          "value": "Decision Delayed",
+                          "typical": null,
+                          "contribution": -1.35,
+                          "text": "the account's last quote was lost: Decision Delayed"
+                        }
+                      ],
+                      "action": {
+                        "code": "DECISION_SUPPORT",
+                        "title": "Send the total-cost-of-ownership summary to the decision maker",
+                        "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                        "owner": "Sales rep",
+                        "sla_hours": 120,
+                        "from_catalogue": true,
+                        "because": "the account's last quote was lost: Decision Delayed"
+                      },
+                      "value_at_stake": 9256,
+                      "value_unit": "USD",
+                      "context": {
+                        "category": "Griddles",
+                        "territory": "India East",
+                        "stage": "Proposal Sent",
+                        "age_days": 17,
+                        "usual_days": 26,
+                        "stalled": false
+                      },
+                      "status": "accepted",
+                      "status_note": "Called the buyer; TCO summary sent.",
+                      "status_by": "M. Nambiar",
+                      "status_at": "2026-09-20T07:00:00Z",
+                      "outcome": null,
+                      "outcome_at": null,
+                      "expires_at": "2026-09-29T00:00:00Z",
+                      "created_at": "2026-09-20T06:00:00Z",
+                      "updated_at": "2026-09-20T07:00:00Z"
                     }
                   }
                 }

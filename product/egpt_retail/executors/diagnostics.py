@@ -46,7 +46,7 @@ from egpt_retail.diagnostics.decompose import (
 )
 from egpt_retail.diagnostics.parts import FormulaParts, FormulaShapeError, parts_of
 from egpt_retail.executors.analytics import comparison_of
-from egpt_retail.executors.batch import slot
+from egpt_retail.executors.batch import earlier_outputs, slot
 from egpt_retail.executors.provenance import note_dataset_read, note_sql_execution
 
 __all__ = [
@@ -714,7 +714,7 @@ def diagnosis_of(step_input: StepInput) -> Optional[Dict[str, Any]]:
                 nested.get("diagnosis"), Mapping
             ):
                 return dict(nested["diagnosis"])
-    for output in reversed(list(step_input.previous_step_outputs or [])):
+    for output in earlier_outputs(step_input):
         content = getattr(output, "content", None)
         if isinstance(content, Mapping) and isinstance(
             content.get("diagnosis"), Mapping

@@ -103,6 +103,11 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
     monkeypatch.setattr(
         factory_module, "apply_rollback_ddl", lambda engine: calls.append("rollback")
     )
+    monkeypatch.setattr(
+        factory_module,
+        "apply_recommendations_ddl",
+        lambda engine: calls.append("recommendations"),
+    )
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
@@ -120,6 +125,7 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
         "provenance",
         "delivery",
         "use_cases",
+        "recommendations",
         "rollback",
     ]
 

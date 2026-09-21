@@ -109,6 +109,20 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.13.0 — 2026-09-20 — recommendations: the hand-off to Decision Intelligence (additive)
+
+Agreed by: Lane K. The at-risk kind (K26) ends in a `Recommendation` record -- one open
+quote with its account, its risk and level, the drivers behind the score, and the sales play
+the catalogue chose (`RecommendedAction`: code, what to do, owner, SLA, why); an alert is
+the same record with `action: null`. Four operations read and write them:
+`GET /use-cases/{use_case_id}/recommendations` and `GET /recommendations` (filters: status,
+kind, level, owner; `RecommendationList` carries the counts per status), `GET
+/recommendations/{recommendation_id}`, and `POST /recommendations/{recommendation_id}/status`
+(`RecommendationStatusWrite`: accepted / dismissed / actioned / open, with a note and who) --
+what a consuming Decision Intelligence use case, or a person on the screen, writes back.
+`outcome` and `outcome_at` are written by the producing use case when the horizon ends.
+Nothing existing changes.
+
 ## 1.12.0 — 2026-09-18 — the diagnostic kind: `diagnosisOptions` (additive)
 
 Agreed by: Lane K. One new operation, `POST /use-cases/analytics/diagnosis-options`

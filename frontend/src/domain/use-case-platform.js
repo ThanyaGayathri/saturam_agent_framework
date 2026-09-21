@@ -75,6 +75,8 @@ export function kpiParameters(spec, sources = []) {
   window: spec.window || undefined,
   // The diagnostic kind's two slots (K25).
   ...(spec.template === "metric_diagnosis" ? { sensitivity: spec.sensitivity || "usual", "evidence columns": spec.evidenceColumns || [] } : {}),
+  // The at-risk kind's two asked slots (K26); the risk lines and the run's size keep their defaults.
+  ...(spec.template === "at_risk" ? { "churn window": Number(spec.churnWindow) || 60, outcome: spec.outcome || "both" } : {}),
   candidates: spec.candidates || null,
   guardrails: spec.guardrails || [],
   approver: spec.approver || "",
@@ -255,6 +257,18 @@ export function specFromPlatform(useCase, platformSpec, base) {
   category: platformSpec?.template === "document_to_record" ? "process_automation" : base.category,
   platform: { ...(base.platform || {}), useCaseId: useCase.id, version: useCase.version, status: useCase.status, parameters: p },
  };
+ if (platformSpec?.template === "at_risk") {
+  return {
+   ...next,
+   category: "analytics_automation",
+   metricIds: Array.isArray(p.metrics) ? p.metrics : base.metricIds,
+   churnWindow: Number(p["churn window"]) || base.churnWindow || 60,
+   outcome: p.outcome || base.outcome || "both",
+   outputs: Array.isArray(p.outputs) ? p.outputs : base.outputs,
+   notify: typeof p.recipient === "string" ? p.recipient : base.notify,
+   schedule: scheduleFromCadence(p.schedule || useCase.schedule) || base.schedule,
+  };
+ }
  if (platformSpec?.template === "metric_diagnosis") {
   return {
    ...next,
@@ -312,6 +326,8 @@ export function runStats(run) {
    report: true, received: kpis, created: sent, previewed: status === "held" ? 1 : 0, exceptions: 0, held: 0, value: 0, hasValue: false, objects: ["Report"],
    // Whether the run compared anything (a comparison is a choice) and whether it diagnosed a change (K25).
    compared: !!result.comparison_result?.comparison && result.comparison_result.comparison !== "none", diagnosed: !!result.diagnosis,
+   // The at-risk kind (K26): what was scored and what the run ended in.
+   scored: result.risk ? { open: result.risk.summary?.open_quotes || 0, atRiskInRange: result.risk.summary?.at_risk_within_range || 0, recommendations: result.recommendation_result?.summary?.recommendations || 0, alerts: result.recommendation_result?.summary?.alerts || 0, alertsStatus: result.alerts?.status || null } : null,
    byClass: result.grounding?.passed === false ? { NARRATIVE_WITHHELD: 1 } : {}, idle: false, durationMs,
    records: [], notify: status || null, recipients: result.delivery?.to || [],
    headline: result.report.headline || "", withheld: result.grounding?.passed === false,

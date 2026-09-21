@@ -109,7 +109,10 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
     """
     from egpt_retail.executors.analytics import comparison_of
     from egpt_retail.executors.diagnostics import diagnosis_of
+    from egpt_retail.executors.predict import risk_of
+    from egpt_retail.executors.recommend import outcomes_of, recommendations_of
     from egpt_retail.skills.report_explanation import (
+        render_at_risk_message,
         render_diagnosis_message,
         render_message,
     )
@@ -119,7 +122,10 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
         # The diagnostic kind (K25): the decomposition is what the model narrates, and
         # it travels with the comparison so the report renders both.
         diagnosis = diagnosis_of(step_input)
-        if comparison is None and diagnosis is None:
+        # The at-risk kind (K26): the scoring and the plays are what the model briefs.
+        risk = risk_of(step_input)
+        recommendation_result = recommendations_of(step_input)
+        if comparison is None and diagnosis is None and risk is None:
             return StepOutput(
                 content={"refused": "no comparison to explain"},
                 success=False,
@@ -131,17 +137,27 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
         notes = ""
         if override is not None:
             explanation = dict(
-                await asyncio.to_thread(override, diagnosis or comparison)
+                await asyncio.to_thread(
+                    override,
+                    risk if risk is not None else (diagnosis or comparison),
+                )
             )
         elif agent is None:
             notes = "no explanation model is configured; the report carries the numbers only"
         else:
             question = str(options.get("question") or "")
-            message = (
-                render_diagnosis_message(diagnosis, question=question)
-                if diagnosis is not None
-                else render_message(comparison or {}, question=question)
-            )
+            if risk is not None:
+                message = render_at_risk_message(
+                    risk,
+                    recommendation_result,
+                    comparison=comparison,
+                    question=question,
+                    outcomes=outcomes_of(step_input),
+                )
+            elif diagnosis is not None:
+                message = render_diagnosis_message(diagnosis, question=question)
+            else:
+                message = render_message(comparison or {}, question=question)
             response = await agent.arun(message)
             content = getattr(response, "content", None)
             if content is None:
@@ -159,30 +175,51 @@ def make_explanation_step(agent: Any, *, name: str = "Explain") -> Step:
         }
         if diagnosis is not None:
             result["diagnosis"] = diagnosis
+        if risk is not None:
+            result["risk"] = risk
+        if recommendation_result is not None:
+            result["recommendation_result"] = recommendation_result
+        outcomes = outcomes_of(step_input)
+        if outcomes is not None:
+            result["outcomes"] = outcomes
         return StepOutput(content=result, success=True)
 
     return Step(name=name, executor=explain, on_error=OnError.fail)
 
 
 def build_explanation_agent(
-    model: Any, *, agent_id: str, db: Any = None, diagnosis: bool = False
+    model: Any,
+    *,
+    agent_id: str,
+    db: Any = None,
+    diagnosis: bool = False,
+    at_risk: bool = False,
 ) -> Any:
     """The explanation agent for one use case: the report_explanation skill's prompt and
-    output schema -- the diagnosis_explanation prompt for the diagnostic kind (K25), same
-    schema -- on the small tier's model."""
+    output schema -- the diagnosis_explanation prompt for the diagnostic kind (K25), the
+    at_risk_explanation prompt for the at-risk kind (K26), same schema -- on the small
+    tier's model."""
     from egpt.agent import Agent
 
     from egpt_retail.skills.report_explanation import (
         ReportExplanation,
+        render_at_risk_prompt,
         render_diagnosis_prompt,
         render_prompt,
     )
 
+    instructions = (
+        render_at_risk_prompt()
+        if at_risk
+        else render_diagnosis_prompt()
+        if diagnosis
+        else render_prompt()
+    )
     return Agent(
         id=agent_id,
         name=agent_id,
         model=model,
-        instructions=render_diagnosis_prompt() if diagnosis else render_prompt(),
+        instructions=instructions,
         output_schema=ReportExplanation,
         db=db,
     )

@@ -37,11 +37,21 @@ export function patchFromSuggestion(suggestion, spec) {
   patch.template = "metric_diagnosis";
   patch.metricIds = ids.slice(0, 1).length ? ids.slice(0, 1) : spec.metricIds.slice(0, 1);
   patch.dimensions = [];
+ } else if (suggestion?.kind === "at_risk") {
+  // The at-risk kind (K26): the context KPIs, no comparison, no breakdowns; the churn
+  // window and the outcome keep their defaults unless the words named them.
+  patch.template = "at_risk";
+  patch.comparison = null;
+  patch.dimensions = [];
+  const days = (suggestion.title || "").match(/(\d{2,3})\s*days?/);
+  if (days) patch.churnWindow = Number(days[1]);
+  patch.outcome = /\balert(s)?\b/i.test(suggestion.title || "") && !/recommend/i.test(suggestion.title || "") ? "alert" : /recommend/i.test(suggestion.title || "") && !/\balert/i.test(suggestion.title || "") ? "recommend" : "both";
  } else if (suggestion) {
   patch.template = null;
  }
  const understood = [];
- if (suggestion?.kind === "diagnostic") understood.push(`a diagnosis of ${patch.metricIds[0] || "one KPI"}: the change decomposed across every dimension the data carries`);
+ if (suggestion?.kind === "at_risk") understood.push(`who or what is at risk: every open quote scored by a model trained on your own history, each at-risk one given a play from the catalogue, ${{ recommend: "recommendations", alert: "alerts", both: "recommendations and alerts" }[patch.outcome]} handed to Decision Intelligence; ${ids.length} context KPI${ids.length === 1 ? "" : "s"} beside the list`);
+ else if (suggestion?.kind === "diagnostic") understood.push(`a diagnosis of ${patch.metricIds[0] || "one KPI"}: the change decomposed across every dimension the data carries`);
  else if (ids.length) understood.push(`${ids.length} KPI${ids.length === 1 ? "" : "s"} the data supports: ${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}`);
  if (patch.dimensions?.length) understood.push(`broken down by ${patch.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}`);
  if (suggestion?.comparison_reason) understood.push(suggestion.comparison ? `compared with ${suggestion.comparison === "prior_year" ? "the same period last year" : "the period before"} — ${suggestion.comparison_reason}` : `not compared — ${suggestion.comparison_reason}`);
@@ -77,6 +87,10 @@ export function reportResult(result) {
   inApp: result.in_app || null,
   // The diagnostic kind (K25): the decomposition the sentence was written from.
   diagnosis: result.diagnosis || null,
+  // The at-risk kind (K26): the scoring, the plays and the alerts.
+  risk: result.risk || null,
+  recommendations: result.recommendation_result || null,
+  alerts: result.alerts || null,
  };
 }
 

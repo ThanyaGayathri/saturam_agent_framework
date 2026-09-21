@@ -24,7 +24,7 @@ UseCaseShape:
 
 UseCaseTemplate:
   type: string
-  enum: [kpi_change, document_to_record, metric_diagnosis]
+  enum: [kpi_change, document_to_record, metric_diagnosis, at_risk]
   description: |
     The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
     Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
@@ -865,7 +865,7 @@ GoldenCaseWrite:
 
 ProbeName:
   type: string
-  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer, diagnosis]
+  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer, diagnosis, risk_model]
 ProbeResult:
   type: object
   description: |
@@ -965,7 +965,7 @@ AnalyticsSuggestion:
   type: object
   required: [kind, title, business_areas, kpis, dimensions, comparison, schedule, outputs, recipients, uncovered, notes]
   properties:
-    kind: {type: string, enum: [monitoring, diagnostic], description: "A standing report, or a question about one movement run once and promoted if kept."}
+    kind: {type: string, enum: [monitoring, diagnostic, at_risk], description: "A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert."}
     title: {type: string}
     business_areas: {type: array, items: {type: string}}
     kpis:
@@ -1000,3 +1000,90 @@ ObjectSuggestion:
     score: {type: integer}
     why: {type: string}
     shipped_mapping: {type: [string, "null"], description: "A shipped mapping's id for exactly this pair, when one exists."}
+RecommendationDriver:
+  type: object
+  required: [feature, text, contribution]
+  description: One reason behind a risk score, grounded in the row's own value against the typical.
+  properties:
+    feature: {type: string}
+    value: {description: "The row's own value: a number, or the category level."}
+    typical: {type: [number, "null"], description: "What the scored population averages; null for a category."}
+    contribution: {type: number, description: "The feature's push on the log-odds of converting; negative is towards risk."}
+    text: {type: string, description: "The driver in words, for the report and the alert."}
+RecommendedAction:
+  type: object
+  required: [code, title, action, owner, from_catalogue, because]
+  description: The sales play the catalogue chose, who owns it, by when, and why it was chosen.
+  properties:
+    code: {type: string, description: "The catalogue code (RE_ENGAGE, ESCALATE, ...)."}
+    title: {type: string}
+    action: {type: string, description: "What to do, in the organisation's words."}
+    owner: {type: string, description: "The role that owns the play."}
+    sla_hours: {type: [integer, "null"]}
+    from_catalogue: {type: boolean}
+    because: {type: string, description: "The rule that chose it, in words."}
+Recommendation:
+  type: object
+  required: [id, use_case_id, kind, subject_type, subject_id, subject_label, risk_score, risk_level, drivers, value_at_stake, value_unit, status, created_at, updated_at]
+  description: |
+    What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an
+    open quote and its account), its risk and the drivers behind it, and -- on a
+    recommendation -- the sales play the catalogue chose. An alert is the same record with
+    no action. Decision Intelligence, or a person on the screen, writes `status`; the use
+    case writes `outcome` when the horizon ends.
+  properties:
+    id: {type: string}
+    use_case_id: {type: string}
+    run_id: {type: [string, "null"]}
+    kind: {type: string, enum: [recommendation, alert]}
+    subject_type: {type: string, description: "quote today; the kind's subject."}
+    subject_id: {type: string}
+    subject_label: {type: string}
+    account_id: {type: [string, "null"]}
+    account_label: {type: string}
+    owner: {type: string, description: "Who acts: the rep on the quote."}
+    risk_score: {type: number, minimum: 0, maximum: 1, description: "The probability the subject does not convert within the horizon."}
+    risk_level: {type: string, enum: [high, medium, low]}
+    horizon_days: {type: [integer, "null"], description: "The category's usual time to close."}
+    model_version: {type: [string, "null"]}
+    drivers:
+      type: array
+      items: {$ref: './use-cases.yaml#/RecommendationDriver'}
+    action:
+      oneOf:
+        - $ref: './use-cases.yaml#/RecommendedAction'
+        - type: "null"
+      description: "The play; null on an alert."
+    value_at_stake: {type: number}
+    value_unit: {type: string}
+    context:
+      type: object
+      additionalProperties: true
+      description: "The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss)."
+    status: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+    status_note: {type: string}
+    status_by: {type: string}
+    status_at: {type: [string, "null"], format: date-time}
+    outcome: {type: [string, "null"], description: "Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet."}
+    outcome_at: {type: [string, "null"], format: date-time}
+    expires_at: {type: [string, "null"], format: date-time, description: "When the horizon ends and the outcome is looked up."}
+    created_at: {type: string, format: date-time}
+    updated_at: {type: string, format: date-time}
+RecommendationList:
+  type: object
+  required: [items, counts]
+  properties:
+    items:
+      type: array
+      items: {$ref: './use-cases.yaml#/Recommendation'}
+    counts:
+      type: object
+      additionalProperties: {type: integer}
+      description: "Records per status across the filter's use case (or all), for the screen's chips."
+RecommendationStatusWrite:
+  type: object
+  required: [status]
+  properties:
+    status: {type: string, enum: [open, accepted, dismissed, actioned]}
+    note: {type: string, default: ""}
+    by: {type: string, default: "", description: "Who decided; the screen's user or the consuming use case."}

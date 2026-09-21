@@ -145,7 +145,7 @@ _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 @dataclass
 class AnalyticsSuggestion:
-    kind: str  # monitoring | diagnostic
+    kind: str  # monitoring | diagnostic | at_risk
     title: str
     business_areas: List[str] = field(default_factory=list)
     kpis: List[Dict[str, Any]] = field(default_factory=list)
@@ -251,6 +251,22 @@ def _score(
     return len(hits) + 2 * len(name_hits), list(dict.fromkeys(shown))
 
 
+_AT_RISK_CUES = (
+    r"\bat[- ]risk\b|\brisk of\b|\bchurn|\bnot convert|\bwon'?t convert|\bstall|"
+    r"\blikely to (lose|lapse|not close)|\bwhich (quotes|accounts|customers|deals) (are|will)"
+)
+
+#: The registry KPIs the at-risk kind reads for context, in the order the report shows them.
+_AT_RISK_KPIS = (
+    "rfq__stalled_quotes",
+    "rfq__stalled_pipeline_value",
+    "rfq__quote_conversion_within_usual",
+    "rfq__customer_churn_rate_60d",
+    "rfq__at_risk_accounts",
+    "rfq__rfm_segments",
+)
+
+
 def suggest_analytics(
     question: str,
     registry: Sequence[Mapping[str, Any]],
@@ -269,8 +285,13 @@ def suggest_analytics(
     ask = _expand(plain)
     gold_latest = gold_latest or {}
 
+    # The at-risk kind (K26) is asked for in its own words: who or what is at risk, will
+    # not convert, is stalled, is churning. It outranks the diagnostic cue, since "at
+    # risk of falling" is a prediction, not a question about a change that happened.
     kind = (
-        "diagnostic"
+        "at_risk"
+        if re.search(_AT_RISK_CUES, low)
+        else "diagnostic"
         if re.match(r"^\s*(why|what happened|what caused|explain why)", low)
         or re.search(r"\b(drop|dropped|fell|falling|low|declin|down)\b", low)
         else "monitoring"
@@ -327,6 +348,31 @@ def suggest_analytics(
     ]
     if not chosen and scored:
         chosen = [k for _, k in scored[:4]]
+    if kind == "at_risk":
+        # The context KPIs the kind reads, when the registry has them; the ask's own
+        # matches only add to those. The model reads the quotes, not these.
+        by_id = {str(k.get("identifier")): k for k in registry}
+        context = []
+        for i in _AT_RISK_KPIS:
+            row = by_id.get(i)
+            if row is None or row.get("active") is False:
+                continue
+            latest_date = gold_latest.get(i)
+            context.append(
+                {
+                    "identifier": i,
+                    "name": str(row.get("name") or i),
+                    "grain": str(row.get("grain") or "overall"),
+                    "business_area": row.get("business_area"),
+                    "unit": row.get("unit") or "",
+                    "score": 99,
+                    "why": "the at-risk kind shows it beside the scored list",
+                    "feasibility": "ready" if latest_date else "buildable",
+                    "latest_as_of": latest_date.isoformat() if latest_date else None,
+                }
+            )
+        seen = {c["identifier"] for c in context}
+        chosen = context + [k for k in chosen if k["identifier"] not in seen][:4]
 
     areas = sorted(
         {str(k.get("business_area")) for k in chosen if k.get("business_area")}
@@ -394,7 +440,7 @@ def suggest_analytics(
     outputs: List[str] = []
     if re.search(r"dashboard|visibility|live view", low):
         outputs.append("dashboard")
-    if re.search(r"report|email|mail|send|digest|summary", low) or kind == "diagnostic":
+    if re.search(r"report|email|mail|send|digest|summary", low) or kind != "monitoring":
         outputs.append("report")
     if re.search(r"alert|notify (me|us) when|threshold|crosses", low):
         outputs.append("alert")

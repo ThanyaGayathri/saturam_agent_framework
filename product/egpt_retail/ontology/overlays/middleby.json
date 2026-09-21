@@ -121,6 +121,10 @@
       {
         "value": "sales_territory",
         "description": "One row per sales representative territory."
+      },
+      {
+        "value": "rfm_segment",
+        "description": "One row per RFM segment of accounts (Champions, Loyal, New, Potential, At risk, Cannot lose them, Hibernating, Lost) -- recency, frequency and monetary quintiles over the trailing year (K26)."
       }
     ]
   }

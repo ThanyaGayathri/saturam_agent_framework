@@ -689,6 +689,11 @@ def test_metadata_names_exactly_the_registered_executors():
         "resolve_entities",
         "apply_hard_limits",
         "apply_per_run_cap",
+        # K25 and K26: each stops only on a refusal -- nothing to diagnose, too little
+        # history to learn from, no scoring to recommend from.
+        "decompose_change",
+        "score_risk",
+        "recommend",
     }
 
 

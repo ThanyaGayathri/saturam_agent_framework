@@ -29,7 +29,6 @@ from egpt.workflow.types import StepInput
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.use_case import UseCaseShape, UseCaseTemplate
-from egpt_retail.orchestration.compiler import CompiledWorkflow, compile_workflow
 from egpt_retail.documents.golden import (
     GENERATED_CASE_SOURCE,
     case_to_message,
@@ -37,9 +36,9 @@ from egpt_retail.documents.golden import (
     score_case,
 )
 from egpt_retail.documents.guardrails import rules_from
+from egpt_retail.documents.mailbox import fetch_messages, filter_from, mailbox_from
 from egpt_retail.documents.mapping import mapping_from, stale_sources
 from egpt_retail.documents.roles import ROLES, roles_needed
-from egpt_retail.documents.mailbox import fetch_messages, filter_from, mailbox_from
 from egpt_retail.documents.samples import (
     expected_extraction,
     expected_outcome,
@@ -47,6 +46,7 @@ from egpt_retail.documents.samples import (
     sample_messages,
 )
 from egpt_retail.documents.templates import template_from
+from egpt_retail.orchestration.compiler import CompiledWorkflow, compile_workflow
 from egpt_retail.usecases.credentials import CredentialUnavailable, resolve_credentials
 from egpt_retail.usecases.runtime import (
     build_explanation_agent,
@@ -405,14 +405,18 @@ class UseCaseService:
             checks += self._inform_checks(compiled.parameters, mode=mode)
             if compiled.template is UseCaseTemplate.METRIC_DIAGNOSIS:
                 checks += self._diagnosis_checks(compiled.parameters, mode=mode)
+            if compiled.template is UseCaseTemplate.AT_RISK:
+                checks += self._at_risk_checks(compiled.parameters, mode=mode)
         return self._preflight_result(use_case_id, checks)
 
     def _probe_gold(self, parameters: Mapping[str, Any], result: Any) -> Dict[str, Any]:
         """Every KPI the use case names has a gold row, and how fresh it is."""
-        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.app.db import (
+            build_warehouse_engine,
+            pooled_control_plane_connection,
+        )
         from egpt_retail.kpi.store import KpiRegistryStore
         from egpt_retail.warehouse.gold import latest_as_of
-        from egpt_retail.app.db import build_warehouse_engine
 
         metrics = [str(m) for m in (parameters.get("metrics") or [])]
         if not metrics:
@@ -548,6 +552,58 @@ class UseCaseService:
                 "Azure OpenAI configured for the explanation step; every figure it writes is checked against the numbers."
                 if has_model
                 else "AZURE_OPENAI_API_KEY is not set: the report goes out with the numbers and no narrative.",
+            )
+        )
+        return checks
+
+    def _at_risk_checks(
+        self, parameters: Mapping[str, Any], *, mode: str
+    ) -> List[tuple]:
+        """The at-risk kind's preflight (K26): the model trained on the fact's closed
+        history separates the quotes that convert from those that do not (holdout AUC
+        at or above the floor), there are open quotes to score, and the outcome the
+        person asked for is one the kind can produce."""
+        from egpt_retail.executors.predict import AUC_FLOOR, risk_model_readiness
+        from egpt_retail.executors.recommend import OUTCOMES
+
+        checks: List[tuple] = []
+        outcome = str(parameters.get("outcome") or "both").strip().lower()
+        checks.append(
+            (
+                "risk_outcome",
+                outcome in OUTCOMES,
+                f"The run ends in {outcome.replace('both', 'a recommendation and an alert')}."
+                if outcome in OUTCOMES
+                else f"Outcome {outcome!r} is not one of recommend, alert, both.",
+            )
+        )
+        try:
+            readiness = risk_model_readiness()
+        except Exception as exc:  # the warehouse not answering is the finding
+            checks.append(("risk_model", False, f"{type(exc).__name__}: {exc}"))
+            return checks
+        if not readiness.get("ready"):
+            checks.append(("risk_model", False, str(readiness.get("reason"))))
+        else:
+            checks.append(
+                (
+                    "risk_model",
+                    True,
+                    f"Trained on {readiness.get('closed_quotes')} closed quotes "
+                    f"({readiness.get('training_rows')} snapshots); on the newest "
+                    f"{readiness.get('holdout_rows')} held-out rows the model's AUC is "
+                    f"{readiness.get('auc')} (floor {AUC_FLOOR}), Brier "
+                    f"{readiness.get('brier')}, base rate {readiness.get('base_rate')}.",
+                )
+            )
+        open_quotes = int(readiness.get("open_quotes") or 0)
+        checks.append(
+            (
+                "risk_subjects",
+                open_quotes > 0,
+                f"{open_quotes} open quotes to score."
+                if open_quotes
+                else "No open quotes to score at this date.",
             )
         )
         return checks
@@ -1076,6 +1132,11 @@ class UseCaseService:
                 return result(
                     all(r[1] for r in rows), " ".join(str(r[2]) for r in rows)
                 )
+            if check == "risk_model":
+                rows = self._at_risk_checks(parameters, mode="live")
+                return result(
+                    all(r[1] for r in rows), " ".join(str(r[2]) for r in rows)
+                )
             raise NotFound(check)
         except NotFound:
             raise
@@ -1167,7 +1228,10 @@ class UseCaseService:
                 or settings.retail_azure_deployment
             )
             return build_explanation_agent(
-                model, agent_id=agent_id, diagnosis=template_id == "metric_diagnosis"
+                model,
+                agent_id=agent_id,
+                diagnosis=template_id == "metric_diagnosis",
+                at_risk=template_id == "at_risk",
             )
         model = AzureOpenAI(id=settings.retail_azure_deployment)
         return build_extraction_agent(model, agent_id=agent_id, template_id=template_id)
@@ -1827,7 +1891,17 @@ def _summary_of(result: Optional[Mapping[str, Any]]) -> str:
         delivery = result.get("delivery") or {}
         status = str(delivery.get("status") or "in-app")
         grounded = (result.get("grounding") or {}).get("passed")
-        if isinstance(result.get("diagnosis"), Mapping):
+        if isinstance(result.get("risk"), Mapping):
+            summary = (result.get("risk") or {}).get("summary") or {}
+            recs = (result.get("recommendation_result") or {}).get("summary") or {}
+            alerts = result.get("alerts") or {}
+            what = (
+                f"{summary.get('open_quotes', 0)} open quotes scored, "
+                f"{summary.get('at_risk_within_range', 0)} at risk in range; "
+                f"{recs.get('recommendations', 0)} recommendation(s), "
+                f"{recs.get('alerts', 0)} alert(s) {alerts.get('status') or 'composed'}"
+            )
+        elif isinstance(result.get("diagnosis"), Mapping):
             what = "1 KPI diagnosed"
         elif comparison.get("comparison") and comparison.get("comparison") != "none":
             what = f"{len(kpis)} KPI(s) compared"

@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import difflib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Collection, Dict, FrozenSet, List, Mapping, Optional, Tuple
@@ -396,9 +396,94 @@ def _diagnosis_stages() -> Tuple[Stage, ...]:
     return tuple(out)
 
 
+def _at_risk_stages() -> Tuple[Stage, ...]:
+    """The Inform sequence that ends in a recommendation (K26): the scoring and the
+    catalogue between Compare and Explain, the alerts after the report."""
+    inform = SHAPE_STAGES[UseCaseShape.INFORM]
+    out: List[Stage] = []
+    for stage in inform:
+        if stage.name == "Compute metrics":
+            # The context KPIs are read whole; the kind has no breakdown slot.
+            out.append(replace(stage, consumes=()))
+        elif stage.name == "Compare to baseline":
+            # Never compared: the context KPIs at the run's date, as they are.
+            out.append(replace(stage, consumes=()))
+        elif stage.name == "Explain":
+            out.append(
+                Stage(
+                    "Track what happened",
+                    StageKind.EXECUTOR,
+                    "track_outcomes",
+                    consumes=(),
+                    description=(
+                        "Every earlier recommendation whose horizon has ended is looked "
+                        "up on the fact -- converted in time, lapsed, still open -- and "
+                        "the outcome written on its record; from those, the use case's "
+                        "own precision per risk level."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Score risk",
+                    StageKind.EXECUTOR,
+                    "score_risk",
+                    consumes=("metrics", "churn window", "risk levels", "top n"),
+                    description=(
+                        "Every open quote's risk of not converting within its "
+                        "category's usual time to close, from a model trained on the "
+                        "fact's own closed history at each run and checked on a time "
+                        "holdout; the drivers behind each score in words; the "
+                        "account's RFM segment and its churn flag attached."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Recommend",
+                    StageKind.EXECUTOR,
+                    "recommend",
+                    consumes=("outcome", "top n"),
+                    description=(
+                        "One Recommendation record per at-risk quote, with the sales "
+                        "play the catalogue chose by rule from its drivers and why; an "
+                        "alert per high-risk quote for its rep. Written to the "
+                        "recommendations store, where Decision Intelligence reads them."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Explain",
+                    StageKind.MODEL,
+                    role="explanation",
+                    description=(
+                        "One model step. Writes the briefing from the scored list and "
+                        "the plays; every figure is one the scoring produced."
+                    ),
+                )
+            )
+        else:
+            out.append(stage)
+    out.append(
+        Stage(
+            "Send alerts",
+            StageKind.EXECUTOR,
+            "send_alerts",
+            consumes=("recipient", "outcome"),
+            description=(
+                "One alert email per rep with their high-risk quotes and the plays; "
+                "held in a rehearsal."
+            ),
+        )
+    )
+    return tuple(out)
+
+
 TEMPLATE_STAGES: Mapping[UseCaseTemplate, Tuple[Stage, ...]] = {
     UseCaseTemplate.KPI_CHANGE: SHAPE_STAGES[UseCaseShape.ACT],
     UseCaseTemplate.METRIC_DIAGNOSIS: _diagnosis_stages(),
+    UseCaseTemplate.AT_RISK: _at_risk_stages(),
     UseCaseTemplate.DOCUMENT_TO_RECORD: (
         Stage(
             "Receive",
@@ -545,6 +630,10 @@ def _is_diagnosis(spec: Mapping[str, Any]) -> bool:
     return str(spec.get("template") or "").strip().lower() == "metric_diagnosis"
 
 
+def _is_at_risk(spec: Mapping[str, Any]) -> bool:
+    return str(spec.get("template") or "").strip().lower() == "at_risk"
+
+
 SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
     {
         "window": None,
@@ -565,6 +654,13 @@ SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "evidence columns": [],
         "dimensions": lambda spec: [] if _is_diagnosis(spec) else NO_DEFAULT,
         "comparison": lambda spec: "prior_period" if _is_diagnosis(spec) else None,
+        # The at-risk kind (K26): sixty days without a quote is the churn line, the
+        # outcome is both a recommendation and an alert, the risk lines and the run's
+        # size are the executor's own unless the spec says otherwise.
+        "churn window": lambda spec: 60 if _is_at_risk(spec) else NO_DEFAULT,
+        "outcome": lambda spec: "both" if _is_at_risk(spec) else NO_DEFAULT,
+        "risk levels": lambda spec: {} if _is_at_risk(spec) else NO_DEFAULT,
+        "top n": lambda spec: 50 if _is_at_risk(spec) else NO_DEFAULT,
     }
 )
 

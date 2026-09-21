@@ -13,8 +13,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any, List
 
-from egpt.memory.startup import assert_memory_wired
 from egpt.answer_provenance import apply_provenance_ddl
+from egpt.memory.startup import assert_memory_wired
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
@@ -50,15 +50,16 @@ from egpt_retail.app.db import (
 )
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.dashboards.query_results import DashboardQueryResultStore
+from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.delivery import apply_delivery_ddl
 from egpt_retail.documents.rollback import apply_rollback_ddl
-from egpt_retail.usecases.ddl import apply_use_case_ddl
-from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
+from egpt_retail.recommendations import apply_recommendations_ddl
 from egpt_retail.semantic.proposals import ProposalStore
 from egpt_retail.suggestions.dashboard_runs import DashboardSuggestionRunStore
 from egpt_retail.suggestions.runs import SuggestionRunStore
+from egpt_retail.usecases.ddl import apply_use_case_ddl
 
 __all__ = ["OS_ID", "build_agent_os"]
 
@@ -146,6 +147,7 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         apply_provenance_ddl(engine)
         apply_delivery_ddl(engine)
         apply_use_case_ddl(engine)
+        apply_recommendations_ddl(engine)
         apply_rollback_ddl(engine)
     finally:
         engine.dispose()

@@ -52,11 +52,12 @@ class AnalyticsSuggestRequest(BaseModel):
 
 class Kind(Enum):
     """
-    A standing report, or a question about one movement run once and promoted if kept.
+    A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert.
     """
 
     monitoring = "monitoring"
     diagnostic = "diagnostic"
+    at_risk = "at_risk"
 
 
 class Comparison(Enum):
@@ -78,7 +79,7 @@ class Output(Enum):
 class AnalyticsSuggestion(BaseModel):
     kind: Kind = Field(
         ...,
-        description="A standing report, or a question about one movement run once and promoted if kept.",
+        description="A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert.",
     )
     title: str
     business_areas: list[str]
@@ -890,6 +891,7 @@ class ProbeName(Enum):
     delivery = "delivery"
     dry_answer = "dry_answer"
     diagnosis = "diagnosis"
+    risk_model = "risk_model"
 
 
 class ProbeResult(BaseModel):
@@ -1051,6 +1053,75 @@ class Recipient(BaseModel):
     address: str | None = Field(
         "", description="An email address or a Slack channel. Empty for `in_app`."
     )
+
+
+class Kind2(Enum):
+    recommendation = "recommendation"
+    alert = "alert"
+
+
+class RiskLevel(Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class Status(Enum):
+    open = "open"
+    accepted = "accepted"
+    dismissed = "dismissed"
+    actioned = "actioned"
+    expired = "expired"
+
+
+class RecommendationDriver(BaseModel):
+    """
+    One reason behind a risk score, grounded in the row's own value against the typical.
+    """
+
+    feature: str
+    value: Any | None = Field(
+        None, description="The row's own value: a number, or the category level."
+    )
+    typical: float | None = Field(
+        None, description="What the scored population averages; null for a category."
+    )
+    contribution: float = Field(
+        ...,
+        description="The feature's push on the log-odds of converting; negative is towards risk.",
+    )
+    text: str = Field(
+        ..., description="The driver in words, for the report and the alert."
+    )
+
+
+class Status1(Enum):
+    open = "open"
+    accepted = "accepted"
+    dismissed = "dismissed"
+    actioned = "actioned"
+
+
+class RecommendationStatusWrite(BaseModel):
+    status: Status1
+    note: str | None = ""
+    by: str | None = Field(
+        "", description="Who decided; the screen's user or the consuming use case."
+    )
+
+
+class RecommendedAction(BaseModel):
+    """
+    The sales play the catalogue chose, who owns it, by when, and why it was chosen.
+    """
+
+    code: str = Field(..., description="The catalogue code (RE_ENGAGE, ESCALATE, ...).")
+    title: str
+    action: str = Field(..., description="What to do, in the organisation's words.")
+    owner: str = Field(..., description="The role that owns the play.")
+    sla_hours: int | None = None
+    from_catalogue: bool
+    because: str = Field(..., description="The rule that chose it, in words.")
 
 
 class Source2(Enum):
@@ -1538,6 +1609,7 @@ class UseCaseTemplate(Enum):
     kpi_change = "kpi_change"
     document_to_record = "document_to_record"
     metric_diagnosis = "metric_diagnosis"
+    at_risk = "at_risk"
 
 
 class UseCaseWrite(BaseModel):
@@ -2404,6 +2476,71 @@ class QueryPreviewRequest(BaseModel):
     table_names: list[str] | None = Field(
         None,
         description="Narrows the allow-list to these tables when given; otherwise the whole semantic layer.",
+    )
+
+
+class Recommendation(BaseModel):
+    """
+    What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an
+    open quote and its account), its risk and the drivers behind it, and -- on a
+    recommendation -- the sales play the catalogue chose. An alert is the same record with
+    no action. Decision Intelligence, or a person on the screen, writes `status`; the use
+    case writes `outcome` when the horizon ends.
+
+    """
+
+    id: str
+    use_case_id: str
+    run_id: str | None = None
+    kind: Kind2
+    subject_type: str = Field(..., description="quote today; the kind's subject.")
+    subject_id: str
+    subject_label: str
+    account_id: str | None = None
+    account_label: str | None = None
+    owner: str | None = Field(None, description="Who acts: the rep on the quote.")
+    risk_score: float = Field(
+        ...,
+        description="The probability the subject does not convert within the horizon.",
+        ge=0.0,
+        le=1.0,
+    )
+    risk_level: RiskLevel
+    horizon_days: int | None = Field(
+        None, description="The category's usual time to close."
+    )
+    model_version: str | None = None
+    drivers: list[RecommendationDriver]
+    action: RecommendedAction | None = Field(
+        None, description="The play; null on an alert."
+    )
+    value_at_stake: float
+    value_unit: str
+    context: dict[str, Any] | None = Field(
+        None,
+        description="The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss).",
+    )
+    status: Status
+    status_note: str | None = None
+    status_by: str | None = None
+    status_at: AwareDatetime | None = None
+    outcome: str | None = Field(
+        None,
+        description="Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet.",
+    )
+    outcome_at: AwareDatetime | None = None
+    expires_at: AwareDatetime | None = Field(
+        None, description="When the horizon ends and the outcome is looked up."
+    )
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class RecommendationList(BaseModel):
+    items: list[Recommendation]
+    counts: dict[str, int] = Field(
+        ...,
+        description="Records per status across the filter's use case (or all), for the screen's chips.",
     )
 
 

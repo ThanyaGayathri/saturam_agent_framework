@@ -888,6 +888,11 @@ x-egpt-parameters:
     in: path
     required: true
     schema: {type: string}
+  recommendationId:
+    name: recommendation_id
+    in: path
+    required: true
+    schema: {type: string}
 
 /use-cases/analytics/suggest:
   post:
@@ -1200,5 +1205,247 @@ x-egpt-responses:
                 value: {name: mailbox, passed: true, reason: "Logged into kiruthiga@saturam.com; 16 message(s) match the filter right now.", elapsed_ms: 3900, count: 16}
               target_down:
                 value: {name: target, passed: false, reason: "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment", elapsed_ms: 2}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/recommendations:
+  get:
+    tags: [use-cases]
+    operationId: listUseCaseRecommendations
+    summary: The recommendations and alerts one use case has produced (1.13.0).
+    description: |
+      The hand-off from Analytics Automation to Decision Intelligence (K26): the records the
+      use case's `recommend` stage wrote, by value at stake. Filter by status to read the
+      open ones -- what a consuming use case, or the screen, acts on.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: status
+        in: query
+        schema: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [recommendation, alert]}
+      - name: level
+        in: query
+        schema: {type: string, enum: [high, medium, low]}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+    responses:
+      "200":
+        description: The records and the counts per status.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/RecommendationList'
+            examples:
+              default:
+                value:
+                  items:
+                    - id: rec_300fd589
+                      use_case_id: uc_1f2e3d4c
+                      run_id: run_9a8b7c6d
+                      kind: recommendation
+                      subject_type: quote
+                      subject_id: "486"
+                      subject_label: "Quote 486 · Griddles · $9,256"
+                      account_id: "12"
+                      account_label: Sanne Hendriks
+                      owner: M. Nambiar
+                      risk_score: 0.981
+                      risk_level: high
+                      horizon_days: 26
+                      model_version: 60523454c1
+                      drivers:
+                        - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                        - {feature: customer_segment, value: SMB, typical: null, contribution: -0.41, text: "SMB accounts convert less often"}
+                      action:
+                        code: DECISION_SUPPORT
+                        title: Send the total-cost-of-ownership summary to the decision maker
+                        action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                        owner: Sales rep
+                        sla_hours: 120
+                        from_catalogue: true
+                        because: "the account's last quote was lost: Decision Delayed"
+                      value_at_stake: 9256
+                      value_unit: USD
+                      context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false, account: {segment: Champions, at_risk: false, recency_days: 20}}
+                      status: open
+                      status_note: ""
+                      status_by: ""
+                      status_at: null
+                      outcome: null
+                      outcome_at: null
+                      expires_at: "2026-09-29T00:00:00Z"
+                      created_at: "2026-09-20T06:00:00Z"
+                      updated_at: "2026-09-20T06:00:00Z"
+                  counts: {open: 61, accepted: 1, dismissed: 0, actioned: 0, expired: 0}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/recommendations:
+  get:
+    tags: [use-cases]
+    operationId: listRecommendations
+    summary: Recommendations and alerts across use cases (1.13.0).
+    description: |
+      The same records as `/use-cases/{use_case_id}/recommendations`, across every use case:
+      what Decision Intelligence pulls. Filter by status, kind, level or owner.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: use_case_id
+        in: query
+        schema: {type: string}
+      - name: status
+        in: query
+        schema: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [recommendation, alert]}
+      - name: level
+        in: query
+        schema: {type: string, enum: [high, medium, low]}
+      - name: owner
+        in: query
+        schema: {type: string}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+    responses:
+      "200":
+        description: The records and the counts per status.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/RecommendationList'
+            examples:
+              default:
+                value: {items: [], counts: {open: 0, accepted: 0, dismissed: 0, actioned: 0, expired: 0}}
+
+/recommendations/{recommendation_id}:
+  get:
+    tags: [use-cases]
+    operationId: getRecommendation
+    summary: One recommendation or alert (1.13.0).
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/recommendationId'
+    responses:
+      "200":
+        description: The record.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Recommendation'
+            examples:
+              default:
+                value:
+                  id: rec_300fd589
+                  use_case_id: uc_1f2e3d4c
+                  run_id: run_9a8b7c6d
+                  kind: recommendation
+                  subject_type: quote
+                  subject_id: "486"
+                  subject_label: "Quote 486 · Griddles · $9,256"
+                  account_id: "12"
+                  account_label: Sanne Hendriks
+                  owner: M. Nambiar
+                  risk_score: 0.981
+                  risk_level: high
+                  horizon_days: 26
+                  model_version: 60523454c1
+                  drivers:
+                    - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                  action:
+                    code: DECISION_SUPPORT
+                    title: Send the total-cost-of-ownership summary to the decision maker
+                    action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                    owner: Sales rep
+                    sla_hours: 120
+                    from_catalogue: true
+                    because: "the account's last quote was lost: Decision Delayed"
+                  value_at_stake: 9256
+                  value_unit: USD
+                  context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false}
+                  status: open
+                  status_note: ""
+                  status_by: ""
+                  status_at: null
+                  outcome: null
+                  outcome_at: null
+                  expires_at: "2026-09-29T00:00:00Z"
+                  created_at: "2026-09-20T06:00:00Z"
+                  updated_at: "2026-09-20T07:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/recommendations/{recommendation_id}/status:
+  post:
+    tags: [use-cases]
+    operationId: setRecommendationStatus
+    summary: Accept, dismiss or mark actioned (1.13.0).
+    description: |
+      What Decision Intelligence -- or a person on the Recommendations screen, which is the
+      same contract -- writes back. A decided record is kept as decided by later runs of
+      the producing use case; only an open one is refreshed.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/recommendationId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/RecommendationStatusWrite'
+          examples:
+            default:
+              value: {status: accepted, note: "Called the buyer; TCO summary sent.", by: M. Nambiar}
+    responses:
+      "200":
+        description: The record after the write.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Recommendation'
+            examples:
+              default:
+                value:
+                  id: rec_300fd589
+                  use_case_id: uc_1f2e3d4c
+                  run_id: run_9a8b7c6d
+                  kind: recommendation
+                  subject_type: quote
+                  subject_id: "486"
+                  subject_label: "Quote 486 · Griddles · $9,256"
+                  account_id: "12"
+                  account_label: Sanne Hendriks
+                  owner: M. Nambiar
+                  risk_score: 0.981
+                  risk_level: high
+                  horizon_days: 26
+                  model_version: 60523454c1
+                  drivers:
+                    - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                  action:
+                    code: DECISION_SUPPORT
+                    title: Send the total-cost-of-ownership summary to the decision maker
+                    action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                    owner: Sales rep
+                    sla_hours: 120
+                    from_catalogue: true
+                    because: "the account's last quote was lost: Decision Delayed"
+                  value_at_stake: 9256
+                  value_unit: USD
+                  context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false}
+                  status: accepted
+                  status_note: "Called the buyer; TCO summary sent."
+                  status_by: "M. Nambiar"
+                  status_at: "2026-09-20T07:00:00Z"
+                  outcome: null
+                  outcome_at: null
+                  expires_at: "2026-09-29T00:00:00Z"
+                  created_at: "2026-09-20T06:00:00Z"
+                  updated_at: "2026-09-20T07:00:00Z"
       "404":
         $ref: '#/x-egpt-responses/NotFound'

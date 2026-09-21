@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,6 +53,126 @@ _DIAGNOSIS_PROMPT_PATH = _PROMPT_PATH.with_name("diagnosis_explanation.md")
 def render_diagnosis_prompt() -> str:
     """The diagnostic kind's instructions (K25): narrate the ranking, never choose."""
     return _DIAGNOSIS_PROMPT_PATH.read_text()
+
+
+_AT_RISK_PROMPT_PATH = _PROMPT_PATH.with_name("at_risk_explanation.md")
+
+
+def _play_title(code: str) -> str:
+    from egpt_retail.recommendations import play_of
+
+    play = play_of(str(code))
+    return play.title if play else str(code).replace("_", " ").title()
+
+
+def _money_words(value: Any) -> str:
+    """Money the way the report prints it, so the briefing copies the same figure:
+    $10.57M, $591K, $9,256."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if abs(number) >= 1_000_000:
+        return f"${number / 1_000_000:.2f}M"
+    if abs(number) >= 10_000:
+        return f"${number / 1000:.0f}K"
+    return f"${number:,.0f}"
+
+
+def render_at_risk_prompt() -> str:
+    """The at-risk kind's instructions (K26): brief the list, never re-rank."""
+    return _AT_RISK_PROMPT_PATH.read_text()
+
+
+def render_at_risk_message(
+    risk: Mapping[str, Any],
+    recommendation_result: Optional[Mapping[str, Any]],
+    *,
+    comparison: Optional[Mapping[str, Any]] = None,
+    question: str = "",
+    outcomes: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """The scoring and the plays as the JSON the briefing model reads: the summary, the
+    model's trust line, the top recommendations with their drivers and plays, the alerts
+    per rep and the context KPIs."""
+    recs = list((recommendation_result or {}).get("recommendations") or [])
+    alerts = list((recommendation_result or {}).get("alerts") or [])
+    by_rep: Dict[str, int] = {}
+    for a in alerts:
+        rep = str(a.get("owner") or "—")
+        by_rep[rep] = by_rep.get(rep, 0) + 1
+    top = []
+    for record in recs[:10]:
+        context = record.get("context") or {}
+        action = record.get("action") or {}
+        top.append(
+            {
+                "subject_label": record.get("subject_label"),
+                "account_label": record.get("account_label"),
+                "owner": record.get("owner"),
+                "risk_score": _tidy(record.get("risk_score")),
+                "risk_level": record.get("risk_level"),
+                "value_at_stake": _tidy(record.get("value_at_stake")),
+                "value_at_stake_text": _money_words(record.get("value_at_stake")),
+                "stalled": context.get("stalled"),
+                "age_days": context.get("age_days"),
+                "usual_days": context.get("usual_days"),
+                "drivers": [
+                    str(d.get("text") or "") for d in record.get("drivers") or []
+                ],
+                "account": {
+                    k: _tidy((context.get("account") or {}).get(k))
+                    for k in ("segment", "at_risk", "recency_days")
+                },
+                "play": {
+                    k: action.get(k) for k in ("title", "because", "owner", "sla_hours")
+                },
+            }
+        )
+    summary = dict(risk.get("summary") or {})
+    money_text = {
+        key: _money_words(summary.get(key))
+        for key in (
+            "value_open",
+            "value_at_risk_within_range",
+            "value_at_risk_high",
+        )
+        if summary.get(key) is not None
+    }
+    payload = {
+        "question": question,
+        "as_of": risk.get("as_of"),
+        "churn_days": risk.get("churn_days"),
+        "horizon": risk.get("horizon"),
+        "summary": _tidy(summary),
+        "summary_money_text": money_text,
+        "model": {
+            k: _tidy((risk.get("model") or {}).get(k))
+            for k in ("auc", "holdout_rows", "closed_quotes", "base_rate")
+        },
+        "top": top,
+        "plays": [
+            {"play": _play_title(code), "count": count}
+            for code, count in sorted(
+                ((recommendation_result or {}).get("plays") or {}).items(),
+                key=lambda kv: -int(kv[1]),
+            )
+        ],
+        "alerts": {"count": len(alerts), "reps": len(by_rep), "by_rep": by_rep},
+        "tracked_so_far": _tidy((outcomes or {}).get("precision") or {}),
+        "kpis": [
+            {
+                "name": k.get("name"),
+                "current": _tidy(k.get("current")),
+                "unit": k.get("unit"),
+            }
+            for k in (comparison or {}).get("kpis") or []
+        ],
+    }
+    return (
+        "Write the briefing for this scored list. Copy every figure exactly; the order "
+        "is the order.\n\n" + json.dumps(payload, indent=1, default=str)
+    )
 
 
 def render_diagnosis_message(

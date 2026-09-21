@@ -151,3 +151,11 @@ def strip_attachment_data(message: Mapping[str, Any]) -> Dict[str, Any]:
 
 def documents_of(batch: Mapping[str, Any]) -> List[Dict[str, Any]]:
     return [dict(d) for d in batch.get("documents") or []]
+
+
+def earlier_outputs(step_input: StepInput) -> list:
+    """Every earlier step's output, newest first, whether the engine hands them as a
+    mapping by step name (the workflow) or a sequence (a test's stand-in)."""
+    raw = step_input.previous_step_outputs or {}
+    outputs = list(raw.values()) if isinstance(raw, Mapping) else list(raw)
+    return list(reversed(outputs))

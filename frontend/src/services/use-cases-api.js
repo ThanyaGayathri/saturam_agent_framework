@@ -203,6 +203,19 @@ export function suggestTargetObjects({ template, description, target }, { signal
   return apiJson("/record-mappings/suggest-objects", "POST", { template, description: description || undefined, target: target || undefined }, { signal });
 }
 
+/** `GET /use-cases/{id}/recommendations` and `GET /recommendations` (1.13.0, K26): the records the
+ *  at-risk kind hands to Decision Intelligence, with the counts per status. */
+export function listRecommendations({ useCaseId, status, kind, level, owner, limit } = {}, { signal } = {}) {
+  const query = Object.entries({ status, kind, level, owner, limit, ...(useCaseId ? {} : {}) }).filter(([, v]) => v != null && v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const path = useCaseId ? `/use-cases/${encodeURIComponent(useCaseId)}/recommendations` : "/recommendations";
+  return apiJson(`${path}${query ? `?${query}` : ""}`, "GET", undefined, { signal });
+}
+
+/** `POST /recommendations/{id}/status` (1.13.0): what a person or Decision Intelligence writes back. */
+export function setRecommendationStatus(recommendationId, { status, note, by }) {
+  return apiJson(`/recommendations/${encodeURIComponent(recommendationId)}/status`, "POST", { status, note: note || "", by: by || "" });
+}
+
 /** `POST /use-cases/analytics/diagnosis-options` (K25): what one KPI can be searched across and what the data can bear. */
 export function fetchDiagnosisOptions({ kpiIdentifier, window, asOf }, { signal } = {}) {
   return apiJson("/use-cases/analytics/diagnosis-options", "POST", { kpi_identifier: kpiIdentifier, window: window || null, as_of: asOf || null }, { signal });
