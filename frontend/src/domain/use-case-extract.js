@@ -3,7 +3,10 @@ import {
  TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS,
 } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
-import { fieldsFor } from "./use-case-autonomy";
+import { POLL_INTERVALS, fieldsFor } from "./use-case-autonomy";
+import { findTemplate, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
+import { normalizeRules, suggestRules } from "./guardrail-rules";
+import { loadMappingCatalogue } from "./record-mappings";
 
 /**
  * Turns a message into a spec patch, for the shape already chosen.
@@ -133,6 +136,76 @@ export function extract(text, spec, ctx) {
   }
  }
 
+ // ── Document to record ──────────────────────────────────────────────────────────────────
+ if (need.has("mailbox")) {
+  // Mailbox: any connected mailbox named, or "the orders mailbox" / "our inbox" → the one mailbox source.
+  const boxes = (ctx.mailboxes || []);
+  const named = boxes.find((b) => rest.includes(b.toLowerCase().split(/\s*[-–]\s*/)[0]) && /mail|inbox/.test(rest));
+  const generic = /\b(mailbox|inbox|by email|via email|arrive(s)? (by|in|as) (email|e-mail)|emailed)\b/.test(rest) && boxes.length === 1 ? boxes[0] : null;
+  const pick = named || generic;
+  if (pick && !spec.mailbox) { patch.mailbox = pick; understood.push(`source mailbox: ${pick}`); }
+ }
+ if (need.has("pollInterval")) {
+  const m = rest.match(/\b(?:every|each)\s+(\d+)?\s*(minute|min|hour)s?\b|\bhourly\b/);
+  if (m) {
+   const n = parseInt(m[1] || "1", 10); const unit = m[2] || "hour";
+   const v = /hour/.test(unit) ? "hourly" : n <= 1 ? "1m" : n <= 5 ? "5m" : "15m";
+   patch.schedule = v; understood.push(`checks ${POLL_INTERVALS.find((p) => p.value === v)?.label.toLowerCase()}`);
+  }
+ }
+ if (need.has("documentType")) {
+  if (/\b(pdf|attachment)s?\b/.test(rest) && /\b(body|text of the email)\b/.test(rest)) { patch.documentType = "either"; understood.push("document: attachment or email body"); }
+  else if (/\bpdfs?\b|\battachments?\b/.test(rest)) { patch.documentType = "pdf"; understood.push("document: PDF attachment"); }
+  else if (/\b(email body|in the body|body of the email)\b/.test(rest)) { patch.documentType = "body"; understood.push("document: email body"); }
+ }
+ if (need.has("extractionTemplate") && !spec.extractionTemplate) {
+  const catalogue = loadTemplateCatalogue();
+  const tpl = matchTemplateInText(rest, catalogue);
+  if (tpl) { patch.extractionTemplate = tpl.id; if (tpl.source !== "shipped") patch.extractionTemplateDef = tpl; understood.push(`extraction template: ${tpl.label}`); }
+  else {
+   const proposed = proposeTemplateNames(rest, catalogue);
+   if (proposed.length) { patch.extractionTemplateDraft = proposed[0]; understood.push(`a new document kind: ${proposed[0].label} (fields to be drafted)`); }
+  }
+ }
+ if (need.has("exceptionsTo")) {
+  const m = rest.match(/\b(?:exceptions?|failures?|anything it cannot [a-z ]+?|problems?)\s+(?:go|goes|sent|to|should go)?\s*(?:to\s+)?([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/) || rest.match(/\b(?:email|notify|tell)\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/);
+  if (m) { patch.exceptionsTo = m[1]; understood.push(`exceptions to ${m[1]}`); }
+ }
+ if (need.has("targetObjects") && !spec.targetObjects) {
+  const catalogue = loadMappingCatalogue();
+  const target = (spec.writeback || patch.writeback || "").toLowerCase();
+  const key = /salesforce/.test(target) ? "salesforce" : target;
+  const hit = catalogue.find((m) => (!key || m.target === key) && new RegExp(`\\b${m.record.replace(/_/g, " ")}s?\\b|\\b${m.object.toLowerCase()}s?\\b`).test(rest));
+  if (hit) { patch.targetObjects = hit.id; if (hit.source !== "shipped") patch.recordMappingDef = hit; understood.push(`creates: ${hit.label}`); }
+ }
+ if (need.has("createdAs")) {
+  if (/\bas (a )?drafts?\b/.test(rest)) patch.createdAs = "draft";
+  else if (/\b(activated|as active|activate (it|them))\b/.test(rest)) { patch.createdAs = "active"; understood.push("created as: activated"); }
+ }
+ if (need.has("recordGuardrails")) {
+  const rows = normalizeRules(spec.recordGuardrails);
+  const tpl = findTemplate({ ...spec, ...patch });
+  const suggested = suggestRules(tpl);
+  const cues = [
+   ["duplicate_reference", /\bduplicate (po|purchase order|invoice|reference|number|document)s?\b|\bduplicates?\b/],
+   ["sender_known", /\bunknown sender|unknown domain|sender (we|it) do(es)?n.t know|known senders? only\b/],
+   ["first_time_item", /\bfirst[- ]time (product|item)s?|never ordered\b/],
+   ["quantity_outlier", /\bquantity anomal|unusual quantit|quantity spikes?|outlier/],
+   ["date_window", /\bdue[- ]date|delivery date (sanity|check)|dates? (are|is) (sane|valid|in range)\b/],
+   ["flagged_item", /\brestricted (product|item)s?|blocked (product|item)s?\b/],
+   ["total_matches_lines", /\btotals? (match|matches|add up|reconcile)|lines? add up\b/],
+  ];
+  let added = 0;
+  const add = (rule) => { if (rule && !rows.some((g) => g.id === rule.id)) { rows.push(rule); added += 1; } };
+  for (const [kind, re] of cues) if (re.test(rest)) add(suggested.find((g) => g.kind === kind));
+  if (/\b(all|every|the six|the standard|standard) (business |suggested )?(guardrails?|checks?)\b/.test(rest)) for (const g of suggested) add(g);
+  if (added) { patch.recordGuardrails = rows; understood.push(`guardrails: ${rows.map((g) => g.label).join(", ")}`); }
+ }
+ if (need.has("acknowledge")) {
+  if (/\b(don.t|do not|no) (acknowledge|reply)\b/.test(rest)) { patch.acknowledge = false; understood.push("no acknowledgement to the sender"); }
+  else if (/\b(acknowledge|confirm back to|reply to the (sender|buyer))\b/.test(rest)) { patch.acknowledge = true; understood.push("acknowledges the sender"); }
+ }
+
  // Metrics.
  if (need.has("metrics") || need.has("metric")) {
   const { ids, terms } = metricsIn(rest, registryNames, spec.metricIds);
@@ -192,12 +265,13 @@ export function extract(text, spec, ctx) {
  }
 
  // Schedule -- the trigger.
- if (/\b(every hour|hourly)\b/.test(rest)) patch.schedule = "hourly";
+ if (need.has("pollInterval")) { /* the poll interval above is the schedule */ }
+ else if (/\b(every hour|hourly)\b/.test(rest)) patch.schedule = "hourly";
  else if (/\b(every (morning|day)|daily|each morning)\b/.test(rest)) patch.schedule = "daily";
  else if (/\b(every (monday|week)|weekly|mondays?)\b/.test(rest)) patch.schedule = "weekly";
  else if (/\b(monthly|every month|month end|first of the month)\b/.test(rest)) patch.schedule = "monthly";
  else if (/\b(on demand|when (i|someone) asks?|manually)\b/.test(rest)) patch.schedule = "manual";
- if (patch.schedule) understood.push(`runs ${patch.schedule}`);
+ if (patch.schedule && !need.has("pollInterval")) understood.push(`runs ${patch.schedule}`);
 
  // Guardrails: each limit clause becomes { metric, operator, threshold }. The metric is the
  // registry name in the clause; a clause naming none is kept with the metric blank and asked about.
@@ -248,10 +322,11 @@ export function extract(text, spec, ctx) {
 
  // Per-run cap.
  if (need.has("perRunCap") && !spec.blastRadius) {
-  const m = rest.match(/\b(?:at most|no more than|up to|max(?:imum)?(?: of)?|cap(?:ped)?(?: it| this| the run| each run)? (?:at|to))\s+(\d+(?:\.\d+)?)\s*(%|skus?|items?|products?|lines?|rows?)?/);
+  const m = rest.match(/\b(?:at most|no more than|up to|max(?:imum)?(?: of)?|cap(?:ped)?(?: it| this| the run| each run)? (?:at|to))\s+(\d+(?:\.\d+)?)\s*(%|skus?|items?|products?|lines?|rows?|orders?|records?|documents?|emails?)?/);
   if (m) {
    const n = m[1];
-   const cap = m[2] === "%" ? `${n}% of catalogue` : `${n} SKUs`;
+   const noun = m[2] && /order|record|document|email/.test(m[2]) ? m[2].replace(/s$/, "") + "s" : null;
+   const cap = m[2] === "%" ? `${n}% of catalogue` : noun ? `${n} ${noun}` : spec.template === "document_to_record" ? `${n} records` : `${n} SKUs`;
    patch.blastRadius = PER_RUN_CAPS.includes(cap) ? cap : cap;
    understood.push(`change limit: ${patch.blastRadius} per run`);
   }

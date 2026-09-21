@@ -7,6 +7,7 @@ is a different program that talks HTTP to a running OS and deliberately does not
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from typing import List, Optional
 
@@ -20,6 +21,7 @@ COMMANDS = (
     "warehouse-migrate",
     "load-knowledge",
     "harvest",
+    "propose",
     "suggest",
     "schedule-nightly",
 )
@@ -92,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     harvest.add_argument("--schema", default="silver")
     harvest.add_argument("--version", default="")
     harvest.add_argument(
+        "--propose",
+        action="store_true",
+        help="After the refresh, run the mapping and enrichment proposers (K8) and file "
+        "table-to-concept proposals for review.",
+    )
+    harvest.add_argument(
         "--suggest",
         action="store_true",
         help="After the refresh, run the KPI and use case suggestion pass and file proposals.",
@@ -104,6 +112,17 @@ def build_parser() -> argparse.ArgumentParser:
             "credential, the same executor the harvest-source workflow runs."
         ),
     )
+
+    # The step between building the layer and suggesting over it: which of the customer's
+    # tables is which concept. Separate so it can be re-run after an overlay or a comment
+    # changes without re-harvesting.
+    propose = sub.add_parser(
+        "propose",
+        help="Propose table-to-concept mappings and concept enrichments over the current "
+        "semantic layer (K8), then exit.",
+    )
+    propose.add_argument("--dry-run", action="store_true")
+    propose.add_argument("--schema", default="silver")
 
     # The "then immediately suggest" half of connect -> build the layer -> suggest. Separate
     # from `harvest` so a deployment can re-suggest without re-harvesting, e.g. after a KPI
@@ -170,11 +189,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         # place that decides whether the combination is valid (--source-id refuses the
         # warehouse flags as a usage error); dropping them here would ignore them silently.
         argv_harvest = ["--schema", args.schema, "--version", args.version]
+        if args.propose:
+            argv_harvest.append("--propose")
         if args.suggest:
             argv_harvest.append("--suggest")
         if args.source_id:
             argv_harvest += ["--source-id", args.source_id]
         return run_harvest(argv_harvest)
+    if args.command == "propose":
+        from egpt_retail.semantic.propose import propose as run_propose
+
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        proposed = run_propose(dry_run=args.dry_run, schema=args.schema)
+        for line in proposed.lines():
+            logging.getLogger("egpt_retail.propose").info("%s", line)
+        return 0
     if args.command == "suggest":
         from egpt_retail.entrypoints.suggest import main as run_suggest
 

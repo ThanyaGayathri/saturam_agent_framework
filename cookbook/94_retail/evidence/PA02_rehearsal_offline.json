@@ -1,0 +1,39 @@
+{
+  "ran_at": "20260915T145043Z",
+  "live": false,
+  "model": false,
+  "outcomes": {
+    "E-01": "previewed",
+    "E-02": "previewed",
+    "E-03": "previewed",
+    "E-04": "previewed",
+    "E-05": "previewed",
+    "E-06": "previewed",
+    "E-07": "previewed",
+    "E-08": "SCANNED_DOCUMENT",
+    "E-10": "UNKNOWN_SENDER",
+    "E-15": "PRODUCT_NOT_FOUND",
+    "E-16": "SHIP_TO_AMBIGUOUS",
+    "E-09": "DUPLICATE_PO",
+    "E-11": "FIRST_TIME_PRODUCT",
+    "E-12": "QUANTITY_ANOMALY",
+    "E-13": "DUE_DATE_INVALID",
+    "E-14": "RESTRICTED_PRODUCT"
+  },
+  "mismatches": 0,
+  "rollback": {
+    "policy": "Cancel the record and remove its lines",
+    "run_id": "128a8725-7725-45e3-b84c-f19523c91c7e",
+    "points": 0,
+    "persisted": false,
+    "records": []
+  },
+  "notify": {
+    "status": "previewed",
+    "to": [
+      "ops@northwind.example"
+    ],
+    "subject": "[Enterprise GPT] 7 created, 9 exception(s)"
+  },
+  "extraction_scores": []
+}

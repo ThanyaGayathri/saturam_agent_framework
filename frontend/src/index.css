@@ -43,9 +43,24 @@
   --theme-status-info-border: #b4c4ff;
   --theme-status-info-accent: #4361ee;
   --theme-status-info-dot: #5271ff;
+  /* Chart series, in fixed order -- one hue per chart (or per series), never cycled,
+     never a status colour. Brand purple first, then teal, blue, amber, pink, cyan;
+     validated for lightness, chroma, CVD separation and contrast on each surface. */
+  --chart-1: #731dd8;
+  --chart-2: #0d9488;
+  --chart-3: #4361ee;
+  --chart-4: #d97706;
+  --chart-5: #db2777;
+  --chart-6: #0891b2;
 }
 
 html.dark {
+  --chart-1: #9d6bff;
+  --chart-2: #0ea5a0;
+  --chart-3: #5c7cff;
+  --chart-4: #c98204;
+  --chart-5: #e04f9b;
+  --chart-6: #12a3c4;
   --app-surface-page: #0f1117;
   --app-surface-page-top: #14161f;
   --app-surface-default: #161922;
@@ -498,5 +513,20 @@ html.dark .playground-hub-composer-shell:focus-within {
 
   .retailgpt-nav-brand:hover .retailgpt-nav-logo-img {
     transform: none;
+  }
+}
+
+
+/* Readiness check (K19): each verdict lands with a short rise; none under reduced motion. */
+@keyframes readiness-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.readiness-check {
+  animation: readiness-in 0.32s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .readiness-check {
+    animation: none;
   }
 }

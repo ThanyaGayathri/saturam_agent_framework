@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Check, Filter, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Modal from "../ui/Modal";
 import ChartTile from "./ChartTile";
+import UseCaseLatestReport from "../usecase/UseCaseLatestReport";
 import ChartEditorPanel from "./create-dashboard/ChartEditorPanel";
 import AiGeneratingStep from "./create-dashboard/AiGeneratingStep";
 import DashboardFilterBar from "./DashboardFilterBar";
@@ -586,11 +587,16 @@ export default function DashboardView() {
     </div>
    )}
 
-   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-    {dashboard.tiles.map((tile) => (
+   {/* A dashboard a use case composed (K23/K25) opens on that use case's latest report: the
+       sentence its last run wrote, above the tiles it refreshes. Nothing for a hand-built one. */}
+   {dashboard.owner === "use_case" && <UseCaseLatestReport title={dashboard.name} />}
+
+   <div className="grid grid-flow-row-dense grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {dashboard.tiles.map((tile, index) => (
      <ChartTile
       key={tile.id}
       tile={tile}
+      hue={index}
       data={dataState.byTileId[tile.id]}
       className={spanForChart(tile.chart) === 2 ? "sm:col-span-2 xl:col-span-2" : ""}
       onDescriptionChange={(text) => saveDescription(tile, text)}

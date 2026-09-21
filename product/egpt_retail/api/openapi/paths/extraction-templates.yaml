@@ -1,0 +1,119 @@
+# Extraction templates and guardrail rules (1.4.0, K17): the two catalogues a document-driven
+# use case draws on, as data the interface reads and extends rather than a list in code.
+/extraction-templates:
+  get:
+    tags: [use-cases]
+    operationId: listExtractionTemplates
+    summary: The document kinds that ship with the platform.
+    x-egpt-scopes: [use-cases:read]
+    responses:
+      "200":
+        description: Templates.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/ExtractionTemplate'
+            examples:
+              default:
+                value:
+                  - {id: purchase_order, label: Purchase order, record: order, source: shipped, header: [{name: po_number, required: true}, {name: customer_name, required: true}, {name: ship_to_address, required: true}, {name: due_date}], lines: [{name: line_no, required: true}, {name: description, required: true}, {name: quantity, required: true}, {name: unit_of_measure, required: true}]}
+/extraction-templates/draft:
+  post:
+    tags: [use-cases]
+    operationId: draftExtractionTemplate
+    summary: Draft a template's fields from a description and an example document.
+    description: |
+      The extraction model reads the description (and the example's text, when one is
+      supplied) and proposes a field list in the template's shape, every field snake_case, the
+      ones the description calls essential marked required. The person edits and keeps it; the
+      draft is never stored by itself.
+    x-egpt-scopes: [use-cases:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/ExtractionTemplateDraftRequest'
+          examples:
+            default:
+              value: {description: "Suppliers email delivery notes as PDFs; create a goods receipt per note.", label: Delivery note}
+    responses:
+      "200":
+        description: The draft.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/ExtractionTemplateDraft'
+            examples:
+              default:
+                value: {template: {id: delivery_note, label: Delivery note, record: receipt, source: drafted, header: [{name: note_number, required: true}, {name: supplier_name, required: true}, {name: delivery_date, required: true}, {name: po_reference}], lines: [{name: line_no, required: true}, {name: description, required: true}, {name: quantity, required: true}, {name: unit_of_measure}]}, notes: ""}
+      "403":
+        description: The token lacks `use-cases:write`.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              insufficient_scope:
+                value: {detail: "Insufficient permissions. Required scopes: use-cases:write.", code: insufficient_scope}
+      "503":
+        description: No extraction model is configured, so nothing can draft.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              no_model:
+                value: {detail: "No extraction model is configured (AZURE_OPENAI_API_KEY).", code: model_unavailable}
+/guardrail-rules/kinds:
+  get:
+    tags: [use-cases]
+    operationId: listGuardrailRuleKinds
+    summary: The kinds of check the platform can evaluate.
+    x-egpt-scopes: [use-cases:read]
+    responses:
+      "200":
+        description: Rule kinds.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/GuardrailRuleKind'
+            examples:
+              default:
+                value:
+                  - {id: duplicate_reference, label: Duplicate reference, check: "A record for this customer with the same {field} already exists (last {lookback_months} months)", scope: header, params: {lookback_months: 12}, needs: order_history, exception: DUPLICATE_REFERENCE}
+/guardrail-rules/suggest:
+  post:
+    tags: [use-cases]
+    operationId: suggestGuardrailRules
+    summary: The rules a template's own fields call for.
+    description: Deterministic. A reference-like header field proposes a duplicate check, a promised date a date window, a quantity an outlier check, a total a reconciliation with the lines. The person turns them on.
+    x-egpt-scopes: [use-cases:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/ExtractionTemplate'
+          examples:
+            default:
+              value: {label: Supplier invoice, header: [{name: invoice_number, required: true}, {name: due_date}, {name: total, required: true}], lines: [{name: line_no, required: true}, {name: description, required: true}, {name: quantity}, {name: line_total, required: true}]}
+    responses:
+      "200":
+        description: Suggested rules.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/GuardrailRule'
+            examples:
+              default:
+                value:
+                  - {id: sender_known, kind: sender_known, label: Sender known, field: null, params: {}, exception: UNKNOWN_SENDER, needs: customer}
+                  - {id: duplicate_invoice_number, kind: duplicate_reference, label: Duplicate invoice number, field: invoice_number, params: {lookback_months: 12}, exception: DUPLICATE_REFERENCE, needs: order_history}
+                  - {id: total_total, kind: total_matches_lines, label: Total matches the lines, field: total, line_field: line_total, params: {tolerance: 0.01}, exception: TOTAL_MISMATCH, needs: null}

@@ -18,6 +18,8 @@
  * compiler's stage table (`use-case-plan.js`) agree on what a value is called.
  */
 
+import { findTemplate } from "./extraction-templates";
+import { mappingLabel } from "./record-mappings";
 export const SHAPES = {
  inform: {
   id: "inform",
@@ -32,6 +34,8 @@ export const SHAPES = {
    templateId: "gallery-uc-09",
    prompt: "Every Monday, explain gross margin rate by category and channel against plan and the same period last year. Send it to the finance team.",
   },
+  // Outputs are not asked (18 Sep): every Analytics Automation produces the report and a
+  // dashboard; the form infers them.
   fields: ["metrics", "dimensions", "comparison", "schedule", "recipient"],
  },
  alert: {
@@ -101,9 +105,13 @@ export const CATEGORIES = {
   // Chosen on the form, not on the card: which shape an Analytics Automation is depends on
   // whether it should report every run or only speak when a KPI crosses a line -- a decision
   // that comes after the KPI, not before it.
+  // Three kinds (K25): the monitoring report, the diagnostic that explains one KPI's change
+  // (the same Inform chain with the decomposition before the model), and the alert.
   trigger: [
-   { shape: "inform", label: "Every run, on a schedule", hint: "A report each time: what moved, where, and why." },
-   { shape: "alert", label: "Only when a KPI crosses a threshold", hint: "Notifies when it fires. A quiet day sends nothing." },
+   { shape: "inform", template: null, label: "Report the numbers, every run", hint: "Several KPIs with their breakdowns, on a schedule; a comparison if you want one." },
+   { shape: "inform", template: "metric_diagnosis", label: "Explain why one KPI changed, every run", hint: "Two periods, the change decomposed across every dimension the data carries; one sentence whose subject changes with the data." },
+   { shape: "inform", template: "at_risk", label: "Find who or what is at risk, every run", hint: "A model trained on your own history scores every open quote; each at-risk one gets a play from the catalogue; a recommendation or an alert goes to Decision Intelligence and the reps." },
+   { shape: "alert", template: null, label: "Only when a KPI crosses a threshold", hint: "Notifies when it fires. A quiet day sends nothing." },
   ],
   examples: [
    { shape: "inform", title: "Gross Margin Analysis", templateId: "gallery-uc-09", prompt: SHAPES.inform.retail.prompt },
@@ -123,13 +131,26 @@ export const CATEGORIES = {
   id: "process_automation",
   label: "Process Automation",
   plain: "Execute a defined action within limits",
-  blurb: "Carries out a rule-based action unattended — reorder, re-price, re-assign — inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
+  blurb: "Carries out a rule-based action unattended — reorder, re-price, create a record from a document — inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
   sideEffect: "a change to a target system, unattended",
   shapes: ["act"],
-  examples: [{
-   shape: "act", title: "Low-Stock Auto-Reorder", templateId: null,
-   prompt: "Every morning, reorder SKUs below their reorder point using days of stock remaining and inventory turnover. Never order beyond 60 days of cover. Write to the inventory system, at most 100 SKUs per run, and keep the previous order quantity so it can be restored.",
-  }],
+  // Two templates share the shape. Which one is chosen on the form, not on the card: it is a
+  // question about the input -- a KPI or a document -- and the person answers it once they
+  // know what arrives.
+  templates: [
+   { id: "kpi_change", label: "Change a parameter from a KPI", hint: "Reads KPIs on a schedule, recommends a change per record, writes it within limits." },
+   { id: "document_to_record", label: "Create a record from a document", hint: "A document arrives — by email, in a folder — is extracted, resolved against master data, checked, and written as a record." },
+  ],
+  examples: [
+   {
+    shape: "act", template: "kpi_change", title: "Low-Stock Auto-Reorder", templateId: null,
+    prompt: "Every morning, reorder SKUs below their reorder point using days of stock remaining and inventory turnover. Never order beyond 60 days of cover. Write to the inventory system, at most 100 SKUs per run, and keep the previous order quantity so it can be restored.",
+   },
+   {
+    shape: "act", template: "document_to_record", title: "Order Creation Automation", templateId: null,
+    prompt: "Create sales orders in Salesforce from purchase orders that arrive as PDFs in the orders mailbox, checking every 5 minutes. Send exceptions to orders-desk@northwind.example. At most 20 orders per run.",
+   },
+  ],
  },
  process_optimization: {
   id: "process_optimization",
@@ -149,16 +170,97 @@ export const CATEGORY_LIST = Object.values(CATEGORIES);
 
 export const categoryOf = (spec) => CATEGORIES[spec.category] || null;
 
+/**
+ * Which template a Process Automation is, read from the person's own words. Never asked up
+ * front: the answer is in the requirement ("purchase orders arrive as PDFs" is a document;
+ * "reorder SKUs below their reorder point" is a KPI). Returns null when the words say neither,
+ * and the form stays neutral until they do.
+ */
+export function templateFromText(text) {
+ const t = String(text || "").toLowerCase();
+ const doc = /\b(pdf|attachment|e-?mail|mailbox|inbox|document|invoice|purchase orders?|\bpos?\b|scanned?|form|extract|ocr|return requests?|delivery notes?|rma)\b/.test(t);
+ const kpi = /\b(kpi|metric|rate\b|reorder point|safety stock|markdown|re-?price|price|parameter|tune|adjust|threshold|days of stock|turnover|coverage)\b/.test(t);
+ if (doc && !kpi) return "document_to_record";
+ if (kpi && !doc) return "kpi_change";
+ if (doc && kpi) return /\b(pdf|attachment|e-?mail|mailbox|inbox|document|invoice)\b/.test(t) ? "document_to_record" : "kpi_change";
+ return null;
+}
+/**
+ * An Analytics Automation's kind, read from the words (K26): the person never picks it.
+ * The same cues the platform's suggestion uses -- who or what is at risk / will not
+ * convert / churn / stalled is the at-risk kind; "why" or a fall is the diagnostic; a
+ * threshold to be told about is the alert; anything else the monitoring report. Null when
+ * the words say nothing yet, so a blank goal changes nothing.
+ */
+export function analyticsKindFromText(text) {
+ const t = String(text || "").toLowerCase().trim();
+ if (!t) return null;
+ if (/\bat[- ]risk\b|\brisk of\b|\bchurn|\bnot convert|\bwon'?t convert|\bstall|\blikely to (lose|lapse|not close)|\bwhich (quotes|accounts|customers|deals) (are|will)|\bwill we lose\b/.test(t)) return { shape: "inform", template: "at_risk" };
+ if (/^\s*(why|what happened|what caused|explain why)/.test(t) || /\b(drop|dropped|fell|falling|declin|down)\b/.test(t)) return { shape: "inform", template: "metric_diagnosis" };
+ const alertCue = /\b(alert|notify|tell (me|the|us)|let me know|when [^.]* (goes above|falls below|crosses|exceeds|drops below|is above|is below)|threshold|breach)\b/.test(t);
+ const reportCue = /\b(explain|compare|report|breakdown|analy[sz]e|drivers?|visibility|digest|summary)\b/.test(t);
+ if (alertCue && !reportCue) return { shape: "alert", template: null };
+ return { shape: "inform", template: null };
+}
+
+export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.id === spec.template) || null;
+
+/**
+ * The document-to-record template's form, in order. Slots named as the compiler's stage table
+ * names them. Nothing here is a KPI: the input is a document, the "candidates" are messages,
+ * and the AI step extracts rather than recommends.
+ */
+export const TEMPLATE_FIELDS = {
+ // The form's order is the person's order: what arrives, what to read from it, where it
+ // goes and as what, then what to check before it is written, then the limits. The
+ // guardrails follow the mapping (K24) because they read the roles the mapping resolves.
+ // Master data is not a section any more: the roles a use case resolves against follow
+ // from the mapping and the guardrails and are read from the target itself; the
+ // thresholds keep their defaults.
+ document_to_record: [
+  "mailbox", "pollInterval", "messageFilter", "documentType", "extractionTemplate",
+  "writeTarget", "targetObjects", "recordGuardrails", "exceptionsTo", "acknowledge",
+  "createdAs", "perRunCap", "rollback",
+ ],
+ // The diagnostic kind (K25): one KPI, the two periods, what to search across, how readily
+ // a slice is called unusual, the evidence columns; then the outputs and the delivery.
+ // Asked: the KPI, the two periods, what to search across, delivery; sensitivity is optional
+ // with a default. Not asked: outputs (always the report and a dashboard), the evidence
+ // columns (derived from the fact), the support floor and the norm (derived, shown).
+ metric_diagnosis: ["metrics", "comparison", "dimensions", "sensitivity", "schedule", "recipient"],
+ // The at-risk kind (K26): the KPIs that give the risk its context, the churn line, what the
+ // run ends in; then the delivery. Not asked: the risk lines (the model's own), the run's
+ // size (fifty subjects carried), the outputs (report and dashboard).
+ at_risk: ["metrics", "churnWindow", "outcome", "schedule", "recipient"],
+};
+
+/** Field labels a template reads differently: the diagnostic's "dimensions" are the columns
+ *  the cause is searched across, its "metrics" is one KPI. */
+export const TEMPLATE_FIELD_META = {
+ metric_diagnosis: {
+  metrics: { label: "The KPI", hint: "One KPI — the one that moved. Its formula is read into its parts and its fact's rows are searched." },
+  dimensions: { label: "Search the cause across", hint: "The columns of the fact a change can sit in. All of them by default; untick one to leave it out." },
+  comparison: { label: "The two periods", hint: "A diagnosis compares by nature: the run's date against the period before, or the same period last year." },
+ },
+ at_risk: {
+  metrics: { label: "The KPIs behind the picture", hint: "The registry KPIs the report shows beside the scored list: stalled quotes, stalled pipeline value, conversion within the usual range, churn rate, at-risk accounts, RFM segments. The model does not read these; it reads the quotes themselves." },
+ },
+};
+export const fieldMetaFor = (field, spec) => TEMPLATE_FIELD_META[spec?.template]?.[field] || FIELD_META[field] || { label: field, hint: "" };
+
 /** The category name a person sees, with the trigger where the category spans two shapes. */
 export function displayName(spec) {
  const c = categoryOf(spec);
  if (!c) return SHAPES[spec.shape]?.label || "Use case";
- if (c.trigger) { const t = c.trigger.find((x) => x.shape === spec.shape); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
+ if (c.trigger) { const t = c.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || c.trigger.find((x) => x.shape === spec.shape); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
+ if (c.templates) { const t = c.templates.find((x) => x.id === spec.template); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
  return c.label;
 }
 
 /** The form's fields: the backend shape's parameters, plus what the category adds. */
 export function fieldsFor(spec) {
+ if (spec.template && TEMPLATE_FIELDS[spec.template]) return TEMPLATE_FIELDS[spec.template];
+ if (CATEGORIES[spec.category]?.templates && !spec.template) return [];
  const base = SHAPES[spec.shape]?.fields || [];
  const extra = categoryOf(spec)?.extraFields || [];
  if (!extra.length) return base;
@@ -179,7 +281,12 @@ export const FIELD_META = {
  metrics: { slot: "metrics", key: "metricIds", label: "KPIs", hint: "From your KPI registry. Only KPIs that exist." },
  metric: { slot: "metric", key: "metricIds", label: "KPI", hint: "One KPI. Monitoring watches one thing." },
  dimensions: { slot: "dimensions", key: "dimensions", label: "Analyse by", hint: "The dimensions the analysis cuts across." },
- comparison: { slot: "comparison", key: "comparison", label: "Baseline", hint: "What turns a value into a change." },
+ comparison: { slot: "comparison", key: "comparison", label: "Compare with", hint: "Optional. A baseline turns a value into a change; without one the report carries the numbers as they are." },
+ outputs: { slot: "outputs", key: "outputs", label: "Outputs", hint: "What each run produces: the report (email + in-app), a dashboard composed at activation, or both." },
+ sensitivity: { slot: "sensitivity", key: "sensitivity", label: "How sure before naming a cause", hint: "Balanced is the default and fits most data. Very sure names a slice only when it is far outside its own history (fewer findings, rarely noise); Show more names smaller departures too (more findings, some may be noise). Change it after your first run." },
+ evidenceColumns: { slot: "evidence columns", key: "evidenceColumns", label: "Evidence columns", hint: "Which columns to show on the rows behind the finding. A reason column is always tallied." },
+ churnWindow: { slot: "churn window", key: "churnWindow", label: "An account is at risk of churn after", hint: "Days without a new quote, on an account that quoted in the 180 days before. Sixty is the industry line for a quote-driven pipeline; the registry's churn KPIs use the same." },
+ outcome: { slot: "outcome", key: "outcome", label: "What the run ends in", hint: "A recommendation is a quote with the play the catalogue chose for it, handed to Decision Intelligence and shown in the weekly report. An alert is the same record without a play, emailed to the quote's rep. Both is the usual choice." },
  operator: { slot: "operator", key: "condition", label: "Trigger condition", hint: "The direction of the breach." },
  threshold: { slot: "threshold", key: "condition", label: "Threshold", hint: "The number worth notifying someone for." },
  scope: { slot: "scope", key: "scope", label: "Scope", hint: "Where the condition is evaluated." },
@@ -195,24 +302,67 @@ export const FIELD_META = {
  schedule: { slot: "schedule", key: "schedule", label: "Frequency", hint: "When it runs. Starts the workflow; no step reads it." },
  goal: { slot: null, key: "goal", label: "Goal", hint: "What this exists to do, in your words. Free text; it drives nothing." },
  title: { slot: null, key: "title", label: "Title", hint: "How it appears in the catalogue." },
+ template: { slot: null, key: "template", label: "What arrives", hint: "Read from your description: a KPI on a schedule, or a document. Decides the form and the workflow." },
+ mailbox: { slot: "source mailbox", key: "mailbox", label: "Source mailbox", hint: "The connected mailbox the documents arrive in." },
+ pollInterval: { slot: "schedule", key: "schedule", label: "Check every", hint: "How often the mailbox is polled. The trigger." },
+ messageFilter: { slot: "message filter", key: "messageFilter", label: "Message filter", hint: "Which messages count. Everything else is left alone." },
+ documentType: { slot: "document type", key: "documentType", label: "Document type", hint: "Where the order is: an attachment, the email body, or either." },
+ extractionTemplate: { slot: "extraction template", key: "extractionTemplate", label: "Extraction template", hint: "The schema the AI step fills. Shipped templates; the fields are fixed per template." },
+ exampleDocument: { slot: "example document", key: "exampleDocument", label: "Example document", hint: "One sample of the format with its expected values. Becomes the AI step's example." },
+ masterData: { slot: "master data", key: "masterData", label: "Master data", hint: "The business objects the document is resolved against, from the connected system's semantic layer." },
+ matchThresholds: { slot: "match thresholds", key: "matchThresholds", label: "Match thresholds", hint: "Below the threshold is an exception, never a guess. The AI step may only choose between candidates above it." },
+ recordGuardrails: { slot: "guardrails", key: "recordGuardrails", label: "Business guardrails", hint: "Checks on the resolved record before anything is written. Any failure stops the record and raises an exception." },
+ exceptionsTo: { slot: "recipient", key: "exceptionsTo", label: "Exceptions go to", hint: "An email address for anything the automation could not complete. The in-app record always exists." },
+ acknowledge: { slot: "acknowledge", key: "acknowledge", label: "Acknowledge the sender", hint: "Reply with the created record's number, or the exception reason." },
+ targetObjects: { slot: "target objects", key: "targetObjects", label: "Target objects", hint: "What is created in the target system, and how the extracted fields map onto it." },
+ createdAs: { slot: "created as", key: "createdAs", label: "Created as", hint: "The status a new record starts in. Draft keeps a person's activation in the loop without an approval step." },
  mode: { slot: null, key: "shape", label: "Output", hint: "Every run, or only when a KPI crosses a threshold. Decides which workflow is generated." },
  objective: { slot: "objective", key: "objective", label: "Objective", hint: "The KPI this tunes the process towards, and the target. Carried into the AI step's brief; not a contract slot yet." },
 };
 
 /** The slots the backend has no contract field for yet (open item R-15). Shown on the form, sent
  *  as flat keys, and flagged so a demo audience knows which fields are proposed. */
-export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective"]);
+export const PROPOSED_CONTRACT_FIELDS = new Set(["sensitivity", "evidenceColumns", "churnWindow", "outcome", "operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
+
+/** The roles a document is resolved against follow from the mapping and the guardrails and
+ *  are read from the target's own data (K24); the plan names them one by one. */
+function resolvedRolesText(spec) {
+ const target = spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "the target";
+ return `each against ${target}'s own reference data (the roles the mapping reads)`;
+}
 
 export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
  switch (spec.shape) {
-  case "inform":
+  case "inform": {
+   if (spec.template === "at_risk") {
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    const ends = { recommend: "a recommendation per at-risk quote, handed to Decision Intelligence", alert: "an alert per high-risk quote, emailed to its rep", both: "a recommendation per at-risk quote for Decision Intelligence and an alert per high-risk quote to its rep" }[spec.outcome || "both"];
+    return `Finds the open quotes at risk of not converting within their category's usual time to close, ${cadence}: a model trained on your own closed history at each run (checked on a time holdout before it is trusted) scores every open quote, the drivers behind each score are put in words, the account's RFM segment and its churn flag (no quote in ${spec.churnWindow || 60} days) are attached, and the catalogue chooses a sales play for each at-risk quote by rule. The run ends in ${ends}; the AI step writes the briefing from that list -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Writes nothing to any system of record.`;
+   }
+   if (spec.template === "metric_diagnosis") {
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    const sens = { clear: "very sure -- only a slice far outside its own history", usual: "balanced", more: "show more -- smaller departures count" }[spec.sensitivity || "usual"];
+    return `Explains why ${m || "the KPI"} changed, ${cadence}: the run's value against ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, the change decomposed across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the data carries"} by arithmetic (each slice's contribution, how unusual it is for itself -- ${sens} -- and enough rows to be named), the winning slice searched one level down with the rows behind it. The AI step writes one sentence from that ranking -- every figure checked -- and ${spec.notify ? `the report goes to ${spec.notify}` : "the report stays in-app"}${(spec.outputs || []).includes("dashboard") ? "; a dashboard is composed at activation" : ""}. Changes nothing.`;
+   }
+   if (spec.category === "analytics_automation" && spec.analytics) {
+    const names = (spec.analytics.kpis || []).filter((k) => spec.metricIds?.includes(k.identifier)).map((k) => k.name);
+    const n = spec.metricIds?.length || 0;
+    const outputs = spec.outputs || [];
+    const cadence = SCHEDULES.find((x) => x.value === spec.schedule)?.label?.toLowerCase() || "on a schedule";
+    return `Reads ${n} KPI${n === 1 ? "" : "s"} the data supports${names.length ? ` (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""})` : ""}, ${spec.comparison ? `compares each with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}` : "takes each as it is"}${spec.dimensions?.length ? `${spec.comparison ? " and" : ","} by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}, has the AI step ${spec.comparison ? "explain what moved" : "describe the numbers"} -- every figure checked against the numbers -- and ${outputs.includes("report") ? `sends the report ${cadence}${spec.notify ? ` to ${spec.notify}` : " in-app"}` : "keeps the result in-app"}${outputs.includes("dashboard") ? "; a dashboard is composed from the same KPIs at activation" : ""}. Changes nothing.`;
+   }
    return `Explains ${spec.metricIds?.length ? spec.metricIds.join(" and ") : "the KPIs"}${spec.dimensions?.length ? ` by ${spec.dimensions.join(", ").toLowerCase()}` : ""}, and delivers it to ${spec.notify || "someone"}. Changes nothing.`;
+  }
   case "alert":
    return `Watches ${m || "one KPI"} and tells ${spec.notify || "someone"}${(spec.notifyChannels || []).filter((c) => c !== "in_app").length ? ` (in app, plus ${(spec.notifyChannels || []).filter((c) => c !== "in_app").map((c) => CHANNELS.find((x) => x.value === c)?.label || c).join(" and ")})` : " in app"} when it ${OPERATORS.find((o) => o.value === spec.condition?.operator)?.label || "crosses"} ${spec.condition?.threshold ?? "a threshold"}${spec.condition?.threshold != null ? spec.condition.unit || "" : ""}${spec.scope ? ` in ${spec.scope.toLowerCase()}` : ""}. Changes nothing.`;
   case "recommend":
    return `Recommends changes to ${spec.writeback || "a target system"}. ${spec.approver || "An approver"} releases each one before anything is written.`;
   case "act":
+   if (spec.template === "document_to_record") {
+    const tpl = findTemplate(spec);
+    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves ${resolvedRolesText(spec)}, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
+   }
    return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
   default:
    return "Choose what it should do.";
@@ -290,6 +440,51 @@ export const CHANNELS = [
  { value: "email", label: "Email" },
  { value: "slack", label: "Slack", providerId: "slack" },
  { value: "teams", label: "Teams", providerId: "teams" },
+];
+
+// ── Document-to-record closed sets ──────────────────────────────────────────────────────────
+
+export const POLL_INTERVALS = [
+ { value: "1m", label: "Every minute" },
+ { value: "5m", label: "Every 5 minutes" },
+ { value: "15m", label: "Every 15 minutes" },
+ { value: "hourly", label: "Every hour" },
+];
+
+export const DOCUMENT_TYPES = [
+ { value: "pdf", label: "PDF attachment", hint: "Text layer required; a scanned copy is an exception in this version." },
+ { value: "body", label: "Email body", hint: "The order is written in the message." },
+ { value: "either", label: "Either", hint: "Attachment first, body if none." },
+];
+
+/** Shipped document templates. The catalogue, custom templates and the field helpers live in
+ *  `extraction-templates.js`; this alias keeps older imports working. */
+export { SHIPPED_TEMPLATES as EXTRACTION_TEMPLATES } from "./extraction-templates";
+
+/** The roles a document-to-record use case can resolve against. Each binds to a concept. Which
+ *  of them a given use case needs is not fixed here: `use-case-roles.js` derives it from the
+ *  mapping's source expressions (`prefix`) and the guardrails, plus `depends`. */
+export const MASTER_DATA_ROLES = [
+ { id: "customer", label: "Sender account", concept: "Customer", prefix: "customer.", depends: [], hint: "The organisation the document comes from — a customer or a supplier — matched by sender email domain, then by name." },
+ { id: "contact", label: "Sender contact", concept: "Contact", prefix: "contact.", depends: ["customer"], hint: "The person who sent it, matched by sender email." },
+ { id: "shipTo", label: "Ship-to site", concept: "Location", prefix: "ship_to.", depends: ["customer"], hint: "The account's addresses; matched on postcode + street number, then full text." },
+ { id: "product", label: "Product", concept: "Product", prefix: "product.", depends: [], hint: "Matched by the sender's part number, then product code, then description." },
+ { id: "orderHistory", label: "Record history", concept: "Order", prefix: null, depends: ["customer"], hint: "What the target already holds per account; powers the history guardrails." },
+];
+
+export const MATCH_THRESHOLD_DEFAULTS = { address: 0.75, product: 0.85, name: 0.8, ambiguity: 0.05, aiDisambiguation: true };
+
+/** Business guardrails are rules over the template fields (`guardrail-rules.js`). This alias
+ *  is the purchase-order preset, for older imports. */
+export { PURCHASE_ORDER_RULES as RECORD_GUARDRAILS } from "./guardrail-rules";
+
+/** What the target creates is a record mapping (`record-mappings.js`): the shipped two plus the
+ *  workspace's own. This alias keeps older imports working. */
+export { SHIPPED_MAPPINGS as TARGET_MAPPINGS } from "./record-mappings";
+
+export const CREATED_AS = [
+ { value: "draft", label: "Draft", hint: "A person activates it in the target system." },
+ { value: "active", label: "Activated", hint: "Live on creation." },
 ];
 
 export const TIMEOUT_BEHAVIOURS = [

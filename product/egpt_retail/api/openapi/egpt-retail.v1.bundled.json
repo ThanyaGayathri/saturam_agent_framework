@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.10",
+    "version": "1.15.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -473,6 +473,184 @@
           }
         }
       },
+      "AnalyticsFeasibility": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "buildable"
+        ],
+        "description": "`ready` when gold holds a row; `buildable` when the first run computes it."
+      },
+      "AnalyticsKpiSuggestion": {
+        "type": "object",
+        "required": [
+          "identifier",
+          "name",
+          "grain",
+          "score",
+          "why",
+          "feasibility"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "grain": {
+            "type": "string"
+          },
+          "business_area": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "description": "The lexical match, for ordering; not a probability."
+          },
+          "why": {
+            "type": "string",
+            "description": "The ask's own words that chose this KPI."
+          },
+          "feasibility": {
+            "$ref": "#/components/schemas/AnalyticsFeasibility"
+          },
+          "latest_as_of": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          }
+        }
+      },
+      "AnalyticsSuggestRequest": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The ask, in the person's own words."
+          },
+          "recipient": {
+            "type": "string",
+            "description": "A default address when the ask names none."
+          }
+        }
+      },
+      "AnalyticsSuggestion": {
+        "type": "object",
+        "required": [
+          "kind",
+          "title",
+          "business_areas",
+          "kpis",
+          "dimensions",
+          "comparison",
+          "schedule",
+          "outputs",
+          "recipients",
+          "uncovered",
+          "notes"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "monitoring",
+              "diagnostic",
+              "at_risk"
+            ],
+            "description": "A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert."
+          },
+          "title": {
+            "type": "string"
+          },
+          "business_areas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsKpiSuggestion"
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The grains the chosen KPIs break down by."
+          },
+          "comparison": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "prior_period",
+              "prior_year",
+              null
+            ],
+            "description": "Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are."
+          },
+          "comparison_reason": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string",
+            "description": "A `ScheduleCadence` value."
+          },
+          "schedule_reason": {
+            "type": "string"
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Days the numbers cover, when the ask names a period (last week, monthly); null means each KPI's own declared window."
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "report",
+                "dashboard",
+                "alert"
+              ]
+            }
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uncovered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Words of the ask no registered KPI covers."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AnswerBlock": {
         "type": "object",
         "description": "One renderable block of an answer -- a finding, a table, a chart, a recommendation. The playground's answer format owns the inner shape; the report only needs the id and kind to pin it.",
@@ -679,6 +857,37 @@
           }
         }
       },
+      "CaseExpected": {
+        "type": "object",
+        "description": "What a golden case expects (1.6.0) -- the outcome (`created`, or an exception class) and\nheader values, authored by accepting a run's output or supplied on upload.\n",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "extracted": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "line_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sample_id": {
+            "type": "string",
+            "description": "Set on the curated purchase-order set only."
+          }
+        }
+      },
+      "CaseStatus": {
+        "type": "string",
+        "enum": [
+          "untested",
+          "pass",
+          "fail"
+        ]
+      },
       "ChartAxis": {
         "type": "object",
         "description": "One result column a `query` tile plots. `kind` matters on the x axis only.",
@@ -743,6 +952,29 @@
           "full",
           "brief"
         ]
+      },
+      "ChildMapping": {
+        "type": "object",
+        "required": [
+          "object",
+          "parent_field",
+          "fields"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "parent_field": {
+            "type": "string",
+            "description": "The child's reference to the parent, filled with the parent's new id."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MappingFieldRow"
+            }
+          }
+        }
       },
       "CloudProfile": {
         "type": "object",
@@ -1383,6 +1615,154 @@
           "development"
         ]
       },
+      "DiagnosisColumn": {
+        "type": "object",
+        "required": [
+          "column"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "DiagnosisDimension": {
+        "type": "object",
+        "required": [
+          "column",
+          "label",
+          "distinct"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "distinct": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "DiagnosisOptions": {
+        "type": "object",
+        "required": [
+          "kpi_identifier",
+          "diagnosable"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "diagnosable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "When not diagnosable: why."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "additive"
+            ]
+          },
+          "numerator": {
+            "type": "string"
+          },
+          "denominator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "table": {
+            "type": "string"
+          },
+          "window_days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "step_days": {
+            "type": "integer"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "rows_in_period": {
+            "type": "integer"
+          },
+          "rows_in_baseline": {
+            "type": "integer"
+          },
+          "history_periods": {
+            "type": "integer"
+          },
+          "support_floors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Rows a slice needs to be named, per sensitivity (clear, usual, more)."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisDimension"
+            }
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisColumn"
+            }
+          },
+          "reason_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DiagnosisOptionsRequest": {
+        "type": "object",
+        "required": [
+          "kpi_identifier"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Days between the two periods; null means the KPI's own window."
+          },
+          "as_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The run date to size the periods at; null means today."
+          }
+        }
+      },
       "Dialect": {
         "type": "string",
         "enum": [
@@ -1758,6 +2138,111 @@
           }
         }
       },
+      "ExtractionTemplate": {
+        "type": "object",
+        "description": "A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the\nsame shape; a template a person assembles on the form, or the model drafts from a\ndescription and an example, is stored on the use case's spec as the `extraction template`\nparameter and runs the same extractor. Nothing about a template is code.\n",
+        "required": [
+          "label",
+          "header",
+          "lines"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slug; derived from the label when absent."
+          },
+          "label": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string",
+            "default": "",
+            "description": "What one document becomes: order, payable, return, receipt."
+          },
+          "header": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionTemplateField"
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionTemplateField"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "shipped",
+              "drafted",
+              "authored"
+            ],
+            "description": "Where the template came from; `authored` when absent."
+          }
+        }
+      },
+      "ExtractionTemplateDraft": {
+        "type": "object",
+        "required": [
+          "template",
+          "notes"
+        ],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/ExtractionTemplate"
+          },
+          "notes": {
+            "type": "string",
+            "description": "What the model was unsure about; empty on a clean draft."
+          }
+        }
+      },
+      "ExtractionTemplateDraftRequest": {
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "The use case's own words: what arrives and what it should become."
+          },
+          "label": {
+            "type": "string",
+            "description": "The document kind's name, when the person has one."
+          },
+          "example_text": {
+            "type": "string",
+            "description": "The text of an example document, when one is at hand."
+          },
+          "example_document_b64": {
+            "type": "string",
+            "description": "A PDF of an example document, base64; its text layer is read server-side."
+          }
+        }
+      },
+      "ExtractionTemplateField": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "snake_case field name; the extraction step fills exactly this."
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "hint": {
+            "type": "string",
+            "default": "",
+            "description": "Where on the document the field is usually found, for the extractor."
+          }
+        }
+      },
       "Feasibility": {
         "type": "object",
         "required": [
@@ -1920,6 +2405,138 @@
         ],
         "description": "`missing_parameter` (1.1.0, R9): a slot the chosen autonomy shape requires (build plan, section 07)\nthat the draft and spec do not fill -- metrics, dimensions, comparison, schedule, recipient for\nInform; candidates, guardrails, approver, write target and more for Recommend and Act. `subject`\nis the parameter name; `detail` says which builder field fills it, or that none exists yet.\n\n`unknown_grain` (1.1.1, R9): `spec.grain` is not in this deployment's grain vocabulary.\nThe same ground truth `spec_extractor.validate_spec` checks at extraction time, re-checked\nhere so a coined value is caught deterministically whether or not that validator ran first.\n`subject` is the coined value; `detail` says to add it to the customer overlay or pick a\nlisted one.\n"
       },
+      "GoldenCase": {
+        "type": "object",
+        "description": "A document with what the person expects of it (1.6.0): uploaded, or generated by the\nplatform from the template. Re-run whenever the template, guardrails or mapping change;\n`last_status` is the verdict of the last run, `untested` while nothing is expected yet.\n",
+        "required": [
+          "id",
+          "use_case_id",
+          "label",
+          "source",
+          "last_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "use_case_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "uploaded",
+              "generated"
+            ]
+          },
+          "sender": {
+            "type": "string",
+            "default": ""
+          },
+          "subject": {
+            "type": "string",
+            "default": ""
+          },
+          "filename": {
+            "type": "string",
+            "default": "document.pdf"
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CaseExpected"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "last_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "The last verdict: outcome, expected outcome, each check, and what the run observed."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "GoldenCaseUpdate": {
+        "type": "object",
+        "description": "Fields a person may change on a case (1.6.0). Absent fields are left alone; an explicit\nnull `expected` clears the expectation.\n",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CaseExpected"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GoldenCaseWrite": {
+        "type": "object",
+        "required": [
+          "label",
+          "document_b64"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string",
+            "description": "The address the document is treated as sent from; the customer lookup reads its domain."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "document_b64": {
+            "type": "string",
+            "description": "A PDF, base64."
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CaseExpected"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Grain": {
         "type": "string",
         "description": "A term from the deployment's `grain` vocabulary (shipped ontology plus overlay). A string validated at runtime, not an enum -- see CHANGELOG 2.0.0 of the KPI formula shape.",
@@ -1938,6 +2555,103 @@
           "refused"
         ],
         "description": "What R6's SQL guard decided. A refused statement never reached the database."
+      },
+      "GuardrailRule": {
+        "type": "object",
+        "description": "One business guardrail (1.4.0): a kind applied to a field, with its parameters and the\nexception it raises. The `guardrails` parameter of a `document_to_record` spec is a list\nof these; the six purchase-order rows keep their ids and exception classes as a preset.\n",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_field": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For total checks, the line field summed; for item checks, the resolved entity on the line."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "exception": {
+            "type": "string"
+          },
+          "needs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "GuardrailRuleKind": {
+        "type": "object",
+        "description": "A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.",
+        "required": [
+          "id",
+          "label",
+          "check",
+          "scope",
+          "params",
+          "exception"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "check": {
+            "type": "string",
+            "description": "The check in plain words, with {field} and parameter placeholders."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "header",
+              "line",
+              "any",
+              "none"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Parameter names with their defaults."
+          },
+          "needs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The master-data role the check reads, or null."
+          },
+          "exception": {
+            "type": "string"
+          }
+        }
       },
       "Harvest": {
         "type": "object",
@@ -3459,6 +4173,132 @@
           }
         }
       },
+      "MailboxAttachment": {
+        "type": "object",
+        "required": [
+          "filename",
+          "content_type",
+          "size"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
+        }
+      },
+      "MailboxMessage": {
+        "type": "object",
+        "description": "One message in the connected mailbox that matches the use case's filter (1.6.0), without\nits body or attachment bytes.\n",
+        "required": [
+          "id",
+          "sender",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "sender_domain": {
+            "type": "string",
+            "default": ""
+          },
+          "from_address": {
+            "type": "string",
+            "default": ""
+          },
+          "subject": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string",
+            "default": ""
+          },
+          "size": {
+            "type": "integer",
+            "default": 0,
+            "description": "Bytes; a listing reads headers only, so attachments are not itemised."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxAttachment"
+            }
+          },
+          "processed_before": {
+            "type": "boolean",
+            "default": false,
+            "description": "A live run already carried this message."
+          }
+        }
+      },
+      "MappingFieldRow": {
+        "type": "object",
+        "description": "One target field and where its value comes from (1.5.0). `source` is a list of source\nexpressions over the resolved document, the first non-empty winning: a header field by\nname (`po_number`), `line.<field>`, `customer.<key>`, `ship_to.<key>`, `product.<key>`,\n`$pricebook_id`, `$today`, or a literal `=Draft`. `transform` is one of `date`,\n`date_not_before_today`, `number`, `text:<n>`.\n",
+        "required": [
+          "target",
+          "source"
+        ],
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "source": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "transform": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "MappingSuggestRequest": {
+        "type": "object",
+        "required": [
+          "template",
+          "parent"
+        ],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/ExtractionTemplate"
+          },
+          "parent": {
+            "type": "string",
+            "description": "The parent object's name, described live."
+          },
+          "child": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The per-line object's name, when there is one."
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "ModelProvider": {
         "type": "string",
         "enum": [
@@ -3476,6 +4316,62 @@
           "frontier"
         ],
         "description": "Which R8 routing tier this deployment binds the model to. Two deployments, composed through the escalation provider (G6)."
+      },
+      "ObjectSuggestRequest": {
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/ExtractionTemplate"
+          },
+          "description": {
+            "type": "string",
+            "description": "The use case's own words, for the object labels to be read against."
+          },
+          "target": {
+            "type": "string",
+            "description": "The target system; `salesforce` when absent."
+          }
+        }
+      },
+      "ObjectSuggestion": {
+        "type": "object",
+        "required": [
+          "object",
+          "label",
+          "score",
+          "why"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "child": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The per-line object, when the template has lines and the target has one."
+          },
+          "score": {
+            "type": "integer"
+          },
+          "why": {
+            "type": "string"
+          },
+          "shipped_mapping": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A shipped mapping's id for exactly this pair, when one exists."
+          }
+        }
       },
       "Operator": {
         "type": "string",
@@ -3644,6 +4540,11 @@
           },
           "reason": {
             "type": "string"
+          },
+          "advisory": {
+            "type": "boolean",
+            "default": false,
+            "description": "Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by."
           }
         }
       },
@@ -3678,6 +4579,46 @@
           },
           "checked_at": {
             "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "ProbeName": {
+        "type": "string",
+        "enum": [
+          "mailbox",
+          "target",
+          "master_data",
+          "model",
+          "golden",
+          "gold",
+          "delivery",
+          "dry_answer",
+          "diagnosis",
+          "risk_model"
+        ]
+      },
+      "ProbeResult": {
+        "type": "object",
+        "description": "One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into\nthe mailbox, took a token from the target, read the master data, sent one call to the\nmodel, read the golden cases -- and says what it found. Extra fields carry the numbers\n(matching messages, row counts, pass counts).\n",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "passed",
+          "reason",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/ProbeName"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "elapsed_ms": {
+            "type": "integer"
           }
         }
       },
@@ -4136,6 +5077,370 @@
           }
         }
       },
+      "Recommendation": {
+        "type": "object",
+        "required": [
+          "id",
+          "use_case_id",
+          "kind",
+          "subject_type",
+          "subject_id",
+          "subject_label",
+          "risk_score",
+          "risk_level",
+          "drivers",
+          "value_at_stake",
+          "value_unit",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an\nopen quote and its account), its risk and the drivers behind it, and -- on a\nrecommendation -- the sales play the catalogue chose. An alert is the same record with\nno action. Decision Intelligence, or a person on the screen, writes `status`; the use\ncase writes `outcome` when the horizon ends.\n",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "use_case_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "recommendation",
+              "alert"
+            ]
+          },
+          "subject_type": {
+            "type": "string",
+            "description": "quote today; the kind's subject."
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "subject_label": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "account_label": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Who acts: the rep on the quote."
+          },
+          "risk_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "The probability the subject does not convert within the horizon."
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "horizon_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The category's usual time to close."
+          },
+          "model_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "drivers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecommendationDriver"
+            }
+          },
+          "action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The play; null on an alert."
+          },
+          "value_at_stake": {
+            "type": "number"
+          },
+          "value_unit": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "dismissed",
+              "actioned",
+              "expired"
+            ]
+          },
+          "status_note": {
+            "type": "string"
+          },
+          "status_by": {
+            "type": "string"
+          },
+          "status_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet."
+          },
+          "outcome_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the horizon ends and the outcome is looked up."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RecommendationDriver": {
+        "type": "object",
+        "required": [
+          "feature",
+          "text",
+          "contribution"
+        ],
+        "description": "One reason behind a risk score, grounded in the row's own value against the typical.",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "value": {
+            "description": "The row's own value: a number, or the category level."
+          },
+          "typical": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "What the scored population averages; null for a category."
+          },
+          "contribution": {
+            "type": "number",
+            "description": "The feature's push on the log-odds of converting; negative is towards risk."
+          },
+          "text": {
+            "type": "string",
+            "description": "The driver in words, for the report and the alert."
+          }
+        }
+      },
+      "RecommendationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Records per status across the filter's use case (or all), for the screen's chips."
+          }
+        }
+      },
+      "RecommendationStatusWrite": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "dismissed",
+              "actioned"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "default": ""
+          },
+          "by": {
+            "type": "string",
+            "default": "",
+            "description": "Who decided; the screen's user or the consuming use case."
+          }
+        }
+      },
+      "RecommendedAction": {
+        "type": "object",
+        "required": [
+          "code",
+          "title",
+          "action",
+          "owner",
+          "from_catalogue",
+          "because"
+        ],
+        "description": "The sales play the catalogue chose, who owns it, by when, and why it was chosen.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The catalogue code (RE_ENGAGE, ESCALATE, ...)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "What to do, in the organisation's words."
+          },
+          "owner": {
+            "type": "string",
+            "description": "The role that owns the play."
+          },
+          "sla_hours": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "from_catalogue": {
+            "type": "boolean"
+          },
+          "because": {
+            "type": "string",
+            "description": "The rule that chose it, in words."
+          }
+        }
+      },
+      "RecordMapping": {
+        "type": "object",
+        "description": "How a resolved document becomes the target's objects (1.5.0): a parent object with its\nfield rows, an optional child repeated per line, the status field `created as` sets, and\nthe rollback action. The two Salesforce mappings that ship are rows of this shape; a\nmapping the form assembles over the target's live object metadata is stored on the spec\nas the `target objects` parameter and runs the same interpreter.\n",
+        "required": [
+          "label",
+          "object",
+          "fields"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "default": "salesforce"
+          },
+          "object": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string",
+            "default": "",
+            "description": "What the mapping creates, matched against a template's `record` when suggesting."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "shipped",
+              "suggested",
+              "authored"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MappingFieldRow"
+            }
+          },
+          "child": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_values": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "`created as` value -> the status written: {draft: Draft, active: Activated}."
+          },
+          "rollback_action": {
+            "type": "string",
+            "default": "delete"
+          }
+        }
+      },
       "RefreshSchedule": {
         "type": "string",
         "enum": [
@@ -4146,6 +5451,15 @@
           "manual"
         ],
         "description": "How often the dashboard's numbers are recomputed -- the declared cadence, stored for the\nscheduler to honour. `nightly` (the default) follows gold: as soon as the nightly\nmaterialisation completes (D7). `daily` is once a day at a fixed morning time (06:00),\nreading what gold holds. `weekly` is Monday mornings. `hourly` is every hour, capped in\npractice by how often gold materialises. `manual` is only when asked. Distinct from\ndelivery (who is sent what, and when), which this contract does not yet carry.\n"
+      },
+      "RehearsalSource": {
+        "type": "string",
+        "enum": [
+          "mailbox",
+          "cases",
+          "generated"
+        ],
+        "description": "What a rehearsal runs over (1.6.0): chosen messages from the connected mailbox (writes\nheld, nothing flagged); the use case's own golden cases; or the set the platform\ngenerates from the template. Absent means the mailbox when one is connected and a model\ncan read it, else the generated set.\n"
       },
       "Report": {
         "type": "object",
@@ -4348,6 +5662,37 @@
           }
         }
       },
+      "RunMode": {
+        "type": "string",
+        "enum": [
+          "live",
+          "rehearse"
+        ],
+        "description": "`live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same\ncompiled workflow with every side effect held and, where the template has one, over the\ndeployment's sample set -- the rehearse screen's numbers come from this, not from a\nsimulation of their own.\n"
+      },
+      "RunRequest": {
+        "type": "object",
+        "description": "What to run over (1.6.0). Only a rehearsal reads it; a live run always polls the mailbox.\n",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/RehearsalSource"
+          },
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With source mailbox, only these message ids; absent means every message matching the filter."
+          },
+          "case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With source cases or generated, only these cases; absent means every one."
+          }
+        }
+      },
       "RunStatus": {
         "type": "string",
         "enum": [
@@ -4364,8 +5709,10 @@
         "enum": [
           "schedule",
           "manual",
-          "activation"
-        ]
+          "activation",
+          "regression"
+        ],
+        "description": "`regression` (1.6.0): a rehearsal over the golden cases the platform started because the use case changed."
       },
       "SavedPrompt": {
         "type": "object",
@@ -4426,8 +5773,13 @@
           "once",
           "daily",
           "weekly",
-          "monthly"
-        ]
+          "monthly",
+          "hourly",
+          "every_15_minutes",
+          "every_5_minutes",
+          "every_minute"
+        ],
+        "description": "The four the KPI shapes offer, plus the poll intervals a document-driven use case\noffers (1.3.0): a mailbox is polled, not read nightly.\n"
       },
       "ScheduleDelivery": {
         "type": "object",
@@ -4737,6 +6089,33 @@
           },
           "semantic_snapshot": {
             "type": "string"
+          },
+          "shape": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UseCaseShape"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted\nbefore a shape was chosen; the compiler refuses a null shape rather than defaulting\nto Inform.\n"
+          },
+          "template": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UseCaseTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence."
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `target objects` is a shipped mapping's id or a\n`RecordMapping` object the form assembled over the target's live fields (1.5.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n"
           }
         }
       },
@@ -4924,6 +6303,96 @@
             "type": "string",
             "default": "",
             "description": "One line naming what the join confirms or looks up, e.g. \"Joined on linked_quote_id -> quote_id to confirm the quote exists\". Empty for the fact table, which is read but not joined to anything."
+          }
+        }
+      },
+      "TargetField": {
+        "type": "object",
+        "description": "One createable field of a target object, read live (1.5.0).",
+        "required": [
+          "name",
+          "label",
+          "type",
+          "required"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "The target's own type name: string, reference, date, double, picklist, ..."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "A create fails without it: not nillable and no default."
+          },
+          "reference_to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "length": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "picklist_values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "TargetObject": {
+        "type": "object",
+        "description": "One object a write target lets the integration create (1.5.0), read live from the target.",
+        "required": [
+          "name",
+          "label"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "custom": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "TargetObjectDescription": {
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "fields"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetField"
+            }
           }
         }
       },
@@ -5495,6 +6964,57 @@
           "cost_7d": {
             "$ref": "#/components/schemas/ExecutionCost"
           },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UseCaseStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The use case's own status (1.7.0), so a paused one is not reported silent."
+          },
+          "schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cadence it runs on (1.7.0), a `ScheduleCadence` value; null when it runs only on demand."
+          },
+          "trigger": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What fires the schedule where this platform runs (1.7.0): `poller` locally, `orchestrator` in the cloud, null when nothing does and the Run button is the only trigger."
+          },
+          "next_expected_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the schedule should next fire (1.7.0), from the last run and the cadence."
+          },
+          "exceptions_7d": {
+            "type": "integer",
+            "default": 0,
+            "description": "Documents held with an exception across the last 7 days' live runs (1.7.0)."
+          },
+          "created_7d": {
+            "type": "integer",
+            "default": 0,
+            "description": "Records created across the last 7 days' live runs (1.7.0)."
+          },
+          "last_run_summary": {
+            "type": "string",
+            "default": "",
+            "description": "The last run's one-line summary (1.7.0)."
+          },
           "error": {
             "oneOf": [
               {
@@ -5623,6 +7143,17 @@
           },
           "cost": {
             "$ref": "#/components/schemas/RunCost"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RunMode"
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "What the run's last executor returned (1.3.0): for a document-to-record run, the batch\n-- `documents` carried through with what was written, `exceptions` with their class and\ndetail, `stats` per stage, `rollback` -- so the interface shows what was created and what\nwas held without re-running anything. Null while queued or running, and for a run that\nfailed before any executor returned.\n"
           }
         }
       },
@@ -5654,6 +7185,16 @@
             ]
           }
         }
+      },
+      "UseCaseShape": {
+        "type": "string",
+        "enum": [
+          "inform",
+          "alert",
+          "recommend",
+          "act"
+        ],
+        "description": "What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person\napproves, write unattended. The shape is a property of the spec -- each shape has its own\nform, chosen before the form is filled -- and it decides the parameter list, the workflow\nthe orchestration compiler generates, the readiness checks, and who may activate.\nMirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders\nthe same four.\n"
       },
       "UseCaseSource": {
         "type": "string",
@@ -5742,6 +7283,16 @@
             "type": "string"
           }
         }
+      },
+      "UseCaseTemplate": {
+        "type": "string",
+        "enum": [
+          "kpi_change",
+          "document_to_record",
+          "metric_diagnosis",
+          "at_risk"
+        ],
+        "description": "The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the\nAct sequence as section 07 describes it; `document_to_record` is the Act sequence a\ndocument-driven automation needs -- receive, screen, extract, resolve -- before the same\nguarded write. Both are Act. The interface reads the template from the requirement's own\nwords and never asks for it; the compiler checks it belongs to the shape.\n"
       },
       "UseCaseWrite": {
         "type": "object",
@@ -10726,6 +12277,184 @@
           }
         }
       },
+      "put": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "saveUseCaseSpec",
+        "summary": "Store a spec the interface assembled (1.3.0).",
+        "description": "The per-shape form fills the spec directly -- shape, template and parameters -- without\nrunning the extraction agent (the form is the spec, K15). This stores it whole and returns\nit back. `extracted_by` records that the form produced it (`interface.form`), so a spec a\nperson assembled and one an agent extracted are distinguishable in the record.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Spec"
+              },
+              "examples": {
+                "document_to_record": {
+                  "value": {
+                    "use_case_id": "uc_0007",
+                    "question": "Turn purchase-order emails into Salesforce orders.",
+                    "business_area": "sales",
+                    "entities": [
+                      {
+                        "concept": "Customer",
+                        "role": "subject"
+                      },
+                      {
+                        "concept": "Product",
+                        "role": "subject"
+                      }
+                    ],
+                    "kpi_identifiers": [],
+                    "grain": "overall",
+                    "notes": "",
+                    "extracted_by": {
+                      "identifier": "interface.form",
+                      "version": "1"
+                    },
+                    "shape": "act",
+                    "template": "document_to_record",
+                    "parameters": {
+                      "source mailbox": "seed_gmail_orders",
+                      "document type": "pdf",
+                      "extraction template": "purchase_order",
+                      "master data": {
+                        "customer": "ds-sf-account",
+                        "product": "ds-sf-product",
+                        "shipTo": "ds-sf-address",
+                        "orderHistory": "ds-sf-order"
+                      },
+                      "guardrails": [
+                        {
+                          "id": "duplicate_po"
+                        },
+                        {
+                          "id": "restricted_product"
+                        }
+                      ],
+                      "recipient": "ops@example.com",
+                      "write target": "seed_salesforce_orders",
+                      "target objects": "order_orderitem",
+                      "created as": "draft",
+                      "per-run cap": "50 records",
+                      "rollback": "Cancel the record and remove its lines",
+                      "schedule": "every_15_minutes"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Spec"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "use_case_id": "uc_0007",
+                      "question": "Turn purchase-order emails into Salesforce orders.",
+                      "business_area": "sales",
+                      "entities": [
+                        {
+                          "concept": "Customer",
+                          "role": "subject"
+                        },
+                        {
+                          "concept": "Product",
+                          "role": "subject"
+                        }
+                      ],
+                      "kpi_identifiers": [],
+                      "grain": "overall",
+                      "notes": "",
+                      "extracted_by": {
+                        "identifier": "interface.form",
+                        "version": "1"
+                      },
+                      "shape": "act",
+                      "template": "document_to_record",
+                      "parameters": {
+                        "source mailbox": "seed_gmail_orders",
+                        "document type": "pdf",
+                        "extraction template": "purchase_order",
+                        "guardrails": [
+                          {
+                            "id": "duplicate_po"
+                          }
+                        ],
+                        "recipient": "ops@example.com",
+                        "write target": "seed_salesforce_orders",
+                        "target objects": "order_orderitem",
+                        "created as": "draft",
+                        "per-run cap": "50 records",
+                        "rollback": "Cancel the record and remove its lines",
+                        "schedule": "every_15_minutes"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "use-cases"
@@ -11618,6 +13347,7 @@
         ],
         "operationId": "triggerUseCaseRun",
         "summary": "Run now, outside the schedule.",
+        "description": "Queues one run of the compiled workflow and returns it; poll `GET /use-cases/{id}/runs/{run_id}`.\n`mode=rehearse` (1.3.0) runs the same workflow with every side effect held -- no write to\nthe target, no message sent -- over the deployment's sample set where the template has one,\nso the rehearse screen and the live run share one code path. In the cloud this is the\nendpoint the orchestrator (a Logic App, a Step Functions task) calls; locally the\ninterface's Run button and the in-process poller call it.\n",
         "x-egpt-scopes": [
           "use-cases:write"
         ],
@@ -11629,8 +13359,42 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RunMode"
+            }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              },
+              "examples": {
+                "chosen_messages": {
+                  "value": {
+                    "source": "mailbox",
+                    "message_ids": [
+                      "<e-01@sample.northwind.example>",
+                      "<e-02@sample.northwind.example>"
+                    ]
+                  }
+                },
+                "golden_cases": {
+                  "value": {
+                    "source": "cases"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "Queued. Poll the run.",
@@ -11802,6 +13566,2321 @@
                     "value": {
                       "detail": "No use case 'uc_9999'.",
                       "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/analytics/suggest": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestAnalyticsUseCase",
+        "summary": "What the connected data supports for an analytics ask, as a filled form.",
+        "description": "The Analytics Automation form's intelligence (1.9.0). The person's own words -- \"full\nvisibility into the quote pipeline by brand and territory, every Monday to the sales\nteam\", or \"why is my revenue low last week?\" -- resolved against the governed KPI\nregistry and the gold the deployment holds: the KPIs that match and can be reported on,\nthe breakdowns they offer, the baseline, the cadence, the outputs and the recipients the\nwords name, and every word no registered KPI covers. Deterministic: the same ask over\nthe same registry suggests the same form, and each KPI says which of the ask's words\nchose it. The person confirms; nothing is stored by this call.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSuggestRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "question": "Full visibility into the quote pipeline by brand, territory and state, every Monday to sales@example.com."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsSuggestion"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "kind": "monitoring",
+                      "title": "Full visibility into the quote pipeline by brand, territory and state",
+                      "business_areas": [
+                        "sales"
+                      ],
+                      "kpis": [
+                        {
+                          "identifier": "rfq__quotes_by_brand",
+                          "name": "Quotes by brand",
+                          "grain": "brand",
+                          "business_area": "sales",
+                          "unit": "quotes",
+                          "score": 24,
+                          "why": "quote, pipeline, brand",
+                          "feasibility": "ready",
+                          "latest_as_of": "2026-09-17"
+                        }
+                      ],
+                      "dimensions": [
+                        "brand",
+                        "location",
+                        "sales_territory"
+                      ],
+                      "comparison": "prior_period",
+                      "comparison_reason": "the period before, the default",
+                      "schedule": "weekly",
+                      "schedule_reason": "the ask says weekly",
+                      "outputs": [
+                        "dashboard",
+                        "report"
+                      ],
+                      "recipients": [
+                        "sales@example.com"
+                      ],
+                      "uncovered": [],
+                      "notes": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/analytics/diagnosis-options": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "diagnosisOptions",
+        "summary": "What a diagnostic ask on one KPI can search across, and what the data can bear.",
+        "description": "The diagnostic kind's form (1.12.0, K25). For one registered KPI: whether its formula\ncan be decomposed and as what (a ratio's numerator and denominator, or an additive\naggregate), the columns of its fact a change can be searched across (low-cardinality\ntext columns the formula does not itself read; never an id, a date, a status or a\nreason) with their distinct counts and descriptions, the rows in the period and the\none before, and the support floor each sensitivity implies. Nothing asked that the data\ncan decide. Deterministic; nothing stored.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosisOptionsRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "kpi_identifier": "rfq__closed_won_rate",
+                    "window": 7
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The options.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosisOptions"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "kpi_identifier": "rfq__closed_won_rate",
+                      "diagnosable": true,
+                      "kind": "ratio",
+                      "numerator": "COUNT(*) FILTER (WHERE pipeline_stage = 'Closed Won')",
+                      "denominator": "COUNT(*)",
+                      "table": "silver.dc_rfq_quotes",
+                      "window_days": 90,
+                      "step_days": 7,
+                      "as_of": "2026-09-17",
+                      "rows_in_period": 480,
+                      "rows_in_baseline": 454,
+                      "history_periods": 12,
+                      "support_floors": {
+                        "clear": 36,
+                        "usual": 24,
+                        "more": 12
+                      },
+                      "dimensions": [
+                        {
+                          "column": "brand",
+                          "label": "brand",
+                          "distinct": 26,
+                          "description": "The brand quoted."
+                        }
+                      ],
+                      "columns": [
+                        {
+                          "column": "quote_id",
+                          "description": ""
+                        }
+                      ],
+                      "reason_columns": [
+                        "lost_reason"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/mailbox/messages": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listMailboxMessages",
+        "summary": "The messages in the connected mailbox that match the use case's filter (1.6.0).",
+        "description": "Read with the platform's credentials, nothing flagged; what a person picks a rehearsal\nfrom. `processed_before` marks messages a live run already carried.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages, newest last.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MailboxMessage"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "<e-01@sample.northwind.example>",
+                        "sender": "purchasing@bristolcoatings.example",
+                        "sender_domain": "bristolcoatings.example",
+                        "from_address": "kiruthiga@saturam.com",
+                        "subject": "Northwind sample: PO 27012128",
+                        "received_at": "2026-09-15T08:01:00+00:00",
+                        "attachments": [
+                          {
+                            "filename": "27012128.pdf",
+                            "content_type": "application/pdf",
+                            "size": 2410
+                          }
+                        ],
+                        "processed_before": false
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No mailbox is connected, or it cannot be reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "no_mailbox": {
+                    "value": {
+                      "detail": "env:gmail: GMAIL_USER, GMAIL_APP_PASSWORD not set in the environment",
+                      "code": "mailbox_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/cases": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listGoldenCases",
+        "summary": "The use case's golden cases (1.6.0).",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cases, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GoldenCase"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "case_1a2b3c4d",
+                        "use_case_id": "uc_0007",
+                        "label": "E-01: PO 27012128",
+                        "source": "generated",
+                        "sender": "purchasing@bristolcoatings.example",
+                        "subject": "PO 27012128",
+                        "filename": "27012128.pdf",
+                        "expected": {
+                          "outcome": "created",
+                          "extracted": {
+                            "po_number": "27012128"
+                          },
+                          "line_count": 1
+                        },
+                        "last_status": "pass",
+                        "last_run_id": "run_0042",
+                        "last_result": {
+                          "status": "pass",
+                          "outcome": "created",
+                          "expected_outcome": "created",
+                          "checks": [
+                            {
+                              "name": "outcome",
+                              "passed": true,
+                              "detail": "expected created, got created"
+                            }
+                          ]
+                        },
+                        "created_at": "2026-09-16T05:00:00Z"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "createGoldenCase",
+        "summary": "Upload a document as a golden case (1.6.0).",
+        "description": "The document is stored with the use case and run by `POST .../runs?mode=rehearse` with\n`source: cases`. Expected values may be supplied now or authored later by accepting a\nrun's output.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoldenCaseWrite"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "label": "Bristol PO, March",
+                    "sender": "purchasing@bristolcoatings.example",
+                    "subject": "PO 27012128",
+                    "filename": "PO-27012128.pdf",
+                    "document_b64": "JVBERi0xLjQK...",
+                    "expected": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoldenCase"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "case_5e6f7a8b",
+                      "use_case_id": "uc_0007",
+                      "label": "Bristol PO, March",
+                      "source": "uploaded",
+                      "sender": "purchasing@bristolcoatings.example",
+                      "subject": "PO 27012128",
+                      "filename": "PO-27012128.pdf",
+                      "expected": null,
+                      "last_status": "untested",
+                      "last_run_id": null,
+                      "last_result": null,
+                      "created_at": "2026-09-16T05:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The document is not a PDF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_pdf": {
+                    "value": {
+                      "detail": "document.pdf: not a PDF (no %PDF header)",
+                      "code": "invalid_document"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/cases/{case_id}": {
+      "patch": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "updateGoldenCase",
+        "summary": "Change a case's label, sender or expected output (1.6.0).",
+        "description": "The other way to author a golden record: type what the document should produce -- the\noutcome and the header values -- before or instead of running it. A case whose expected\noutput changes goes back to `untested` until the next run.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoldenCaseUpdate"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "expected": {
+                      "outcome": "created",
+                      "extracted": {
+                        "po_number": "177948",
+                        "customer_name": "Lycoming Fabrication Inc"
+                      },
+                      "line_count": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoldenCase"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "case_5e6f7a8b",
+                      "use_case_id": "uc_0007",
+                      "label": "Lycoming PO",
+                      "source": "uploaded",
+                      "sender": "aallison@lycomingfab.example",
+                      "subject": "PO 177948",
+                      "filename": "E-02-177948.pdf",
+                      "expected": {
+                        "outcome": "created",
+                        "extracted": {
+                          "po_number": "177948",
+                          "customer_name": "Lycoming Fabrication Inc"
+                        },
+                        "line_count": 1
+                      },
+                      "last_status": "untested",
+                      "last_run_id": null,
+                      "last_result": null,
+                      "created_at": "2026-09-16T05:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "deleteGoldenCase",
+        "summary": "Remove a golden case (1.6.0).",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/cases/{case_id}/accept": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "acceptGoldenCaseOutput",
+        "summary": "Make the case's last output what it expects from now on (1.6.0).",
+        "description": "The cheap way to author a golden record -- run the document, look at what came out,\naccept it. The case passes until the use case changes and a re-run disagrees.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The case, now with expected values.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoldenCase"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "case_5e6f7a8b",
+                      "use_case_id": "uc_0007",
+                      "label": "Bristol PO, March",
+                      "source": "uploaded",
+                      "sender": "purchasing@bristolcoatings.example",
+                      "subject": "PO 27012128",
+                      "filename": "PO-27012128.pdf",
+                      "expected": {
+                        "outcome": "created",
+                        "extracted": {
+                          "po_number": "27012128",
+                          "customer_name": "Bristol Coatings Ltd"
+                        },
+                        "line_count": 1
+                      },
+                      "last_status": "pass",
+                      "last_run_id": "run_0043",
+                      "last_result": {
+                        "status": "pass"
+                      },
+                      "created_at": "2026-09-16T05:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The case has not been run yet, so there is no output to accept.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightResult"
+                },
+                "examples": {
+                  "not_run": {
+                    "value": {
+                      "use_case_id": "uc_0007",
+                      "allowed": false,
+                      "checks": [
+                        {
+                          "name": "case_run",
+                          "passed": false,
+                          "reason": "Run the case first; there is no output to accept yet."
+                        }
+                      ],
+                      "blocked_by": [
+                        "case_run"
+                      ],
+                      "checked_at": "2026-09-16T05:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/preflight/{probe}": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "runUseCasePreflightProbe",
+        "summary": "One live connectivity probe (1.6.0).",
+        "description": "Where `runUseCasePreflight` confirms that credentials exist, this opens the connection:\n`mailbox` logs in and counts the messages matching the filter; `target` takes a token\nand counts the records it may read; `master_data` reads the rows the resolver will use;\n`model` sends one short call to the extraction model; `golden` reads the cases. A probe\nthat fails answers with `passed: false` and the reason, never an error.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "probe",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProbeName"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The probe's verdict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeResult"
+                },
+                "examples": {
+                  "mailbox": {
+                    "value": {
+                      "name": "mailbox",
+                      "passed": true,
+                      "reason": "Logged into kiruthiga@saturam.com; 16 message(s) match the filter right now.",
+                      "elapsed_ms": 3900,
+                      "count": 16
+                    }
+                  },
+                  "target_down": {
+                    "value": {
+                      "name": "target",
+                      "passed": false,
+                      "reason": "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment",
+                      "elapsed_ms": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/use-cases/{use_case_id}/recommendations": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listUseCaseRecommendations",
+        "summary": "The recommendations and alerts one use case has produced (1.13.0).",
+        "description": "The hand-off from Analytics Automation to Decision Intelligence (K26): the records the\nuse case's `recommend` stage wrote, by value at stake. Filter by status to read the\nopen ones -- what a consuming use case, or the screen, acts on.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "accepted",
+                "dismissed",
+                "actioned",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "alert"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records and the counts per status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "items": [
+                        {
+                          "id": "rec_300fd589",
+                          "use_case_id": "uc_1f2e3d4c",
+                          "run_id": "run_9a8b7c6d",
+                          "kind": "recommendation",
+                          "subject_type": "quote",
+                          "subject_id": "486",
+                          "subject_label": "Quote 486 · Griddles · $9,256",
+                          "account_id": "12",
+                          "account_label": "Sanne Hendriks",
+                          "owner": "M. Nambiar",
+                          "risk_score": 0.981,
+                          "risk_level": "high",
+                          "horizon_days": 26,
+                          "model_version": "60523454c1",
+                          "drivers": [
+                            {
+                              "feature": "last_lost_reason",
+                              "value": "Decision Delayed",
+                              "typical": null,
+                              "contribution": -1.35,
+                              "text": "the account's last quote was lost: Decision Delayed"
+                            },
+                            {
+                              "feature": "customer_segment",
+                              "value": "SMB",
+                              "typical": null,
+                              "contribution": -0.41,
+                              "text": "SMB accounts convert less often"
+                            }
+                          ],
+                          "action": {
+                            "code": "DECISION_SUPPORT",
+                            "title": "Send the total-cost-of-ownership summary to the decision maker",
+                            "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                            "owner": "Sales rep",
+                            "sla_hours": 120,
+                            "from_catalogue": true,
+                            "because": "the account's last quote was lost: Decision Delayed"
+                          },
+                          "value_at_stake": 9256,
+                          "value_unit": "USD",
+                          "context": {
+                            "category": "Griddles",
+                            "territory": "India East",
+                            "stage": "Proposal Sent",
+                            "age_days": 17,
+                            "usual_days": 26,
+                            "stalled": false,
+                            "account": {
+                              "segment": "Champions",
+                              "at_risk": false,
+                              "recency_days": 20
+                            }
+                          },
+                          "status": "open",
+                          "status_note": "",
+                          "status_by": "",
+                          "status_at": null,
+                          "outcome": null,
+                          "outcome_at": null,
+                          "expires_at": "2026-09-29T00:00:00Z",
+                          "created_at": "2026-09-20T06:00:00Z",
+                          "updated_at": "2026-09-20T06:00:00Z"
+                        }
+                      ],
+                      "counts": {
+                        "open": 61,
+                        "accepted": 1,
+                        "dismissed": 0,
+                        "actioned": 0,
+                        "expired": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listRecommendations",
+        "summary": "Recommendations and alerts across use cases (1.13.0).",
+        "description": "The same records as `/use-cases/{use_case_id}/recommendations`, across every use case:\nwhat Decision Intelligence pulls. Filter by status, kind, level or owner.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "accepted",
+                "dismissed",
+                "actioned",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "alert"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records and the counts per status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationList"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "items": [],
+                      "counts": {
+                        "open": 0,
+                        "accepted": 0,
+                        "dismissed": 0,
+                        "actioned": 0,
+                        "expired": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations/{recommendation_id}": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "getRecommendation",
+        "summary": "One recommendation or alert (1.13.0).",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recommendation"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "rec_300fd589",
+                      "use_case_id": "uc_1f2e3d4c",
+                      "run_id": "run_9a8b7c6d",
+                      "kind": "recommendation",
+                      "subject_type": "quote",
+                      "subject_id": "486",
+                      "subject_label": "Quote 486 · Griddles · $9,256",
+                      "account_id": "12",
+                      "account_label": "Sanne Hendriks",
+                      "owner": "M. Nambiar",
+                      "risk_score": 0.981,
+                      "risk_level": "high",
+                      "horizon_days": 26,
+                      "model_version": "60523454c1",
+                      "drivers": [
+                        {
+                          "feature": "last_lost_reason",
+                          "value": "Decision Delayed",
+                          "typical": null,
+                          "contribution": -1.35,
+                          "text": "the account's last quote was lost: Decision Delayed"
+                        }
+                      ],
+                      "action": {
+                        "code": "DECISION_SUPPORT",
+                        "title": "Send the total-cost-of-ownership summary to the decision maker",
+                        "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                        "owner": "Sales rep",
+                        "sla_hours": 120,
+                        "from_catalogue": true,
+                        "because": "the account's last quote was lost: Decision Delayed"
+                      },
+                      "value_at_stake": 9256,
+                      "value_unit": "USD",
+                      "context": {
+                        "category": "Griddles",
+                        "territory": "India East",
+                        "stage": "Proposal Sent",
+                        "age_days": 17,
+                        "usual_days": 26,
+                        "stalled": false
+                      },
+                      "status": "open",
+                      "status_note": "",
+                      "status_by": "",
+                      "status_at": null,
+                      "outcome": null,
+                      "outcome_at": null,
+                      "expires_at": "2026-09-29T00:00:00Z",
+                      "created_at": "2026-09-20T06:00:00Z",
+                      "updated_at": "2026-09-20T07:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations/{recommendation_id}/status": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "setRecommendationStatus",
+        "summary": "Accept, dismiss or mark actioned (1.13.0).",
+        "description": "What Decision Intelligence -- or a person on the Recommendations screen, which is the\nsame contract -- writes back. A decided record is kept as decided by later runs of\nthe producing use case; only an open one is refreshed.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationStatusWrite"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "status": "accepted",
+                    "note": "Called the buyer; TCO summary sent.",
+                    "by": "M. Nambiar"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The record after the write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recommendation"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "rec_300fd589",
+                      "use_case_id": "uc_1f2e3d4c",
+                      "run_id": "run_9a8b7c6d",
+                      "kind": "recommendation",
+                      "subject_type": "quote",
+                      "subject_id": "486",
+                      "subject_label": "Quote 486 · Griddles · $9,256",
+                      "account_id": "12",
+                      "account_label": "Sanne Hendriks",
+                      "owner": "M. Nambiar",
+                      "risk_score": 0.981,
+                      "risk_level": "high",
+                      "horizon_days": 26,
+                      "model_version": "60523454c1",
+                      "drivers": [
+                        {
+                          "feature": "last_lost_reason",
+                          "value": "Decision Delayed",
+                          "typical": null,
+                          "contribution": -1.35,
+                          "text": "the account's last quote was lost: Decision Delayed"
+                        }
+                      ],
+                      "action": {
+                        "code": "DECISION_SUPPORT",
+                        "title": "Send the total-cost-of-ownership summary to the decision maker",
+                        "action": "A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.",
+                        "owner": "Sales rep",
+                        "sla_hours": 120,
+                        "from_catalogue": true,
+                        "because": "the account's last quote was lost: Decision Delayed"
+                      },
+                      "value_at_stake": 9256,
+                      "value_unit": "USD",
+                      "context": {
+                        "category": "Griddles",
+                        "territory": "India East",
+                        "stage": "Proposal Sent",
+                        "age_days": 17,
+                        "usual_days": 26,
+                        "stalled": false
+                      },
+                      "status": "accepted",
+                      "status_note": "Called the buyer; TCO summary sent.",
+                      "status_by": "M. Nambiar",
+                      "status_at": "2026-09-20T07:00:00Z",
+                      "outcome": null,
+                      "outcome_at": null,
+                      "expires_at": "2026-09-29T00:00:00Z",
+                      "created_at": "2026-09-20T06:00:00Z",
+                      "updated_at": "2026-09-20T07:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/extraction-templates": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listExtractionTemplates",
+        "summary": "The document kinds that ship with the platform.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExtractionTemplate"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "purchase_order",
+                        "label": "Purchase order",
+                        "record": "order",
+                        "source": "shipped",
+                        "header": [
+                          {
+                            "name": "po_number",
+                            "required": true
+                          },
+                          {
+                            "name": "customer_name",
+                            "required": true
+                          },
+                          {
+                            "name": "ship_to_address",
+                            "required": true
+                          },
+                          {
+                            "name": "due_date"
+                          }
+                        ],
+                        "lines": [
+                          {
+                            "name": "line_no",
+                            "required": true
+                          },
+                          {
+                            "name": "description",
+                            "required": true
+                          },
+                          {
+                            "name": "quantity",
+                            "required": true
+                          },
+                          {
+                            "name": "unit_of_measure",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/extraction-templates/draft": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "draftExtractionTemplate",
+        "summary": "Draft a template's fields from a description and an example document.",
+        "description": "The extraction model reads the description (and the example's text, when one is\nsupplied) and proposes a field list in the template's shape, every field snake_case, the\nones the description calls essential marked required. The person edits and keeps it; the\ndraft is never stored by itself.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionTemplateDraftRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "description": "Suppliers email delivery notes as PDFs; create a goods receipt per note.",
+                    "label": "Delivery note"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The draft.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionTemplateDraft"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "template": {
+                        "id": "delivery_note",
+                        "label": "Delivery note",
+                        "record": "receipt",
+                        "source": "drafted",
+                        "header": [
+                          {
+                            "name": "note_number",
+                            "required": true
+                          },
+                          {
+                            "name": "supplier_name",
+                            "required": true
+                          },
+                          {
+                            "name": "delivery_date",
+                            "required": true
+                          },
+                          {
+                            "name": "po_reference"
+                          }
+                        ],
+                        "lines": [
+                          {
+                            "name": "line_no",
+                            "required": true
+                          },
+                          {
+                            "name": "description",
+                            "required": true
+                          },
+                          {
+                            "name": "quantity",
+                            "required": true
+                          },
+                          {
+                            "name": "unit_of_measure"
+                          }
+                        ]
+                      },
+                      "notes": ""
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks `use-cases:write`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No extraction model is configured, so nothing can draft.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "no_model": {
+                    "value": {
+                      "detail": "No extraction model is configured (AZURE_OPENAI_API_KEY).",
+                      "code": "model_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/guardrail-rules/kinds": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listGuardrailRuleKinds",
+        "summary": "The kinds of check the platform can evaluate.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Rule kinds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailRuleKind"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "duplicate_reference",
+                        "label": "Duplicate reference",
+                        "check": "A record for this customer with the same {field} already exists (last {lookback_months} months)",
+                        "scope": "header",
+                        "params": {
+                          "lookback_months": 12
+                        },
+                        "needs": "order_history",
+                        "exception": "DUPLICATE_REFERENCE"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/guardrail-rules/suggest": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestGuardrailRules",
+        "summary": "The rules a template's own fields call for.",
+        "description": "Deterministic. A reference-like header field proposes a duplicate check, a promised date a date window, a quantity an outlier check, a total a reconciliation with the lines. The person turns them on.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionTemplate"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "label": "Supplier invoice",
+                    "header": [
+                      {
+                        "name": "invoice_number",
+                        "required": true
+                      },
+                      {
+                        "name": "due_date"
+                      },
+                      {
+                        "name": "total",
+                        "required": true
+                      }
+                    ],
+                    "lines": [
+                      {
+                        "name": "line_no",
+                        "required": true
+                      },
+                      {
+                        "name": "description",
+                        "required": true
+                      },
+                      {
+                        "name": "quantity"
+                      },
+                      {
+                        "name": "line_total",
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Suggested rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailRule"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "sender_known",
+                        "kind": "sender_known",
+                        "label": "Sender known",
+                        "field": null,
+                        "params": {},
+                        "exception": "UNKNOWN_SENDER",
+                        "needs": "customer"
+                      },
+                      {
+                        "id": "duplicate_invoice_number",
+                        "kind": "duplicate_reference",
+                        "label": "Duplicate invoice number",
+                        "field": "invoice_number",
+                        "params": {
+                          "lookback_months": 12
+                        },
+                        "exception": "DUPLICATE_REFERENCE",
+                        "needs": "order_history"
+                      },
+                      {
+                        "id": "total_total",
+                        "kind": "total_matches_lines",
+                        "label": "Total matches the lines",
+                        "field": "total",
+                        "line_field": "line_total",
+                        "params": {
+                          "tolerance": 0.01
+                        },
+                        "exception": "TOTAL_MISMATCH",
+                        "needs": null
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/targets/{target}/objects": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listTargetObjects",
+        "summary": "The objects the write target lets the platform create.",
+        "description": "Read live from the target with the platform's own credentials (`env:salesforce` locally, a vault in the cloud). Common objects first.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "salesforce"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Objects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TargetObject"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "name": "Order",
+                        "label": "Order",
+                        "custom": false
+                      },
+                      {
+                        "name": "OrderItem",
+                        "label": "Order Product",
+                        "custom": false
+                      },
+                      {
+                        "name": "Opportunity",
+                        "label": "Opportunity",
+                        "custom": false
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The target is not reachable, or its credentials are not configured.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "no_credentials": {
+                    "value": {
+                      "detail": "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment",
+                      "code": "target_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/targets/{target}/objects/{object}": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "describeTargetObject",
+        "summary": "The createable fields of one target object, read live.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "salesforce"
+              ]
+            }
+          },
+          {
+            "name": "object",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetObjectDescription"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "name": "Order",
+                      "label": "Order",
+                      "fields": [
+                        {
+                          "name": "AccountId",
+                          "label": "Account ID",
+                          "type": "reference",
+                          "required": false,
+                          "reference_to": [
+                            "Account"
+                          ],
+                          "length": 18,
+                          "picklist_values": [],
+                          "custom": false
+                        },
+                        {
+                          "name": "EffectiveDate",
+                          "label": "Order Start Date",
+                          "type": "date",
+                          "required": true,
+                          "reference_to": [],
+                          "length": null,
+                          "picklist_values": [],
+                          "custom": false
+                        },
+                        {
+                          "name": "PoNumber",
+                          "label": "PO Number",
+                          "type": "string",
+                          "required": false,
+                          "reference_to": [],
+                          "length": 80,
+                          "picklist_values": [],
+                          "custom": false
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "no object 'Ordr' in this org",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The target is not reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unreachable": {
+                    "value": {
+                      "detail": "Salesforce token request failed 400",
+                      "code": "target_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/record-mappings": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listRecordMappings",
+        "summary": "The record mappings that ship with the platform.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Mappings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordMapping"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "order_orderitem",
+                        "label": "Order + OrderItem (standard)",
+                        "target": "salesforce",
+                        "object": "Order",
+                        "record": "order",
+                        "source": "shipped",
+                        "fields": [
+                          {
+                            "target": "AccountId",
+                            "source": [
+                              "customer.id"
+                            ],
+                            "required": true,
+                            "transform": null,
+                            "label": "the resolved customer"
+                          },
+                          {
+                            "target": "PoNumber",
+                            "source": [
+                              "po_number"
+                            ],
+                            "required": true,
+                            "transform": null,
+                            "label": ""
+                          }
+                        ],
+                        "child": {
+                          "object": "OrderItem",
+                          "parent_field": "OrderId",
+                          "fields": [
+                            {
+                              "target": "PricebookEntryId",
+                              "source": [
+                                "product.pricebook_entry_id"
+                              ],
+                              "required": true,
+                              "transform": null,
+                              "label": "the resolved product's price entry"
+                            },
+                            {
+                              "target": "Quantity",
+                              "source": [
+                                "line.quantity"
+                              ],
+                              "required": true,
+                              "transform": "number",
+                              "label": ""
+                            }
+                          ]
+                        },
+                        "status_field": "Status",
+                        "status_values": {
+                          "draft": "Draft",
+                          "active": "Activated"
+                        },
+                        "rollback_action": "delete"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/record-mappings/suggest": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestRecordMapping",
+        "summary": "A mapping proposed from names, over the target's live fields.",
+        "description": "Deterministic. The template's field names against the parent and child objects' field\nnames and labels, with the references a resolved document always carries -- the customer,\nthe product's price entry, the standard price book, the ship-to -- placed by type. Required\ntarget fields nothing matched are listed with no source, for the person to fill.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "parameters": [
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "salesforce"
+              ],
+              "default": "salesforce"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingSuggestRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "template": {
+                      "id": "purchase_order",
+                      "label": "Purchase order",
+                      "header": [
+                        {
+                          "name": "po_number",
+                          "required": true
+                        },
+                        {
+                          "name": "po_date"
+                        },
+                        {
+                          "name": "due_date"
+                        }
+                      ],
+                      "lines": [
+                        {
+                          "name": "line_no",
+                          "required": true
+                        },
+                        {
+                          "name": "description",
+                          "required": true
+                        },
+                        {
+                          "name": "quantity",
+                          "required": true
+                        },
+                        {
+                          "name": "unit_price"
+                        }
+                      ]
+                    },
+                    "parent": "Order",
+                    "child": "OrderItem",
+                    "label": "Order + OrderItem"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggested mapping.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordMapping"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "order_orderitem",
+                      "label": "Order + OrderItem",
+                      "target": "salesforce",
+                      "object": "Order",
+                      "record": "order",
+                      "source": "suggested",
+                      "fields": [
+                        {
+                          "target": "AccountId",
+                          "source": [
+                            "customer.id"
+                          ],
+                          "required": false,
+                          "transform": null,
+                          "label": "the resolved customer"
+                        },
+                        {
+                          "target": "EffectiveDate",
+                          "source": [
+                            "po_date"
+                          ],
+                          "required": true,
+                          "transform": "date_not_before_today",
+                          "label": ""
+                        },
+                        {
+                          "target": "PoNumber",
+                          "source": [
+                            "po_number"
+                          ],
+                          "required": false,
+                          "transform": "text:80",
+                          "label": ""
+                        }
+                      ],
+                      "child": {
+                        "object": "OrderItem",
+                        "parent_field": "OrderId",
+                        "fields": [
+                          {
+                            "target": "PricebookEntryId",
+                            "source": [
+                              "product.pricebook_entry_id"
+                            ],
+                            "required": true,
+                            "transform": null,
+                            "label": "the resolved product's price entry"
+                          },
+                          {
+                            "target": "Quantity",
+                            "source": [
+                              "line.quantity"
+                            ],
+                            "required": true,
+                            "transform": "number",
+                            "label": ""
+                          }
+                        ]
+                      },
+                      "status_field": "Status",
+                      "status_values": {
+                        "draft": "Draft",
+                        "active": "Activated"
+                      },
+                      "rollback_action": "delete"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The target is not reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unreachable": {
+                    "value": {
+                      "detail": "Salesforce token request failed 400",
+                      "code": "target_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/record-mappings/suggest-objects": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestTargetObjects",
+        "summary": "Which of the target's objects a document of this template becomes.",
+        "description": "The Target objects section's suggestion (1.10.0): the target's createable objects,\nread live, ranked for the template -- its `record` kind against the objects' names, the\nwords of the description against their labels, and, for a template with lines, the\nper-line child object (`OrderItem` for `Order`). A shipped mapping for the pair is named\nso the form can offer it as is; otherwise the pair is what `suggestRecordMapping` maps.\nDeterministic; each suggestion says why.\n",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObjectSuggestRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "template": {
+                      "id": "purchase_order",
+                      "label": "Purchase order",
+                      "record": "order",
+                      "header": [
+                        {
+                          "name": "po_number",
+                          "required": true
+                        }
+                      ],
+                      "lines": [
+                        {
+                          "name": "line_no",
+                          "required": true
+                        },
+                        {
+                          "name": "quantity",
+                          "required": true
+                        }
+                      ]
+                    },
+                    "description": "Create sales orders in Salesforce from purchase orders."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestions, best first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ObjectSuggestion"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "object": "Order",
+                        "label": "Order",
+                        "child": "OrderItem",
+                        "score": 21,
+                        "why": "the template creates order; the description says order",
+                        "shipped_mapping": "order_orderitem"
+                      },
+                      {
+                        "object": "Opportunity",
+                        "label": "Opportunity",
+                        "child": "OpportunityLineItem",
+                        "score": 9,
+                        "why": "the template creates order",
+                        "shipped_mapping": "opportunity"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The target is not reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unreachable": {
+                    "value": {
+                      "detail": "Salesforce token request failed 400",
+                      "code": "target_unavailable"
                     }
                   }
                 }

@@ -14,10 +14,11 @@ rest (``getSemanticSnapshot``, concepts, join paths, harvests) stay unmounted.
 ``KpiRegistryStore.adopt_accepted`` in the same request -- confirmed idempotent
 (``kpi/store.py:669``, filters ``applied_at is None``) and safe to call as a sweep rather than
 scoped to just the one id just decided, which means it also self-heals any KPI proposal
-accepted before this router existed. ``kind: use_case`` and the five enrichment kinds have no
-consumer wired to an HTTP accept today (``GRAPH_KINDS`` excludes ``use_case``, and nothing
-calls ``ProposalStore.apply_accepted`` from a route) -- accepting one only records the
-decision. The response's ``applied_at`` says which happened; nothing here pretends otherwise.
+accepted before this router existed. **Accept also applies, for the graph-bound kinds (K22).** Accepting a mapping, enrichment,
+join, authoritative-source or column-meaning proposal calls ``ProposalStore.apply_accepted``
+over the semantic graph in the same request, so a confirmed table-to-concept mapping backs
+its business area at once. ``kind: use_case`` has no consumer on accept -- the decision is
+recorded, nothing applied. The response's ``applied_at`` says which happened.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from egpt_retail.contracts.data_source import DataSource
 from egpt_retail.contracts.semantic import Column, SemanticReadError, Table, TableRef
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.proposals import (
+    GRAPH_KINDS,
     Proposal,
     ProposalKind,
     ProposalStore,
@@ -181,7 +183,7 @@ def _refetch_many(store: ProposalStore, proposal_ids: Sequence[str]) -> List[Pro
 
 
 def _adopt_if_kpi(
-    proposal_ids: Sequence[str],
+    decided: Sequence[Proposal],
     store: ProposalStore,
     kpi_store: KpiRegistryStore,
 ) -> None:
@@ -209,7 +211,6 @@ def _adopt_if_kpi(
     available attribution, not a precise one; this should be rare enough in practice that it
     is a fallback rather than the primary error path.
     """
-    decided = store.get_many(proposal_ids)
     if not any(p.kind is ProposalKind.KPI for p in decided):
         return
     try:
@@ -219,6 +220,32 @@ def _adopt_if_kpi(
         for proposal in decided:
             if proposal.kind is ProposalKind.KPI:
                 store.record_apply_error(proposal.identifier, message)
+
+
+def _apply_if_graph_bound(decided: Sequence[Proposal], store: ProposalStore) -> None:
+    """Accepting a mapping, enrichment, join, authoritative-source or column-meaning
+    proposal writes it into the semantic graph (K22). Before this, an HTTP accept only
+    recorded the decision, so a mapped table never backed a business area and "what my
+    data supports" never learned what the reviewer had just confirmed.
+
+    ``apply_accepted`` sweeps every accepted, unapplied, graph-bound row -- idempotent,
+    and it records a per-row ``apply_error`` rather than raising -- so, like the KPI
+    adoption above, it also self-heals proposals accepted before this existed. A graph
+    that cannot be opened is recorded against the rows this request decided and never
+    turns the accept into a 500: the decision stands, the apply is retried on the next
+    accept.
+    """
+    graph_bound = [p for p in decided if p.kind in GRAPH_KINDS]
+    if not graph_bound:
+        return
+    settings = RetailSettings()
+    try:
+        with open_semantic_reader(settings) as graph:
+            store.apply_accepted(graph)
+    except Exception as error:  # noqa: BLE001 -- recorded, not swallowed
+        message = f"{type(error).__name__}: {error}"
+        for proposal in graph_bound:
+            store.record_apply_error(proposal.identifier, message)
 
 
 # --- routes ------------------------------------------------------------------------------
@@ -269,7 +296,9 @@ def accept_semantic_proposal(
         raise HTTPException(
             status_code=409, detail=_single_refusal_detail(outcome.refused[0])
         )
-    _adopt_if_kpi(outcome.decided, store, kpi_store)
+    decided = store.get_many(outcome.decided)
+    _adopt_if_kpi(decided, store, kpi_store)
+    _apply_if_graph_bound(decided, store)
     return _proposal_out(_refetch(store, proposal_id))
 
 
@@ -302,7 +331,9 @@ def accept_semantic_proposals_bulk(
     _: None = Depends(require_scopes("semantic:review")),
 ) -> wire.ProposalList:
     outcome = store.accept(body.ids, reviewer=_reviewer(request), note=body.note or "")
-    _adopt_if_kpi(outcome.decided, store, kpi_store)
+    decided = store.get_many(outcome.decided)
+    _adopt_if_kpi(decided, store, kpi_store)
+    _apply_if_graph_bound(decided, store)
     proposals = _refetch_many(store, outcome.decided)
     return wire.ProposalList(
         proposals=[_proposal_out(p) for p in proposals],

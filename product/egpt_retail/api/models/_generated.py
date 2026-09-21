@@ -20,6 +20,93 @@ class AlertEventStatus(Enum):
     resolved = "resolved"
 
 
+class AnalyticsFeasibility(Enum):
+    """
+    `ready` when gold holds a row; `buildable` when the first run computes it.
+    """
+
+    ready = "ready"
+    buildable = "buildable"
+
+
+class AnalyticsKpiSuggestion(BaseModel):
+    identifier: str
+    name: str
+    grain: str
+    business_area: str | None = None
+    unit: str | None = None
+    score: int = Field(
+        ..., description="The lexical match, for ordering; not a probability."
+    )
+    why: str = Field(..., description="The ask's own words that chose this KPI.")
+    feasibility: AnalyticsFeasibility
+    latest_as_of: date | None = None
+
+
+class AnalyticsSuggestRequest(BaseModel):
+    question: str = Field(..., description="The ask, in the person's own words.")
+    recipient: str | None = Field(
+        None, description="A default address when the ask names none."
+    )
+
+
+class Kind(Enum):
+    """
+    A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert.
+    """
+
+    monitoring = "monitoring"
+    diagnostic = "diagnostic"
+    at_risk = "at_risk"
+
+
+class Comparison(Enum):
+    """
+    Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are.
+    """
+
+    prior_period = "prior_period"
+    prior_year = "prior_year"
+    NoneType_None = None
+
+
+class Output(Enum):
+    report = "report"
+    dashboard = "dashboard"
+    alert = "alert"
+
+
+class AnalyticsSuggestion(BaseModel):
+    kind: Kind = Field(
+        ...,
+        description="A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert.",
+    )
+    title: str
+    business_areas: list[str]
+    kpis: list[AnalyticsKpiSuggestion]
+    dimensions: list[str] = Field(
+        ..., description="The grains the chosen KPIs break down by."
+    )
+    comparison: Comparison | None = Field(
+        ...,
+        description="Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are.",
+    )
+    comparison_reason: str | None = None
+    schedule: str = Field(..., description="A `ScheduleCadence` value.")
+    schedule_reason: str | None = None
+    window: int | None = Field(
+        None,
+        description="Days the numbers cover, when the ask names a period (last week, monthly); null means each KPI's own declared window.",
+        ge=1,
+    )
+    outputs: list[Output]
+    recipients: list[str]
+    uncovered: list[str] = Field(
+        ..., description="Words of the ask no registered KPI covers."
+    )
+    notes: list[str]
+
+
 class AnswerBlockKind(Enum):
     text = "text"
     finding = "finding"
@@ -67,6 +154,27 @@ class BusinessAreaWrite(BaseModel):
     label: str
     subject_areas: list[str] | None = None
     description: str | None = None
+
+
+class CaseExpected(BaseModel):
+    """
+    What a golden case expects (1.6.0) -- the outcome (`created`, or an exception class) and
+    header values, authored by accepting a run's output or supplied on upload.
+
+    """
+
+    outcome: str | None = None
+    extracted: dict[str, Any] | None = None
+    line_count: int | None = None
+    sample_id: str | None = Field(
+        None, description="Set on the curated purchase-order set only."
+    )
+
+
+class CaseStatus(Enum):
+    untested = "untested"
+    pass_ = "pass"
+    fail = "fail"
 
 
 class ChartAxis(BaseModel):
@@ -214,6 +322,58 @@ class DeploymentEnvironment(Enum):
     development = "development"
 
 
+class DiagnosisColumn(BaseModel):
+    column: str
+    description: str | None = None
+
+
+class DiagnosisDimension(BaseModel):
+    column: str
+    label: str
+    distinct: int
+    description: str | None = None
+
+
+class Kind1(Enum):
+    ratio = "ratio"
+    additive = "additive"
+
+
+class DiagnosisOptions(BaseModel):
+    kpi_identifier: str
+    diagnosable: bool
+    reason: str | None = Field(None, description="When not diagnosable: why.")
+    kind: Kind1 | None = None
+    numerator: str | None = None
+    denominator: str | None = None
+    table: str | None = None
+    window_days: int | None = None
+    step_days: int | None = None
+    as_of: date | None = None
+    rows_in_period: int | None = None
+    rows_in_baseline: int | None = None
+    history_periods: int | None = None
+    support_floors: dict[str, int] | None = Field(
+        None,
+        description="Rows a slice needs to be named, per sensitivity (clear, usual, more).",
+    )
+    dimensions: list[DiagnosisDimension] | None = None
+    columns: list[DiagnosisColumn] | None = None
+    reason_columns: list[str] | None = None
+
+
+class DiagnosisOptionsRequest(BaseModel):
+    kpi_identifier: str
+    window: int | None = Field(
+        None,
+        description="Days between the two periods; null means the KPI's own window.",
+        ge=1,
+    )
+    as_of: date | None = Field(
+        None, description="The run date to size the periods at; null means today."
+    )
+
+
 class Dialect(Enum):
     postgres = "postgres"
     sqlite = "sqlite"
@@ -282,6 +442,45 @@ class ExecutionCost(BaseModel):
     )
 
 
+class Source(Enum):
+    """
+    Where the template came from; `authored` when absent.
+    """
+
+    shipped = "shipped"
+    drafted = "drafted"
+    authored = "authored"
+
+
+class ExtractionTemplateDraftRequest(BaseModel):
+    description: str = Field(
+        ...,
+        description="The use case's own words: what arrives and what it should become.",
+    )
+    label: str | None = Field(
+        None, description="The document kind's name, when the person has one."
+    )
+    example_text: str | None = Field(
+        None, description="The text of an example document, when one is at hand."
+    )
+    example_document_b64: str | None = Field(
+        None,
+        description="A PDF of an example document, base64; its text layer is read server-side.",
+    )
+
+
+class ExtractionTemplateField(BaseModel):
+    name: str = Field(
+        ...,
+        description="snake_case field name; the extraction step fills exactly this.",
+    )
+    required: bool | None = False
+    hint: str | None = Field(
+        "",
+        description="Where on the document the field is usually found, for the extractor.",
+    )
+
+
 class FeasibilityVerdict(Enum):
     """
     The result of a set difference, never an opinion. Mirrors `egpt_retail.contracts.kpi.FeasibilityVerdict`.
@@ -344,6 +543,36 @@ class GapKind(Enum):
     unknown_grain = "unknown_grain"
 
 
+class Source1(Enum):
+    uploaded = "uploaded"
+    generated = "generated"
+
+
+class GoldenCaseUpdate(BaseModel):
+    """
+    Fields a person may change on a case (1.6.0). Absent fields are left alone; an explicit
+    null `expected` clears the expectation.
+
+    """
+
+    label: str | None = None
+    sender: str | None = None
+    subject: str | None = None
+    expected: CaseExpected | None = None
+
+
+class GoldenCaseWrite(BaseModel):
+    label: str
+    sender: str | None = Field(
+        None,
+        description="The address the document is treated as sent from; the customer lookup reads its domain.",
+    )
+    subject: str | None = None
+    filename: str | None = None
+    document_b64: str = Field(..., description="A PDF, base64.")
+    expected: CaseExpected | None = None
+
+
 class GuardDecision(Enum):
     """
     What R6's SQL guard decided. A refused statement never reached the database.
@@ -351,6 +580,55 @@ class GuardDecision(Enum):
 
     allowed = "allowed"
     refused = "refused"
+
+
+class GuardrailRule(BaseModel):
+    """
+    One business guardrail (1.4.0): a kind applied to a field, with its parameters and the
+    exception it raises. The `guardrails` parameter of a `document_to_record` spec is a list
+    of these; the six purchase-order rows keep their ids and exception classes as a preset.
+
+    """
+
+    id: str
+    kind: str
+    label: str | None = None
+    field: str | None = None
+    line_field: str | None = Field(
+        None,
+        description="For total checks, the line field summed; for item checks, the resolved entity on the line.",
+    )
+    params: dict[str, float] | None = None
+    exception: str | None = None
+    needs: str | None = None
+
+
+class Scope(Enum):
+    header = "header"
+    line = "line"
+    any = "any"
+    none = "none"
+
+
+class GuardrailRuleKind(BaseModel):
+    """
+    A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.
+    """
+
+    id: str
+    label: str
+    check: str = Field(
+        ...,
+        description="The check in plain words, with {field} and parameter placeholders.",
+    )
+    scope: Scope
+    params: dict[str, float] = Field(
+        ..., description="Parameter names with their defaults."
+    )
+    needs: str | None = Field(
+        None, description="The master-data role the check reads, or null."
+    )
+    exception: str
 
 
 class HarvestRequest(BaseModel):
@@ -546,6 +824,52 @@ class KpiSuggestionRunStatus(Enum):
     failed = "failed"
 
 
+class MailboxAttachment(BaseModel):
+    filename: str
+    content_type: str
+    size: int
+
+
+class MailboxMessage(BaseModel):
+    """
+    One message in the connected mailbox that matches the use case's filter (1.6.0), without
+    its body or attachment bytes.
+
+    """
+
+    id: str
+    sender: str
+    sender_domain: str | None = ""
+    from_address: str | None = ""
+    subject: str
+    received_at: str | None = ""
+    size: int | None = Field(
+        0,
+        description="Bytes; a listing reads headers only, so attachments are not itemised.",
+    )
+    attachments: list[MailboxAttachment] | None = None
+    processed_before: bool | None = Field(
+        False, description="A live run already carried this message."
+    )
+
+
+class MappingFieldRow(BaseModel):
+    """
+    One target field and where its value comes from (1.5.0). `source` is a list of source
+    expressions over the resolved document, the first non-empty winning: a header field by
+    name (`po_number`), `line.<field>`, `customer.<key>`, `ship_to.<key>`, `product.<key>`,
+    `$pricebook_id`, `$today`, or a literal `=Draft`. `transform` is one of `date`,
+    `date_not_before_today`, `number`, `text:<n>`.
+
+    """
+
+    target: str
+    source: list[str]
+    required: bool | None = False
+    transform: str | None = None
+    label: str | None = ""
+
+
 class ModelProvider(Enum):
     openai = "openai"
     anthropic = "anthropic"
@@ -561,6 +885,21 @@ class ModelTier(Enum):
 
     small = "small"
     frontier = "frontier"
+
+
+class ObjectSuggestion(BaseModel):
+    object: str
+    label: str
+    child: str | None = Field(
+        None,
+        description="The per-line object, when the template has lines and the target has one.",
+    )
+    score: int
+    why: str
+    shipped_mapping: str | None = Field(
+        None,
+        description="A shipped mapping's id for exactly this pair, when one exists.",
+    )
 
 
 class Operator(Enum):
@@ -617,6 +956,41 @@ class PreflightCheck(BaseModel):
     name: str
     passed: bool
     reason: str
+    advisory: bool | None = Field(
+        False,
+        description="Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by.",
+    )
+
+
+class ProbeName(Enum):
+    mailbox = "mailbox"
+    target = "target"
+    master_data = "master_data"
+    model = "model"
+    golden = "golden"
+    gold = "gold"
+    delivery = "delivery"
+    dry_answer = "dry_answer"
+    diagnosis = "diagnosis"
+    risk_model = "risk_model"
+
+
+class ProbeResult(BaseModel):
+    """
+    One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into
+    the mailbox, took a token from the target, read the master data, sent one call to the
+    model, read the golden cases -- and says what it found. Extra fields carry the numbers
+    (matching messages, row counts, pass counts).
+
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: ProbeName
+    passed: bool
+    reason: str
+    elapsed_ms: int
 
 
 class ProcessIconKey(Enum):
@@ -762,6 +1136,81 @@ class Recipient(BaseModel):
     )
 
 
+class Kind2(Enum):
+    recommendation = "recommendation"
+    alert = "alert"
+
+
+class RiskLevel(Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class Status(Enum):
+    open = "open"
+    accepted = "accepted"
+    dismissed = "dismissed"
+    actioned = "actioned"
+    expired = "expired"
+
+
+class RecommendationDriver(BaseModel):
+    """
+    One reason behind a risk score, grounded in the row's own value against the typical.
+    """
+
+    feature: str
+    value: Any | None = Field(
+        None, description="The row's own value: a number, or the category level."
+    )
+    typical: float | None = Field(
+        None, description="What the scored population averages; null for a category."
+    )
+    contribution: float = Field(
+        ...,
+        description="The feature's push on the log-odds of converting; negative is towards risk.",
+    )
+    text: str = Field(
+        ..., description="The driver in words, for the report and the alert."
+    )
+
+
+class Status1(Enum):
+    open = "open"
+    accepted = "accepted"
+    dismissed = "dismissed"
+    actioned = "actioned"
+
+
+class RecommendationStatusWrite(BaseModel):
+    status: Status1
+    note: str | None = ""
+    by: str | None = Field(
+        "", description="Who decided; the screen's user or the consuming use case."
+    )
+
+
+class RecommendedAction(BaseModel):
+    """
+    The sales play the catalogue chose, who owns it, by when, and why it was chosen.
+    """
+
+    code: str = Field(..., description="The catalogue code (RE_ENGAGE, ESCALATE, ...).")
+    title: str
+    action: str = Field(..., description="What to do, in the organisation's words.")
+    owner: str = Field(..., description="The role that owns the play.")
+    sla_hours: int | None = None
+    from_catalogue: bool
+    because: str = Field(..., description="The rule that chose it, in words.")
+
+
+class Source2(Enum):
+    shipped = "shipped"
+    suggested = "suggested"
+    authored = "authored"
+
+
 class RefreshSchedule(Enum):
     """
     How often the dashboard's numbers are recomputed -- the declared cadence, stored for the
@@ -778,6 +1227,20 @@ class RefreshSchedule(Enum):
     weekly = "weekly"
     hourly = "hourly"
     manual = "manual"
+
+
+class RehearsalSource(Enum):
+    """
+    What a rehearsal runs over (1.6.0): chosen messages from the connected mailbox (writes
+    held, nothing flagged); the use case's own golden cases; or the set the platform
+    generates from the template. Absent means the mailbox when one is connected and a model
+    can read it, else the generated set.
+
+    """
+
+    mailbox = "mailbox"
+    cases = "cases"
+    generated = "generated"
 
 
 class ReportWrite(BaseModel):
@@ -816,6 +1279,36 @@ class RunCost(BaseModel):
     output_tokens: int | None = None
 
 
+class RunMode(Enum):
+    """
+    `live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same
+    compiled workflow with every side effect held and, where the template has one, over the
+    deployment's sample set -- the rehearse screen's numbers come from this, not from a
+    simulation of their own.
+
+    """
+
+    live = "live"
+    rehearse = "rehearse"
+
+
+class RunRequest(BaseModel):
+    """
+    What to run over (1.6.0). Only a rehearsal reads it; a live run always polls the mailbox.
+
+    """
+
+    source: RehearsalSource | None = None
+    message_ids: list[str] | None = Field(
+        None,
+        description="With source mailbox, only these message ids; absent means every message matching the filter.",
+    )
+    case_ids: list[str] | None = Field(
+        None,
+        description="With source cases or generated, only these cases; absent means every one.",
+    )
+
+
 class RunStatus(Enum):
     queued = "queued"
     running = "running"
@@ -826,9 +1319,14 @@ class RunStatus(Enum):
 
 
 class RunTrigger(Enum):
+    """
+    `regression` (1.6.0): a rehearsal over the golden cases the platform started because the use case changed.
+    """
+
     schedule = "schedule"
     manual = "manual"
     activation = "activation"
+    regression = "regression"
 
 
 class SavedPromptWrite(BaseModel):
@@ -837,10 +1335,20 @@ class SavedPromptWrite(BaseModel):
 
 
 class ScheduleCadence(Enum):
+    """
+    The four the KPI shapes offer, plus the poll intervals a document-driven use case
+    offers (1.3.0): a mailbox is polled, not read nightly.
+
+    """
+
     once = "once"
     daily = "daily"
     weekly = "weekly"
     monthly = "monthly"
+    hourly = "hourly"
+    every_15_minutes = "every_15_minutes"
+    every_5_minutes = "every_5_minutes"
+    every_minute = "every_minute"
 
 
 class ScheduleDelivery(BaseModel):
@@ -963,6 +1471,42 @@ class TableUsage(BaseModel):
     )
 
 
+class TargetField(BaseModel):
+    """
+    One createable field of a target object, read live (1.5.0).
+    """
+
+    name: str
+    label: str
+    type: str = Field(
+        ...,
+        description="The target's own type name: string, reference, date, double, picklist, ...",
+    )
+    required: bool = Field(
+        ..., description="A create fails without it: not nillable and no default."
+    )
+    reference_to: list[str] | None = None
+    length: int | None = None
+    picklist_values: list[str] | None = None
+    custom: bool | None = False
+
+
+class TargetObject(BaseModel):
+    """
+    One object a write target lets the integration create (1.5.0), read live from the target.
+    """
+
+    name: str
+    label: str
+    custom: bool | None = False
+
+
+class TargetObjectDescription(BaseModel):
+    name: str
+    label: str
+    fields: list[TargetField]
+
+
 class TermOrigin(Enum):
     """
     Whether the shipped ontology or the customer's overlay contributed a term (G10). Mirrors `egpt_retail.contracts.vocabulary.TermOrigin`.
@@ -1036,30 +1580,6 @@ class TimeWindowUnit(Enum):
     year = "year"
 
 
-class UseCaseExecutionHealth(BaseModel):
-    """
-    Execution health, from persisted run history. Free -- nothing here needs an assessment pass.
-    """
-
-    use_case_id: str
-    title: str
-    version: int
-    last_run_status: RunStatus | None
-    last_run_at: AwareDatetime | None = None
-    runs_7d: int
-    failures_7d: int
-    silent: bool = Field(..., description="The schedule should have fired and did not.")
-    gates_waiting: int = Field(
-        ...,
-        description="Approval gates waiting on a person longer than their threshold.",
-    )
-    cost_7d: ExecutionCost | None = None
-    error: str | None = Field(
-        None,
-        description="Set instead of a real health snapshot when this one use case's own entry was malformed (e.g. a missing workflow_id) and its processing was isolated rather than aborting every other use case's report. Absent/null for a genuinely-run or genuinely-never-run use case.",
-    )
-
-
 class UseCaseQuality(BaseModel):
     """
     Is it still right -- the assessment pass over output quality and input drift (R14), separate from whether it ran. A use case that runs green while answering worse is what this catches.
@@ -1106,6 +1626,11 @@ class UseCaseRun(BaseModel):
     summary: str | None = ""
     blocked_reason: str | None = None
     cost: RunCost | None = None
+    mode: RunMode | None = None
+    result: dict[str, Any] | None = Field(
+        None,
+        description="What the run's last executor returned (1.3.0): for a document-to-record run, the batch\n-- `documents` carried through with what was written, `exceptions` with their class and\ndetail, `stats` per stage, `rollback` -- so the interface shows what was created and what\nwas held without re-running anything. Null while queued or running, and for a run that\nfailed before any executor returned.\n",
+    )
 
 
 class UseCaseRunSummary(BaseModel):
@@ -1113,6 +1638,23 @@ class UseCaseRunSummary(BaseModel):
     status: RunStatus
     started_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     finished_at: AwareDatetime | None = None
+
+
+class UseCaseShape(Enum):
+    """
+    What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person
+    approves, write unattended. The shape is a property of the spec -- each shape has its own
+    form, chosen before the form is filled -- and it decides the parameter list, the workflow
+    the orchestration compiler generates, the readiness checks, and who may activate.
+    Mirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders
+    the same four.
+
+    """
+
+    inform = "inform"
+    alert = "alert"
+    recommend = "recommend"
+    act = "act"
 
 
 class UseCaseSource(Enum):
@@ -1155,6 +1697,22 @@ class UseCaseSuggestionList(BaseModel):
     suggestions: list[UseCaseSuggestion]
     notes: str
     semantic_snapshot: str | None = None
+
+
+class UseCaseTemplate(Enum):
+    """
+    The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
+    Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
+    document-driven automation needs -- receive, screen, extract, resolve -- before the same
+    guarded write. Both are Act. The interface reads the template from the requirement's own
+    words and never asks for it; the compiler checks it belongs to the shape.
+
+    """
+
+    kpi_change = "kpi_change"
+    document_to_record = "document_to_record"
+    metric_diagnosis = "metric_diagnosis"
+    at_risk = "at_risk"
 
 
 class UseCaseWrite(BaseModel):
@@ -1296,6 +1854,15 @@ class ChatFilters(BaseModel):
     period: Period
     from_date: date | None = None
     to_date: date | None = None
+
+
+class ChildMapping(BaseModel):
+    object: str
+    parent_field: str = Field(
+        ...,
+        description="The child's reference to the parent, filled with the parent's new id.",
+    )
+    fields: list[MappingFieldRow]
 
 
 class CloudProfile(BaseModel):
@@ -1475,11 +2042,6 @@ class DraftStep8(BaseModel):
     recipient: str | None = None
 
 
-class ExecutionHealth(BaseModel):
-    as_of: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
-    use_cases: list[UseCaseExecutionHealth]
-
-
 class ExternalIntegration(BaseModel):
     """
     A connector source (Lane C). Its data lands in object storage against the landing contract; this record is how the interface shows it.
@@ -1544,6 +2106,36 @@ class ExternalIntegrationWrite(BaseModel):
     webhook_secret: str | None = None
 
 
+class ExtractionTemplate(BaseModel):
+    """
+    A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the
+    same shape; a template a person assembles on the form, or the model drafts from a
+    description and an example, is stored on the use case's spec as the `extraction template`
+    parameter and runs the same extractor. Nothing about a template is code.
+
+    """
+
+    id: str | None = Field(
+        None, description="Slug; derived from the label when absent."
+    )
+    label: str
+    record: str | None = Field(
+        "", description="What one document becomes: order, payable, return, receipt."
+    )
+    header: list[ExtractionTemplateField]
+    lines: list[ExtractionTemplateField]
+    source: Source | None = Field(
+        None, description="Where the template came from; `authored` when absent."
+    )
+
+
+class ExtractionTemplateDraft(BaseModel):
+    template: ExtractionTemplate
+    notes: str = Field(
+        ..., description="What the model was unsure about; empty on a clean draft."
+    )
+
+
 class Feasibility(BaseModel):
     kpi_id: str
     verdict: FeasibilityVerdict
@@ -1584,6 +2176,31 @@ class GapCheck(BaseModel):
     gaps: list[Gap]
     semantic_snapshot: str
     checked_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+
+
+class GoldenCase(BaseModel):
+    """
+    A document with what the person expects of it (1.6.0): uploaded, or generated by the
+    platform from the template. Re-run whenever the template, guardrails or mapping change;
+    `last_status` is the verdict of the last run, `untested` while nothing is expected yet.
+
+    """
+
+    id: str
+    use_case_id: str
+    label: str
+    source: Source1
+    sender: str | None = ""
+    subject: str | None = ""
+    filename: str | None = "document.pdf"
+    expected: CaseExpected | None = None
+    last_status: CaseStatus
+    last_run_id: str | None = None
+    last_result: dict[str, Any] | None = Field(
+        None,
+        description="The last verdict: outcome, expected outcome, each check, and what the run observed.",
+    )
+    created_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 
 
 class Harvest(BaseModel):
@@ -1882,6 +2499,26 @@ class LlmModelWrite(BaseModel):
     is_default: bool | None = None
 
 
+class MappingSuggestRequest(BaseModel):
+    template: ExtractionTemplate
+    parent: str = Field(..., description="The parent object's name, described live.")
+    child: str | None = Field(
+        None, description="The per-line object's name, when there is one."
+    )
+    label: str | None = None
+
+
+class ObjectSuggestRequest(BaseModel):
+    template: ExtractionTemplate
+    description: str | None = Field(
+        None,
+        description="The use case's own words, for the object labels to be read against.",
+    )
+    target: str | None = Field(
+        None, description="The target system; `salesforce` when absent."
+    )
+
+
 class PlanStep(BaseModel):
     """
     One step of the compiled workflow. `ref` is an executor name from the registry or a skill identifier -- the same strings the stored workflow holds.
@@ -1992,6 +2629,100 @@ class QueryPreviewRequest(BaseModel):
         None,
         description="Narrows the allow-list to these tables when given; otherwise the whole semantic layer.",
     )
+
+
+class Recommendation(BaseModel):
+    """
+    What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an
+    open quote and its account), its risk and the drivers behind it, and -- on a
+    recommendation -- the sales play the catalogue chose. An alert is the same record with
+    no action. Decision Intelligence, or a person on the screen, writes `status`; the use
+    case writes `outcome` when the horizon ends.
+
+    """
+
+    id: str
+    use_case_id: str
+    run_id: str | None = None
+    kind: Kind2
+    subject_type: str = Field(..., description="quote today; the kind's subject.")
+    subject_id: str
+    subject_label: str
+    account_id: str | None = None
+    account_label: str | None = None
+    owner: str | None = Field(None, description="Who acts: the rep on the quote.")
+    risk_score: float = Field(
+        ...,
+        description="The probability the subject does not convert within the horizon.",
+        ge=0.0,
+        le=1.0,
+    )
+    risk_level: RiskLevel
+    horizon_days: int | None = Field(
+        None, description="The category's usual time to close."
+    )
+    model_version: str | None = None
+    drivers: list[RecommendationDriver]
+    action: RecommendedAction | None = Field(
+        None, description="The play; null on an alert."
+    )
+    value_at_stake: float
+    value_unit: str
+    context: dict[str, Any] | None = Field(
+        None,
+        description="The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss).",
+    )
+    status: Status
+    status_note: str | None = None
+    status_by: str | None = None
+    status_at: AwareDatetime | None = None
+    outcome: str | None = Field(
+        None,
+        description="Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet.",
+    )
+    outcome_at: AwareDatetime | None = None
+    expires_at: AwareDatetime | None = Field(
+        None, description="When the horizon ends and the outcome is looked up."
+    )
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class RecommendationList(BaseModel):
+    items: list[Recommendation]
+    counts: dict[str, int] = Field(
+        ...,
+        description="Records per status across the filter's use case (or all), for the screen's chips.",
+    )
+
+
+class RecordMapping(BaseModel):
+    """
+    How a resolved document becomes the target's objects (1.5.0): a parent object with its
+    field rows, an optional child repeated per line, the status field `created as` sets, and
+    the rollback action. The two Salesforce mappings that ship are rows of this shape; a
+    mapping the form assembles over the target's live object metadata is stored on the spec
+    as the `target objects` parameter and runs the same interpreter.
+
+    """
+
+    id: str | None = None
+    label: str
+    target: str | None = "salesforce"
+    object: str
+    record: str | None = Field(
+        "",
+        description="What the mapping creates, matched against a template's `record` when suggesting.",
+    )
+    source: Source2 | None = None
+    fields: list[MappingFieldRow]
+    child: ChildMapping | None = None
+    status_field: str | None = None
+    status_values: dict[str, str] | None = Field(
+        None,
+        description="`created as` value -> the status written: {draft: Draft, active: Activated}.",
+    )
+    rollback_action: str | None = "delete"
 
 
 class ReportBlockWrite(BaseModel):
@@ -2245,6 +2976,56 @@ class UseCaseDraft(BaseModel):
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 
 
+class UseCaseExecutionHealth(BaseModel):
+    """
+    Execution health, from persisted run history. Free -- nothing here needs an assessment pass.
+    """
+
+    use_case_id: str
+    title: str
+    version: int
+    last_run_status: RunStatus | None
+    last_run_at: AwareDatetime | None = None
+    runs_7d: int
+    failures_7d: int
+    silent: bool = Field(..., description="The schedule should have fired and did not.")
+    gates_waiting: int = Field(
+        ...,
+        description="Approval gates waiting on a person longer than their threshold.",
+    )
+    cost_7d: ExecutionCost | None = None
+    status: UseCaseStatus | None = Field(
+        None,
+        description="The use case's own status (1.7.0), so a paused one is not reported silent.",
+    )
+    schedule: str | None = Field(
+        None,
+        description="The cadence it runs on (1.7.0), a `ScheduleCadence` value; null when it runs only on demand.",
+    )
+    trigger: str | None = Field(
+        None,
+        description="What fires the schedule where this platform runs (1.7.0): `poller` locally, `orchestrator` in the cloud, null when nothing does and the Run button is the only trigger.",
+    )
+    next_expected_at: AwareDatetime | None = Field(
+        None,
+        description="When the schedule should next fire (1.7.0), from the last run and the cadence.",
+    )
+    exceptions_7d: int | None = Field(
+        0,
+        description="Documents held with an exception across the last 7 days' live runs (1.7.0).",
+    )
+    created_7d: int | None = Field(
+        0, description="Records created across the last 7 days' live runs (1.7.0)."
+    )
+    last_run_summary: str | None = Field(
+        "", description="The last run's one-line summary (1.7.0)."
+    )
+    error: str | None = Field(
+        None,
+        description="Set instead of a real health snapshot when this one use case's own entry was malformed (e.g. a missing workflow_id) and its processing was isolated rather than aborting every other use case's report. Absent/null for a genuinely-run or genuinely-never-run use case.",
+    )
+
+
 class AlertDefinition(BaseModel):
     """
     A rule over a `scalar` KPI (R12): KPI, operator, threshold, scope, severity, recipient.
@@ -2344,6 +3125,11 @@ class DashboardData(BaseModel):
     dashboard_id: str
     tiles: list[TileData]
     read_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+
+
+class ExecutionHealth(BaseModel):
+    as_of: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+    use_cases: list[UseCaseExecutionHealth]
 
 
 class Kpi(BaseModel):
@@ -2645,3 +3431,15 @@ class Spec(BaseModel):
     )
     extracted_by: SkillRef
     semantic_snapshot: str | None = None
+    shape: UseCaseShape | None = Field(
+        None,
+        description="The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted\nbefore a shape was chosen; the compiler refuses a null shape rather than defaulting\nto Inform.\n",
+    )
+    template: UseCaseTemplate | None = Field(
+        None,
+        description="The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence.",
+    )
+    parameters: dict[str, Any] | None = Field(
+        None,
+        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `target objects` is a shipped mapping's id or a\n`RecordMapping` object the form assembled over the target's live fields (1.5.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
+    )

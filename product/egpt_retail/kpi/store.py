@@ -52,6 +52,19 @@ from egpt_retail.contracts.kpi import (
 from egpt_retail.contracts.semantic import SemanticRead, available_tables
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 
+
+def _deployment_vocabularies() -> VocabularySet:
+    """The shipped vocabularies with this deployment's overlay applied (K22): a grain the
+    customer's overlay adds (``lost_reason`` for a quote pipeline) validates here the same
+    as a core one. The overlay path comes from settings; no overlay, the core alone."""
+    from pathlib import Path
+
+    from egpt_retail.app.settings import RetailSettings
+
+    overlay = RetailSettings().retail_ontology_overlay
+    return load_vocabulary_set(overlay_path=Path(overlay) if overlay else None)
+
+
 __all__ = [
     "KPI_LABEL",
     "KPI_SCHEMA",
@@ -394,7 +407,7 @@ class KpiRegistryStore:
     ) -> None:
         self._connection = connection
         self._schema = schema
-        self._vocabularies = vocabularies or load_vocabulary_set()
+        self._vocabularies = vocabularies or _deployment_vocabularies()
 
     @property
     def vocabularies(self) -> VocabularySet:

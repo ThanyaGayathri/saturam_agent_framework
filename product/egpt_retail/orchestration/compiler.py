@@ -30,19 +30,26 @@ from __future__ import annotations
 import asyncio
 import copy
 import difflib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Collection, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from egpt_retail.contracts.use_case import (
     SHAPE_PARAMETERS,
+    TEMPLATE_PARAMETERS,
+    TEMPLATE_SHAPE,
     TIER_FOR_ROLE,
     UseCaseShape,
+    UseCaseTemplate,
 )
 
 __all__ = [
+    "OPTIONAL_SLOTS",
     "SHAPE_STAGES",
+    "TEMPLATE_STAGES",
     "TRIGGER_SLOTS",
+    "UnknownTemplate",
     "CompiledWorkflow",
     "ParameterOrigin",
     "Stage",
@@ -58,6 +65,10 @@ __all__ = [
 
 class UnknownShape(ValueError):
     """The spec named no shape, or named one that is not one of the four."""
+
+
+class UnknownTemplate(ValueError):
+    """The spec named a template that does not exist, or one of another shape."""
 
 
 class ParameterOrigin(str, Enum):
@@ -78,6 +89,8 @@ class ParameterOrigin(str, Enum):
     AUTHORED = "authored"
     #: Derived from the conversation by the spec extractor -- the KPIs, grain and window.
     SPEC = "spec"
+    #: Neither supplied: an optional slot bound to its declared default (``SLOT_DEFAULTS``).
+    DEFAULT = "default"
 
 
 class StageKind(str, Enum):
@@ -161,7 +174,12 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             "Compare to baseline",
             StageKind.EXECUTOR,
             "compare_to_baseline",
-            consumes=("comparison",),
+            consumes=("comparison", "window"),
+            description=(
+                "Each KPI at the run's date against gold at the baseline date -- the "
+                "period before, or the same period last year -- per KPI and per breakdown "
+                "row. A baseline date gold does not hold yet is materialised for it."
+            ),
         ),
         Stage(
             "Explain",
@@ -169,8 +187,33 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             role="explanation",
             description="One model step. Explains the numbers; never decides anything.",
         ),
+        Stage(
+            "Check grounding",
+            StageKind.EXECUTOR,
+            "check_report_grounding",
+            guards_write=False,
+            description=(
+                "Every figure in the explanation must be one the comparison carried; an "
+                "explanation that invents one is withheld and the report carries the "
+                "numbers alone."
+            ),
+        ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
+        Stage(
+            "Render report",
+            StageKind.EXECUTOR,
+            "render_report",
+            consumes=("title", "outputs"),
+            description="The comparison and the narrative as an HTML report and its text twin.",
+        ),
         Stage("Deliver", StageKind.EXECUTOR, "deliver_in_app", consumes=("recipient",)),
+        Stage(
+            "Send report",
+            StageKind.EXECUTOR,
+            "send_report",
+            consumes=("recipient",),
+            description="The HTML report by email to the recipients; held in a rehearsal.",
+        ),
     ),
     UseCaseShape.ALERT: (
         Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metric",)),
@@ -301,6 +344,238 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
     ),
 }
 
+
+#: The sequences a shape has more than one of. Keyed by template; ``KPI_CHANGE`` is the Act
+#: row of :data:`SHAPE_STAGES` itself, so a spec that names no template compiles exactly as
+#: before. ``DOCUMENT_TO_RECORD`` is the first document-driven sequence: receive, screen,
+#: extract, resolve, then the same write-side machinery Act already has. Every stage is a
+#: generic verb -- nothing here says "order" or "Salesforce" -- and the use case is the slot
+#: values, which is what lets a second document-driven use case reuse it with no new executor.
+def _diagnosis_stages() -> Tuple[Stage, ...]:
+    """The Inform sequence with the decomposition between Compare and Explain (K25)."""
+    inform = SHAPE_STAGES[UseCaseShape.INFORM]
+    out: List[Stage] = []
+    for stage in inform:
+        if stage.name == "Explain":
+            out.append(
+                Stage(
+                    "Decompose the change",
+                    StageKind.EXECUTOR,
+                    "decompose_change",
+                    consumes=(
+                        "metrics",
+                        "comparison",
+                        "window",
+                        "dimensions",
+                        "sensitivity",
+                        "evidence columns",
+                    ),
+                    description=(
+                        "Where the change sits, by arithmetic: each slice of each "
+                        "dimension gets its contribution (rate and mix effects for a "
+                        "rate), its surprise against its own history, and a support "
+                        "floor; dimensions are ranked, the winning slice searched one "
+                        "level down, and the rows behind it fetched. The model that "
+                        "follows narrates this ranking; it never picks the cause."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Explain",
+                    StageKind.MODEL,
+                    role="explanation",
+                    description=(
+                        "One model step. Writes the sentence from the ranked drivers "
+                        "and the evidence; every figure is one the arithmetic produced."
+                    ),
+                )
+            )
+        else:
+            out.append(stage)
+    return tuple(out)
+
+
+def _at_risk_stages() -> Tuple[Stage, ...]:
+    """The Inform sequence that ends in a recommendation (K26): the scoring and the
+    catalogue between Compare and Explain, the alerts after the report."""
+    inform = SHAPE_STAGES[UseCaseShape.INFORM]
+    out: List[Stage] = []
+    for stage in inform:
+        if stage.name == "Compute metrics":
+            # The context KPIs are read whole; the kind has no breakdown slot.
+            out.append(replace(stage, consumes=()))
+        elif stage.name == "Compare to baseline":
+            # Never compared: the context KPIs at the run's date, as they are.
+            out.append(replace(stage, consumes=()))
+        elif stage.name == "Explain":
+            out.append(
+                Stage(
+                    "Track what happened",
+                    StageKind.EXECUTOR,
+                    "track_outcomes",
+                    consumes=(),
+                    description=(
+                        "Every earlier recommendation whose horizon has ended is looked "
+                        "up on the fact -- converted in time, lapsed, still open -- and "
+                        "the outcome written on its record; from those, the use case's "
+                        "own precision per risk level."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Score risk",
+                    StageKind.EXECUTOR,
+                    "score_risk",
+                    consumes=("metrics", "churn window", "risk levels", "top n"),
+                    description=(
+                        "Every open quote's risk of not converting within its "
+                        "category's usual time to close, from a model trained on the "
+                        "fact's own closed history at each run and checked on a time "
+                        "holdout; the drivers behind each score in words; the "
+                        "account's RFM segment and its churn flag attached."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Recommend",
+                    StageKind.EXECUTOR,
+                    "recommend",
+                    consumes=("outcome", "top n"),
+                    description=(
+                        "One Recommendation record per at-risk quote, with the sales "
+                        "play the catalogue chose by rule from its drivers and why; an "
+                        "alert per high-risk quote for its rep. Written to the "
+                        "recommendations store, where Decision Intelligence reads them."
+                    ),
+                )
+            )
+            out.append(
+                Stage(
+                    "Explain",
+                    StageKind.MODEL,
+                    role="explanation",
+                    description=(
+                        "One model step. Writes the briefing from the scored list and "
+                        "the plays; every figure is one the scoring produced."
+                    ),
+                )
+            )
+        else:
+            out.append(stage)
+    out.append(
+        Stage(
+            "Send alerts",
+            StageKind.EXECUTOR,
+            "send_alerts",
+            consumes=("recipient", "outcome"),
+            description=(
+                "One alert email per rep with their high-risk quotes and the plays; "
+                "held in a rehearsal."
+            ),
+        )
+    )
+    return tuple(out)
+
+
+TEMPLATE_STAGES: Mapping[UseCaseTemplate, Tuple[Stage, ...]] = {
+    UseCaseTemplate.KPI_CHANGE: SHAPE_STAGES[UseCaseShape.ACT],
+    UseCaseTemplate.METRIC_DIAGNOSIS: _diagnosis_stages(),
+    UseCaseTemplate.AT_RISK: _at_risk_stages(),
+    UseCaseTemplate.DOCUMENT_TO_RECORD: (
+        Stage(
+            "Receive",
+            StageKind.EXECUTOR,
+            "receive_messages",
+            consumes=("source mailbox", "message filter"),
+            description=(
+                "New messages matching the filter, each processed once -- the message id is "
+                "the provenance key. None → the run is logged and nothing else happens."
+            ),
+        ),
+        Stage(
+            "Screen",
+            StageKind.BRANCH,
+            "screen_documents",
+            consumes=("document type",),
+            description=(
+                "Deterministic. Exactly one document of the declared type, from a known "
+                "sender, under the size limit; anything else is an exception before a model "
+                "is called."
+            ),
+        ),
+        Stage(
+            "Extract",
+            StageKind.MODEL,
+            role="extraction",
+            consumes=("extraction template", "example document"),
+            description=(
+                "One model step. Fills the template's schema from the document; a field not "
+                "on the document is null. Output validated against the schema before "
+                "anything downstream reads it."
+            ),
+        ),
+        Stage(
+            "Resolve",
+            StageKind.BRANCH,
+            "resolve_entities",
+            consumes=("master data", "match thresholds"),
+            description=(
+                "Scored matching against master data in a fixed order of attempts. Below "
+                "threshold is an exception with the closest candidate, never a guess."
+            ),
+        ),
+        Stage(
+            "Apply guardrails",
+            StageKind.BRANCH,
+            "apply_hard_limits",
+            consumes=("guardrails",),
+            guards_write=True,
+            description="Record-level checks. Any failure raises an exception; nothing is written.",
+        ),
+        Stage(
+            "Build record",
+            StageKind.EXECUTOR,
+            "build_record",
+            consumes=("target objects", "created as"),
+            description=(
+                "Maps the resolved fields onto the target's objects. A required field the "
+                "mapping cannot fill is an exception, not a blank."
+            ),
+        ),
+        Stage(
+            "Apply change limit",
+            StageKind.BRANCH,
+            "apply_per_run_cap",
+            consumes=("per-run cap",),
+            guards_write=True,
+        ),
+        Stage(
+            "Write", StageKind.EXECUTOR, "write_to_target", consumes=("write target",)
+        ),
+        Stage(
+            "Record rollback point",
+            StageKind.EXECUTOR,
+            "record_rollback_point",
+            consumes=("rollback",),
+            guards_write=True,
+        ),
+        Stage(
+            "Notify",
+            StageKind.EXECUTOR,
+            "send_email",
+            consumes=("recipient", "acknowledge"),
+            description=(
+                "The sender is acknowledged with the record number or the exception reason; "
+                "exceptions go to the configured address as well as the in-app record."
+            ),
+        ),
+        Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
+    ),
+}
+
 #: Which spec or draft field fills each slot, as a dotted path into the contract's
 #: ``UseCaseDraft`` where the field exists there today (``step8.schedule`` is what the
 #: interface actually writes; a flat ``schedule`` is also accepted so a caller assembling a
@@ -326,7 +601,88 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
     "timeout behaviour": ("draft", "timeout_behaviour"),
     "per-run cap": ("draft", "per_run_cap"),
     "rollback": ("draft", "rollback"),
+    # Document-to-record slots. Flat keys until the contract carries them (R-15).
+    "source mailbox": ("draft", "source_mailbox"),
+    "message filter": ("draft", "message_filter"),
+    "document type": ("draft", "document_type"),
+    "extraction template": ("draft", "extraction_template"),
+    "example document": ("draft", "example_document"),
+    "master data": ("draft", "master_data"),
+    "match thresholds": ("draft", "match_thresholds"),
+    "acknowledge": ("draft", "acknowledge"),
+    "target objects": ("draft", "target_objects"),
+    "created as": ("draft", "created_as"),
+    "sensitivity": ("draft", "sensitivity"),
+    "evidence columns": ("draft", "evidence_columns"),
 }
+
+#: Slots that may be empty without blocking publication: the value is optional by design.
+#: An example document improves extraction but a template's schema is enough to run; an
+#: acknowledgement is a courtesy, not a guard; an empty message filter means every new
+#: message, which is a filter too.
+#: Optional slots that bind a default when the spec leaves them blank (K23). A callable
+#: derives the default from the spec.
+#: A default callable's answer when the slot has no default for this spec after all.
+NO_DEFAULT: Any = object()
+
+
+def _is_diagnosis(spec: Mapping[str, Any]) -> bool:
+    return str(spec.get("template") or "").strip().lower() == "metric_diagnosis"
+
+
+def _is_at_risk(spec: Mapping[str, Any]) -> bool:
+    return str(spec.get("template") or "").strip().lower() == "at_risk"
+
+
+SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
+    {
+        "window": None,
+        "title": lambda spec: str(spec.get("question") or "Report"),
+        # Every Analytics Automation produces the report and a dashboard (18 Sep); the
+        # form no longer asks.
+        "outputs": ["report", "dashboard"],
+        # The document-to-record form no longer asks for these (K24): the roles a use case
+        # resolves against follow from its mapping and guardrails and are read from the
+        # write target itself, and the matching thresholds keep their defaults unless the
+        # spec sets one.
+        "master data": lambda spec: {"source": "write target"},
+        "match thresholds": lambda spec: {},
+        # The diagnostic (K25): a change is inherent, so the period before is the baseline
+        # unless the words said otherwise; every candidate dimension is searched; the
+        # usual sensitivity; the evidence columns the fact suggests.
+        "sensitivity": "usual",
+        "evidence columns": [],
+        "dimensions": lambda spec: [] if _is_diagnosis(spec) else NO_DEFAULT,
+        "comparison": lambda spec: "prior_period" if _is_diagnosis(spec) else None,
+        # The at-risk kind (K26): sixty days without a quote is the churn line, the
+        # outcome is both a recommendation and an alert, the risk lines and the run's
+        # size are the executor's own unless the spec says otherwise.
+        "churn window": lambda spec: 60 if _is_at_risk(spec) else NO_DEFAULT,
+        "outcome": lambda spec: "both" if _is_at_risk(spec) else NO_DEFAULT,
+        "risk levels": lambda spec: {} if _is_at_risk(spec) else NO_DEFAULT,
+        # Zero means every quote still within its usual range -- the "act now" set --
+        # so the list a person works is the count the report's hero names.
+        "top n": lambda spec: 0 if _is_at_risk(spec) else NO_DEFAULT,
+    }
+)
+
+
+OPTIONAL_SLOTS: FrozenSet[str] = frozenset(
+    {
+        "example document",
+        "acknowledge",
+        "message filter",
+        # The Inform shape's report slots: a window falls back to the KPI's own, a title
+        # to the question, outputs to the report alone.
+        "window",
+        "title",
+        "outputs",
+        # A comparison is the person's choice, never a default: a monitoring report
+        # without one carries the numbers and their breakdowns; a diagnostic asks for
+        # one in its own words and the reader infers it from those.
+        "comparison",
+    }
+)
 
 
 @dataclass
@@ -335,6 +691,9 @@ class CompiledWorkflow:
 
     use_case_id: str
     shape: UseCaseShape
+    #: The sequence within the shape, where the shape has more than one. None means the
+    #: shape's own sequence.
+    template: Optional[UseCaseTemplate] = None
     autonomy: Optional[str] = None
     #: The serialised workflow, in the shape ``plan_from_config`` walks.
     config: Dict[str, Any] = field(default_factory=lambda: {"steps": []})
@@ -391,11 +750,28 @@ class CompiledWorkflow:
             f"stage {stage!r} needs executor {ref!r}, which this deployment does not register"
             for stage, ref in self.missing_capabilities.items()
         ]
+        what = (
+            f"the {self.template.value} template"
+            if self.template
+            else f"the {self.shape.value} shape"
+        )
         reasons += [
-            f"the {self.shape.value} shape requires a {slot!r} parameter and nothing filled it"
+            f"{what} requires a {slot!r} parameter and nothing filled it"
             for slot in self.unfilled_slots
         ]
         return reasons
+
+
+def _comparison_wanted(spec: Mapping[str, Any], draft: Mapping[str, Any]) -> bool:
+    """Whether this spec compares: a diagnosis always (two periods are inherent); otherwise
+    only when the form or the spec named a baseline."""
+    if _is_diagnosis(spec):
+        return True
+    return (
+        _filled(_spec_parameter(spec, "comparison"))
+        or _filled(draft.get("comparison"))
+        or _filled(_lookup(spec, "time_window"))
+    )
 
 
 def _step_dict(
@@ -509,11 +885,59 @@ def _shape_of(spec: Mapping[str, Any], shape: Optional[Any]) -> UseCaseShape:
         ) from None
 
 
+def _template_of(
+    spec: Mapping[str, Any], template: Optional[Any], shape: UseCaseShape
+) -> Optional[UseCaseTemplate]:
+    """The sequence within the shape, if the spec names one. Never inferred here.
+
+    The interface reads the template from the requirement's own words and writes it into the
+    spec; the compiler only checks that what it was given exists and belongs to the shape. A
+    template of another shape is refused rather than silently re-shaped -- an Act sequence
+    compiled under Inform would drop its write guards.
+    """
+    raw = template if template is not None else spec.get("template")
+    if raw is None:
+        return None
+    if isinstance(raw, UseCaseTemplate):
+        resolved = raw
+    else:
+        try:
+            resolved = UseCaseTemplate(str(raw).strip().lower())
+        except ValueError:
+            raise UnknownTemplate(
+                f"{raw!r} is not a template "
+                f"({', '.join(t.value for t in UseCaseTemplate)})."
+            ) from None
+    if TEMPLATE_SHAPE[resolved] is not shape:
+        raise UnknownTemplate(
+            f"template {resolved.value!r} is a {TEMPLATE_SHAPE[resolved].value} sequence and "
+            f"cannot be compiled as {shape.value}."
+        )
+    return resolved
+
+
+def _spec_parameter(spec: Mapping[str, Any], slot: str) -> Any:
+    """``spec.parameters[slot]`` -- the per-shape form's values, keyed by slot name.
+
+    The contract's ``Spec.parameters`` (1.2.0) carries exactly the shape's or template's slot
+    list, so the compiler reads one place for every shape. Accepted under the slot name as
+    written ("per-run cap") and under its slug ("per_run_cap"), because the interface writes
+    the slug and a person types the name.
+    """
+    params = spec.get("parameters")
+    if not isinstance(params, Mapping):
+        return None
+    if slot in params:
+        return params[slot]
+    return params.get(_slug(slot))
+
+
 def compile_workflow(
     spec: Mapping[str, Any],
     *,
     registered_executors: Collection[str],
     shape: Optional[Any] = None,
+    template: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
@@ -533,14 +957,43 @@ def compile_workflow(
     draft = draft or {}
     identifier = use_case_id or str(spec.get("use_case_id") or "use_case")
     resolved = _shape_of(spec, shape)
+    resolved_template = _template_of(spec, template, resolved)
     known = set(registered_executors)
     compiled = CompiledWorkflow(
-        use_case_id=identifier, shape=resolved, autonomy=autonomy
+        use_case_id=identifier,
+        shape=resolved,
+        template=resolved_template,
+        autonomy=autonomy,
+    )
+    stages = (
+        TEMPLATE_STAGES[resolved_template]
+        if resolved_template is not None
+        else SHAPE_STAGES[resolved]
+    )
+    slots = (
+        TEMPLATE_PARAMETERS[resolved_template]
+        if resolved_template is not None
+        else SHAPE_PARAMETERS[resolved]
     )
 
     steps: List[Dict[str, Any]] = []
     missing_gate = False
-    for index, stage in enumerate(SHAPE_STAGES[resolved], start=1):
+    # A comparison is a choice (18 Sep): when the spec makes none, the Compare stage is
+    # emitted under the name of what it then does -- carry the numbers forward -- so the
+    # plan and the run history never say "compared" about a run that compared nothing.
+    compares = _comparison_wanted(spec, draft)
+    for index, stage in enumerate(stages, start=1):
+        if stage.name == "Compare to baseline" and not compares:
+            stage = Stage(
+                "Take the numbers as they are",
+                stage.kind,
+                stage.executor_ref,
+                consumes=("window",),
+                description=(
+                    "No comparison chosen: each KPI's value at the run's date and its "
+                    "breakdown rows, carried forward as they are. Nothing is compared."
+                ),
+            )
         step_id = f"{identifier}.{index:02d}.{_slug(stage.name)}"
         if stage.kind is StageKind.MODEL:
             agent_id = f"{identifier}__{stage.role or _slug(stage.name)}"
@@ -595,10 +1048,18 @@ def compile_workflow(
     # already filled would do nothing -- and the origin of whichever won is recorded, because
     # "the approver set this cap" and "a model inferred this cap from a sentence" are
     # different facts about the same number.
-    for slot in SHAPE_PARAMETERS[resolved]:
+    for slot in slots:
         source, key = _SLOT_VALUES.get(slot, ("draft", _slug(slot)))
         authored = _lookup(draft, key)
-        spec_value = _lookup(spec, key) if source == "spec" else None
+        # The slot's own slug is always accepted on the draft, whatever legacy path the table
+        # names: a document-to-record form writes ``guardrails`` where the KPI form wrote
+        # ``step8.guardrail_amount``, and both are the "guardrails" slot.
+        if not _filled(authored):
+            authored = draft.get(_slug(slot))
+        # The per-shape form's values, then the extractor's legacy top-level fields.
+        spec_value = _spec_parameter(spec, slot)
+        if not _filled(spec_value) and source == "spec":
+            spec_value = _lookup(spec, key)
 
         if _filled(authored):
             compiled.parameters[slot] = authored
@@ -606,7 +1067,22 @@ def compile_workflow(
         elif _filled(spec_value):
             compiled.parameters[slot] = spec_value
             compiled.parameter_origins[slot] = ParameterOrigin.SPEC
-        else:
+        elif slot in SLOT_DEFAULTS and (
+            (
+                default := (
+                    SLOT_DEFAULTS[slot](spec)
+                    if callable(SLOT_DEFAULTS[slot])
+                    else SLOT_DEFAULTS[slot]
+                )
+            )
+            is not NO_DEFAULT
+        ):
+            # An optional slot with a sensible default binds it, so the plan shows what will
+            # actually run rather than a blank: the report's title is the question, its
+            # outputs the report alone, its window the KPI's own declared one.
+            compiled.parameters[slot] = default
+            compiled.parameter_origins[slot] = ParameterOrigin.DEFAULT
+        elif slot not in OPTIONAL_SLOTS:
             compiled.unfilled_slots.append(slot)
 
     # A sequence missing its gate carries no steps at all. That is the one shortfall where a
@@ -618,7 +1094,7 @@ def compile_workflow(
     if missing_gate:
         guards = [
             stage.name
-            for stage in SHAPE_STAGES[resolved]
+            for stage in stages
             if (stage.kind is StageKind.GATE or stage.guards_write)
             and stage.name in compiled.missing_capabilities
         ]
@@ -640,6 +1116,7 @@ async def acompile_workflow(
     *,
     registered_executors: Collection[str],
     shape: Optional[Any] = None,
+    template: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
@@ -650,6 +1127,7 @@ async def acompile_workflow(
         spec,
         registered_executors=registered_executors,
         shape=shape,
+        template=template,
         autonomy=autonomy,
         draft=draft,
         use_case_id=use_case_id,
@@ -687,6 +1165,32 @@ def capability_report(
             "satisfied_elsewhere": satisfied,
             "missing": missing,
             "parameters": list(SHAPE_PARAMETERS[shape]),
+        }
+    # Templates that are not simply a shape's own sequence get a row of their own, keyed
+    # ``<shape>/<template>`` so a reader sees which shape's guarantees they carry.
+    for tmpl, stages in TEMPLATE_STAGES.items():
+        shape = TEMPLATE_SHAPE[tmpl]
+        if stages is SHAPE_STAGES[shape]:
+            continue
+        missing = {
+            stage.name: stage.executor_ref or ""
+            for stage in stages
+            if stage.kind is not StageKind.MODEL
+            and not stage.satisfied_by
+            and (stage.executor_ref or "") not in known
+        }
+        satisfied = {
+            stage.name: stage.satisfied_by or ""
+            for stage in stages
+            if stage.satisfied_by
+        }
+        report[f"{shape.value}/{tmpl.value}"] = {
+            "stages": len(stages),
+            "model_steps": sum(1 for s in stages if s.kind is StageKind.MODEL),
+            "buildable": len(stages) - len(missing) - len(satisfied),
+            "satisfied_elsewhere": satisfied,
+            "missing": missing,
+            "parameters": list(TEMPLATE_PARAMETERS[tmpl]),
         }
     return report
 

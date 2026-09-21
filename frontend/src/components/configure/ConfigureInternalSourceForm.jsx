@@ -70,6 +70,7 @@ const EMPTY = {
  apiKey: "",
  sslMode: "require",
  permissionLevel: "read_only",
+ credentialRef: "",
 };
 
 const AUTH_OPTIONS = [
@@ -555,6 +556,16 @@ export default function ConfigureInternalSourceForm() {
  placeholder={isLive && existing.hasCredentials ? "Stored — enter a new one to replace it" : "token"}
  value={form.apiKey}
  onChange={(e) => setField("apiKey", e.target.value)}
+ />
+ <IconInput
+ icon={Lock}
+ label="Credential reference"
+ type="text"
+ autoComplete="off"
+ placeholder="env:gmail"
+ value={form.credentialRef || ""}
+ onChange={(e) => setField("credentialRef", e.target.value)}
+ hint="The platform resolves this where it runs: from its environment locally, from a vault in the cloud. The app never stores the secret itself."
  />
  </div>
  )}

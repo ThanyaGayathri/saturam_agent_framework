@@ -1,14 +1,19 @@
 import { useMemo, useState } from "react";
+import { mappingLabel } from "../../domain/record-mappings";
 import { useNavigate } from "react-router-dom";
 import {
  Bell, Check, CircleUser, Coins, Layers, ListChecks, Rocket, RefreshCw, ShieldAlert, Tag, Target,
  UserCheck,
 } from "lucide-react";
 import {
- CHANNELS, OPERATORS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS, categoryOf, displayName, estimatedRunsPerMonth,
+ CHANNELS, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS, categoryOf, displayName, estimatedRunsPerMonth,
  requiresAdminActivation, requiresSeparationOfDuties,
 } from "../../domain/use-case-autonomy";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
+import { loadConfigureWorkspace } from "../../storage/configure-workspace";
+import { useDemoProfile } from "../../context/DemoProfileContext";
+import { activateOnPlatform } from "../../services/use-case-platform";
+import PlatformRunPanel, { explain } from "./PlatformRunPanel";
 
 /**
  * Step 6 of 6: activation.
@@ -82,9 +87,28 @@ export default function UseCaseActivateScreen() {
  const handoff = admin ? "an admin" : sod ? `${spec.approver || "the approver"}` : null;
  const blocked = !spec.planApprovedAt || !spec.owner;
 
- const activate = () => {
-  const status = handoff ? "submitted" : "active";
-  setSpec((s) => saveSpecDraft({ ...s, activation: { status, at: new Date().toISOString(), environment: s.environment, by: s.author, to: handoff } }));
+ const { profileId, storageKeys } = useDemoProfile();
+ const sources = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId).internalSources || [], [storageKeys.CONFIGURE_WORKSPACE, profileId]);
+ const [activating, setActivating] = useState(false);
+ const [activationError, setActivationError] = useState(null);
+
+ // Going live is a platform call: the spec is stored, compiled and versioned there, and its
+ // preflight decides. A refusal comes back as the checks that failed, shown here as they
+ // are; the interface never marks something active that the platform did not activate.
+ const activate = async () => {
+  setActivating(true); setActivationError(null);
+  try {
+   const { spec: next, useCase } = await activateOnPlatform(spec, sources);
+   // The platform's answer is the status. With authorization on, a level 3+ activation by
+   // a non-admin is refused there (403) and lands in the error path; locally, with
+   // authorization off, the caller is the admin and the use case is active.
+   const status = useCase.status === "activated" ? "active" : handoff ? "submitted" : "active";
+   setSpec(saveSpecDraft({ ...next, activation: { status, at: new Date().toISOString(), environment: next.environment, by: next.author, to: handoff, useCaseId: useCase.id, version: useCase.version } }));
+  } catch (err) {
+   setActivationError(explain(err));
+  } finally {
+   setActivating(false);
+  }
  };
  const done = spec.activation;
 
@@ -101,17 +125,30 @@ export default function UseCaseActivateScreen() {
      <p className="mt-1 max-w-2xl text-sm text-text-secondary">
       {done.status === "active"
        ? <><strong className="text-text-primary">{title}</strong> is live in {done.environment}. The frozen version runs; a change to the spec is a new version.</>
-       : <><strong className="text-text-primary">{title}</strong> is frozen and waiting for {done.to} to activate it. Nothing runs until they do; they see the same plan, rehearsal and cost you saw.</>}
+       : <><strong className="text-text-primary">{title}</strong> is frozen and waiting for {done.to} to activate it. Nothing runs until they do; they see the same workflow, simulation and cost you saw.</>}
      </p>
     </div>
     <Card Icon={ListChecks} title="What happens next">
      <ul className="space-y-1.5 text-sm text-text-secondary">
-      <li>· First run: <strong className="text-text-primary">{first.toLowerCase()}</strong>{spec.environment === "sandbox" ? " — in the sandbox, so it writes nowhere and sends nothing outside the app" : ""}.</li>
+      <li>· Runs <strong className="text-text-primary">{(spec.template === "document_to_record" ? POLL_INTERVALS.find((x) => x.value === spec.schedule)?.label || first : first).toLowerCase()}</strong> once its trigger is on: locally the Run button below or the in-process poller, in the cloud the orchestrator (a Logic App on Azure, a Step Functions task on AWS) calling the same run endpoint.{spec.environment === "sandbox" ? " In the sandbox it writes nowhere and sends nothing outside the app." : ""}</li>
+      {spec.template === "document_to_record" && <li>· Each new document in {spec.mailbox} becomes {mappingLabel(spec) ? `${/^[aeiou]/i.test(mappingLabel(spec)) ? "an" : "a"} ${mappingLabel(spec)}` : "a record"} in {spec.writeback}; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.</li>}
       <li>· Results land {shape.id === "alert" ? <>on the <strong className="text-text-primary">Alerts</strong> page{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</> : <>in this use case's <strong className="text-text-primary">runs</strong>{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</>}, for {spec.notify || spec.owner}.</li>
       {shape.level >= 3 && <li>· {shape.id === "recommend" ? `${spec.approver} gets each recommendation to release; ` : ""}every change to {spec.writeback} is stamped with its run{shape.id === "act" ? " and its rollback point" : ""}.</li>}
       <li>· Every run is recorded with what it read, decided and sent. {spec.owner} and any admin hold the kill switch.</li>
      </ul>
     </Card>
+    {done.useCaseId && (
+     <PlatformRunPanel
+      useCaseId={done.useCaseId}
+      mode={done.environment === "production" ? "live" : "rehearse"}
+      label={done.environment === "production" ? "Run it now" : "Run it now, in the sandbox"}
+      description={done.environment === "production"
+       ? `Version ${done.version} on the platform${spec.template === "document_to_record" ? `: polls ${spec.mailbox || "the mailbox"}, creates in ${spec.writeback || "the target"}, emails exceptions to ${spec.exceptionsTo || "the configured address"}.` : "."} The same run the schedule makes; in the cloud the orchestrator calls this endpoint.`
+       : `Version ${done.version} on the platform, with every side effect held: ${spec.template === "document_to_record" ? "the sample set instead of the mailbox, nothing created, nothing sent" : "nothing written, nothing sent"}. Promote to production to run it for real.`}
+      createdAs={spec.createdAs}
+      buttonLabel={done.environment === "production" ? "Run now" : "Run now in the sandbox"}
+     />
+    )}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
      <button type="button" onClick={() => set("activation", null)} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Undo</button>
      <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">Go to use cases</button>
@@ -184,11 +221,11 @@ export default function UseCaseActivateScreen() {
     <div className="grid gap-3 sm:grid-cols-2">
      <label className="block"><span className="text-xs font-semibold text-text-secondary">Runs</span>
       <select value={spec.schedule} onChange={(e) => set("schedule", e.target.value)} className="mt-1 w-full rounded-lg border border-border bg-surface px-2.5 py-2 text-sm focus:border-primary focus:outline-none">
-       {SCHEDULES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+       {(spec.template === "document_to_record" ? POLL_INTERVALS : SCHEDULES).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select></label>
      <div>
-      <span className="text-xs font-semibold text-text-secondary">{shape.level >= 3 ? "Owner is told" : "Delivered to"}</span>
-      <p className="mt-1 text-sm text-text-primary"><strong>{spec.notify || spec.owner || "nobody yet"}</strong></p>
+      <span className="text-xs font-semibold text-text-secondary">{spec.template === "document_to_record" ? "Exceptions go to" : shape.level >= 3 ? "Owner is told" : "Delivered to"}</span>
+      <p className="mt-1 text-sm text-text-primary"><strong>{spec.template === "document_to_record" ? spec.exceptionsTo || "nobody yet" : spec.notify || spec.owner || "nobody yet"}</strong></p>
       <div className="mt-1 flex flex-wrap gap-1">
        {channels.map((c) => <span key={c} className="rounded-full border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-semibold text-text-secondary">{c}</span>)}
       </div>
@@ -217,7 +254,12 @@ export default function UseCaseActivateScreen() {
     </Card>
    )}
 
-   {shape.id === "act" && (
+   {shape.id === "act" && spec.template === "document_to_record" && (
+    <Card Icon={ShieldAlert} title="Document to record, unattended" aside={<FromSpec navigate={navigate} />}>
+     <p className="text-sm text-text-secondary">Polls <strong className="text-text-primary">{spec.mailbox || "the mailbox"}</strong> {POLL_INTERVALS.find((p) => p.value === spec.schedule)?.label.toLowerCase() || ""}. Each {spec.extractionTemplate?.replace(/_/g, " ") || "document"} is extracted, resolved, checked by {(spec.recordGuardrails || []).length} guardrails, and created in <strong className="text-text-primary">{spec.writeback}</strong> as {spec.createdAs === "active" ? "activated" : "a draft"} — at most <strong className="text-text-primary">{spec.blastRadius}</strong> per poll. Exceptions go to <strong className="text-text-primary">{spec.exceptionsTo}</strong>{spec.acknowledge ? "; the sender is acknowledged either way" : ""}. Rollback: <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch stops the poll; in-flight documents complete.</p>
+    </Card>
+   )}
+   {shape.id === "act" && spec.template !== "document_to_record" && (
     <Card Icon={ShieldAlert} title={spec.objective?.metric ? "Optimisation, unattended" : "Unattended"} aside={<FromSpec navigate={navigate} />}>
      <p className="text-sm text-text-secondary">{objectiveText(spec.objective) ? <>Tunes the process towards <strong className="text-text-primary">{objectiveText(spec.objective)}</strong>. </> : null}Runs unattended. {spec.guardrails.length} business guardrail{spec.guardrails.length === 1 ? "" : "s"}, then at most <strong className="text-text-primary">{spec.blastRadius}</strong> per run; every change to <strong className="text-text-primary">{spec.writeback}</strong> records its rollback point — <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch is available to the owner and any admin.</p>
     </Card>
@@ -233,13 +275,19 @@ export default function UseCaseActivateScreen() {
    )}
 
    <Card Icon={Coins} title="Cost">
-    <p className="text-sm text-text-secondary"><strong className="text-text-primary">{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits ≈ <strong className="text-text-primary">{(runs * costPerRun).toFixed(0)} credits / month</strong>, against the tenant budget.{shape.id === "alert" ? " No model is called on a run." : ""}</p>
+    {spec.template === "document_to_record" ? <p className="text-sm text-text-secondary">One AI step per document, ~0.12 credits; polls cost nothing. At ~60 documents a month, <strong className="text-text-primary">≈ 7 credits / month</strong>, against the tenant budget.</p> : <p className="text-sm text-text-secondary"><strong className="text-text-primary">{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits ≈ <strong className="text-text-primary">{(runs * costPerRun).toFixed(0)} credits / month</strong>, against the tenant budget.{shape.id === "alert" ? " No model is called on a run." : ""}</p>}
    </Card>
 
    <Card Icon={Target} title="How you will know it worked">
     <p className="text-sm text-text-secondary">Stated now so it can be graded later. Without it you collect use cases nobody can evaluate.</p>
     <input value={spec.successMeasure || ""} onChange={(e) => set("successMeasure", e.target.value)} placeholder={{ inform: "e.g. finance stops asking for the margin deck by Tuesday", alert: "e.g. stockouts caught a day earlier than today", recommend: "e.g. margin holds while markdown rate falls 2 points", act: "e.g. stockout rate below 5% with no manual safety-stock edits" }[shape.id]} className="mt-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
    </Card>
+
+   {activationError && (
+    <div className="rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+     <strong>The platform did not activate it.</strong> {activationError}
+    </div>
+   )}
 
    {handoff && (
     <div className="rounded-xl border border-status-info-border bg-status-info-light px-4 py-3 text-sm text-text-secondary">
@@ -251,8 +299,8 @@ export default function UseCaseActivateScreen() {
     <button type="button" onClick={() => navigate("/use-cases/builder/rehearse")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Back to the simulation</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!spec.planApprovedAt ? "Approve the workflow first." : "Set an owner first."}</span>}
-     <button type="button" disabled={blocked} onClick={activate} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
-      <Rocket size={15} /> {handoff ? "Submit to go live" : `Go live in ${spec.environment}`}
+     <button type="button" disabled={blocked || activating} onClick={activate} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+      <Rocket size={15} /> {activating ? "Activating on the platform…" : handoff ? "Submit to go live" : `Go live in ${spec.environment}`}
      </button>
     </div>
    </div>

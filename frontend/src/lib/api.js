@@ -37,6 +37,10 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
     this.code = options?.code ?? null;
+    // The parsed error body, when there was one: a 409 on `/use-cases/{id}/activate` or
+    // `.../runs` carries a `PreflightResult` rather than `{detail}`, and the screen shows its
+    // checks.
+    this.body = options?.body ?? null;
   }
 }
 
@@ -101,6 +105,7 @@ async function request(path, options = {}) {
     }
     throw new ApiError(response.status, formatErrorDetail(body?.detail, response.statusText), path, {
       code: body?.code,
+      body,
     });
   }
 

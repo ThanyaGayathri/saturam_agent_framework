@@ -365,6 +365,19 @@ class RetailSettings(BrandedSettings):
         description="Where the scheduler posts its callbacks (EGPT_RETAIL_SCHEDULER_BASE_URL). "
         "Defaults to the framework's own default, which is this process.",
     )
+    retail_use_case_poller: bool = Field(
+        default=False,
+        description="Run activated use cases on their own poll interval from inside the API process "
+        "(EGPT_RETAIL_USE_CASE_POLLER). The local stand-in for the cloud orchestrator -- a Logic App "
+        "on Azure, a Step Functions task on AWS -- which calls POST /use-cases/{id}/runs instead. Off "
+        "by default: a run is a write, and a switch nobody threw should not make one.",
+    )
+    retail_schedule_trigger: Optional[str] = Field(
+        default=None,
+        description="What fires use-case schedules in this deployment, for the monitoring screen "
+        "(EGPT_RETAIL_SCHEDULE_TRIGGER): 'orchestrator' where a Logic App or Step Functions task "
+        "calls the run endpoint. Unset locally, where the in-process poller reports itself.",
+    )
     retail_model_provider: str = Field(
         default="azure-openai",
         description="The Mode B registry key both tiers resolve under (EGPT_RETAIL_MODEL_PROVIDER), "

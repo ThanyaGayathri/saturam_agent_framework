@@ -433,6 +433,63 @@
             examples:
               not_found:
                 value: {detail: "No spec extracted for uc_0002 yet. POST to extract one.", code: not_found}
+  put:
+    tags: [use-cases]
+    operationId: saveUseCaseSpec
+    summary: Store a spec the interface assembled (1.3.0).
+    description: |
+      The per-shape form fills the spec directly -- shape, template and parameters -- without
+      running the extraction agent (the form is the spec, K15). This stores it whole and returns
+      it back. `extracted_by` records that the form produced it (`interface.form`), so a spec a
+      person assembled and one an agent extracted are distinguishable in the record.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/Spec'
+          examples:
+            document_to_record:
+              value:
+                use_case_id: uc_0007
+                question: Turn purchase-order emails into Salesforce orders.
+                business_area: sales
+                entities: [{concept: Customer, role: subject}, {concept: Product, role: subject}]
+                kpi_identifiers: []
+                grain: overall
+                notes: ""
+                extracted_by: {identifier: interface.form, version: "1"}
+                shape: act
+                template: document_to_record
+                parameters: {source mailbox: seed_gmail_orders, document type: pdf, extraction template: purchase_order, master data: {customer: ds-sf-account, product: ds-sf-product, shipTo: ds-sf-address, orderHistory: ds-sf-order}, guardrails: [{id: duplicate_po}, {id: restricted_product}], recipient: ops@example.com, write target: seed_salesforce_orders, target objects: order_orderitem, created as: draft, per-run cap: 50 records, rollback: Cancel the record and remove its lines, schedule: every_15_minutes}
+    responses:
+      "200":
+        description: Stored.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Spec'
+            examples:
+              default:
+                value:
+                  use_case_id: uc_0007
+                  question: Turn purchase-order emails into Salesforce orders.
+                  business_area: sales
+                  entities: [{concept: Customer, role: subject}, {concept: Product, role: subject}]
+                  kpi_identifiers: []
+                  grain: overall
+                  notes: ""
+                  extracted_by: {identifier: interface.form, version: "1"}
+                  shape: act
+                  template: document_to_record
+                  parameters: {source mailbox: seed_gmail_orders, document type: pdf, extraction template: purchase_order, guardrails: [{id: duplicate_po}], recipient: ops@example.com, write target: seed_salesforce_orders, target objects: order_orderitem, created as: draft, per-run cap: 50 records, rollback: Cancel the record and remove its lines, schedule: every_15_minutes}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
   post:
     tags: [use-cases]
     operationId: extractUseCaseSpec
@@ -750,9 +807,32 @@
     tags: [use-cases]
     operationId: triggerUseCaseRun
     summary: Run now, outside the schedule.
+    description: |
+      Queues one run of the compiled workflow and returns it; poll `GET /use-cases/{id}/runs/{run_id}`.
+      `mode=rehearse` (1.3.0) runs the same workflow with every side effect held -- no write to
+      the target, no message sent -- over the deployment's sample set where the template has one,
+      so the rehearse screen and the live run share one code path. In the cloud this is the
+      endpoint the orchestrator (a Logic App, a Step Functions task) calls; locally the
+      interface's Run button and the in-process poller call it.
     x-egpt-scopes: [use-cases:write]
     parameters:
       - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: mode
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/use-cases.yaml#/RunMode'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/RunRequest'
+          examples:
+            chosen_messages:
+              value: {source: mailbox, message_ids: ["<e-01@sample.northwind.example>", "<e-02@sample.northwind.example>"]}
+            golden_cases:
+              value: {source: cases}
     responses:
       "202":
         description: Queued. Poll the run.
@@ -808,6 +888,84 @@ x-egpt-parameters:
     in: path
     required: true
     schema: {type: string}
+  recommendationId:
+    name: recommendation_id
+    in: path
+    required: true
+    schema: {type: string}
+
+/use-cases/analytics/suggest:
+  post:
+    tags: [use-cases]
+    operationId: suggestAnalyticsUseCase
+    summary: What the connected data supports for an analytics ask, as a filled form.
+    description: |
+      The Analytics Automation form's intelligence (1.9.0). The person's own words -- "full
+      visibility into the quote pipeline by brand and territory, every Monday to the sales
+      team", or "why is my revenue low last week?" -- resolved against the governed KPI
+      registry and the gold the deployment holds: the KPIs that match and can be reported on,
+      the breakdowns they offer, the baseline, the cadence, the outputs and the recipients the
+      words name, and every word no registered KPI covers. Deterministic: the same ask over
+      the same registry suggests the same form, and each KPI says which of the ask's words
+      chose it. The person confirms; nothing is stored by this call.
+    x-egpt-scopes: [use-cases:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/AnalyticsSuggestRequest'
+          examples:
+            default:
+              value: {question: "Full visibility into the quote pipeline by brand, territory and state, every Monday to sales@example.com."}
+    responses:
+      "200":
+        description: The suggestion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/AnalyticsSuggestion'
+            examples:
+              default:
+                value: {kind: monitoring, title: "Full visibility into the quote pipeline by brand, territory and state", business_areas: [sales], kpis: [{identifier: rfq__quotes_by_brand, name: Quotes by brand, grain: brand, business_area: sales, unit: quotes, score: 24, why: "quote, pipeline, brand", feasibility: ready, latest_as_of: "2026-09-17"}], dimensions: [brand, location, sales_territory], comparison: prior_period, comparison_reason: "the period before, the default", schedule: weekly, schedule_reason: "the ask says weekly", outputs: [dashboard, report], recipients: [sales@example.com], uncovered: [], notes: []}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/use-cases/analytics/diagnosis-options:
+  post:
+    tags: [use-cases]
+    operationId: diagnosisOptions
+    summary: What a diagnostic ask on one KPI can search across, and what the data can bear.
+    description: |
+      The diagnostic kind's form (1.12.0, K25). For one registered KPI: whether its formula
+      can be decomposed and as what (a ratio's numerator and denominator, or an additive
+      aggregate), the columns of its fact a change can be searched across (low-cardinality
+      text columns the formula does not itself read; never an id, a date, a status or a
+      reason) with their distinct counts and descriptions, the rows in the period and the
+      one before, and the support floor each sensitivity implies. Nothing asked that the data
+      can decide. Deterministic; nothing stored.
+    x-egpt-scopes: [use-cases:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/DiagnosisOptionsRequest'
+          examples:
+            default:
+              value: {kpi_identifier: rfq__closed_won_rate, window: 7}
+    responses:
+      "200":
+        description: The options.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/DiagnosisOptions'
+            examples:
+              default:
+                value: {kpi_identifier: rfq__closed_won_rate, diagnosable: true, kind: ratio, numerator: "COUNT(*) FILTER (WHERE pipeline_stage = 'Closed Won')", denominator: "COUNT(*)", table: silver.dc_rfq_quotes, window_days: 90, step_days: 7, as_of: "2026-09-17", rows_in_period: 480, rows_in_baseline: 454, history_periods: 12, support_floors: {clear: 36, usual: 24, more: 12}, dimensions: [{column: brand, label: brand, distinct: 26, description: "The brand quoted."}], columns: [{column: quote_id, description: ""}], reason_columns: [lost_reason]}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
 
 x-egpt-responses:
   InsufficientScope:
@@ -828,3 +986,466 @@ x-egpt-responses:
         examples:
           not_found:
             value: {detail: "No use case 'uc_9999'.", code: not_found}
+
+/use-cases/{use_case_id}/mailbox/messages:
+  get:
+    tags: [use-cases]
+    operationId: listMailboxMessages
+    summary: The messages in the connected mailbox that match the use case's filter (1.6.0).
+    description: |
+      Read with the platform's credentials, nothing flagged; what a person picks a rehearsal
+      from. `processed_before` marks messages a live run already carried.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: Messages, newest last.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/MailboxMessage'
+            examples:
+              default:
+                value: [{id: "<e-01@sample.northwind.example>", sender: purchasing@bristolcoatings.example, sender_domain: bristolcoatings.example, from_address: kiruthiga@saturam.com, subject: "Northwind sample: PO 27012128", received_at: "2026-09-15T08:01:00+00:00", attachments: [{filename: 27012128.pdf, content_type: application/pdf, size: 2410}], processed_before: false}]
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "503":
+        description: No mailbox is connected, or it cannot be reached.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              no_mailbox:
+                value: {detail: "env:gmail: GMAIL_USER, GMAIL_APP_PASSWORD not set in the environment", code: mailbox_unavailable}
+/use-cases/{use_case_id}/cases:
+  get:
+    tags: [use-cases]
+    operationId: listGoldenCases
+    summary: The use case's golden cases (1.6.0).
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: Cases, oldest first.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: [{id: case_1a2b3c4d, use_case_id: uc_0007, label: "E-01: PO 27012128", source: generated, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: 27012128.pdf, expected: {outcome: created, extracted: {po_number: "27012128"}, line_count: 1}, last_status: pass, last_run_id: run_0042, last_result: {status: pass, outcome: created, expected_outcome: created, checks: [{name: outcome, passed: true, detail: "expected created, got created"}]}, created_at: "2026-09-16T05:00:00Z"}]
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  post:
+    tags: [use-cases]
+    operationId: createGoldenCase
+    summary: Upload a document as a golden case (1.6.0).
+    description: |
+      The document is stored with the use case and run by `POST .../runs?mode=rehearse` with
+      `source: cases`. Expected values may be supplied now or authored later by accepting a
+      run's output.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/GoldenCaseWrite'
+          examples:
+            default:
+              value: {label: "Bristol PO, March", sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, document_b64: JVBERi0xLjQK..., expected: null}
+    responses:
+      "201":
+        description: Stored.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: {id: case_5e6f7a8b, use_case_id: uc_0007, label: "Bristol PO, March", source: uploaded, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, expected: null, last_status: untested, last_run_id: null, last_result: null, created_at: "2026-09-16T05:00:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: The document is not a PDF.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_pdf:
+                value: {detail: "document.pdf: not a PDF (no %PDF header)", code: invalid_document}
+/use-cases/{use_case_id}/cases/{case_id}:
+  patch:
+    tags: [use-cases]
+    operationId: updateGoldenCase
+    summary: Change a case's label, sender or expected output (1.6.0).
+    description: |
+      The other way to author a golden record: type what the document should produce -- the
+      outcome and the header values -- before or instead of running it. A case whose expected
+      output changes goes back to `untested` until the next run.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: case_id
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/GoldenCaseUpdate'
+          examples:
+            default:
+              value: {expected: {outcome: created, extracted: {po_number: "177948", customer_name: "Lycoming Fabrication Inc"}, line_count: 1}}
+    responses:
+      "200":
+        description: The case.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: {id: case_5e6f7a8b, use_case_id: uc_0007, label: "Lycoming PO", source: uploaded, sender: aallison@lycomingfab.example, subject: "PO 177948", filename: E-02-177948.pdf, expected: {outcome: created, extracted: {po_number: "177948", customer_name: "Lycoming Fabrication Inc"}, line_count: 1}, last_status: untested, last_run_id: null, last_result: null, created_at: "2026-09-16T05:00:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [use-cases]
+    operationId: deleteGoldenCase
+    summary: Remove a golden case (1.6.0).
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: case_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Removed.
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+/use-cases/{use_case_id}/cases/{case_id}/accept:
+  post:
+    tags: [use-cases]
+    operationId: acceptGoldenCaseOutput
+    summary: Make the case's last output what it expects from now on (1.6.0).
+    description: |
+      The cheap way to author a golden record -- run the document, look at what came out,
+      accept it. The case passes until the use case changes and a re-run disagrees.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: case_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The case, now with expected values.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GoldenCase'
+            examples:
+              default:
+                value: {id: case_5e6f7a8b, use_case_id: uc_0007, label: "Bristol PO, March", source: uploaded, sender: purchasing@bristolcoatings.example, subject: PO 27012128, filename: PO-27012128.pdf, expected: {outcome: created, extracted: {po_number: "27012128", customer_name: "Bristol Coatings Ltd"}, line_count: 1}, last_status: pass, last_run_id: run_0043, last_result: {status: pass}, created_at: "2026-09-16T05:00:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: The case has not been run yet, so there is no output to accept.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/PreflightResult'
+            examples:
+              not_run:
+                value: {use_case_id: uc_0007, allowed: false, checks: [{name: case_run, passed: false, reason: "Run the case first; there is no output to accept yet."}], blocked_by: [case_run], checked_at: "2026-09-16T05:00:00Z"}
+
+/use-cases/{use_case_id}/preflight/{probe}:
+  post:
+    tags: [use-cases]
+    operationId: runUseCasePreflightProbe
+    summary: One live connectivity probe (1.6.0).
+    description: |
+      Where `runUseCasePreflight` confirms that credentials exist, this opens the connection:
+      `mailbox` logs in and counts the messages matching the filter; `target` takes a token
+      and counts the records it may read; `master_data` reads the rows the resolver will use;
+      `model` sends one short call to the extraction model; `golden` reads the cases. A probe
+      that fails answers with `passed: false` and the reason, never an error.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: probe
+        in: path
+        required: true
+        schema:
+          $ref: '../schemas/use-cases.yaml#/ProbeName'
+    responses:
+      "200":
+        description: The probe's verdict.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/ProbeResult'
+            examples:
+              mailbox:
+                value: {name: mailbox, passed: true, reason: "Logged into kiruthiga@saturam.com; 16 message(s) match the filter right now.", elapsed_ms: 3900, count: 16}
+              target_down:
+                value: {name: target, passed: false, reason: "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment", elapsed_ms: 2}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/recommendations:
+  get:
+    tags: [use-cases]
+    operationId: listUseCaseRecommendations
+    summary: The recommendations and alerts one use case has produced (1.13.0).
+    description: |
+      The hand-off from Analytics Automation to Decision Intelligence (K26): the records the
+      use case's `recommend` stage wrote, by value at stake. Filter by status to read the
+      open ones -- what a consuming use case, or the screen, acts on.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: status
+        in: query
+        schema: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [recommendation, alert]}
+      - name: level
+        in: query
+        schema: {type: string, enum: [high, medium, low]}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+    responses:
+      "200":
+        description: The records and the counts per status.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/RecommendationList'
+            examples:
+              default:
+                value:
+                  items:
+                    - id: rec_300fd589
+                      use_case_id: uc_1f2e3d4c
+                      run_id: run_9a8b7c6d
+                      kind: recommendation
+                      subject_type: quote
+                      subject_id: "486"
+                      subject_label: "Quote 486 · Griddles · $9,256"
+                      account_id: "12"
+                      account_label: Sanne Hendriks
+                      owner: M. Nambiar
+                      risk_score: 0.981
+                      risk_level: high
+                      horizon_days: 26
+                      model_version: 60523454c1
+                      drivers:
+                        - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                        - {feature: customer_segment, value: SMB, typical: null, contribution: -0.41, text: "SMB accounts convert less often"}
+                      action:
+                        code: DECISION_SUPPORT
+                        title: Send the total-cost-of-ownership summary to the decision maker
+                        action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                        owner: Sales rep
+                        sla_hours: 120
+                        from_catalogue: true
+                        because: "the account's last quote was lost: Decision Delayed"
+                      value_at_stake: 9256
+                      value_unit: USD
+                      context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false, account: {segment: Champions, at_risk: false, recency_days: 20}}
+                      status: open
+                      status_note: ""
+                      status_by: ""
+                      status_at: null
+                      outcome: null
+                      outcome_at: null
+                      expires_at: "2026-09-29T00:00:00Z"
+                      created_at: "2026-09-20T06:00:00Z"
+                      updated_at: "2026-09-20T06:00:00Z"
+                  counts: {open: 61, accepted: 1, dismissed: 0, actioned: 0, expired: 0}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/recommendations:
+  get:
+    tags: [use-cases]
+    operationId: listRecommendations
+    summary: Recommendations and alerts across use cases (1.13.0).
+    description: |
+      The same records as `/use-cases/{use_case_id}/recommendations`, across every use case:
+      what Decision Intelligence pulls. Filter by status, kind, level or owner.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: use_case_id
+        in: query
+        schema: {type: string}
+      - name: status
+        in: query
+        schema: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [recommendation, alert]}
+      - name: level
+        in: query
+        schema: {type: string, enum: [high, medium, low]}
+      - name: owner
+        in: query
+        schema: {type: string}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+    responses:
+      "200":
+        description: The records and the counts per status.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/RecommendationList'
+            examples:
+              default:
+                value: {items: [], counts: {open: 0, accepted: 0, dismissed: 0, actioned: 0, expired: 0}}
+
+/recommendations/{recommendation_id}:
+  get:
+    tags: [use-cases]
+    operationId: getRecommendation
+    summary: One recommendation or alert (1.13.0).
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/recommendationId'
+    responses:
+      "200":
+        description: The record.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Recommendation'
+            examples:
+              default:
+                value:
+                  id: rec_300fd589
+                  use_case_id: uc_1f2e3d4c
+                  run_id: run_9a8b7c6d
+                  kind: recommendation
+                  subject_type: quote
+                  subject_id: "486"
+                  subject_label: "Quote 486 · Griddles · $9,256"
+                  account_id: "12"
+                  account_label: Sanne Hendriks
+                  owner: M. Nambiar
+                  risk_score: 0.981
+                  risk_level: high
+                  horizon_days: 26
+                  model_version: 60523454c1
+                  drivers:
+                    - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                  action:
+                    code: DECISION_SUPPORT
+                    title: Send the total-cost-of-ownership summary to the decision maker
+                    action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                    owner: Sales rep
+                    sla_hours: 120
+                    from_catalogue: true
+                    because: "the account's last quote was lost: Decision Delayed"
+                  value_at_stake: 9256
+                  value_unit: USD
+                  context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false}
+                  status: open
+                  status_note: ""
+                  status_by: ""
+                  status_at: null
+                  outcome: null
+                  outcome_at: null
+                  expires_at: "2026-09-29T00:00:00Z"
+                  created_at: "2026-09-20T06:00:00Z"
+                  updated_at: "2026-09-20T07:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/recommendations/{recommendation_id}/status:
+  post:
+    tags: [use-cases]
+    operationId: setRecommendationStatus
+    summary: Accept, dismiss or mark actioned (1.13.0).
+    description: |
+      What Decision Intelligence -- or a person on the Recommendations screen, which is the
+      same contract -- writes back. A decided record is kept as decided by later runs of
+      the producing use case; only an open one is refreshed.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/recommendationId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/RecommendationStatusWrite'
+          examples:
+            default:
+              value: {status: accepted, note: "Called the buyer; TCO summary sent.", by: M. Nambiar}
+    responses:
+      "200":
+        description: The record after the write.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Recommendation'
+            examples:
+              default:
+                value:
+                  id: rec_300fd589
+                  use_case_id: uc_1f2e3d4c
+                  run_id: run_9a8b7c6d
+                  kind: recommendation
+                  subject_type: quote
+                  subject_id: "486"
+                  subject_label: "Quote 486 · Griddles · $9,256"
+                  account_id: "12"
+                  account_label: Sanne Hendriks
+                  owner: M. Nambiar
+                  risk_score: 0.981
+                  risk_level: high
+                  horizon_days: 26
+                  model_version: 60523454c1
+                  drivers:
+                    - {feature: last_lost_reason, value: Decision Delayed, typical: null, contribution: -1.35, text: "the account's last quote was lost: Decision Delayed"}
+                  action:
+                    code: DECISION_SUPPORT
+                    title: Send the total-cost-of-ownership summary to the decision maker
+                    action: A one-page summary of total cost of ownership and lead time for the decision maker, with an offer to walk them through it.
+                    owner: Sales rep
+                    sla_hours: 120
+                    from_catalogue: true
+                    because: "the account's last quote was lost: Decision Delayed"
+                  value_at_stake: 9256
+                  value_unit: USD
+                  context: {category: Griddles, territory: India East, stage: Proposal Sent, age_days: 17, usual_days: 26, stalled: false}
+                  status: accepted
+                  status_note: "Called the buyer; TCO summary sent."
+                  status_by: "M. Nambiar"
+                  status_at: "2026-09-20T07:00:00Z"
+                  outcome: null
+                  outcome_at: null
+                  expires_at: "2026-09-29T00:00:00Z"
+                  created_at: "2026-09-20T06:00:00Z"
+                  updated_at: "2026-09-20T07:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'

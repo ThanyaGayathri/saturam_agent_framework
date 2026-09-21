@@ -11,6 +11,27 @@ UseCaseSource:
   enum: [template, user]
   description: Whether the entry shipped with the product as a template or the customer authored it.
 
+UseCaseShape:
+  type: string
+  enum: [inform, alert, recommend, act]
+  description: |
+    What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person
+    approves, write unattended. The shape is a property of the spec -- each shape has its own
+    form, chosen before the form is filled -- and it decides the parameter list, the workflow
+    the orchestration compiler generates, the readiness checks, and who may activate.
+    Mirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders
+    the same four.
+
+UseCaseTemplate:
+  type: string
+  enum: [kpi_change, document_to_record, metric_diagnosis, at_risk]
+  description: |
+    The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
+    Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
+    document-driven automation needs -- receive, screen, extract, resolve -- before the same
+    guarded write. Both are Act. The interface reads the template from the requirement's own
+    words and never asks for it; the compiler checks it belongs to the shape.
+
 Autonomy:
   type: string
   enum: [copilot, autopilot]
@@ -180,6 +201,50 @@ Spec:
     extracted_by:
       $ref: './common.yaml#/SkillRef'
     semantic_snapshot: {type: string}
+    shape:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseShape'
+        - type: "null"
+      description: |
+        The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted
+        before a shape was chosen; the compiler refuses a null shape rather than defaulting
+        to Inform.
+    template:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseTemplate'
+        - type: "null"
+      description: The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence.
+    parameters:
+      type: object
+      additionalProperties: true
+      description: |
+        The per-shape form's values, keyed by parameter name exactly as
+        `contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)
+        lists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,
+        recipient`; for Alert `metric, operator, threshold, scope, severity, recipient,
+        schedule`; for Recommend `candidates, metrics, guardrails, approver, write target,
+        timeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,
+        per-run cap, rollback, schedule`; for the `document_to_record` template `source
+        mailbox, message filter, document type, extraction template, example document,
+        master data, match thresholds, guardrails, recipient, acknowledge, write target,
+        target objects, created as, per-run cap, rollback, schedule`. Keys may be written as
+        the name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler
+        read this one place; a value the author typed on the form (the draft) still wins over
+        a value the extractor put here, and the compiled workflow records which.
+
+        Value shapes, so the interface and the compiler agree: `guardrails` is a list of
+        `{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of
+        `GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows
+        naming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,
+        quantity_anomaly, due_date_sanity, restricted_product -- are still read);
+        `extraction template` is a shipped template's id or an `ExtractionTemplate` object
+        the form assembled (1.4.0); `target objects` is a shipped mapping's id or a
+        `RecordMapping` object the form assembled over the target's live fields (1.5.0); `candidates` is `{concept, filter}`;
+        `recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;
+        `master data` is `{customer, contact, shipTo, product, orderHistory}` naming
+        semantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,
+        aiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;
+        `created as` is `draft` or `active`. Everything else is a string.
 
 GapKind:
   type: string
@@ -274,6 +339,7 @@ PreflightCheck:
     name: {type: string}
     passed: {type: boolean}
     reason: {type: string}
+    advisory: {type: boolean, default: false, description: "Reported, never a gate: a failing advisory check (the golden cases) does not set allowed false or appear in blocked_by."}
 
 PreflightResult:
   type: object
@@ -311,7 +377,16 @@ RunStatus:
 
 RunTrigger:
   type: string
-  enum: [schedule, manual, activation]
+  enum: [schedule, manual, activation, regression]
+  description: "`regression` (1.6.0): a rehearsal over the golden cases the platform started because the use case changed."
+RunMode:
+  type: string
+  enum: [live, rehearse]
+  description: |
+    `live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same
+    compiled workflow with every side effect held and, where the template has one, over the
+    deployment's sample set -- the rehearse screen's numbers come from this, not from a
+    simulation of their own.
 
 UseCaseRunSummary:
   type: object
@@ -358,6 +433,17 @@ UseCaseRun:
     blocked_reason: {type: [string, "null"]}
     cost:
       $ref: './use-cases.yaml#/RunCost'
+    mode:
+      $ref: './use-cases.yaml#/RunMode'
+    result:
+      type: [object, "null"]
+      additionalProperties: true
+      description: |
+        What the run's last executor returned (1.3.0): for a document-to-record run, the batch
+        -- `documents` carried through with what was written, `exceptions` with their class and
+        detail, `stats` per stage, `rollback` -- so the interface shows what was created and what
+        was held without re-running anything. Null while queued or running, and for a run that
+        failed before any executor returned.
 
 UseCaseSuggestion:
   type: object
@@ -397,7 +483,10 @@ SpecEntityRole:
 
 ScheduleCadence:
   type: string
-  enum: [once, daily, weekly, monthly]
+  enum: [once, daily, weekly, monthly, hourly, every_15_minutes, every_5_minutes, every_minute]
+  description: |
+    The four the KPI shapes offer, plus the poll intervals a document-driven use case
+    offers (1.3.0): a mailbox is polled, not read nightly.
 
 DraftViewMode:
   type: string
@@ -471,3 +560,530 @@ RunCost:
     model_tier: {type: string}
     input_tokens: {type: integer}
     output_tokens: {type: integer}
+
+ExtractionTemplateField:
+  type: object
+  required: [name]
+  properties:
+    name: {type: string, description: "snake_case field name; the extraction step fills exactly this."}
+    required: {type: boolean, default: false}
+    hint:
+      type: string
+      default: ""
+      description: Where on the document the field is usually found, for the extractor.
+ExtractionTemplate:
+  type: object
+  description: |
+    A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the
+    same shape; a template a person assembles on the form, or the model drafts from a
+    description and an example, is stored on the use case's spec as the `extraction template`
+    parameter and runs the same extractor. Nothing about a template is code.
+  required: [label, header, lines]
+  properties:
+    id:
+      type: string
+      description: Slug; derived from the label when absent.
+    label: {type: string}
+    record: {type: string, default: "", description: "What one document becomes: order, payable, return, receipt."}
+    header:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/ExtractionTemplateField'
+    lines:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/ExtractionTemplateField'
+    source:
+      type: string
+      enum: [shipped, drafted, authored]
+      description: Where the template came from; `authored` when absent.
+ExtractionTemplateDraftRequest:
+  type: object
+  required: [description]
+  properties:
+    description: {type: string, description: "The use case's own words: what arrives and what it should become."}
+    label: {type: string, description: "The document kind's name, when the person has one."}
+    example_text: {type: string, description: "The text of an example document, when one is at hand."}
+    example_document_b64: {type: string, description: "A PDF of an example document, base64; its text layer is read server-side."}
+ExtractionTemplateDraft:
+  type: object
+  required: [template, notes]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    notes: {type: string, description: "What the model was unsure about; empty on a clean draft."}
+GuardrailRuleKind:
+  type: object
+  description: A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.
+  required: [id, label, check, scope, params, exception]
+  properties:
+    id: {type: string}
+    label: {type: string}
+    check: {type: string, description: "The check in plain words, with {field} and parameter placeholders."}
+    scope: {type: string, enum: [header, line, any, none]}
+    params:
+      type: object
+      additionalProperties: {type: number}
+      description: Parameter names with their defaults.
+    needs: {type: [string, "null"], description: "The master-data role the check reads, or null."}
+    exception: {type: string}
+GuardrailRule:
+  type: object
+  description: |
+    One business guardrail (1.4.0): a kind applied to a field, with its parameters and the
+    exception it raises. The `guardrails` parameter of a `document_to_record` spec is a list
+    of these; the six purchase-order rows keep their ids and exception classes as a preset.
+  required: [id, kind]
+  properties:
+    id: {type: string}
+    kind: {type: string}
+    label: {type: string}
+    field: {type: [string, "null"]}
+    line_field: {type: [string, "null"], description: "For total checks, the line field summed; for item checks, the resolved entity on the line."}
+    params:
+      type: object
+      additionalProperties: {type: number}
+    exception: {type: string}
+    needs: {type: [string, "null"]}
+
+TargetObject:
+  type: object
+  description: One object a write target lets the integration create (1.5.0), read live from the target.
+  required: [name, label]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    custom: {type: boolean, default: false}
+TargetField:
+  type: object
+  description: One createable field of a target object, read live (1.5.0).
+  required: [name, label, type, required]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    type: {type: string, description: "The target's own type name: string, reference, date, double, picklist, ..."}
+    required: {type: boolean, description: "A create fails without it: not nillable and no default."}
+    reference_to:
+      type: array
+      items: {type: string}
+    length: {type: [integer, "null"]}
+    picklist_values:
+      type: array
+      items: {type: string}
+    custom: {type: boolean, default: false}
+TargetObjectDescription:
+  type: object
+  required: [name, label, fields]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/TargetField'
+MappingFieldRow:
+  type: object
+  description: |
+    One target field and where its value comes from (1.5.0). `source` is a list of source
+    expressions over the resolved document, the first non-empty winning: a header field by
+    name (`po_number`), `line.<field>`, `customer.<key>`, `ship_to.<key>`, `product.<key>`,
+    `$pricebook_id`, `$today`, or a literal `=Draft`. `transform` is one of `date`,
+    `date_not_before_today`, `number`, `text:<n>`.
+  required: [target, source]
+  properties:
+    target: {type: string}
+    source:
+      type: array
+      items: {type: string}
+    required: {type: boolean, default: false}
+    transform: {type: [string, "null"]}
+    label: {type: string, default: ""}
+ChildMapping:
+  type: object
+  required: [object, parent_field, fields]
+  properties:
+    object: {type: string}
+    parent_field: {type: string, description: "The child's reference to the parent, filled with the parent's new id."}
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/MappingFieldRow'
+RecordMapping:
+  type: object
+  description: |
+    How a resolved document becomes the target's objects (1.5.0): a parent object with its
+    field rows, an optional child repeated per line, the status field `created as` sets, and
+    the rollback action. The two Salesforce mappings that ship are rows of this shape; a
+    mapping the form assembles over the target's live object metadata is stored on the spec
+    as the `target objects` parameter and runs the same interpreter.
+  required: [label, object, fields]
+  properties:
+    id: {type: string}
+    label: {type: string}
+    target: {type: string, default: salesforce}
+    object: {type: string}
+    record: {type: string, default: "", description: "What the mapping creates, matched against a template's `record` when suggesting."}
+    source:
+      type: string
+      enum: [shipped, suggested, authored]
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/MappingFieldRow'
+    child:
+      oneOf:
+        - $ref: './use-cases.yaml#/ChildMapping'
+        - type: "null"
+    status_field: {type: [string, "null"]}
+    status_values:
+      type: object
+      additionalProperties: {type: string}
+      description: "`created as` value -> the status written: {draft: Draft, active: Activated}."
+    rollback_action: {type: string, default: delete}
+MappingSuggestRequest:
+  type: object
+  required: [template, parent]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    parent: {type: string, description: "The parent object's name, described live."}
+    child: {type: [string, "null"], description: "The per-line object's name, when there is one."}
+    label: {type: string}
+
+RehearsalSource:
+  type: string
+  enum: [mailbox, cases, generated]
+  description: |
+    What a rehearsal runs over (1.6.0): chosen messages from the connected mailbox (writes
+    held, nothing flagged); the use case's own golden cases; or the set the platform
+    generates from the template. Absent means the mailbox when one is connected and a model
+    can read it, else the generated set.
+RunRequest:
+  type: object
+  description: |
+    What to run over (1.6.0). Only a rehearsal reads it; a live run always polls the mailbox.
+  properties:
+    source:
+      $ref: './use-cases.yaml#/RehearsalSource'
+    message_ids:
+      type: array
+      items: {type: string}
+      description: "With source mailbox, only these message ids; absent means every message matching the filter."
+    case_ids:
+      type: array
+      items: {type: string}
+      description: "With source cases or generated, only these cases; absent means every one."
+MailboxAttachment:
+  type: object
+  required: [filename, content_type, size]
+  properties:
+    filename: {type: string}
+    content_type: {type: string}
+    size: {type: integer}
+MailboxMessage:
+  type: object
+  description: |
+    One message in the connected mailbox that matches the use case's filter (1.6.0), without
+    its body or attachment bytes.
+  required: [id, sender, subject]
+  properties:
+    id: {type: string}
+    sender: {type: string}
+    sender_domain: {type: string, default: ""}
+    from_address: {type: string, default: ""}
+    subject: {type: string}
+    received_at: {type: string, default: ""}
+    size: {type: integer, default: 0, description: "Bytes; a listing reads headers only, so attachments are not itemised."}
+    attachments:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/MailboxAttachment'
+    processed_before:
+      type: boolean
+      default: false
+      description: A live run already carried this message.
+CaseStatus:
+  type: string
+  enum: [untested, pass, fail]
+CaseExpected:
+  type: object
+  description: |
+    What a golden case expects (1.6.0) -- the outcome (`created`, or an exception class) and
+    header values, authored by accepting a run's output or supplied on upload.
+  properties:
+    outcome: {type: string}
+    extracted:
+      type: object
+      additionalProperties: true
+    line_count: {type: [integer, "null"]}
+    sample_id:
+      type: string
+      description: Set on the curated purchase-order set only.
+GoldenCase:
+  type: object
+  description: |
+    A document with what the person expects of it (1.6.0): uploaded, or generated by the
+    platform from the template. Re-run whenever the template, guardrails or mapping change;
+    `last_status` is the verdict of the last run, `untested` while nothing is expected yet.
+  required: [id, use_case_id, label, source, last_status]
+  properties:
+    id: {type: string}
+    use_case_id: {type: string}
+    label: {type: string}
+    source: {type: string, enum: [uploaded, generated]}
+    sender: {type: string, default: ""}
+    subject: {type: string, default: ""}
+    filename: {type: string, default: document.pdf}
+    expected:
+      oneOf:
+        - $ref: './use-cases.yaml#/CaseExpected'
+        - type: "null"
+    last_status:
+      $ref: './use-cases.yaml#/CaseStatus'
+    last_run_id: {type: [string, "null"]}
+    last_result:
+      type: [object, "null"]
+      additionalProperties: true
+      description: "The last verdict: outcome, expected outcome, each check, and what the run observed."
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+GoldenCaseWrite:
+  type: object
+  required: [label, document_b64]
+  properties:
+    label: {type: string}
+    sender:
+      type: string
+      description: The address the document is treated as sent from; the customer lookup reads its domain.
+    subject: {type: string}
+    filename: {type: string}
+    document_b64: {type: string, description: "A PDF, base64."}
+    expected:
+      oneOf:
+        - $ref: './use-cases.yaml#/CaseExpected'
+        - type: "null"
+
+ProbeName:
+  type: string
+  enum: [mailbox, target, master_data, model, golden, gold, delivery, dry_answer, diagnosis, risk_model]
+ProbeResult:
+  type: object
+  description: |
+    One live connectivity probe (1.6.0): the platform actually opened the thing -- logged into
+    the mailbox, took a token from the target, read the master data, sent one call to the
+    model, read the golden cases -- and says what it found. Extra fields carry the numbers
+    (matching messages, row counts, pass counts).
+  additionalProperties: true
+  required: [name, passed, reason, elapsed_ms]
+  properties:
+    name:
+      $ref: './use-cases.yaml#/ProbeName'
+    passed: {type: boolean}
+    reason: {type: string}
+    elapsed_ms: {type: integer}
+
+GoldenCaseUpdate:
+  type: object
+  description: |
+    Fields a person may change on a case (1.6.0). Absent fields are left alone; an explicit
+    null `expected` clears the expectation.
+  properties:
+    label: {type: string}
+    sender: {type: string}
+    subject: {type: string}
+    expected:
+      oneOf:
+        - $ref: './use-cases.yaml#/CaseExpected'
+        - type: "null"
+AnalyticsSuggestRequest:
+  type: object
+  required: [question]
+  properties:
+    question: {type: string, description: "The ask, in the person's own words."}
+    recipient: {type: string, description: "A default address when the ask names none."}
+DiagnosisOptionsRequest:
+  type: object
+  required: [kpi_identifier]
+  properties:
+    kpi_identifier: {type: string}
+    window: {type: [integer, "null"], minimum: 1, description: "Days between the two periods; null means the KPI's own window."}
+    as_of: {type: [string, "null"], format: date, description: "The run date to size the periods at; null means today."}
+DiagnosisDimension:
+  type: object
+  required: [column, label, distinct]
+  properties:
+    column: {type: string}
+    label: {type: string}
+    distinct: {type: integer}
+    description: {type: string}
+DiagnosisColumn:
+  type: object
+  required: [column]
+  properties:
+    column: {type: string}
+    description: {type: string}
+DiagnosisOptions:
+  type: object
+  required: [kpi_identifier, diagnosable]
+  properties:
+    kpi_identifier: {type: string}
+    diagnosable: {type: boolean}
+    reason: {type: string, description: "When not diagnosable: why."}
+    kind: {type: string, enum: [ratio, additive]}
+    numerator: {type: string}
+    denominator: {type: [string, "null"]}
+    table: {type: string}
+    window_days: {type: [integer, "null"]}
+    step_days: {type: integer}
+    as_of: {type: string, format: date}
+    rows_in_period: {type: integer}
+    rows_in_baseline: {type: integer}
+    history_periods: {type: integer}
+    support_floors: {type: object, additionalProperties: {type: integer}, description: "Rows a slice needs to be named, per sensitivity (clear, usual, more)."}
+    dimensions: {type: array, items: {$ref: './use-cases.yaml#/DiagnosisDimension'}}
+    columns: {type: array, items: {$ref: './use-cases.yaml#/DiagnosisColumn'}}
+    reason_columns: {type: array, items: {type: string}}
+AnalyticsFeasibility:
+  type: string
+  enum: [ready, buildable]
+  description: "`ready` when gold holds a row; `buildable` when the first run computes it."
+AnalyticsKpiSuggestion:
+  type: object
+  required: [identifier, name, grain, score, why, feasibility]
+  properties:
+    identifier: {type: string}
+    name: {type: string}
+    grain: {type: string}
+    business_area: {type: string, nullable: true}
+    unit: {type: string}
+    score: {type: integer, description: "The lexical match, for ordering; not a probability."}
+    why: {type: string, description: "The ask's own words that chose this KPI."}
+    feasibility:
+      $ref: './use-cases.yaml#/AnalyticsFeasibility'
+    latest_as_of: {type: string, format: date, nullable: true}
+AnalyticsSuggestion:
+  type: object
+  required: [kind, title, business_areas, kpis, dimensions, comparison, schedule, outputs, recipients, uncovered, notes]
+  properties:
+    kind: {type: string, enum: [monitoring, diagnostic, at_risk], description: "A standing report; a question about one movement run once and promoted if kept; or the at-risk kind (1.13.0, K26) that scores every open subject and ends in a recommendation or an alert."}
+    title: {type: string}
+    business_areas: {type: array, items: {type: string}}
+    kpis:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/AnalyticsKpiSuggestion'
+    dimensions: {type: array, items: {type: string}, description: "The grains the chosen KPIs break down by."}
+    comparison: {type: [string, "null"], enum: [prior_period, prior_year, null], description: "Set only when the ask compares (a period named, a change asked about); null means the numbers are reported as they are."}
+    comparison_reason: {type: string}
+    schedule: {type: string, description: "A `ScheduleCadence` value."}
+    schedule_reason: {type: string}
+    window: {type: [integer, "null"], minimum: 1, description: "Days the numbers cover, when the ask names a period (last week, monthly); null means each KPI's own declared window."}
+    outputs: {type: array, items: {type: string, enum: [report, dashboard, alert]}}
+    recipients: {type: array, items: {type: string}}
+    uncovered: {type: array, items: {type: string}, description: "Words of the ask no registered KPI covers."}
+    notes: {type: array, items: {type: string}}
+ObjectSuggestRequest:
+  type: object
+  required: [template]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    description: {type: string, description: "The use case's own words, for the object labels to be read against."}
+    target: {type: string, description: "The target system; `salesforce` when absent."}
+ObjectSuggestion:
+  type: object
+  required: [object, label, score, why]
+  properties:
+    object: {type: string}
+    label: {type: string}
+    child: {type: [string, "null"], description: "The per-line object, when the template has lines and the target has one."}
+    score: {type: integer}
+    why: {type: string}
+    shipped_mapping: {type: [string, "null"], description: "A shipped mapping's id for exactly this pair, when one exists."}
+RecommendationDriver:
+  type: object
+  required: [feature, text, contribution]
+  description: One reason behind a risk score, grounded in the row's own value against the typical.
+  properties:
+    feature: {type: string}
+    value: {description: "The row's own value: a number, or the category level."}
+    typical: {type: [number, "null"], description: "What the scored population averages; null for a category."}
+    contribution: {type: number, description: "The feature's push on the log-odds of converting; negative is towards risk."}
+    text: {type: string, description: "The driver in words, for the report and the alert."}
+RecommendedAction:
+  type: object
+  required: [code, title, action, owner, from_catalogue, because]
+  description: The sales play the catalogue chose, who owns it, by when, and why it was chosen.
+  properties:
+    code: {type: string, description: "The catalogue code (RE_ENGAGE, ESCALATE, ...)."}
+    title: {type: string}
+    action: {type: string, description: "What to do, in the organisation's words."}
+    owner: {type: string, description: "The role that owns the play."}
+    sla_hours: {type: [integer, "null"]}
+    from_catalogue: {type: boolean}
+    because: {type: string, description: "The rule that chose it, in words."}
+Recommendation:
+  type: object
+  required: [id, use_case_id, kind, subject_type, subject_id, subject_label, risk_score, risk_level, drivers, value_at_stake, value_unit, status, created_at, updated_at]
+  description: |
+    What an analytics use case hands to Decision Intelligence (1.13.0, K26): one subject (an
+    open quote and its account), its risk and the drivers behind it, and -- on a
+    recommendation -- the sales play the catalogue chose. An alert is the same record with
+    no action. Decision Intelligence, or a person on the screen, writes `status`; the use
+    case writes `outcome` when the horizon ends.
+  properties:
+    id: {type: string}
+    use_case_id: {type: string}
+    run_id: {type: [string, "null"]}
+    kind: {type: string, enum: [recommendation, alert]}
+    subject_type: {type: string, description: "quote today; the kind's subject."}
+    subject_id: {type: string}
+    subject_label: {type: string}
+    account_id: {type: [string, "null"]}
+    account_label: {type: string}
+    owner: {type: string, description: "Who acts: the rep on the quote."}
+    risk_score: {type: number, minimum: 0, maximum: 1, description: "The probability the subject does not convert within the horizon."}
+    risk_level: {type: string, enum: [high, medium, low]}
+    horizon_days: {type: [integer, "null"], description: "The category's usual time to close."}
+    model_version: {type: [string, "null"]}
+    drivers:
+      type: array
+      items: {$ref: './use-cases.yaml#/RecommendationDriver'}
+    action:
+      oneOf:
+        - $ref: './use-cases.yaml#/RecommendedAction'
+        - type: "null"
+      description: "The play; null on an alert."
+    value_at_stake: {type: number}
+    value_unit: {type: string}
+    context:
+      type: object
+      additionalProperties: true
+      description: "The subject's row as scored (category, territory, stage, age against the usual, the account's RFM state, the last loss)."
+    status: {type: string, enum: [open, accepted, dismissed, actioned, expired]}
+    status_note: {type: string}
+    status_by: {type: string}
+    status_at: {type: [string, "null"], format: date-time}
+    outcome: {type: [string, "null"], description: "Written at the horizon's end: converted, lapsed, still_open, quoted_again, quiet."}
+    outcome_at: {type: [string, "null"], format: date-time}
+    expires_at: {type: [string, "null"], format: date-time, description: "When the horizon ends and the outcome is looked up."}
+    created_at: {type: string, format: date-time}
+    updated_at: {type: string, format: date-time}
+RecommendationList:
+  type: object
+  required: [items, counts]
+  properties:
+    items:
+      type: array
+      items: {$ref: './use-cases.yaml#/Recommendation'}
+    counts:
+      type: object
+      additionalProperties: {type: integer}
+      description: "Records per status across the filter's use case (or all), for the screen's chips."
+RecommendationStatusWrite:
+  type: object
+  required: [status]
+  properties:
+    status: {type: string, enum: [open, accepted, dismissed, actioned]}
+    note: {type: string, default: ""}
+    by: {type: string, default: "", description: "Who decided; the screen's user or the consuming use case."}

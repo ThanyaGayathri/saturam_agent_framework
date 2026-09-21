@@ -616,6 +616,9 @@ def run_query(
         cursor = raw.cursor()
         try:
             cursor.execute(f"SET LOCAL search_path = {SILVER_SCHEMA}, {GOLD_SCHEMA}")
+            # Postgres does not take a bind parameter in SET (psycopg 3 binds server-side,
+            # so the placeholder reaches the server as ``$1`` and is a syntax error); the
+            # value is an int, interpolated as one.
             cursor.execute(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}")
             cursor.execute(sql)
             columns = [d[0] for d in (cursor.description or ())]

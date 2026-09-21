@@ -6337,3 +6337,1156 @@ newest first, so the check now asserts *this* source's failure clears. Both scri
 (no leftover dismissal or replay-fixture runs), which my earlier runs had violated.
 
 ---
+
+### PA01_salesforce_master_data.py -- Northwind master data into the Salesforce trial org (PA01)
+
+**Package:** PA01 (Order Creation Automation, branch `usecase_processautomation`)
+
+**Status:** PASS (live against the trial org, 15 Sep 2026; re-run after adding product aliases)
+
+**Description:** Loads the sample distributor's master data through client-credentials OAuth
+against the org's My Domain: six accounts with `Email_Domain__c`, eight ship-to sites as
+child accounts, six contacts, twenty-five products (four `Restricted__c`) with standard
+pricebook entries, customer part numbers as `domain=part` pairs and, since this run, trade
+aliases in `Description` (`UoM: DR; Aliases: MEK 55 gal drum`), and 27 Activated history
+orders. Idempotent on natural keys: the re-run updated the two aliased products and created
+nothing else.
+
+**Result:** `loaded: {"products": 25, "accounts": 6, "sites": 8, "contacts": 6,
+"orders_created": 0}`; `org now holds: {"accounts": 8, "contacts": 6, "products": 25,
+"restricted": 4, "orders": 27, "order_items": 27}`. Picklist lesson recorded in the loader:
+state and country must be full names (`Rhode Island`, `United States`); `PricebookEntry`'s
+`Product2Id`/`Pricebook2Id` are immutable after insert and are stripped from updates.
+
+---
+
+### PA02_order_creation_pipeline.py -- the document-to-record executors over the sample set (K15 / K-15)
+
+**Package:** K15 (closes K-15), branch `usecase_processautomation`
+
+**Status:** PASS, three ways (15 Sep 2026):
+
+1. **Offline** (no credentials): sixteen sample emails injected, the expected extraction
+   standing in for the model step, sample master data, every write a dry run. All sixteen
+   outcomes match the use-case definition -- seven previewed for creation, E-08 (the scanned
+   copy) `SCANNED_DOCUMENT` at Screen before any model is called, and one each of
+   `DUPLICATE_PO` (E-09, a resend caught within the run), `UNKNOWN_SENDER` (E-10),
+   `FIRST_TIME_PRODUCT` (E-11), `QUANTITY_ANOMALY` (E-12, 300 against a median of 30),
+   `DUE_DATE_INVALID` (E-13), `RESTRICTED_PRODUCT` (E-14, via the `MEK` alias),
+   `PRODUCT_NOT_FOUND` (E-15, "Solvent, drum" scores 0.82 under 0.85 with xylene as the
+   closest candidate), `SHIP_TO_AMBIGUOUS` (E-16, two sites at 9 Pier Lane and no unit named).
+   `mismatches against the definition: 0`. Per-stage carry: 16 received, 15 screened in, 12
+   resolved, 7 through guardrails, 7 built, 7 capped, 7 previewed, 0 rollback points (nothing
+   written), notify previewed with the summary body.
+2. **`--model`** (Azure OpenAI, `gpt-5.4` deployment): the Extract stage as a real agent
+   built from `ROLE_TEMPLATES["extraction"]` and a schema generated from the
+   `purchase_order` template. Fifteen documents extracted at 2.6-5.1 s each; every one scored
+   5/5 on the checked header fields (PO number, customer name, ship-to, due date, total) with
+   the right line count and quantities. Downstream outcomes identical to the offline run.
+3. **Live pieces, individually**: `load_master_data` against the real org returned 6
+   customers, 8 sites, 24 contacts, 42 products (the org's own samples included), the
+   standard pricebook id and 27 history rows, with `NW-150` carrying `uom=DR`,
+   `aliases=['MEK 55 gal drum']`, `restricted=True`. One clean sample (E-02) run through
+   resolve -> guardrails -> build -> write -> rollback point with `dry_run=False` created a
+   Draft Order (`801g800000o92ozAAA`, Pennsylvania, one OrderItem at the document's price)
+   and recorded one rollback point; `delete_record` on that point removed it and a query for
+   the PO returned nothing. `--live` (dry run) logged into the Gmail inbox over IMAP with the
+   app password and found no `Northwind sample` messages, stopping at Screen with
+   `count: 0` -- the inbox has not been seeded (`--seed-mailbox` sends mail on the owner's
+   behalf and is theirs to run).
+
+**Description:** The chain of nine registered executors (`receive_messages`,
+`screen_documents`, `resolve_entities`, `apply_hard_limits`, `build_record`,
+`apply_per_run_cap`, `write_to_target`, `record_rollback_point`, `send_email`) driven step by
+step with `StepInput`, the way the compiled `act/document_to_record` workflow drives them.
+`capability_report` now shows that template with nothing missing, and the Act shape missing
+only `select_candidates`. Unit coverage in `product/tests/test_k15_document_executors.py`
+(24 tests): the sample set end to end, a dropped guardrail and a lowered threshold changing
+the outcome, the cap holding overflow in arrival order, the empty poll, model extractions
+merged by message id and validated, the PDF writer round-tripping through `pypdf`, the
+matching order of attempts, guardrail priority and the within-run duplicate, due-date
+bounds, the mapping naming every unfillable field, the KPI-proposal path through the Act
+four, IMAP peek-and-flag with a fake client, SMTP through a fake, and the Salesforce loader
+and tree write against an `httpx.MockTransport`.
+
+**Observations:**
+- Two rules fell out of running it rather than designing it. A branch stage stops the run
+  only when no documents *and* no exceptions remain -- stopping on "no documents survived"
+  left the exceptions unsent. And guardrails evaluate in a fixed priority order so the most
+  serious class heads a multi-failure (E-14 is restricted, not first-time).
+- The ship-to resolver refuses a same-number, same-postcode tie outright ("9 Pier Ln" with
+  "9 Pier Lane" and "9 Pier Lane, Unit B" on file) instead of letting the fuzzy score pick
+  the shorter one; and the exact-street match takes the longest site street that heads the
+  document's address, so "9 Pier Lane, Unit B" resolves to Unit B and not its parent.
+- `token_set_ratio` alone gave "Solvent, drum" a perfect score against xylene; the mean with
+  `token_sort_ratio` is what makes 0.85 a meaningful threshold.
+- The model copies a `-` placeholder in the part-number column as `-`; the resolver
+  normalises that to empty and falls through to the description, as it should.
+- OCR is a v1 non-goal and the scanned copy is an exception, not a guess; the interface's
+  rehearsal shows E-08 as "extracted (OCR)", which is ahead of the platform and should
+  follow it.
+
+---
+
+### K16_use_case_api.py -- the `/use-cases` router, the interface wired to it (K16)
+
+**Package:** K16 (closes K-9), branch `usecase_processautomation`
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the cookbook against the live local API,
+and the six-step builder in the browser end to end.
+
+**Description:** The first real router for the use-case operations the contract has
+described since 1.0.0: create, get, patch, delete, draft, spec (with 1.3.0's `PUT`), plan,
+preflight, activate, pause, runs (list, trigger with `?mode=live|rehearse`, get).
+`egpt_retail.usecases` holds the store (`retail_use_cases`, `retail_use_case_runs`), the
+service (compile through K15's compiler, preflight with checks a person can act on,
+activate with a version bump, run as a background task in the API process with the run row
+as the report), the runtime (`workflow_from_compiled`: executors by name from the registry,
+the Extract stage as a step owning one agent built from the role template and the
+extraction template's schema, run per document with `agent.arun`), credential references
+(`env:gmail`, `env:salesforce`, resolved by the platform, never sent by the interface) and
+the in-process poller (`EGPT_RETAIL_USE_CASE_POLLER`, off by default -- the local stand-in
+for a Logic App or a Step Functions task calling the same run endpoint).
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (8 tests, in-memory store, real executors,
+  the sample set's expected extraction in place of the model): create -> spec -> preflight
+  (refuses without credentials, names `GMAIL_USER`) -> activate (409 with the checks; 200
+  with credentials, version 1, the compiled steps stored) -> plan -> rehearsal on a draft
+  and after activation (7 previewed, 9 exceptions, page text not on the wire, summary
+  "16 received, 7 previewed, 9 exception(s)") -> run list and `last_run`; a live run whose
+  IMAP login fails is a failed run row, not a 500; level 3 needs `use-cases:activate` with
+  authorization on; not-found paths; draft round trip and pause; `run_parameters` resolving
+  sources and master-data roles; `workflow_from_compiled` refusing unknown refs.
+- `K16_use_case_api.py` against `./scripts/run_local_api.sh` (Postgres 5532, Neo4j 7701,
+  the real org and the real model): preflight all five checks passing, activation version 1,
+  the eleven-step plan, a rehearsal succeeding in 55 s with the seven previewed orders
+  resolved against the org's master data and the nine expected exception classes;
+  `--live` against the unseeded inbox: `0 received`, the run logged, nothing else happened.
+- In the browser (port 3001 against 7777): Process Automation -> the Order Creation
+  Automation example -> "Fill the form from this" -> the two one-click suggestions, the
+  rollback and an owner -> readiness (three acknowledgements) -> plan approved -> Rehearse:
+  the interface's own table, then "Rehearse on the platform" running the compiled workflow
+  and rendering 16 / 7 / 9 / 0 with the class chips and the per-email rows -> Activate:
+  "Submit to go live" activating version 1 on the platform (authorization off locally, so
+  the caller is the admin) -> "Run now in the sandbox" succeeding again from the completion
+  screen. The API stayed responsive while the model step ran (18 polls answered during one
+  run), after the extraction step was moved to `agent.arun`.
+
+**Observations, all fixed in the same change:**
+- The first HTTP run blocked the event loop for the length of fifteen model calls: the
+  extraction step called the agent synchronously inside an async step. `aextract_documents`
+  and `aextract_with_agent` fixed it.
+- A run left `running` by a process restart sat there forever; `fail_stale_runs` at process
+  start marks it failed with the reason.
+- A fresh control plane had no provenance table, so every first run failed at its last step:
+  the factory now applies R7's provenance and delivery DDL at boot alongside K16's.
+- The message filter is optional (an empty filter is "every new message"), and a rehearsal
+  may run on a draft -- that is the order the builder runs in.
+- The mailbox is only ever read: `mark_seen` is off in the platform's runs and message ids
+  from earlier runs are passed as `processed_ids`, so a poll of a real inbox flags nothing.
+- A compiled model step is named `<use_case_id>__<role>`; `model_tier_for` now answers from
+  the role, which closes K-9 (R9's walker refused generated steps).
+
+**Left for the demo's owner, since both act on their accounts:** seed the inbox
+(`PA02_order_creation_pipeline.py --seed-mailbox`), set the message filter's pattern to
+"Northwind sample" and the environment to production in the builder, then "Run now".
+
+---
+
+### K17 -- extraction templates and business guardrails as data (no cookbook file; router + interface)
+
+**Package:** K17, branch `usecase_processautomation`. Contract 1.4.0 (additive).
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the new endpoints against the live local
+API with the real model, the six-step builder in the browser.
+
+**Description:** The two sections of the document-to-record form that were lists in code --
+the extraction template and the business guardrails -- are catalogues a person extends from
+the interface, so a document kind onboarded tomorrow needs no engineer.
+
+- *Templates.* `documents/templates.py` `template_from` accepts a template object
+  (`{label, record, header, lines}` with `name*` strings or `{name, required, hint}` rows) as
+  well as a shipped id; the extractor's instructions, output schema and validation were
+  already generated from the field list, so nothing downstream changed.
+  `documents/template_draft.py` drafts a template from a description and an optional
+  example PDF with the extraction-tier model. `GET /extraction-templates`,
+  `POST /extraction-templates/draft`. In the interface, `domain/extraction-templates.js`
+  holds the shipped three plus a workspace catalogue (browser storage); the reader picks a
+  catalogue template from the wording or proposes a new kind it names ("delivery notes" ->
+  Delivery note); `ExtractionTemplateField` lets the person pick, copy-and-edit, or start a
+  new kind, draft its fields from the description and an example, edit them (required star,
+  add, remove) and keep it; the definition travels on the spec as `extraction template`.
+- *Guardrails.* `documents/guardrails.py` is a rule interpreter over eight kinds --
+  duplicate reference, sender known, first-time item, quantity outlier, date window, flagged
+  item, numeric range, total matches lines -- each applied to a field with parameters. The
+  six purchase-order checks are a preset with their old ids and exception classes, and the
+  legacy `{id, param}` rows still read. `suggest_rules(template)` proposes rules from field
+  names (a reference field -> duplicate check, a promised date -> date window, a quantity ->
+  outlier, a total with line totals -> reconciliation). `GET /guardrail-rules/kinds`,
+  `POST /guardrail-rules/suggest`. The interface mirrors the suggester and the interpreter in
+  `domain/guardrail-rules.js` (the rehearse simulation runs it) and `GuardrailRulesField`
+  shows the suggested rows for the chosen template with parameters, plus "Add a check" for
+  any kind on any field.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+4): the catalogue endpoints serve the
+  shipped templates and the eight kinds; suggestions for a delivery-note template; drafting
+  through a fake agent returns the template shape with hints and notes; a custom template
+  runs the same extractor (instructions, schema) and the suggested rules over it raise
+  `DATE_INVALID` and `TOTAL_MISMATCH`; legacy rows and the preset read the same.
+  `test_k15_document_executors.py` unchanged and green: the sample set's sixteen outcomes are
+  identical under the interpreter.
+- Live API: `POST /extraction-templates/draft` with a delivery-note description returned in
+  5.6 s a `delivery_note` template creating a `receipt` with four required header fields
+  and three line fields, and honest notes about what the description did not say.
+- Browser: on the Order Creation Automation draft, the six legacy rows load checked under
+  "Suggested for purchase orders"; "New document kind" -> "Delivery note" -> "Draft the
+  fields" filled six header and six line fields in ~8 s (the model noted the label did not
+  match a goal about purchase orders); "Keep and use this template" saved it to the
+  catalogue and the guardrails section switched to seven suggestions from the delivery
+  note's own fields with an "All 7 suggested" one-click. A platform rehearsal with four rule
+  rows on the spec succeeded: 10 previewed, 6 exceptions, `guardrails_enabled` naming the
+  four.
+
+**Left open:** the write-side mapping (Order + OrderItem) is the third hard-coded piece and
+is next; field hints from a drafted template are stored and shown but not yet passed into
+the extractor's instructions; the interface's rule suggester mirrors the platform's rather
+than calling it, so the two can drift -- the platform endpoint exists to switch to.
+
+---
+
+### K18 -- the record mapping as data, over the target's live objects (no cookbook file; router + interface)
+
+**Package:** K18 (closes K-18), branch `usecase_processautomation`. Contract 1.5.0 (additive).
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the new endpoints against the live org, the
+mapping editor in the browser, a platform rehearsal with a mapping the form assembled.
+
+**Description:** The write side was the last hard-coded piece of the document-to-record
+template: one code mapping from a purchase order onto Salesforce's Order and OrderItem. Now a
+mapping is data -- `documents/mapping.py` `RecordMapping`: a parent object with field rows
+(target field, source expressions over the resolved document, required, transform), an
+optional child per line, the status field `created as` sets, the rollback action -- and one
+interpreter (`apply_mapping`) evaluates it. The two Salesforce mappings that ship are rows of
+the shape; `mapping_from` accepts a shipped id or the object the form built, so the
+`target objects` parameter carries either. `documents/salesforce.py` reads the org live
+(`list_objects`, `describe_object`: createable fields with type, required, references, length,
+picklists) and `suggest_mapping` proposes rows from names -- references placed by type (the
+customer, the product's price entry, the standard price book, the ship-to), names by synonym,
+required target fields nothing matched listed with no source. `GET /targets/{target}/objects`,
+`GET /targets/{target}/objects/{object}`, `GET /record-mappings`,
+`POST /record-mappings/suggest`. In the interface, `domain/record-mappings.js` mirrors the
+shipped two, a workspace catalogue and the interpreter (the rehearse simulation's payload
+preview now comes from it); `RecordMappingField` lists the org's objects live, lets the person
+pick the parent and a per-line child, "Suggest from names", edit each row's source and
+transform, add rows from the object's own fields, see required fields the org needs that
+nothing covers, and keep the mapping to the catalogue and the spec.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+4): the shipped mappings as data and the
+  interpreter's output (dates clamped, text truncated, status set, child rows per line); a
+  form-assembled mapping onto Case with a literal, a fallback and its own status values;
+  `suggest_mapping` placing references by type and names by synonym, skipping Status and the
+  redundant Product2Id; the targets router over a fake org (objects, describe, 404, shipped
+  list, suggest) and 503 without credentials.
+- Live: `list_objects` returned 730 createable objects with the common ones first; Order's
+  required fields are EffectiveDate and Status, OrderItem's OrderId, PricebookEntryId,
+  Quantity; a suggested Order + OrderItem mapping from the purchase-order template mapped
+  every row the shipped one has except the two the org does not require.
+- Browser: "New mapping" listed the org's 730 objects; Order + OrderItem chosen; "Suggest from
+  names" filled 10 parent rows and 4 line rows with sources and transforms; "Keep and use this
+  mapping" saved it and put it on the spec. The same mapping sent to the platform on the spec
+  activated (version 4) and rehearsed: 7 previewed, 9 exceptions, the first order's record
+  carrying `PoNumber`, `EffectiveDate`, `ShippingState: Rhode Island`, the line's
+  `PricebookEntryId` from the org and `UnitPrice 640` from the document. The spec was then
+  restored to the shipped mapping.
+
+**Left open:** one target (Salesforce); a second is a second client behind the same two
+endpoints. The mapping editor's source cell is a free text with the template's fields, the
+resolved entities and the run values offered as completions -- a picker with the same groups
+would be friendlier. `created as` still assumes a two-value status (draft/active).
+
+---
+
+### K18 follow-up -- a rehearsal reads the real mailbox; no table before a run
+
+**Status:** PASS (15 Sep 2026). The rehearse screen no longer shows the interface's own
+arithmetic over the sample set before anything has run: for a document-driven use case it is
+the platform panel alone, and nothing appears until "Rehearse on the platform" is clicked. A
+rehearsal now reads the connected mailbox as it is (writes held, nothing flagged, the
+processed-id ledger not consulted) and falls back to the built-in sample set only when no
+mailbox or no extraction model resolves; the run result carries `rehearsal_source` and the
+panel says which. Verified against the seeded inbox through the local API: 16 received from
+the mailbox (subjects prefixed "Northwind sample:"), 7 previewed, 9 exceptions, 71 s with the
+real model.
+
+---
+
+### K19 -- three rehearsal sources and golden cases (no cookbook file; router + interface)
+
+**Package:** K19, branch `usecase_processautomation`. Contract 1.6.0 (additive).
+
+**Status:** PASS (16 Sep 2026): unit tests DB-free, the flow against the live API, org, inbox
+and model, the three tabs in the browser.
+
+**Description:** The rehearse screen offers the three sources the owner's lead asked for, and
+the platform serves them through one `POST .../runs?mode=rehearse` with a `RunRequest`:
+*From the mailbox* lists the messages matching the filter (`GET .../mailbox/messages`, a
+headers-only, batched IMAP read: 40 messages in 4 s where the per-message read took 22 s)
+and runs the ones ticked; *Upload documents* stores PDFs as golden cases (`POST .../cases`)
+and runs them; *Generated samples* has the platform invent documents from the template's
+fields and the master data (`documents/golden.py` `generate_cases`: clean ones, one per
+enabled rule kind that trips it, one unplaceable item, one scanned copy -- the purchase-order
+template keeps its curated sixteen) and runs them. Every case is scored after a run
+(`score_case`: outcome, then each expected header value, then the line count) and the
+verdict kept on the case; "Accept as expected" (`POST .../cases/{id}/accept`) turns a run's
+observed output into the expected values. A saved spec that changes the template, the
+guardrails, the mapping or the thresholds starts a `regression` rehearsal over the cases in
+the background; preflight's `golden_cases` check shows the pass rate and blocks activation on
+a failure, and the interface's readiness screen shows the same.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+3): a rehearsal with no mailbox and no
+  model generates the curated sixteen as cases and all pass; a second rehearsal over two
+  chosen cases carries two; dropping guardrails on the spec starts a regression run and the
+  duplicate case fails with "expected DUPLICATE_PO, got created", after which activation is
+  refused with `golden_cases` among the blockers; an uploaded PDF is refused unless it is a
+  PDF, runs through a stand-in model, is `untested` until its output is accepted, and passes
+  after; a custom delivery-note template generates a set that trips every suggested rule.
+- Live: the mailbox tab listed 40 matching messages; two ticked ran in the platform in ~20 s
+  (2 received, 2 previewed, "read from your mailbox as it is now"); the generated tab created
+  the sixteen cases and ran them with the real model: 16 of 16 pass; the readiness screen
+  read "Golden cases: 16 of 16 pass"; cutting the guardrails to two on the spec started a
+  regression that finished in 50 s with 4 failing (E-09, E-11, E-12, E-13) and preflight said
+  so; restoring them ran another regression and 16 of 16 passed again.
+
+**Left open:** an uploaded case runs only with a model (there is no expected extraction to
+stand in); the generated set for a custom template is lexical (field names decide the values)
+and the model could draft more realistic ones; the mailbox listing shows sizes, not attachment
+names, because it reads headers only.
+
+---
+
+### K19 follow-up -- the readiness check lands one verdict at a time; the plan reads as a pipeline
+
+**Status:** PASS (16 Sep 2026, in the browser). The readiness screen now shows a progress
+strip ("Checking 5 of 10…", a bar, running counts of passed / to note / to fix) and each
+check arrives in turn about half a second apart, first as "Checking business guardrails…"
+then as its verdict with a short rise; checks are grouped as Connections, Data, Safeguards;
+the Continue button waits for the last verdict; "Re-run" replays it; reduced-motion readers
+get every result at once. "How it will run" replaced the SVG flowchart with a pipeline: a
+phase ribbon (Intake · Understand · Check · Write · Report, sized by step count), then a
+numbered rail of stage cards with who takes each step, the form values it uses as chips,
+the AI step lit differently and named "the only AI step", every write-guarding step with a
+red shield rail, and each decision with its two outcomes side by side ("One document: on
+to step 4" / "Fails: exception, the rest of the batch continues"). The old detailed list is
+still there as "Details".
+
+---
+
+### K19 follow-up -- the readiness rows are live probes
+
+**Status:** PASS (16 Sep 2026). `POST /use-cases/{id}/preflight/{probe}` opens what the
+preflight only confirmed credentials for: `mailbox` logs in and counts the matching messages
+(3.4 s, 16), `target` takes a token and counts Orders (0.9 s), `master_data` reads the rows
+the resolver uses (3.0 s: customer 6, ship to 8, contact 24, product 42, history 27),
+`model` sends one call to the extraction model (2.3 s, "OK"), `golden` reads the cases
+(16 of 16 pass). A failing probe answers `passed: false` with the reason, never an error.
+The readiness screen syncs the spec, then runs the five in sequence; each row reads
+"Connecting: source mailbox -- the platform is opening it now…" until its probe returns,
+form-computed rows follow a beat behind, and the progress is the platform's, not a timer's.
+The "connected and readable" wording is now earned.
+
+---
+
+### K20 -- the gallery and Monitor read the platform; execution health from the runs table
+
+**Package:** K20, branch `usecase_processautomation`. Contract 1.7.0 (additive).
+
+**Status:** PASS (16 Sep 2026): unit test, the live API, both screens in the browser.
+
+**Description:** "User built use cases" lists only what `GET /use-cases` holds -- the
+prototype's browser-side catalogue is gone from that screen -- with status, schedule, version
+and the last run on each card, and a use-case page (`/use-cases/platform/:id`) with Run now,
+Pause / Resume, Edit (reopens the builder on the platform's spec through
+`specFromPlatform`), and the run history with each run's own result. Monitor's "Use case
+execution" is a table from the new real `GET /monitoring/execution-health`
+(`usecases/health.py`, from `retail_use_case_runs`): schedule and what fires it, last run and
+summary, next expected, runs / created / exceptions over 7 days, and a Silent verdict when one
+and a half cadences pass with nothing fired; `GET /monitoring/schedules/silent` lists those.
+The stat strip and the activity feed read the same. The local API script now starts the
+in-process poller by default, so "every 5 minutes" is true on the demo machine and the
+Monitor names it as the trigger; `EGPT_RETAIL_SCHEDULE_TRIGGER=orchestrator` names the cloud's.
+
+**Verification:** `test_execution_health_reads_the_runs_and_names_the_trigger` (runs, failures,
+created, exceptions, next expected, silence with and without a trigger, a paused use case
+never silent, the router). Live: the poller fired a scheduled run of the owner's use case on
+restart (0 received, every message already carried); the gallery showed the use case with
+"Active · v1"; Monitor showed 1 active use case, 21 runs over 7 days, 7 created and 9 held,
+the row "every 5 minutes · fired by the local poller · succeeded · next 12:04 · Healthy",
+and the activity feed with "Purchase order → Salesforce ran: 0 received". The use-case page
+listed nine runs (schedule, Run now, rehearsals) with each run's result expandable.
+
+---
+
+### PA03_return_request_cases.py -- a second document use case from configuration alone (K21)
+
+**Package:** K21, branch `usecase_processautomation`. No contract change.
+
+**Status:** PASS (16 Sep 2026): offline cookbook, unit tests, the platform API with the real
+model and the live org, the compose screen in the browser.
+
+**Description:** The validation before this package found that the Resolve stage was still
+the purchase order's: every document was resolved as a customer with a ship-to and a product
+per line, from the fields `customer_name`, `ship_to_address` and `description`, so a return
+request bound for a Case died at Resolve with `SHIP_TO_NOT_FOUND` and `PRODUCT_NOT_FOUND`
+on every document. Now roles are data (`documents/roles.py`, mirrored by
+`frontend/src/domain/use-case-roles.js`): a use case resolves only the roles its mapping's
+source expressions read and its guardrails need, plus what those depend on
+(`roles_needed`); the field each role reads is derived from the template's names or
+declared on it as `resolution` (`resolution_sources`); the document's reference is the
+template's first reference-like header or its `reference` (`reference_field`). The sender
+contact is a resolved role (`contact.id`) a mapping can read; the history guardrails read
+the target object's own records when the target is not the Order
+(`salesforce.history_plan` / `load_target_history`); the exception rows, the summary email,
+the results table and the run history say the record's object and the document's reference
+instead of "PO"; `record.value` prices a record tree when its lines carry a quantity and a
+price and is absent otherwise. The form's master-data section shows why each role is
+needed and greys the rest; the gap and readiness checks require only the roles the mapping
+reads. `suggest_mapping` binds a Contact reference to `contact.id`, puts the reference on
+a Subject/Name nobody else took, skips picklists, and takes `status_values` from the
+picklist's own values (New / Working for a Case).
+
+**Verification:** `product/tests/test_k21_roles.py` (19 tests): the order mapping with its
+preset needs exactly the four roles it always did and the sixteen samples land exactly where
+they did (7 created, 9 exceptions, same classes, `reference == po_number`); the Case mapping
+needs only the sender account and contact; every generated return-request case lands as
+expected through the unchanged executors with no ship-to and no product asked for; the
+target history plan for Order reads OrderItem through the price-book entry and for Case
+reads the Case itself; the mapping suggestion rules. The cookbook offline: 7 of 7 cases
+(three clean, unknown sender, duplicate pair, scanned copy) as expected, `roles resolved:
+contact, customer, order_history`. On the platform (use case created through
+`POST /use-cases` + `PUT /spec` with the return-request template, a Case mapping and two
+suggested guardrails, activated in the sandbox): the target probe answered "can read and
+create Case records", the master-data probe "sender account 6, sender contact 24, record
+history 44", and a rehearsal over the generated set with the real model and the org's
+master data passed 7 of 7 -- four Cases previewed with real Account and Contact ids,
+`Status: New`, `Origin: Email`. `--write-samples` wrote the seven PDFs with
+`expected.json` and a README to `~/Downloads/northwind-samples/returns/`. Full product
+suite 1332 passed; ruff, mypy and the contract check clean; `vite build` clean.
+
+---
+
+### K21 follow-up -- "How it runs" on a built use case
+
+**Status:** PASS (16 Sep 2026): in the browser on the owner's use case.
+
+**Description:** The pipeline and orchestration views lived only in the builder's step 4, over
+the draft in the browser, so the flow of an already built use case was reachable only through
+Edit. The views are now `PlanViews.jsx`, shared by that step and by a new "How it runs" tab on
+the use-case page (`/use-cases/platform/:id`), which reads the spec the platform holds
+(`GET /use-cases/{id}/spec` through `specFromPlatform`) and derives the plan from it --
+read-only, the draft untouched, the Runs tab unchanged.
+
+**Verification:** Opened the owner's use case, "How it runs": "11 steps in a fixed order, 15
+values taken from the specification; 11 automated, 1 AI, 0 approval steps"; Pipeline showed
+the five phases (Intake, Understand, Check, Write, Report); Orchestration showed the trigger
+"Every 5 minutes" and the eleven nodes with their executors and inputs. `vite build` clean.
+
+---
+
+### K21 follow-up -- a saved spec is the spec; every message-filter chip reaches the reader
+
+**Status:** PASS (16 Sep 2026): unit tests, the live API against the owner's draft.
+
+**Description:** A rehearsal stores a compiled snapshot on a draft, and the probes, the
+mailbox listing and the generated set preferred that snapshot over the spec -- so a filter
+typed after a rehearsal ("e234324") was saved but "36 messages match" and the mailbox tab
+still listed every Northwind sample. Now `PUT /spec` drops a draft's snapshot (an activated
+use case keeps its activated one until re-activation) and the previews compile the current
+spec (`UseCaseService.current_parameters`). Separately, the form's "Has an attachment" and
+"Not from our own domain" chips were never sent: `MessageFilter` gained `has_attachment` and
+`not_own_domain`, the form sends both, and the reader honours them (own-domain senders
+dropped on every read; no-attachment messages dropped once bodies are read -- a headers-only
+listing keeps them and the Screen stage refuses them on a run). The phrase field's
+placeholder now says what it is: words the subject must contain.
+
+**Verification:** `test_a_drafts_snapshot_is_dropped_on_save_and_previews_recompile`,
+`test_filter_from_reads_every_chip`,
+`test_own_domain_and_no_attachment_are_skipped_and_the_phrase_is_searched`. Live: after the
+restart, `GET /use-cases/uc_07831f3a/mailbox/messages` returned 0 and the mailbox probe said
+"0 message(s) match the filter right now" for the filter "e234324". Suite 1335 passed.
+
+---
+
+### K22 -- the semantic layer for a customer's own data: Middleby RFQ, source to dashboard
+
+**Package:** K22, branch `usecase_processautomation` (after merging `main` at `d4bd94b0`).
+No contract change.
+
+**Status:** PASS (17 Sep 2026): PA04 and PA05 cookbooks, `egpt-retail harvest` /
+`propose` / `suggest`, the review screen, the KPI screens and the dashboard in the browser,
+unit tests.
+
+**Description:** Four Middleby extracts (quotes, chat inquiries, web sessions, customers;
+5,000 rows each) loaded by `PA04_middleby_rfq_load.py` into the local warehouse as
+`source.dc_*` (text, as delivered) and typed into `silver.dc_*` by
+`sql/middleby_silver.sql` with the column comments the harvest reads; the load records its
+own `quality.load_run` so gold's "last load passed" gate reflects it. Walking the
+colleague's KPI and dashboard flow over that data found four gaps between harvest and
+dashboard, all closed here:
+
+1. **The K8 proposers had no runner.** The mapping and enrichment proposers existed as
+   skills and a cookbook that deleted its own output; nothing on a deployment filed
+   table-to-concept proposals, so every business area but one was "not yet supported".
+   `semantic/propose.py` and `egpt-retail propose` (also `harvest --propose`) run both
+   proposers through R8's routing, with the deployment's ontology overlay, and file
+   PENDING proposals.
+2. **Accepting a graph-bound proposal over HTTP recorded the decision and applied nothing**
+   (the router's own docstring said so). The accept routes now call
+   `ProposalStore.apply_accepted` for mapping, enrichment, join, authoritative-source and
+   column-meaning kinds -- a graph that cannot be opened is recorded as the row's
+   `apply_error`, never a 500 -- and `apply_accepted` applies enrichments before what
+   points at their concept, so a set reviewed in any order lands in one sweep.
+3. **The registry ignored the overlay's vocabulary.** The RFQ report breaks quotes down by
+   lost reason, pipeline stage and sales territory, none a core grain. The Middleby overlay
+   now carries `vocabularies.grain`, and `KpiRegistryStore` validates against the shipped
+   vocabularies with the deployment overlay applied.
+4. **A dashboard could not show a KPI's breakdown across its grain.** A `bar` tile at a
+   grain with no `grain_value` was "never computed". It is now the breakdown: the current
+   business date's rows, sorted by value, drawn as category bars; a `number` tile in the
+   same position is still a gap, as before.
+
+Also: the API reads `EGPT_RETAIL_ONTOLOGY_OVERLAY` (Quote, QuoteRequest, RepGroup and the
+grains) through `warehouse.env`, which `run_local_api.sh` now sources.
+
+**Verification:** `harvest`: 9 tables, 120 columns, snapshot written, mappings and
+enrichments survive a re-harvest. `propose`: 8 mappings (dc_rfq_quotes -> Quote
+authoritative, dc_customers -> Customer, dc_web_sessions -> WebSession, dc_chat_inquiries ->
+QuoteRequest, plus the retail five), 5 enrichments, 38 column meanings, 53 filed. Accepting
+them through `POST /semantic/proposals/accept`: every one `applied`, business areas Sales
+(2 concepts, 3 tables), Customer and Marketing supported. `suggest --dry-run`: 25 KPIs, 14
+use cases, the RFQ ones ready with SQL over `silver.dc_rfq_quotes`; `POST /kpis/suggestions`
+focused on sales: 18 suggestions, all `ready`. `PA05_middleby_rfq_kpis.py`: 16 RFQ KPIs
+registered through `POST /kpis` (quotes generated, by week, by brand / PIM category /
+territory / state / segment, closed-won rate overall and by brand, lost reasons count and
+share, days to close, open pipeline by stage and value, live-chat buy inquiries,
+chat-to-quote rate), all 16 materialised into gold through `POST /kpis/{id}/compute`
+(1 to 34 rows each), and the "RFQ & Quote Pipeline Performance" dashboard created with
+15 tiles under KPIs -> Dashboards -- opened in the browser: 358 quotes (28d), closed-won
+55.8 %, 15.2 days to close, US$10.5M open pipeline, weekly bars, and the breakdowns by
+brand, category, territory, segment, lost reason and stage from gold rows.
+`test_k22_semantic_for_customer_data.py` (7 tests); suite 1502 passed; ruff, mypy, contract
+check and `vite build` clean.
+
+---
+
+### K23 -- Analytics Automation: the Inform shape run by the platform, RFQ weekly report
+
+**Package:** K23, branch `usecase_processautomation`. Contract 1.9.0 (additive):
+`suggestAnalyticsUseCase`, `AnalyticsSuggestion`; `PreflightProbe` + `gold`, `delivery`,
+`dry_answer`.
+
+**Status:** PASS (17 Sep 2026): unit tests, the platform API with the real model and gold,
+the whole builder flow in the browser, one live run that emailed the report.
+
+**Description:** The Inform shape could not publish before this package: the compiler named
+`compare_to_baseline` and nothing registered it, and the runtime had no step for the
+`explanation` role. Now the chain is complete and generic (`executors/analytics.py`):
+`compare_to_baseline` reads each KPI at the run's date against gold at the baseline date --
+the KPI's own declared window back for the period before, 365 days for last year -- per KPI
+and per breakdown row, materialising a baseline date gold does not hold yet from the KPI's
+own formula (so a first run has a comparison); a rate or share is never summed across a
+breakdown, and a series over time is shown, not compared. The Explain step runs the new
+`report_explanation` skill (small tier; every figure copied from the input);
+`check_report_grounding` rejects a narrative that states a figure the comparison did not
+carry (dates and magnitudes handled; a mistyped KPI id repaired, not fatal) and the report
+then goes out with the numbers alone; `render_report` renders an email-safe HTML report --
+tiles for the headline KPIs, tables with bars for each breakdown, the dashboard link -- and
+its text twin; `send_report` sends it as a multipart email through the mailbox, held in a
+rehearsal. `send_mail` gained an HTML alternative. The compiler's Inform stages carry the
+four; `window`, `title`, `outputs` are optional slots bound to defaults
+(`SLOT_DEFAULTS`, origin `default`).
+
+The form's intelligence: `POST /use-cases/analytics/suggest`
+(`usecases/analytics_suggest.py`) resolves an ask against the governed registry and the
+gold the deployment holds -- the KPIs that match on a subject word, ranked, each saying
+which words chose it and whether gold already has it; the grains they break down by; the
+baseline, cadence, outputs and recipients from the words; every word nothing covers.
+Deterministic. The compose screen calls it on "Fill the form from this" for an Analytics
+Automation, shows the registry's KPIs with their reasons (replacing the prototype
+catalogue's names), an Outputs field (report / dashboard), and describes and titles the use
+case in words. Readiness runs four real probes (gold per KPI, SMTP login, the model, the
+numbers now); the plan mirrors the nine stages; the simulation runs the report with sends
+held and shows it in a sandboxed frame with the grounding verdict and the numbers; activation
+composes the dashboard under KPIs -> Dashboards (number tiles for scalar KPIs, bar
+breakdowns otherwise, named after the use case) and the use-case page links to it; run
+history and Monitor read report runs as reports.
+
+**Verification:** `test_k23_analytics_automation.py` (14 tests): the comparison's
+arithmetic, movers, non-additive rates, series, backfill once per missing date and never for
+a series, prior-year offset, no-backfill honesty; grounding pass / withheld / repaired id /
+no narrative; render + dry-run send + no recipient; the explanation step's stand-in and
+no-model case; the suggestion for the RFQ ask, a diagnostic question, last-year and
+uncovered words; the compiler's Inform sequence and defaults. Suite 1517 passed; ruff, mypy,
+contract check, `vite build` clean. In-process against gold: 6 KPIs compared, 6 baselines
+backfilled, 38 figures checked, narrative grounded. On the platform through the API: a use
+case created from the suggestion, preflight passed (`kpis_registered`, `delivery`,
+`explanation_model`), probes gold "16 KPI(s) in gold", delivery "SMTP login", model
+"gpt-5.4 answered", dry answer with the numbers; rehearsal 16 KPIs compared, 52 figures
+checked, report composed and held; live run "report sent" to the owner's address. In the
+browser: category card -> ask typed -> "Fill the form from this" filled 10 fields (16 KPIs,
+7 breakdowns, weekly, dashboard + report, the recipient) -> readiness 8 passed with the four
+probes -> plan (9 steps, 1 AI step) -> simulation ran the report and showed it -> Go live
+composed the dashboard (16 tiles) -> the use-case page's Dashboard button and Run now:
+"16 KPIs compared -> report emailed · Closed-won rate improved to 55.8% from 47.3% …".
+
+---
+
+### K23 follow-up -- the fields suggest from the goal alone
+
+**Status:** PASS (17 Sep 2026): in the browser.
+
+**Description:** "Describe it in one go" was the only way to the platform's suggestion; a
+person filling the form field by field got the registry list and nothing else. Now an
+Analytics Automation reads the **Goal** as it is typed (debounced, one request per pause)
+and keeps the platform's answer beside the spec, applied to nothing: the KPIs field shows
+the suggested KPIs as click-to-add chips ("Suggested from your goal") and a one-click
+"Use" for all of them, Analyse by offers the grains those KPIs carry, and Baseline,
+Outputs, Recipients and Frequency each show their suggestion with its reason and a Use
+button. The person edits; nothing is applied until they click. The suggestion keeps only
+KPIs within reach of the best match, so a pointed ask ("by brand, territory and lost
+reason, with the closed-won rate") suggests nine, the broad RFQ ask fifteen, a diagnostic
+question two.
+
+**Verification:** Category card -> Goal typed -> within a second the KPIs field listed
+"Suggested from your goal — click to add: Closed-won rate by brand, Closed-won rate, Lost
+reasons, …" and "Suggested: 16 KPIs the data supports … Use"; after the relative threshold,
+nine for that goal. `vite build` clean; suite 1517 passed.
+
+---
+
+### K26 -- the at-risk kind: who or what is at risk, ending in a recommendation
+
+**Package:** K26, branch `usecase_processautomation`. Contract 1.13.0 (additive):
+`Recommendation`, `RecommendedAction`, `RecommendationDriver`, `RecommendationList`,
+`RecommendationStatusWrite`; `GET /use-cases/{id}/recommendations`, `GET /recommendations`,
+`GET /recommendations/{id}`, `POST /recommendations/{id}/status`;
+`UseCaseTemplate.at_risk`; `AnalyticsSuggestion.kind: at_risk`; probe `risk_model`. Design:
+`docs/plan/analytics-automation-design.md` §12.
+
+**Status:** PASS (20 Sep 2026): unit tests (`test_k26_predict.py` 16, `test_k26_recommend.py`
+17), the model and the executors over the real quote fact, the whole chain through the
+service (rehearsal, then three live runs -- report and fourteen rep alerts emailed,
+recommendations written, one accepted on the screen, outcomes tracked after the horizon),
+and the builder end to end in the browser: the ask read as the at-risk kind, readiness with
+the real model numbers, the plan mirror, the run view, the Recommendations tab, the
+dashboard.
+
+**Description:** Analytics Automation gains a third kind next to the monitoring report and
+the diagnostic. The direction is the CEO's: an analysis must end in a *recommendation* or an
+*alert* that Decision Intelligence can act on, never a bare number. The Middleby demo is the
+at-risk pipeline: every open quote scored for the risk of not converting within its
+category's usual time to close, the account's RFM context attached, and a sales play chosen
+for each at-risk one.
+
+- **KPIs (Phase 1, `PA06_middleby_at_risk_kpis.py`):** twelve industry KPIs registered through
+  `POST /kpis` and computed -- sales cycle length by category (the usual, p90), stalled quotes
+  (by territory), stalled pipeline value, quote conversion within the usual range, 60-day
+  churn rate, at-risk accounts (by segment), RFM segment distribution (`rfm_segment` grain
+  added to the Middleby overlay), average account recency / frequency (180 d) / monetary
+  (180 d). All under *Ready to measure*. No per-quote or per-account number is a KPI; those
+  are the model's features.
+- **The model (Phase 2, `predict/`):** `features.py` builds the training frame in SQL --
+  genuinely closed quotes only (`closed_date <= as_of`, the fact carries a planned close date
+  on open quotes and the first cut leaked through it), seen at ages 0 / 7 / 14 / 21 / 28
+  days, label = closed won within the category's usual; the account's history through window
+  functions (prior quotes, win rate, days since the previous quote, won value, last lost
+  reason). `model.py` is logistic regression in numpy (standardised numerics, one-hot
+  categoricals with an *other* bucket, L2, gradient descent), returning per-row
+  contributions; `auc`, `brier`, `calibration`. `rfm.py` is the standard quintile scheme
+  (Champions … Lost), the same rule as the `rfq__rfm_segments` KPI. `executors/predict.py`:
+  `score_risk` trains at each run with the newest quarter by quote date held back and scored
+  first, then refits on everything; scores every open quote; risk = 1 − p(convert); three
+  drivers in words (age against the usual said once); the account's RFM segment and its
+  churn flag (the registry's rule: quoted in the 180 days before the churn line, not since
+  -- 1,663, the same count `rfq__at_risk_accounts` gives); still-in-range quotes ranked
+  first by value at risk. `risk_model_readiness` is what readiness shows; floor AUC 0.65.
+- **Real numbers:** 484 closed quotes → 1,254 snapshot rows, base rate 0.464; time holdout
+  314 rows: **AUC 0.806, Brier 0.195**. Top coefficients: no last lost reason +1.35,
+  Portal Dealer −0.69, Griddles −0.66. Scoring 2,116 open quotes: 1,928 already past the
+  usual time to close; **188 still within range, 120 of them at risk, $591K**; 1,830 high
+  overall because most of the backlog is far past the usual -- so the report separates
+  "act now" (in range) from "already stalled", and the list ranks in-range first.
+- **The outcome (Phase 3, `recommendations/`):** the Recommendation record
+  (`retail_recommendations` on the control plane: subject, risk and level, drivers, action,
+  value at stake, context, status, outcome, horizon); `RecommendationStore.upsert_open`
+  writes one open record per (use case, subject), refreshed by the next run, a decided one
+  kept -- proven: accept one, rerun, `kept: 1`, the other 61 refreshed. The catalogue
+  (`catalogue.py`) is ten sales plays as data -- RE_ENGAGE, ESCALATE, REQUOTE_SPEC,
+  COMMERCIAL_OFFER, COMPETITIVE_RESPONSE, DECISION_SUPPORT, CHANNEL_PARTNER, ACCOUNT_REVIEW,
+  REACTIVATE, RELEASE -- each with what to do, when, who owns it, by when. `play_for` chooses
+  by rule, never by the model: the account's last loss first (the data scrambles word order
+  -- "High Too Price", "Too High Price" -- so the rule matches words), then the account's
+  churn state and RFM segment, a channel account still in qualification, a low-value quote
+  past twice the usual (release), high risk above the territory's typical quote (escalate),
+  else re-engage; the record carries *why*. `recommend` writes the records (held under dry
+  run); `send_alerts` emails each rep their high-risk quotes with the plays (the
+  `alert recipient` slot, the report's recipient when unset).
+- **The chain (Phase 4):** `at_risk` template (Inform): Read gold → Take the numbers as they
+  are → **Track what happened** → **Score risk** → **Recommend** → Explain → Check grounding →
+  Record provenance → Render report → Deliver → Send report → **Send alerts**; slots `churn
+  window` (60), `outcome` (both), `risk levels`, `top n` (0 = every quote still within its usual range, so the list is the "act now" count) with defaults. The report: a
+  hero strip (act now / already stalled / accounts at risk), the ranked *next best actions*
+  with the play, why, the drivers, the owner and SLA, the alerts per rep, and an honesty
+  line (what risk means, the model's holdout numbers, the precision tracked so far). The
+  briefing model reads the `at_risk_explanation` skill; grounding admits the scoring's,
+  the plays', the horizon's and the precision's figures, money as the report prints it
+  ($591K, $10.57M -- the first draft wrote 591088.8). Readiness: `risk_outcome`,
+  `risk_model`, `risk_subjects`.
+- **The form (Phase 5):** the fourth kind on the Analytics Automation card ("Find who or what
+  is at risk, every run"); fields: the context KPIs (the at-risk ones offered), the churn
+  line (30 / 45 / 60 / 90 or a number), what the run ends in (recommend / alert / both);
+  the suggestion reads an at-risk ask ("at risk", "churn", "not convert", "stalled") as
+  the kind and fills the six context KPIs; the plan mirror names the three new stages; the
+  preflight probes `risk_model`; the run view gets at-risk header tiles, a *Next best
+  actions* tab and a *The model* tab (holdout numbers, calibration, coefficients); the use
+  case page gets a **Recommendations** tab (filters by status and kind, accept / dismiss /
+  done / reopen -- the same write a consuming use case makes); the dashboard's latest-report
+  panel shows the hero tiles and the top five actions.
+- **Track (Phase 6):** `track_outcomes` at the head of the chain: every record whose horizon
+  has ended is looked up on the fact -- converted, lapsed (closed lost, or still open past
+  the horizon), still open -- the outcome written, and the use case's precision per level
+  reported in the briefing's caveat and the report's honesty line. Proven by backdating six
+  horizons and running live: 5 expired as lapsed, the accepted one kept its status with its
+  outcome written; the next run said "of 2 named high risk, 2 did not convert".
+
+**Fixed along the way:**
+
+- `comparison_of` looked the comparison up by the stage name "Compare to baseline" only;
+  the no-comparison stage is "Take the numbers as they are", so a K23/K25 run without a
+  comparison lost its KPI tiles once a later step did not carry the content. Both names
+  now, and a carried `comparison_result` on any earlier output.
+- Five `*_of` helpers iterated `previous_step_outputs` as a list; the engine hands a
+  mapping by step name, so the fallback never fired. One `earlier_outputs` helper.
+- `permits_or_blocks` was false on `decompose_change` although it stops on a refusal;
+  true now, with `score_risk` and `recommend`, and the R9 test lists all three.
+- The plan mirror had two `case "compare_to_baseline"` labels; the first (generic) won, so
+  the K23 "Takes the numbers as they are" wording never showed. The stale one removed.
+- The `risk_model` probe needed adding to the contract's `ProbeName` enum, or the readiness
+  screen reported "the platform could not be reached".
+- A use case's compiled workflow is frozen at activation, so an executor added later
+  reaches an activated use case only after re-saving the spec and activating again
+  (version 2) -- by design; noted here because it cost one confused run.
+
+**Not in this package:** stockout risk on curated synthetic data (K27, §12.4); gradient
+boosting behind a flag; a Decision Intelligence use case type whose *Read* is the
+recommendations store (the screen's accept / dismiss is the same contract today); alerts
+to real rep addresses (the fact carries none; every rep's alert goes to the report's
+recipient, the rep in the subject); retraining that reads the tracked outcomes as labels
+(the table holds them; the training frame still reads the fact).
+
+---
+
+### K25 -- the diagnostic kind: why one KPI changed, computed fresh every run
+
+**Package:** K25, branch `usecase_processautomation`. Contract 1.12.0 (additive):
+`diagnosisOptions`, `UseCaseTemplate.metric_diagnosis`, probe `diagnosis`. Design:
+`docs/plan/analytics-automation-design.md` §11.
+
+**Status:** PASS (18 Sep 2026): unit tests, the executor over the real quote fact, the
+whole chain offline with a stand-in narrator, and the builder end to end in the browser --
+readiness, rehearsal with the real model, activation, a live run emailed.
+
+**Description:** Analytics Automation gains a second kind next to the monitoring report:
+the same Inform chain with one deterministic stage between *Compare to baseline* and
+*Explain* -- **Decompose the change** -- and the model narrating that stage's ranking rather
+than choosing a cause.
+
+- `diagnostics/parts.py` reads a gold formula into its parts: table, window predicate, and
+  type -- *ratio* (`100.0 * A / NULLIF(B, 0)`, `A / NULLIF(B, 0)`, `AVG(x)`) with a numerator
+  and denominator, or *additive* (`COUNT(*)`, `SUM(x)`). A formula outside the shape is
+  refused, never guessed. All four RFQ formula shapes read.
+- `diagnostics/decompose.py` is the arithmetic, pure: per slice its contribution (additive:
+  its delta; ratio: the two-way split into a **rate effect** and a **mix effect**, which sum
+  to the headline change), its **surprise** against its own trailing history (robust z on
+  median and MAD, capped ±5), a **support floor** (max(20, 5 % of the period) scaled by
+  sensitivity) below which a slice is folded away, and the ranking: dimensions by the share
+  of the gap their top slice explains, unusual slices first, ties within a tenth reported.
+  Sensitivity is three words -- clear / usual / more -- mapping to |z| ≥ 3 / 2 / 1.5.
+- `executors/diagnostics.py`: `decompose_change` groups the fact's rows under the parts by
+  every **candidate dimension** (low-cardinality text columns the formula does not read;
+  never an id, a date, a status, a stage or a reason) for the run's date, the baseline and
+  twelve trailing periods; ranks; searches the winner one level down; fetches the evidence
+  rows (the losing side for a rate) with any reason column tallied. Every statement
+  guard-checked; the comparison carried forward untouched. `diagnosis_options` is what the
+  form shows: diagnosable, kind and parts, the candidate columns with distinct counts, rows
+  per period, the support floor per sensitivity.
+- The chain: `metric_diagnosis` template (Inform) with the new stage; `sensitivity` and
+  `evidence columns` slots, defaults `usual` / none; a diagnosis's comparison defaults to
+  the period before (inherent), every candidate dimension is searched unless told otherwise.
+  `diagnosis_explanation.md` (small tier, same `ReportExplanation` schema) narrates the
+  ranking; `check_report_grounding` accepts the decomposition's figures (and its caveats'
+  numbers); the report gains a "Where the change sits" section -- the ranked table with
+  effect, then → now, share of the change, vs its usual, rows -- the intersection and the
+  tally; the run result carries `diagnosis` and the run view gains that tab.
+- Readiness: `diagnosis_kpi` (one KPI, readable formula), `diagnosis_dimensions`,
+  `diagnosis_support` (rows in the period against the floor); probe `diagnosis` on the
+  screen.
+- The form: the Analytics Automation trigger is three kinds -- report the numbers / explain
+  why one KPI changed / only on a threshold; the diagnostic's fields are the KPI (one, with
+  what it is made of and the rows per period), the two periods, **search the cause across**
+  (the fact's columns with their cardinalities, all on by default), **sensitivity** (three
+  chips, the floor they imply shown), **evidence columns**; then outputs, delivery. The
+  suggestion sets the kind from a diagnostic ask.
+
+**Verification.** Over `silver.dc_rfq_quotes`, closed-won rate as of 17 Sep vs 10 Sep: 54.4 %
+→ 55.8 %; winner **pim_category = Griddles**, rate effect, 48.5 % → 53.4 % against a usual
+34.9 % (z +3.5), 51 % of the gap, 73 rows; evidence 34 lost Griddles quotes, lost reasons
+tallied. Offline chain: an invented "999" in the narrative is caught (`unsupported: ['999']`),
+a clean narrative passes (7 figures). In the browser: "Why did our closed-won rate change
+last week? Every Monday to …" filled the form as the diagnostic kind; readiness 9 of 9;
+the rehearsal with gpt-5.4 wrote *"Closed-won rate rose from 54.5% to 55.8% last week;
+Griddles drove it -- its own win rate moved from 49.3% to 53.3%, against a usual 35.3% --
+and of the 35 Griddles quotes still lost, Chosen Competitor, Constraints Budget, and High
+Too Price lead the reasons (5 each)."* -- 22 figures checked, all in the numbers (the first
+attempt was withheld on a "98" copied from a caveat, which the checker now admits);
+activated in production, a live run emailed the report, dashboard composed. Tests:
+`product/tests/test_k25_diagnostics.py` (10); suite 1554 passed; ruff, mypy, contract
+check, `vite build` clean.
+
+**The dashboard shows the latest report.** Rather than a new tile kind in the dashboards
+model, a dashboard whose owner is `use_case` opens on `UseCaseLatestReport` -- the owning
+use case's last successful run found by the dashboard's name: the headline sentence, live
+run or rehearsal and when, the grounding verdict, and for a diagnosis the winning slice
+with its share of the change and its usual value; "Open the run" links to the use case.
+Hand-built dashboards are untouched. Verified on `dsh_e7a71c1f2858`.
+
+**"Why it changed" as an insight, not a table.** The report's section (`_diagnosis_html`,
+email-safe) and its screen twin (`DiagnosisInsight.jsx`, used by the run view's tab and by
+the dashboard panel) now read: the KPI's move as two numbers with a delta pill and the
+period dates; **the driver** as a card -- what it is, what it did (its own rate / its share
+of the mix / its count), then → now over N rows, its share of the change as a bar, its
+usual value with "unusual · z +3.9" in red when it is, and the KPI's last twelve periods as
+small bars; **also moving** -- each other dimension's top slice with then → now and a signed
+bar, amber when it pulled the other way; **inside the driver**; and **why** -- the reason
+tally as bars over the rows that did not convert. The footnote carries what was searched,
+the sensitivity, the floor and the caveats. Rendered from the live run's data; a live run
+sent the redesigned report (27 figures grounded).
+
+**Validated and fixed, same day.** Reading the dashboard and the emailed report against
+each other and against the data: (1) the diagnosis quoted +1.4 pts while the KPI tile said
++1.3 -- the executor rounded nothing while gold rounds to the formula's precision; the
+headline is now rounded to the formula's own `ROUND` places (`FormulaParts.precision`) and
+its delta is the difference of the rounded values, so tile, sentence and diagnosis quote
+one number (the shares of the gap stay exact underneath); (2) the narrator wrote "0.4 of
+the gap" and "0.6 of the change" for the same slice -- its input now carries
+`share_of_change` as a percent ("45%") and `contribution` in the KPI's unit ("+0.6 pts"),
+and the live run wrote "Griddles drove 45% of the change (+0.6 pts)"; (3) the email's
+eyebrow repeated the title, the KPI tile repeated the hero, and the trend sat inside the
+driver card under "against its usual" as if it were the slice's -- the eyebrow is
+"Enterprise GPT" (plus what the use-case name adds), the diagnosed KPI's tile is dropped,
+the trend moved beside the hero numbers; (4) the text twin listed the caveat twice;
+(5) the dashboard's first row is three tiles -- the KPI (previous → now, delta, rows), the
+trend (twelve bars, first and last values, the step), where the change sits (each
+dimension's top slice as a signed bar, the dimension under the value, red dot for unusual,
+amber for the other way) -- and "Why it changed" below without the numbers the tiles carry.
+Live run `run_8a86fa17`: 29 figures grounded, deltas agree (1.3 / 1.3). (6) The third row
+repeated the KPI: the dashboard the use case composed carried the diagnosed KPI as a tile
+under the panel that already shows it. `compose_dashboard` now composes a diagnosis's
+dashboard from the KPI's **breakdown siblings** in the registry (same concept, a grain, an
+identifier extending the KPI's -- `rfq__closed_won_rate_by_brand`), the drill-down under
+the "why"; the KPI itself only when it has none. Recomposed as `dsh_ef5750e721fd`. Then, asked "if I pick three dimensions, three widgets?" --
+yes, now: a diagnosis's dashboard is composed from **one query tile per dimension searched**
+(the KPI's own formula grouped by that column, `{as_of}` as the refresh's date, guard-checked
+like any query tile, computed once at composition so the dashboard opens with numbers), the
+chosen dimensions or every candidate; the registry siblings only when the formula cannot be
+read. On the way this found a bug in the dashboards' query runner: `SET LOCAL
+statement_timeout = %s` with a bound parameter, which psycopg 3 sends server-side and
+Postgres rejects (`syntax error at or near "$1"`) -- every query tile failed; the timeout
+is an int and is now interpolated. The trend tile is a chart: every bar labelled, the
+first date, the two compared dates, the two compared bars darker, the median of the history
+as a dashed "usual" line; the email's sparkline gains first … baseline → now · usual.
+Recomposed as `dsh_e6d9b3602453`: eight breakdown tiles, all fresh.
+
+**What the form asks, re-validated (18 Sep).** Asked: the goal in words; the KPI (one);
+the two periods (inferred, editable); search the cause across (all on, untick to leave
+out); recipients and frequency; the owner. Optional with a default: sensitivity (Usual;
+"change it after a run -- only clear outliers if the report names noise, flag more if it
+names nothing"). Not asked any more: **outputs** -- every Analytics Automation produces
+the report and a dashboard (compiler default and the form's inferred value, both kinds);
+**evidence columns** -- the rows behind the finding were fetched but never shown, and
+which columns to show is the fact's to decide: an identifier, the dimension the finding
+sits in, who and what, the closing date, the measure, the reason, the outcome (`quote_id,
+pim_category, customer_name, product_name, closed_date, deal_value_usd, lost_reason,
+quote_status` for the quote fact). The rows themselves now appear on the run's "Where the
+change sits" tab (first twelve, with the count); the email says they are on the run.
+
+**"Sensitivity" said nothing to a reader; reworded (18 Sep).** The field is now **How sure
+before naming a cause**, three cards in outcome words -- *Very sure* (only a slice far
+outside its own history, plenty of rows; fewer findings, rarely noise), *Balanced* (the
+default; outside its usual range), *Show more* (smaller departures and fewer rows count;
+some may be noise) -- with the concrete consequence under them ("a slice needs at least
+25 rows in the period before it can be named as the cause") and the way to tune it ("your
+first run will tell you: if it names noise, choose Very sure; if it names nothing, choose
+Show more"). The same words in the plan, the readiness text, the report footnote and the
+run view; the slot values (clear / usual / more) and the maths are unchanged.
+
+**Other questions the data can answer, tried before handing them over (18 Sep).**
+`quotes_generated` month on month: 395 -> 351 (-44); Refrigeration 72 -> 36 against a usual
+56, z -5, 82 % of the drop; India West next. `open_pipeline_value` month on month: $9.57m
+-> $10.52m; Live Chat +$264k (28 %), no slice unusual for itself, inside Live Chat: Portal
+Dealer. `average_days_to_close` at sensitivity *flag more*: 15.3 -> 15.1; the first cut
+named Refrigeration, which had *risen* (a slice that pulled the other way, -79 %) --
+fixed as a rule: a slice that moved with the headline ranks ahead of one that pulled
+against it, so the driver is the finding and the opposite mover the contrast
+(`decompose_dimension` ordering, tested); now Foodservice Consultant, z -5. The chat KPIs
+(`chat_to_quote_rate`, `live_chat_buy_inquiries`) read 100 % -> 100 % this window: nothing
+to explain, and the diagnosis says so rather than inventing a driver.
+
+**The decomposition verified against the data by hand.** Plain SQL over
+`silver.dc_rfq_quotes` for as_of 18 Sep vs 11 Sep, independent of the executor: headline
+54.47 % (250/459) -> 55.83 % (273/489), delta 1.362 pts (report: 54.5 -> 55.8); Griddles
+49.28 % (34/69) -> 53.33 % (40/75), support 75 (report: 49.3 -> 53.3, 75 rows); Griddles
+rate effect 0.622, mix effect -0.016, contribution 0.607 pts, share of gap 0.445 (report:
+0.4454, "45 %"); the contributions of every pim_category sum to 1.362 pts -- exactly the
+headline delta, as the two-way split must; Griddles' norm = median of the twelve prior
+weekly values 35.28 % with MAD 3.14 -> z +3.88 (report: usual 35.3 %, z +3.9); Griddles
+lost in the period 35 rows with Chosen Competitor 5, Constraints Budget 5, High Too Price 5,
+Specification Alternative 4, Response No 4, Decision Delayed 3 (report: identical);
+Ranges 54.9 -> 57.7, Ovens 49.2 -> 51.4, Online Marketplace 52.8 -> 55.3 (report:
+identical). Every figure the narrative quoted is the data's.
+
+**Same day, two follow-ups.** *Gold for the run's own date:* `compare_to_baseline` now
+materialises the run's date the way it materialises a missing baseline, so a run made
+before the nightly pass reports the numbers rather than "no gold row at as_of"
+(`comparison_result.computed_now` names the KPIs computed for it); the 18 Sep pass was also
+run by hand for every KPI (16 materialised; `rfq__quote_volume_1`, hand-authored, failed on
+its own formula). *"Compared" only when something is:* the compiler emits the Compare
+stage as **Take the numbers as they are** when no comparison is chosen (a diagnosis always
+compares), the plan mirror does the same, and every sentence that said "compares" --
+the run panel, the run history ("15 KPIs read → report emailed"; "1 KPI diagnosed"),
+the run summary, the result tiles ("Not compared · the numbers as they are"), readiness
+coverage, the rehearse blurb, `describeShape` -- now says so only when a baseline was
+chosen. Verified live: the monitoring use case runs as "15 KPI(s) read, report sent" with
+today's gold; the diagnosis as "1 KPI diagnosed, report sent", 33 figures grounded.
+
+---
+
+### K23 follow-up -- the comparison is a choice, never a default (18 Sep 2026)
+
+**Status:** PASS. Decided in the analytics brainstorm: a baseline put in front of a person
+who did not ask for one makes the report narrate a delta nobody wanted. `comparison` is now
+optional end to end -- `OPTIONAL_SLOTS` in the compiler, `_OPTIONAL_PARAMETERS` in the gap
+check (contract 1.11.3: `AnalyticsSuggestion.comparison` nullable) -- and the suggester sets
+one only from the words: a period named ("last year"), a change asked about ("dropping",
+"versus", "change"), or a diagnostic kind, where two periods are inherent. Without one,
+`compare_to_baseline` reads gold for the run's date alone (no baseline read, no backfill),
+`baseline_as_of` is null, tiles read "not compared", the report header drops "compared
+with". The form's field is "Compare with", optional, with a "No comparison" chip first and
+its hint saying what a report without one carries; the plan reads "Reads the numbers as
+they are -- nothing compared". Checked live: "visibility into the pipeline every Monday" ->
+no comparison; "why is our closed-won rate dropping?" -> the period before. Tests updated
+(R9 gap expectations, K23 +1); suite 1543 passed. The diagnostic kind is planned, not
+built: `docs/plan/analytics-automation-design.md` §11.
+
+---
+
+### K16 follow-up -- "Refresh in run history not working" (18 Sep 2026)
+
+**Status:** PASS. The button did reload (the network log shows `GET /use-cases/{id}/runs
+-> 200` on every click, no console error) but gave no sign of it, and the page's own
+15-second poll had usually already shown the same rows -- so a click that changed nothing
+read as a click that did nothing. `UseCasePlatformPage` now records when it last read the
+platform and whether a read is in flight; `RunHistory` shows "updated just now / 23 s ago /
+14:32", spins the icon and disables the button while a read runs. Verified in the browser:
+"updated 11 s ago" -> click -> "updated just now". `vite build` clean.
+
+---
+
+### K24 follow-up -- "8 of 17 golden cases pass" on a drafted template (18 Sep 2026)
+
+**Status:** PASS. Activation refused with nine failing golden cases (E-01..E-07, E-09,
+E-13). One root cause behind all of them: a template drafted from the customer's sample and
+kept under the label "Purchase order" took the shipped id `purchase_order` -- the catalogue
+save treated it as the shipped one, the platform's `generate_cases` handed it the curated
+sixteen (expected in the shipped names `due_date`, `order_total`), the form's
+`suggestRules` handed it the shipped preset (`date_window` on `due_date`), and its
+`part_number` column fed only the product-code attempt so E-01's customer part number
+306727 never matched. Fixed as five rules rather than one patch:
+
+- `saveTemplateToCatalogue` / `saveMappingToCatalogue` never issue a shipped id
+  (`uniqueCatalogueId` -> `purchase_order_custom`); `isShippedTemplate` (same id *and* same
+  fields) gates the shipped preset in `suggestRules`, and `_is_shipped_purchase_order` gates
+  the curated set on the platform.
+- A generated set is stamped with the template it was made for (`expected.template`,
+  `template_fingerprint`) and remade when the template changed.
+- A bare part number (`part_no`, `part_number`, `item_no`, ...) feeds the customer's-part
+  attempt first, then our code (`_BARE_PART`, both sides); generated documents fill such a
+  column with the customer's cross-reference number, and "Item nobody sells" carries a part
+  number nobody has.
+- Cases not about the item take an item the customer has ordered before, so only the rule
+  the case is about trips.
+- Readiness gains `guardrail_fields`: a rule reading a field the template lacks is named
+  (it is skipped at run time, never passed) and fails live; the form marks the row amber
+  with "Use <the template's field> instead" / "Remove it", and the stale "under master data"
+  warning is gone.
+
+Verified live on the person's use case: the generated set remade for the drafted template
+(12 + the uploaded sample) -> 12 of 13 pass; the one left, "Date in the past", is exactly
+the guardrail readiness names (`date_window` on `due_date`), fixed on the form with one
+click. Suite 1542 passed; ruff, mypy, `vite build` clean.
+
+Same day, two asks on the back of it. **The golden cases no longer gate activation:**
+`PreflightCheck.advisory` (contract 1.11.2) -- an advisory check is reported and never
+sets `allowed` false; `golden_cases` is advisory, shown on the readiness screen as "to
+note" with the link to the failing cases; `guardrail_fields`, `mapping_sources` and the
+credential checks still block. Router test updated (activation proceeds with 5 failing
+cases; the reason still names them). **Each guardrail's column is chosen on the form:** an
+active rule shows a select of the template's own fields (header fields for a header check,
+line fields for a line check; `total ↔ line_total` for the total check), a field the
+template lacks listed as "(not in this template)"; changing it re-derives the rule, so the
+amber note clears. In the browser: Due-date sanity `due_date` -> `delivery_date`, note gone.
+
+---
+
+### K24 follow-up -- rehearse refused: "requires a 'master data' parameter" (18 Sep 2026)
+
+**Status:** PASS. A use case saved from the K24 form (no master-data section) sent `master
+data` as `{}`, and the compiler counted an empty slot as unfilled, so readiness said
+"workflow_compiles: the document_to_record template requires a 'master data' parameter and
+nothing filled it". Fixed at the source of the rule: `master data` and `match thresholds`
+join `SLOT_DEFAULTS` (origin DEFAULT, like window/title/outputs) -- master data defaults to
+`{"source": "write target"}`, thresholds to `{}` (the matcher's own defaults). `_master_data`
+resolves "write target" to the target's kind and uses the write target's connection unless
+the slot carries one of its own. Test added in `test_k15_orchestration.py`. Verified live on
+the person's draft: readiness all PASS (spec, compiles, mailbox, target, model,
+mapping_sources); a rehearsal over the 36 generated cases succeeded -- 15 documents, 21
+exceptions -- with the reference data read from the trial org. Suite 1538 passed.
+
+---
+
+### K16 follow-up -- delete a user-built use case (18 Sep 2026)
+
+**Status:** PASS. `DELETE /use-cases/{id}` existed (K16) but removed only the use-case row,
+leaving its runs and golden cases orphaned (no foreign key on either table). `store.delete`
+now removes runs and cases in the same transaction; the dashboard an Analytics Automation
+composed stays under KPIs -> Dashboards. The platform page gains **Delete** beside Edit and
+Activate: confirms in words (an activated use case is paused first so the schedule stops,
+run history and golden cases go with it, records already created in the target stay --
+undoing those is the rollback plan's job, per run), then returns to the gallery.
+Verified live: a throwaway use case with one golden case -> 204, second call 404, zero rows
+in `retail_use_cases`, `retail_use_case_runs`, `retail_use_case_cases`. Suite 1537 passed.
+
+Same day, on request: the 17 Draft orders the platform had created in the trial org on 16
+Sep (Northwind PO numbers, 19 line items) deleted through `delete_record`; the line items
+cascade with the order; 0 drafts left, the 21 accounts untouched.
+
+---
+
+### K23 follow-up -- a different question than the RFQ ask (17 Sep, later)
+
+**Status:** PASS. Asked whether an analytics use case other than the RFQ report works, three
+other asks were put to `POST /use-cases/analytics/suggest` over the same registry. The chain
+itself (read gold, compare, explain, ground, render, send, dashboard) is generic -- it reads
+the KPIs the spec names, whatever they are -- and three gaps in the *suggestion* showed:
+"monthly" alone set neither cadence nor window; a breakdown the ask named (`territory`)
+was dropped when the KPI chosen carried a different grain; and an ask about quotes pulled
+every `quotes_by_*` breakdown. Fixed in `analytics_suggest.py`: `monthly` / `weekly` /
+`last week` / `last month` set the schedule and a `window` in days (7, 30, 90, 1; new
+nullable `AnalyticsSuggestion.window`, contract 1.11.1, applied on the form); the dimensions
+are the grains the ask names that some registered KPI carries, plus the chosen KPIs' own;
+a breakdown the ask did not name scores half. "why is our closed-won rate dropping? monthly,
+by territory and brand, compared with last year" -> `rfq__closed_won_rate_by_brand`,
+`rfq__closed_won_rate`; brand, sales_territory; prior year; window 30; monthly; report.
+Tests +2 (16 in `test_k23_analytics_automation.py`); suite 1537 passed.
+
+The precondition, unchanged: a KPI must be in the registry with a gold formula over data the
+warehouse holds (the readiness probe says ready / buildable / blocked per KPI). Locally only
+the RFQ KPIs are registered, so every ask resolves to those; a retail question ("why is
+revenue low") needs the retail silver loaded and its KPIs registered first.
+
+---
+
+### K24 -- the Process Automation form: sample first, target then objects, no master-data section
+
+**Package:** K24, branch `usecase_processautomation`. Contract 1.10.0 (additive):
+`suggestTargetObjects`.
+
+**Status:** PASS (17 Sep 2026): unit tests, the live org, the compose screen in the browser.
+
+**Description:** The document-to-record form now reads in the person's order and asks for
+nothing the platform can derive. **Extraction template:** upload a sample PDF first -- the
+platform reads it (the drafting agent) and proposes the fields, which the person edits and
+keeps; the sample stays attached as the AI step's example. Without a sample, the shipped
+kinds are offered to copy and edit. **Match thresholds:** gone from the form; the defaults
+travel with the spec. **Target system:** the connected sources with write permission.
+**Target objects:** `POST /record-mappings/suggest-objects` ranks the target's createable
+objects for the template and the description (the template's record kind against the
+names, the description's words against the labels of the common objects, the per-line child
+object, a shipped mapping named where one fits the pair; sharing/history/event objects never
+suggested); one click either picks the shipped mapping or opens the field mapping already
+suggested over the org's live fields, editable. **Master data:** no longer a section -- the
+roles follow from the mapping and the guardrails (K21) and are loaded from the target; the
+readiness row is "Reference data in Salesforce" and reports the org's counts for exactly
+those roles. Target system and Target objects sit where Master data was.
+
+**Verification:** `suggest_objects` over the live org: purchase order -> Order + OrderItem
+(shipped mapping), Opportunity + OpportunityLineItem; return request -> Case, ReturnOrder +
+ReturnOrderLineItem; delivery note (receipt) -> Asset, Task. In the browser the form reads
+mailbox, cadence, filter, document type, template (Upload a sample document / shipped
+kinds), guardrails, target system, target objects (with "Suggested objects in Salesforce:
+Order + OrderItem per line · the template creates order · mapping ready"), exceptions,
+acknowledge, created as, change limit, rollback, owner. Suite 1518 passed; ruff, mypy,
+contract check, `vite build` clean.
+
+**Follow-up (17 Sep, later): the mapping against a drafted template.** Uploading a
+customer's own PO (`E-02-177948.pdf`) drafted a template with `requested_delivery_date` /
+`due_date`, `notes`, `part_no` / `part_number`, `total`, `line_total`; the form then still
+offered the shipped Order + OrderItem mapping, whose `Order.Description <-
+delivery_instructions` and `OrderItem.ServiceDate <- line.line_due_date | due_date` name
+fields that template never extracts -- blank on every record, unnoticed until a run. Fixed
+as data, not a special case: `mapping.stale_sources(mapping, template)` names each row whose
+document source (a header field, a `line.` field) the template lacks -- resolved roles, run
+values and literals are never stale; `suggest_objects` offers a shipped mapping as is only
+when it has none, otherwise says which fields it lacks and the chip reads "map the fields";
+the form's chosen-mapping summary flags the stale rows and offers "Re-suggest from this
+template", which copies the mapping and re-suggests it over the drafted names; readiness
+gains a `mapping_sources` check (fails when a *required* target would be blank, names the
+rest). `suggest_mapping` learnt the drafted names (`part_no`, `item_no`, `notes`,
+`requested_delivery_date`), lets one document date serve both `PoDate` and
+`EffectiveDate`, and falls back to a header date for a line date (`ServiceDate <-
+requested_delivery_date`, as the shipped mapping does); `roles._OUR_CODE` and the
+interface mirror accept `part_no`, `part`, `item_no`, `item_number`, so the product
+resolves by part number rather than description alone. Tests
+`product/tests/test_k24_drafted_template_mapping.py` (8). In the browser: sample uploaded,
+template kept -> the summary reads "2 sources the template does not extract:
+delivery_instructions, line.line_due_date. Those fields would be blank on every record.
+Re-suggest from this template"; one click -> 19 rows over the drafted names (`Description <-
+notes`, `PoDate <- po_date`, `ServiceDate <- due_date`), kept, no stale note. Suite 1526
+passed; ruff, mypy, contract check, `vite build` clean.
+
+**Follow-up (17 Sep, later still): the mapping in words.** The source cell was a free-text
+input over a `datalist` -- the browser's suggestion list showed only on a matching prefix,
+without its groups, and the person had to know `ship_to.state_name` by heart. Replaced by a
+chain of selects: the value, then "if empty" fallbacks (up to three), every option grouped by
+where it comes from -- *From the document* (the template's header fields, with their hints),
+*From the document line*, *Resolved: sender account / sender contact / ship-to site /
+product* (the roles of `MASTER_DATA_ROLES`, so a new role appears without a form change),
+*From the run* (today's date, the standard price book) -- and *a fixed value…* typed in
+place. The chosen-mapping summary is a table, each value tagged with its kind (document /
+line / resolved / run / fixed; *missing* in amber when the template lacks it) and a legend
+naming the step that produces each. The parent/child object select groups the org's 729
+createable objects as *Suggested for this template*, *Your org's own objects*, *Standard
+objects*. `record-mappings.js`: `sourceGroups`, `describeSource`, `describeSources`,
+`LITERAL`. Verified in the browser: dropping PoDate's fallback, adding one, choosing "a fixed
+value…" and typing it, all reflected in the row; the built mapping unchanged in shape.
+`vite build` clean. Then, asked to see the extracted field beside the resolved one: a
+resolved value reads `ship_to_address → ship-to site street`, `sender email, customer_name
+→ sender account Salesforce id`, `part_no, description → product price book entry` -- the
+left side is `roleFeeds(template)` (K21's `resolutionSources` over this template), so it
+follows the template's own names; the option group reads "Resolved in the target: ship-to
+site (from ship_to_address)".
+
+---

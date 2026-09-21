@@ -16,6 +16,31 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.memory.config import build_memory_config
 
 
+def _stub_engine_ddl(monkeypatch):
+    """The Engine-based tables (provenance, delivery, use cases, recommendations,
+    rollback) must not open a real database in these unit tests."""
+
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        factory_module, "build_control_plane_engine", lambda settings: _FakeEngine()
+    )
+
+    def _noop(_engine):
+        return None
+
+    for name in (
+        "apply_provenance_ddl",
+        "apply_delivery_ddl",
+        "apply_use_case_ddl",
+        "apply_rollback_ddl",
+        "apply_recommendations_ddl",
+    ):
+        monkeypatch.setattr(factory_module, name, _noop)
+
+
 @pytest.mark.parametrize("mode", [ProviderMode.LOCAL, ProviderMode.FRONTIER])
 def test_provider_mode_setting_reaches_memory_config(mode):
     """One setting, both subsystems. It was hardcoded to FRONTIER while knowledge read the
@@ -94,6 +119,33 @@ def test_ensure_control_plane_schemas_provisions_all_nine_stores(monkeypatch):
     # The secret-store settings are pinned, not left to the environment: a developer who has
     # EGPT_RETAIL_SECRET_ENCRYPTION_KEY set (to try registering a source locally) would
     # otherwise get a real LocalEncryptedSecretStore built on the fake connection above.
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        factory_module, "build_control_plane_engine", lambda settings: _FakeEngine()
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "apply_provenance_ddl",
+        lambda engine: calls.append("provenance"),
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_delivery_ddl", lambda engine: calls.append("delivery")
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_use_case_ddl", lambda engine: calls.append("use_cases")
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_rollback_ddl", lambda engine: calls.append("rollback")
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "apply_recommendations_ddl",
+        lambda engine: calls.append("recommendations"),
+    )
+
     factory_module._ensure_control_plane_schemas(
         RetailSettings(
             retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db",
@@ -102,6 +154,7 @@ def test_ensure_control_plane_schemas_provisions_all_nine_stores(monkeypatch):
         )
     )
 
+    # The nine connection-based stores, then the five Engine-based tables.
     assert calls == [
         "playground",
         "dashboard",
@@ -112,6 +165,11 @@ def test_ensure_control_plane_schemas_provisions_all_nine_stores(monkeypatch):
         "suggestion_dismissal",
         "dashboard_suggestion_run",
         "data_source",
+        "provenance",
+        "delivery",
+        "use_cases",
+        "recommendations",
+        "rollback",
     ]
 
 
@@ -159,6 +217,7 @@ def test_ensure_control_plane_schemas_skips_local_secret_store_without_a_key(
     monkeypatch.setattr(
         factory_module, "LocalEncryptedSecretStore", _fail_if_constructed
     )
+    _stub_engine_ddl(monkeypatch)
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(
@@ -222,6 +281,7 @@ def test_ensure_control_plane_schemas_provisions_the_local_secret_table_only_whe
             provisioned_with.append(self._key)
 
     monkeypatch.setattr(factory_module, "LocalEncryptedSecretStore", _FakeSecretStore)
+    _stub_engine_ddl(monkeypatch)
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(

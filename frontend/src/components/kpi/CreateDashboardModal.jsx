@@ -17,7 +17,9 @@ function metricFromKpi(kpi) {
   identifier: kpi.identifier,
   name: kpi.name || "",
   unit: kpi.unit || "",
-  description: kpi.description || "",
+  // `desc` is the row's own spelling (`rowFromRegistryKpi` in `KpiDiscoveryPage.jsx` maps the
+  // wire's `description` to `desc`); `description` is the raw `fetchKpiList()` one.
+  description: kpi.description || kpi.desc || "",
   businessArea: kpi.businessAreaId || kpi.business_area || "",
   sourceTables: kpi.source_tables || kpi.sourceTables || [],
   // Threaded through so `DashboardBuilderStep.jsx` can flag an accepted AI-suggested chart
@@ -36,11 +38,15 @@ function chartFromSuggestion(chart, index) {
 /**
  * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style
  * metrics-and-purpose step feeding a dashboard-composition run, or straight into the shared
- * review/builder step. One flow for both entry points -- `DashboardsPage.jsx`'s plain "Create
- * dashboard" button and `KpiDiscoveryPage.jsx`'s "create from selection" -- so `rows`, when
- * given non-empty, no longer skips the mode picker (round-1 review comment: this PR had
- * silently reverted #272's fix reintroducing that skip); it only seeds `initialCharts`/
- * `purposeMetrics`, the starting point either path resets back to.
+ * review/builder step. The two entry points diverge on `rows`: `DashboardsPage.jsx`'s plain
+ * "Create dashboard" button passes none, so it lands on the mode picker; `KpiDiscoveryPage.jsx`'s
+ * "create from selection" passes the checked rows, which skips the mode picker and opens
+ * straight into the manual builder, pre-filled one chart per metric (`initialCharts`), when at
+ * least one checked row is a registered, ready KPI. A selection with none (seed/template rows
+ * only) lands on the mode picker as before; the builder's "couldn't be added" notice is not
+ * shown there, because it lives in the builder.
+ * The AI path stays reachable from there -- the builder's "Change mode" link goes back to the
+ * mode picker, carrying the same selection into `purposeMetrics` if AI is then chosen.
  *
  * `onCreate({ name, refresh, charts, filterColumns })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
@@ -61,13 +67,18 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
     chart: "number",
     source: "kpi",
     kpi_identifier: r.kpi.identifier,
-    description: r.kpi.description || "",
+    description: r.kpi.description || r.kpi.desc || "",
     guard: { status: "ok", detail: "" },
    })),
   [initialRows],
  );
 
- const [step, setStep] = useState("mode");
+ // A KPI-page selection with at least one wire-ready row (`initialRows` non-empty) skips straight
+ // to the manual builder; the plain "Create dashboard" button on the dashboards page (no rows), or
+ // a selection with no wire-ready row, lands on the mode picker.
+ // Lazy initializer: `initialRows` is only used for the initial render's decision, never to
+ // redirect a step change already in progress.
+ const [step, setStep] = useState(() => (initialRows.length > 0 ? "builder" : "mode"));
  const [mode, setMode] = useState(null);
 
  const [name, setName] = useState("");
@@ -87,6 +98,9 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  // only KPIs a chart may legally reference. Fetched once; a failure just leaves both empty,
  // the same non-fatal posture `DashboardsPage.jsx`'s own background fetch takes.
  const [readyKpis, setReadyKpis] = useState([]);
+ // The builder can now be the first screen, so its metric picker may open before this fetch
+ // returns; `readyKpisLoading` lets it say "Loading" instead of "No registered, ready KPIs yet".
+ const [readyKpisLoading, setReadyKpisLoading] = useState(true);
  useEffect(() => {
   let cancelled = false;
   fetchKpiList()
@@ -98,7 +112,10 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
       .map(metricFromKpi),
     );
    })
-   .catch(() => {});
+   .catch(() => {})
+   .finally(() => {
+    if (!cancelled) setReadyKpisLoading(false);
+   });
   return () => {
    cancelled = true;
   };
@@ -211,6 +228,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      filterColumns={filterColumns}
      setFilterColumns={setFilterColumns}
      readyKpis={readyKpis}
+     readyKpisLoading={readyKpisLoading}
      aiSuggested={aiSuggested}
      contextSummary={contextSummary}
      notReadyCount={initialRows.length > 0 ? notReadyCount : 0}
