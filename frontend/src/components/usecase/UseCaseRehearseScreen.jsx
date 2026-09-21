@@ -3,6 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, FlaskConical, ShieldCheck } from "lucide-react";
 import { CHANNELS, COMPARISONS, OPERATORS, SHAPES, estimatedRunsPerMonth } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
+import { loadConfigureWorkspace } from "../../storage/configure-workspace";
+import { useDemoProfile } from "../../context/DemoProfileContext";
+import { syncUseCaseToPlatform } from "../../services/use-case-platform";
+import RehearsalSources from "./RehearsalSources";
+import PlatformRunPanel from "./PlatformRunPanel";
+import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 
@@ -118,6 +124,17 @@ export default function UseCaseRehearseScreen() {
   return { considered, struck, struckTotal, surviving, perRun, cap, held, samples };
  }, [spec, s, metric, unit]);
 
+ const doc = spec.template === "document_to_record";
+ const docsPerMonth = 64; // a rough figure until the mailbox has run for a month; presentation only
+ const { profileId, storageKeys } = useDemoProfile();
+ const sources = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId).internalSources || [], [storageKeys.CONFIGURE_WORKSPACE, profileId]);
+ // The platform's own rehearsal: the compiled workflow over the same sample set, side
+ // effects held. Syncs the spec first so the run is of exactly what the form says.
+ const rehearseOnPlatform = async ({ signal }) => {
+  const synced = await syncUseCaseToPlatform(loadSpecDraft(), sources, { signal });
+  return synced.platform.useCaseId;
+ };
+
  const runs = estimatedRunsPerMonth(spec.schedule);
  const costPerRun = shape.level >= 3 ? 0.42 : shape.level === 2 ? 0.08 : 0.19;
  const title = spec.title?.trim() || spec.goal?.trim() || "Untitled use case";
@@ -130,7 +147,7 @@ export default function UseCaseRehearseScreen() {
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
     <p className="mt-1 max-w-2xl text-sm text-text-secondary">
-     <strong className="text-text-primary">{title}</strong>, run against the last 90 days with every side effect switched off. This is what it
+     <strong className="text-text-primary">{title}</strong>, run {doc ? "over the sample set" : "against the last 90 days"} with every side effect switched off. This is what it
      <strong className="text-text-primary"> would have</strong> done.
     </p>
    </div>
@@ -139,7 +156,31 @@ export default function UseCaseRehearseScreen() {
     <ShieldCheck size={13} /> Sandbox · nothing was written, sent or changed
    </div>
 
-   {shape.id === "inform" && (
+   {doc && (
+    <>
+     <RehearsalSources spec={spec} ensureUseCase={rehearseOnPlatform} />
+
+    </>
+   )}
+
+   {!doc && isAnalyticsInform(spec) && (
+    <Section title="The report it would have sent">
+     <p className="mb-2 text-sm text-text-secondary">{spec.template === "metric_diagnosis"
+      ? `The platform reads ${spec.metricIds[0] || "the KPI"} for the run's date and ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}, finds where the change sits by arithmetic across ${spec.dimensions?.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}, has the AI step write the sentence from that ranking, checks every figure in it, and renders the report. Nothing is emailed; the in-app copy is previewed.`
+      : `The platform reads the KPIs from gold as they are now${spec.comparison ? `, compares them with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"} (computing that date's values from the KPI formulas when gold has none yet)` : ""}, has the AI step write the narrative, checks every figure in it against the numbers, and renders the report. Nothing is emailed; the in-app copy is previewed.`}</p>
+     <PlatformRunPanel
+      compact
+      mode="rehearse"
+      useCaseId={spec.platform?.useCaseId}
+      beforeRun={rehearseOnPlatform}
+      label="Run the report now"
+      description="Over the current data, every side effect held."
+      buttonLabel="Run the report"
+     />
+    </Section>
+   )}
+
+   {!doc && shape.id === "inform" && !isAnalyticsInform(spec) && (
     <Section title="The answer it would have given">
      <p className="text-sm text-text-secondary">
       <strong className="text-text-primary">{inform.worst.name}</strong> accounts for most of the movement in {metric}
@@ -168,7 +209,7 @@ export default function UseCaseRehearseScreen() {
     </Section>
    )}
 
-   {shape.id === "alert" && (
+   {!doc && shape.id === "alert" && (
     <Section title={`It would have fired ${alert.events.length} time${alert.events.length === 1 ? "" : "s"} in 90 days`}>
      <p className="text-sm text-text-secondary">
       {alert.events.length >= 5 ? "That is often. Consider a higher threshold or a longer window before this goes live." : "A manageable number for the people it notifies."}
@@ -188,7 +229,7 @@ export default function UseCaseRehearseScreen() {
     </Section>
    )}
 
-   {shape.level >= 3 && (
+   {!doc && shape.level >= 3 && (
     <>
      <Section title="What it would have recommended">
       <p className="text-sm text-text-secondary">
@@ -253,9 +294,11 @@ export default function UseCaseRehearseScreen() {
    )}
 
    <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-secondary px-4 py-3 text-sm">
-    <span className="text-text-secondary">Estimated cost{shape.id === "alert" ? " (no AI on a run)" : ""}</span>
+    <span className="text-text-secondary">Estimated cost{shape.id === "alert" ? " (no AI on a run)" : doc ? " (one AI step per document)" : ""}</span>
     <span className="text-text-primary">
-     <strong>{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits = <strong>~{(runs * costPerRun).toFixed(0)} credits / month</strong>
+     {doc
+      ? <><strong>~{Math.round(docsPerMonth)}</strong> documents / month × ~0.12 credits = <strong>~{Math.round(docsPerMonth * 0.12)} credits / month</strong> · polls themselves cost nothing</>
+      : <><strong>{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits = <strong>~{(runs * costPerRun).toFixed(0)} credits / month</strong></>}
     </span>
    </section>
 

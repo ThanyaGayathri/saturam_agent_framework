@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
- AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, Gauge, HelpCircle, Info, Lock,
- MessageSquare, Plus, Save, Send, Sparkles, Wand2, Workflow, X,
+ AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, FileText, Gauge, HelpCircle, Info, Lock,
+ MessageSquare, Plus, Save, Send, Sparkles, Upload, Wand2, Workflow, X,
 } from "lucide-react";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useUseCaseCatalog } from "../../hooks/useUseCaseCatalog";
@@ -12,15 +12,26 @@ import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
 import { getKpiNamesForCatalogId } from "../../domain/kpi-usecase-links";
 import {
- CATEGORY_LIST, CHANNELS, COMPARISONS, DIMENSIONS, FIELD_META, LIMIT_OPERATORS, OPERATORS,
- PER_RUN_CAPS, PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor,
+ CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES,
+ FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
+ PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
+ TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldMetaFor, fieldsFor, analyticsKindFromText, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
- withCategory, withShape,
+ withCategory, withShape, withTemplate,
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
+import { REPORT_OUTPUTS, analyticsFromSuggestion, analyticsSuggestionFor, isAnalyticsInform, patchFromSuggestion } from "../../domain/use-case-analytics";
+import { fetchDiagnosisOptions, suggestAnalyticsUseCase } from "../../services/use-cases-api";
+import { fetchKpiList } from "../../services/kpis-api";
+import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-templates";
+import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardrail-rules";
+import ExtractionTemplateField from "./ExtractionTemplateField";
+import GuardrailRulesField from "./GuardrailRulesField";
+import RecordMappingField from "./RecordMappingField";
+import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings";
+import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
 
@@ -74,8 +85,11 @@ const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 t
 const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
 
-function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse }) {
- const meta = FIELD_META[name] || { label: name, hint: "" };
+/** The registry KPIs that give the at-risk kind its context (K26), offered in this order. */
+const AT_RISK_KPI_IDS = ["rfq__stalled_quotes", "rfq__stalled_pipeline_value", "rfq__quote_conversion_within_usual", "rfq__customer_churn_rate_60d", "rfq__at_risk_accounts", "rfq__rfm_segments", "rfq__stalled_quotes_by_territory", "rfq__at_risk_accounts_by_segment", "rfq__sales_cycle_length_by_category"];
+
+function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, template }) {
+ const meta = fieldMetaFor(name, { template });
  const o = origin && ORIGIN_LABEL[origin];
  const pref = suggestion?.options?.find((x) => x.label === suggestion.preferred);
  return (
@@ -90,8 +104,9 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse }) 
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
        and a person without it sees the reason before deciding to ask. */}
-   {gap && (
+   {(gap || suggestion?.show) && (
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+     {suggestion?.lead && !gap && <span className="text-text-muted">{suggestion.lead}</span>}
      {pref && (
       <span className="inline-flex flex-wrap items-center gap-1.5 text-text-secondary">
        <Sparkles size={11} className="text-primary" />
@@ -166,7 +181,9 @@ function CategoryPicker({ onChoose }) {
          <span className="font-semibold text-text-primary">For example</span> · {c.examples.map((e) => e.title).join(" · ")}
         </p>
         <div className="mt-3 flex flex-wrap gap-1">
-         {fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
+         {c.templates
+          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
+          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
         </div>
         <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? " — an admin" : ""}.` : ""}</p>
        </button>
@@ -189,16 +206,25 @@ export default function UseCaseComposeScreen() {
  const lastAsked = useRef(null);
 
  const registry = useMemo(() => flattenKpiIndexRows(data?.categories || []).map((r) => r.kpi), [data?.categories]);
- const registryNames = useMemo(() => registry.map((k) => k.name), [registry]);
- const measurable = useMemo(() => { const set = new Set(); for (const ds of KPI_DATA_CATALOG_DATASETS) for (const n of ds.linkedKpiNames || []) set.add(n); return set; }, []);
+ // The platform's own registry (K23): the KPIs an Analytics Automation actually runs on --
+ // identifiers, not the prototype catalogue's names. Read once; empty when the API is away.
+ const [platformKpis, setPlatformKpis] = useState([]);
+ useEffect(() => {
+  let cancelled = false;
+  fetchKpiList().then((rows) => { if (!cancelled) setPlatformKpis(Array.isArray(rows) ? rows : rows?.kpis || []); }).catch(() => {});
+  return () => { cancelled = true; };
+ }, []);
+ const registryNames = useMemo(() => [...registry.map((k) => k.name), ...platformKpis.map((k) => k.identifier)], [registry, platformKpis]);
+ const measurable = useMemo(() => { const set = new Set(); for (const ds of KPI_DATA_CATALOG_DATASETS) for (const n of ds.linkedKpiNames || []) set.add(n); for (const k of platformKpis) set.add(k.identifier); return set; }, [platformKpis]);
  const concepts = useMemo(() => KPI_DATA_CATALOG_DATASETS.map((d) => ({ id: d.id, name: entityName(d.technicalName), technicalName: d.technicalName, sourceLabel: d.sourceLabel, columns: d.attributeTags || [], kpis: d.linkedKpiNames || [] })), []);
  const workspace = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId), [storageKeys.CONFIGURE_WORKSPACE, profileId]);
- const writeTargets = useMemo(() => (workspace.internalSources || []).filter((s) => s.permissionLevel === "read_write").map((s) => s.name), [workspace]);
+ const writeTargets = useMemo(() => (workspace.internalSources || []).filter((s) => s.permissionLevel === "read_write" && !/gmail|microsoft365/.test(s.sourceType)).map((s) => s.name), [workspace]);
+ const mailboxes = useMemo(() => (workspace.internalSources || []).filter((s) => /gmail|microsoft365/.test(s.sourceType)).map((s) => s.name), [workspace]);
  const channels = useMemo(() => CHANNELS.map((c) => {
   const integration = c.providerId ? (workspace.externalIntegrations || []).find((e) => e.providerId === c.providerId && e.status === "active") : null;
   return { ...c, configured: !c.providerId || !!integration, target: integration?.name || null };
  }), [workspace]);
- const ctx = useMemo(() => ({ registry, registryNames, concepts, writeTargets }), [registry, registryNames, concepts, writeTargets]);
+ const ctx = useMemo(() => ({ registry, registryNames, concepts, writeTargets, mailboxes }), [registry, registryNames, concepts, writeTargets, mailboxes]);
 
  const templateId = params.get("template");
  const [spec, setSpecState] = useState(() => {
@@ -211,11 +237,21 @@ export default function UseCaseComposeScreen() {
   const base = emptySpec(t.problemSignal || t.title || "", shape, category);
   return persist(applyPatch({ ...base, title: t.title || "" }, { metricIds: shape === "alert" ? metrics.slice(0, 1) : metrics }, ORIGIN.spec));
  });
+ // The diagnostic kind (K25): what the chosen KPI can be searched across and what the data
+ // can bear, from the platform -- computed, never asked. Refetched when the KPI or the
+ // window changes.
+ const [diagnosis, setDiagnosis] = useState(null);
+ useEffect(() => {
+  if (spec.template !== "metric_diagnosis" || !spec.metricIds[0]) { setDiagnosis(null); return undefined; }
+  const ac = new AbortController();
+  fetchDiagnosisOptions({ kpiIdentifier: spec.metricIds[0], window: spec.window || null }, { signal: ac.signal }).then(setDiagnosis).catch((err) => { if (err?.name !== "AbortError") setDiagnosis({ diagnosable: false, reason: err?.detail || err?.message || "the platform did not answer" }); });
+  return () => ac.abort();
+ }, [spec.template, spec.metricIds[0], spec.window]);
  const setSpec = (updater) => setSpecState((prev) => persist(typeof updater === "function" ? updater(prev) : updater));
 
  const category = categoryOf(spec);
  const shape = SHAPES[spec.shape];
- const fields = useMemo(() => (shape ? fieldsFor(spec) : []), [shape, spec.shape, spec.category]);
+ const fields = useMemo(() => (shape ? fieldsFor(spec) : []), [shape, spec.shape, spec.category, spec.template]);
  const gaps = useMemo(() => gapsFor(spec, registryNames, measurable), [spec, registryNames, measurable]);
  const blocking = blockingGaps(gaps);
  const dataGaps = gaps.filter((g) => g.kind === GAP_KIND.data);
@@ -238,6 +274,7 @@ export default function UseCaseComposeScreen() {
   if (!next.title.trim() || next.origin.title === ORIGIN.spec) next = { ...next, title: proposeTitle(next), origin: { ...next.origin, title: ORIGIN.spec } };
   const primary = registry.find((k) => k.name === next.metricIds[0]);
   if (primary && (!next.businessArea || next.origin.businessArea !== ORIGIN.authored)) next = { ...next, businessArea: primary.businessAreaId || "", origin: { ...next.origin, businessArea: ORIGIN.spec } };
+  if (next.template === "document_to_record" && !next.businessArea) next = { ...next, businessArea: "sales", origin: { ...next.origin, businessArea: ORIGIN.spec } };
   if (next.condition && primary && next.condition.unit !== (primary.unit || "")) next = { ...next, condition: { ...next.condition, unit: primary.unit || "" } };
   next = persist(next);
   setSpecState(next);
@@ -252,9 +289,9 @@ export default function UseCaseComposeScreen() {
   setAssistantOpen(false);
   lastAsked.current = null;
  };
- const setMode = (shapeId) => {
-  if (shapeId === spec.shape) return;
-  const next = persist(withShape(spec, shapeId, spec.category));
+ const setTemplate = (id) => {
+  if (id === spec.template) return;
+  const next = persist(withTemplate(spec, id));
   setSpecState(next);
   lastAsked.current = null;
  };
@@ -303,6 +340,7 @@ export default function UseCaseComposeScreen() {
    }
    case "objective-target": { const n = parseFloat((text.match(/\d+(?:\.\d+)?/) || [])[0]); return Number.isNaN(n) ? null : { patch: { objective: { ...spec.objective, target: n } }, said: `target: ${n}` }; }
    case "recipient": return { notify: text };
+   case "exceptionsTo": return /@/.test(text) ? { exceptionsTo: text.match(/[^\s]+@[^\s]+/)[0] } : null;
    case "approver": case "approver-sod": return { approver: text };
    case "owner": return { owner: text };
    case "candidates-filter": return { candidates: { ...spec.candidates, filter: text } };
@@ -325,14 +363,24 @@ export default function UseCaseComposeScreen() {
 
  const ingest = (msg, { viaAssistant = true } = {}) => {
   const mode = modeFromText(msg);
-  const base = mode === spec.shape ? spec : withShape(spec, mode, spec.category);
+  const kind = spec.category === "analytics_automation" ? analyticsKindFromText(msg) : null;
+  let base = kind
+   ? (kind.shape === spec.shape && (kind.template || null) === (spec.template || null) ? spec : withShape(spec, kind.shape, spec.category, kind.template))
+   : mode === spec.shape ? spec : withShape(spec, mode, spec.category);
+  if (category?.templates && !base.template) {
+   const inferred = templateFromText(`${base.goal || ""} ${msg}`);
+   if (inferred) base = withTemplate({ ...base, goal: base.goal || msg }, inferred);
+  }
   let { patch, understood } = extract(msg, base, ctx);
-  if (mode !== spec.shape) understood = [`output: ${category.trigger.find((t) => t.shape === mode)?.label.toLowerCase()}`, ...understood];
+  if (category?.trigger && (base.shape !== spec.shape || (base.template || null) !== (spec.template || null))) understood = [`read as: ${category.trigger.find((t) => t.shape === base.shape && (t.template || null) === (base.template || null))?.label.toLowerCase()}`, ...understood];
+  if (category?.templates && base.template && base.template !== spec.template) understood = [`read as: ${category.templates.find((t) => t.id === base.template)?.label.toLowerCase()}`, ...understood];
   if (!Object.keys(patch).length && viaAssistant) {
    const direct = directAnswer(msg, blocking[0]);
    if (direct) { patch = direct.patch || direct; understood = [direct.said || `${FIELD_META[blocking[0].field]?.label || blocking[0].field}: ${msg}`]; }
   }
-  const goal = base.goal ? base.goal : msg;
+  // Said in one go, the description is the goal; the assistant's answers only fill a goal
+  // that is still empty.
+  const goal = viaAssistant && base.goal ? base.goal : msg;
   const next = commit(applyPatch({ ...base, goal }, patch, ORIGIN.spec));
   return { next, understood };
  };
@@ -347,10 +395,50 @@ export default function UseCaseComposeScreen() {
  };
 
  const [filledNote, setFilledNote] = useState(null);
- const fillFromDescription = () => {
+ const [suggesting, setSuggesting] = useState(false);
+ // The platform reads the goal as it is typed (K23): what the registry and gold support
+ // for these words, kept beside the spec as `analytics` and applied to nothing. Each field
+ // then carries its own suggestion -- the KPIs, the breakdowns, the baseline, the outputs,
+ // the recipients, the cadence -- for the person to use or edit. Debounced: a request per
+ // pause in typing, not per keystroke.
+ const goalForSuggestion = isAnalyticsInform(spec) ? String(spec.goal || "").trim() : "";
+ useEffect(() => {
+  if (goalForSuggestion.length < 12 || spec.analytics?.forGoal === goalForSuggestion) return undefined;
+  const ac = new AbortController();
+  const timer = setTimeout(async () => {
+   try {
+    const suggestion = await suggestAnalyticsUseCase(goalForSuggestion, { signal: ac.signal });
+    setSpec((s) => ({ ...s, analytics: analyticsFromSuggestion({ ...suggestion, _goal: goalForSuggestion }) }));
+   } catch (err) {
+    if (err?.name !== "AbortError") setSpec((s) => ({ ...s, analytics: { ...(s.analytics || {}), kpis: s.analytics?.kpis || [], error: err?.detail || err?.message || "not reachable", forGoal: goalForSuggestion } }));
+   }
+  }, 700);
+  return () => { clearTimeout(timer); ac.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [goalForSuggestion]);
+ const fillFromDescription = async () => {
   const msg = oneGoText.trim();
   if (!msg) return;
-  const { next, understood } = ingest(msg, { viaAssistant: false });
+  let { next, understood } = ingest(msg, { viaAssistant: false });
+  // An Analytics Automation asks the platform what the connected data supports for these
+  // words (K23): the KPIs from the registry with gold behind them, their breakdowns, the
+  // baseline, the cadence, the outputs and the recipients. The reader above only knew the
+  // prototype's catalogue; this is the form's intelligence.
+  if (next.category === "analytics_automation" && next.shape === "inform") {
+   setSuggesting(true);
+   try {
+    const suggestion = await suggestAnalyticsUseCase(msg);
+    const { patch, understood: said } = patchFromSuggestion(suggestion, next);
+    next = commit(applyPatch(next, patch, ORIGIN.spec));
+    // The local reader's guesses about KPIs and dimensions came from the prototype's
+    // catalogue; the platform's answer replaces them.
+    understood = [...said, ...understood.filter((u) => !/^(kpi|you mean|analysed by|compared with|runs )/i.test(u))];
+   } catch (err) {
+    understood = [...understood, `the platform could not suggest KPIs: ${err?.detail || err?.message || "not reachable"}`];
+   } finally {
+    setSuggesting(false);
+   }
+  }
   const open = blockingGaps(gapsFor(next, registryNames, measurable));
   setOneGo(false);
   // The form is the surface: say what was filled here, and let the empty fields' own
@@ -376,6 +464,13 @@ export default function UseCaseComposeScreen() {
    case "severity": patch = { severity: SEVERITIES.find((s) => s.label === value)?.value || spec.severity }; break;
    case "scope": patch = { scope: value }; break;
    case "candidates": { const c = concepts.find((x) => x.name === value); patch = { candidates: { concept: c?.name || value, conceptId: c?.id || null, filter: spec.candidates?.filter || "" } }; break; }
+   case "template": { const t = category.templates?.find((x) => x.label === value); if (t) { const next = commit(withTemplate(spec, t.id)); if (assistantOpen) respond([`read as: ${t.label.toLowerCase()}`], next, gapsFor(next, registryNames, measurable)); return; } break; }
+   case "masterData": patch = { masterData: { ...(spec.masterData || {}), [gap.role]: value } }; break;
+   case "mailbox": patch = { mailbox: value }; break;
+   case "extractionTemplate": { const t = loadTemplateCatalogue().find((x) => x.label === value); patch = t ? { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } : {}; break; }
+   case "recordGuardrails": { const rule = suggestRules(findTemplate(spec)).find((g) => g.label === value); patch = rule ? { recordGuardrails: [...normalizeRules(spec.recordGuardrails), rule] } : {}; break; }
+   case "exceptionsTo": patch = { exceptionsTo: value }; break;
+   case "targetObjects": { const m = loadMappingCatalogue().find((x) => x.label === value); patch = m ? { targetObjects: m.id, recordMappingDef: m.source === "shipped" ? null : m } : {}; break; }
    case "objective": patch = { objective: { metric: value, direction: defaultOperatorFor(value) === "gt" ? "below" : "above", target: null, unit: unitOf(value) } }; break;
    case "guardrails": patch = { guardrails: spec.guardrails.map((g) => (g === gap.guardrail ? { ...g, metric: value, rule: guardrailRule({ ...g, metric: value }) } : g)) }; break;
    case "writeTarget": patch = { writeback: value }; break;
@@ -391,11 +486,25 @@ export default function UseCaseComposeScreen() {
 
  // ── Typing on the form ────────────────────────────────────────────────────────────────────
  const setField = (field, value) => setSpec((s) => {
-  const next = applyPatch(s, { [FIELD_META[field]?.key || field]: value }, ORIGIN.authored);
+  let base = s;
+  if (field === "goal" && categoryOf(s)?.templates && !s.template) {
+   const inferred = templateFromText(value);
+   if (inferred) base = withTemplate({ ...s, goal: value }, inferred);
+  }
+  // An Analytics Automation's kind is read from the goal, never picked (K26).
+  if (field === "goal" && s.category === "analytics_automation") {
+   const kind = analyticsKindFromText(value);
+   if (kind && (kind.shape !== s.shape || (kind.template || null) !== (s.template || null))) base = withShape({ ...s, goal: value }, kind.shape, s.category, kind.template);
+  }
+  const next = applyPatch(base, { [FIELD_META[field]?.key || field]: value }, ORIGIN.authored);
   const primary = registry.find((k) => k.name === next.metricIds[0]);
   return primary && next.origin.businessArea !== ORIGIN.authored ? { ...next, businessArea: primary.businessAreaId || "", origin: { ...next.origin, businessArea: ORIGIN.spec } } : next;
  });
  const setCondition = (part, value) => setSpec((s) => applyPatch(s, { condition: { ...(s.condition || { metric: s.metricIds[0] || null, operator: "gt", threshold: null }), unit: unitOf(s.metricIds[0]), [part]: value } }, ORIGIN.authored));
+ const setNested = (field, part, value) => setSpec((s) => applyPatch(s, { [FIELD_META[field].key]: { ...(s[FIELD_META[field].key] || {}), [part]: value } }, ORIGIN.authored));
+ const setExtractionTemplate = (id, def) => setSpec((s) => applyPatch(s, { extractionTemplate: id, extractionTemplateDef: def || null, extractionTemplateDraft: null, recordGuardrails: [] }, ORIGIN.authored));
+ const setRecordMapping = (id, def) => setSpec((s) => applyPatch(s, { targetObjects: id, recordMappingDef: def || null }, ORIGIN.authored));
+ const setRecordGuardrails = (rows) => setSpec((s) => applyPatch(s, { recordGuardrails: rows.map(normalizeRule).filter(Boolean) }, ORIGIN.authored));
  const setObjective = (part, value) => setSpec((s) => applyPatch(s, { objective: { ...(s.objective || { metric: s.metricIds[0] || null, direction: "below", target: null, unit: "" }), ...(part === "metric" ? { unit: unitOf(value) } : {}), [part]: value } }, ORIGIN.authored));
  const setGuardrail = (i, part, value) => setSpec((s) => applyPatch(s, { guardrails: s.guardrails.map((g, j) => (j === i ? { ...g, [part]: value } : g)).map((g) => ({ ...g, rule: guardrailRule(g) })) }, ORIGIN.authored));
  const addGuardrail = () => setSpec((s) => { const g = { metric: s.metricIds[0] || "", operator: "gte", threshold: null, unit: "" }; return applyPatch(s, { guardrails: [...s.guardrails, { ...g, rule: guardrailRule(g) }] }, ORIGIN.authored); });
@@ -406,19 +515,111 @@ export default function UseCaseComposeScreen() {
   if (["schedule", "severity", "timeoutBehaviour"].includes(field) && spec.assumed?.includes(field)) return ORIGIN.assumed;
   return null;
  };
- const suggestionFor = (field) => { const g = gapFor(field); return g ? suggestFor(g, spec, ctx) : null; };
- const useSuggestion = (field, opt) => { const g = gapFor(field); if (g) answer(g, opt.label, opt); };
+ const suggestionFor = (field) => {
+  // An Analytics Automation's fields suggest from the platform's answer to the goal.
+  if (isAnalyticsInform(spec)) { const s = analyticsSuggestionFor(field, spec); if (s) return s; }
+  const g = gapFor(field); return g ? suggestFor(g, spec, ctx) : null;
+ };
+ const useSuggestion = (field, opt) => {
+  if (opt?.patch && isAnalyticsInform(spec)) { setSpec((s) => commit(applyPatch(s, opt.patch, ORIGIN.spec))); return; }
+  const g = gapFor(field); if (g) answer(g, opt.label, opt);
+ };
 
  if (!category || !shape) return <CategoryPicker onChoose={choose} />;
  const CategoryIcon = CATEGORY_ICON[category.id];
  const targets = writeTargets.length ? writeTargets : WRITEBACK_TARGETS;
- const example = category.examples.find((e) => e.shape === spec.shape) || category.examples[0];
+ const example = category.examples.find((e) => (e.template ? e.template === spec.template : e.shape === spec.shape)) || (category.templates && !spec.template ? null : category.examples[0]);
+ const examples = category.templates && !spec.template ? category.examples : example ? [example] : [];
 
- const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt) });
+ const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt), template: spec.template });
 
  const renderField = (f) => {
   switch (f) {
    case "metrics": case "metric":
+    if (spec.template === "metric_diagnosis") {
+     const chosen = spec.metricIds[0] || "";
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     const sug = (spec.analytics?.kpis || []).find((k) => k.identifier === chosen);
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <select value={chosen} onChange={(e) => setField(f, e.target.value ? [e.target.value] : [])} className={`${select} w-full max-w-[28rem]`}>
+        <option value="">Choose the KPI that changed…</option>
+        {platformKpis.map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+       </select>
+       {sug?.why && <p className="mt-1 text-[11px] text-text-muted">Chosen because you said: {sug.why}.</p>}
+       {diagnosis && chosen && (diagnosis.diagnosable
+        ? <p className="mt-1.5 text-[11px] text-text-secondary">{known[chosen]?.name || chosen} is a <b>{diagnosis.kind}</b> over <span className="font-mono">{diagnosis.table}</span>{diagnosis.denominator ? <>: <span className="font-mono">{diagnosis.numerator}</span> ÷ <span className="font-mono">{diagnosis.denominator}</span></> : <>: <span className="font-mono">{diagnosis.numerator}</span></>}. {diagnosis.rows_in_period} rows in the period, {diagnosis.rows_in_baseline} in the one before ({diagnosis.step_days} days apart).</p>
+        : <p className="mt-1.5 text-[11px] text-status-warning">This KPI cannot be diagnosed: {diagnosis.reason}.</p>)}
+      </Field>
+     );
+    }
+    if (spec.template === "at_risk") {
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     const offered = platformKpis.filter((k) => AT_RISK_KPI_IDS.includes(k.identifier) && !spec.metricIds.includes(k.identifier));
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="grid gap-1">
+        {spec.metricIds.map((m) => (
+         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
+          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}</span></div>
+          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+         </div>
+        ))}
+        {offered.length > 0 && (
+         <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />The at-risk KPIs your data supports — click to add:</span>
+          {offered.map((k) => <button key={k.identifier} type="button" title={k.identifier} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>)}
+          {offered.length > 1 && <button type="button" onClick={() => setField(f, [...new Set([...spec.metricIds, ...offered.map((k) => k.identifier)])])} className="text-[11px] font-semibold text-primary hover:underline">add all</button>}
+         </div>
+        )}
+        <select value="" onChange={(e) => e.target.value && setField(f, [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[20rem]`}>
+         <option value="">Add a KPI from the registry…</option>
+         {platformKpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+        </select>
+       </div>
+      </Field>
+     );
+    }
+    if (isAnalyticsInform(spec)) {
+     const byId = Object.fromEntries((spec.analytics?.kpis || []).map((k) => [k.identifier, k]));
+     const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="grid gap-1">
+        {spec.metricIds.map((m) => {
+         const sug = byId[m]; const kpi = known[m];
+         return (
+          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
+           <div className="min-w-0">
+            <span className="text-xs font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
+            <span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
+            {sug?.why && <p className="truncate text-[11px] text-text-muted">chosen because you said: {sug.why}</p>}
+           </div>
+           <div className="flex items-center gap-1.5">
+            {sug && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${sug.feasibility === "ready" ? "bg-status-success-light text-status-success" : "bg-status-warning-light text-status-warning"}`}>{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</span>}
+            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+           </div>
+          </div>
+         );
+        })}
+        {(spec.analytics?.kpis || []).filter((k) => !spec.metricIds.includes(k.identifier)).length > 0 && (
+         <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[11px] text-text-muted"><Sparkles size={11} className="mr-1 inline text-primary" />Suggested from your goal — click to add:</span>
+          {spec.analytics.kpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => (
+           <button key={k.identifier} type="button" title={`${k.identifier} — because you said: ${k.why}${k.feasibility === "ready" ? " · in gold" : " · computed on first run"}`} onClick={() => setField(f, [...new Set([...spec.metricIds, k.identifier])])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-light"><Plus size={11} /> {k.name}</button>
+          ))}
+         </div>
+        )}
+        <select value="" onChange={(e) => e.target.value && setField(f, [...new Set([...spec.metricIds, e.target.value])])} className={`${select} max-w-[20rem]`}>
+         <option value="">Add a KPI from the registry…</option>
+         {platformKpis.filter((k) => !spec.metricIds.includes(k.identifier)).map((k) => <option key={k.identifier} value={k.identifier}>{k.name} · {k.identifier}</option>)}
+        </select>
+       </div>
+       {spec.analytics?.uncovered?.length > 0 && <p className="mt-1.5 text-[11px] text-status-warning">Nothing registered covers: {spec.analytics.uncovered.slice(0, 8).join(", ")}. Use "Suggest KPIs" under KPIs → What my data supports to propose one from the data.</p>}
+       {spec.metricIds.length === 0 && !spec.analytics && <p className="mt-1.5 text-[11px] text-text-muted">Describe the ask above and choose "Fill the form from this": the platform picks the KPIs your data supports.</p>}
+      </Field>
+     );
+    }
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -439,9 +640,126 @@ export default function UseCaseComposeScreen() {
      </Field>
     );
    case "dimensions":
+    if (spec.template === "metric_diagnosis") {
+     const offered = diagnosis?.dimensions || [];
+     const all = spec.dimensions.length === 0;
+     const on = (c) => all || spec.dimensions.includes(c);
+     const toggle = (c) => { const current = all ? offered.map((d) => d.column) : spec.dimensions; const next = on(c) ? current.filter((x) => x !== c) : [...current, c]; setField(f, next.length === offered.length ? [] : next); };
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       {!spec.metricIds[0] ? <p className="text-[11px] text-text-muted">Choose the KPI first; its fact's columns are listed here.</p>
+        : !diagnosis ? <p className="text-[11px] text-text-muted">Reading the fact's columns…</p>
+        : offered.length === 0 ? <p className="text-[11px] text-status-warning">The fact carries no column a change can be searched across.</p>
+        : <div className="flex flex-wrap gap-1.5">{offered.map((d) => <button key={d.column} type="button" aria-pressed={on(d.column)} title={`${d.distinct} distinct values${d.description ? ` · ${d.description}` : ""}`} onClick={() => toggle(d.column)} className={chip(on(d.column))}>{d.label} <span className="opacity-70">· {d.distinct}</span></button>)}</div>}
+       <p className="mt-1.5 text-[11px] text-text-muted">{all ? "All of them, ranked by how much of the change each explains; untick one to leave it out." : `${spec.dimensions.length} of ${offered.length}; the rest are not searched.`} Ids, dates, statuses and reason columns are never a cause and are not offered.</p>
+      </Field>
+     );
+    }
+    if (isAnalyticsInform(spec)) {
+     // Every breakdown the registry can actually make: the grains its KPIs carry, with the
+     // ones the chosen and suggested KPIs offer first; plus one typed by hand.
+     const chosen = new Set(spec.metricIds);
+     const offered = [...new Set([...(spec.analytics?.kpis || []).filter((k) => chosen.has(k.identifier)).map((k) => k.grain), ...(spec.analytics?.dimensionsSuggested || [])])].filter((g) => g && g !== "overall" && g !== "time_period");
+     const registryGrains = [...new Set(platformKpis.map((k) => k.grain).filter((g) => g && g !== "overall" && g !== "time_period"))].sort();
+     const grains = [...new Set([...offered, ...registryGrains, ...spec.dimensions])];
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="flex flex-wrap gap-1.5">
+        {grains.map((d) => { const on = spec.dimensions.includes(d); const hasKpi = platformKpis.some((k) => k.grain === d); return <button key={d} type="button" aria-pressed={on} title={hasKpi ? `KPIs at this grain: ${platformKpis.filter((k) => k.grain === d).map((k) => k.name).join(", ")}` : "No registered KPI breaks down by this yet; the run will report it as missing"} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={`${chip(on)} ${!hasKpi ? "border-dashed" : ""}`}>{d.replace(/_/g, " ")}</button>; })}
+        <input placeholder="other… (Enter)" className={`${input} w-40`} onKeyDown={(e) => { const v = e.currentTarget.value.trim().toLowerCase().replace(/\s+/g, "_"); if (e.key === "Enter" && v) { e.preventDefault(); setField(f, [...new Set([...spec.dimensions, v])]); e.currentTarget.value = ""; } }} />
+       </div>
+       <p className="mt-1.5 text-[11px] text-text-muted">A breakdown is a KPI at that grain in the registry{offered.length ? `; the ones your chosen KPIs carry come first` : ""}. A dashed one has no KPI yet — add one on the KPI screen or the report will say it is missing.</p>
+      </Field>
+     );
+    }
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{DIMENSIONS.map((d) => { const on = spec.dimensions.includes(d); return <button key={d} type="button" aria-pressed={on} onClick={() => setField(f, on ? spec.dimensions.filter((x) => x !== d) : [...spec.dimensions, d])} className={chip(on)}>{d}</button>; })}</div></Field>;
+   case "sensitivity": {
+    const levels = [["clear", "Very sure", "Names a slice only when it is far outside its own history and has plenty of rows. Fewer findings, rarely noise."], ["usual", "Balanced", "Names a slice when it is outside its usual range. The default; fits most data."], ["more", "Show more", "Names smaller departures too, with fewer rows. More findings; some may be noise."]];
+    const floor = diagnosis?.support_floors?.[spec.sensitivity || "usual"];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="grid gap-2 sm:grid-cols-3">{levels.map(([v, label, why]) => { const on = (spec.sensitivity || "usual") === v; return (
+       <button key={v} type="button" aria-pressed={on} onClick={() => setField(f, v)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+        <span className="block text-sm font-semibold text-text-primary">{label}{v === "usual" ? <span className="ml-1.5 text-[10px] font-normal text-text-muted">default</span> : null}</span>
+        <span className="block text-xs text-text-muted">{why}</span>
+       </button>
+      ); })}</div>
+      <p className="mt-1.5 text-[11px] text-text-muted">{floor != null ? `With this choice a slice needs at least ${floor} rows in the period before it can be named as the cause; "its own history" is the slice's last ${diagnosis?.history_periods || 12} periods. ` : ""}Your first run will tell you: if it names noise, choose Very sure; if it names nothing, choose Show more.</p>
+     </Field>
+    );
+   }
+   case "evidenceColumns": {
+    const columns = diagnosis?.columns || [];
+    const reasons = new Set(diagnosis?.reason_columns || []);
+    const chosenCols = spec.evidenceColumns || [];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      {columns.length === 0 ? <p className="text-[11px] text-text-muted">{spec.metricIds[0] ? "Reading the fact's columns…" : "Choose the KPI first."}</p>
+       : <div className="flex flex-wrap gap-1.5">{columns.map((c) => { const on = chosenCols.includes(c.column); const forced = reasons.has(c.column); return <button key={c.column} type="button" aria-pressed={on || forced} disabled={forced} title={forced ? "A reason column is always tallied" : c.description || c.column} onClick={() => setField(f, on ? chosenCols.filter((x) => x !== c.column) : [...chosenCols, c.column])} className={`${chip(on || forced)} font-mono ${forced ? "opacity-80" : ""}`}>{c.column}</button>; })}</div>}
+      <p className="mt-1.5 text-[11px] text-text-muted">{chosenCols.length ? `${chosenCols.length} columns on the evidence rows.` : "None chosen: the fact's first columns are shown."} For a rate, the evidence is the rows on the losing side.</p>
+     </Field>
+    );
+   }
    case "comparison":
+    if (isAnalyticsInform(spec)) {
+     const w = spec.window || null;
+     // What "each KPI's own window" means for the KPIs chosen, from their registry entries.
+     const windows = [...new Set(platformKpis.filter((k) => spec.metricIds.includes(k.identifier) && k.time_window).map((k) => `${k.time_window.length} ${k.time_window.unit}${k.time_window.length === 1 ? "" : "s"}`))];
+     const ownWindow = windows.length ? `as each registry entry declares: ${windows.join(", ")}` : "as each registry entry declares";
+     return (
+      <Field key={f} name={f} {...fieldProps(f)}>
+       <div className="flex flex-wrap items-center gap-1.5">
+        {spec.template !== "metric_diagnosis" && <button type="button" aria-pressed={!spec.comparison} onClick={() => setField(f, null)} className={chip(!spec.comparison)}>No comparison</button>}
+        {COMPARISONS.filter((c) => ["prior_period", "prior_year"].includes(c.value)).map((c) => { const on = spec.comparison === c.value || (spec.template === "metric_diagnosis" && !spec.comparison && c.value === "prior_period"); return <button key={c.value} type="button" aria-pressed={on} onClick={() => setField(f, c.value)} className={chip(on)}>{c.label}</button>; })}
+       </div>
+       {spec.comparison && spec.comparison !== "prior_year" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+         <span>How far back:</span>
+         <button type="button" aria-pressed={!w} onClick={() => setSpec((s) => applyPatch(s, { window: null }, ORIGIN.authored))} className={chip(!w)}>each KPI's own window</button>
+         {[7, 14, 28, 90].map((d) => <button key={d} type="button" aria-pressed={w === d} onClick={() => setSpec((s) => applyPatch(s, { window: d }, ORIGIN.authored))} className={chip(w === d)}>{d} days</button>)}
+         <input type="number" min="1" placeholder="other" value={w && ![7, 14, 28, 90].includes(w) ? w : ""} onChange={(e) => setSpec((s) => applyPatch(s, { window: e.target.value ? Number(e.target.value) : null }, ORIGIN.authored))} className={`${input} w-20`} /><span className="text-text-muted">days</span>
+        </div>
+       )}
+       <p className="mt-1.5 text-[11px] text-text-muted">{!spec.comparison ? "The numbers and their breakdowns as they are on the run's date; nothing is compared. Choose a baseline to see what moved." : spec.comparison === "prior_year" ? "The same date a year earlier; the baseline is computed from each KPI's formula if gold has none for it." : w ? `Each KPI is compared with its value ${w} days earlier, whatever its own window.` : `Each KPI is compared with its value one window earlier, ${ownWindow}.`}{spec.analytics?.comparisonReason ? ` Suggested: ${spec.analytics.comparisonReason}.` : ""}</p>
+      </Field>
+     );
+    }
     return <Field key={f} name={f} {...fieldProps(f)}><select value={spec.comparison || ""} onChange={(e) => setField(f, e.target.value || null)} className={`${select} w-full`}><option value="">Choose…</option>{COMPARISONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>;
+   case "churnWindow": {
+    const days = Number(spec.churnWindow) || 60;
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap items-center gap-1.5">
+       {[30, 45, 60, 90].map((d) => <button key={d} type="button" aria-pressed={days === d} onClick={() => setField(f, d)} className={chip(days === d)}>{d} days{d === 60 ? <span className="ml-1 text-[10px] font-normal opacity-70">industry line</span> : null}</button>)}
+       <input type="number" min={7} max={365} value={days} onChange={(e) => setField(f, Math.max(7, Math.min(365, Number(e.target.value) || 60)))} className={`${select} w-24 tabular-nums`} aria-label="Days without a quote" />
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">An account that quoted in the {days + 180} days before and not in the last {days} is flagged at risk of churn on every quote it has open; the registry's churn KPIs count the same accounts.</p>
+     </Field>
+    );
+   }
+   case "outcome": {
+    const options = [["both", "Recommend and alert", "A play per at-risk quote for Decision Intelligence and the weekly report, plus an alert per high-risk quote to its rep."], ["recommend", "Recommend only", "Plays for Decision Intelligence and the report; no email to the reps."], ["alert", "Alert only", "An alert per high-risk quote to its rep; no plays chosen."]];
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="grid gap-2 sm:grid-cols-3">{options.map(([v, label, why]) => { const on = (spec.outcome || "both") === v; return (
+       <button key={v} type="button" aria-pressed={on} onClick={() => setField(f, v)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+        <span className="block text-sm font-semibold text-text-primary">{label}{v === "both" ? <span className="ml-1.5 text-[10px] font-normal text-text-muted">default</span> : null}</span>
+        <span className="block text-xs text-text-muted">{why}</span>
+       </button>
+      ); })}</div>
+      <p className="mt-1.5 text-[11px] text-text-muted">Every recommendation is a record: the quote, its risk and drivers, the play with who owns it and by when. Decision Intelligence, or a person on the Recommendations screen, accepts or dismisses it; the run after the horizon writes what happened.</p>
+     </Field>
+    );
+   }
+   case "outputs":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap gap-1.5">
+       {REPORT_OUTPUTS.map((o) => { const on = (spec.outputs || []).includes(o.value); const off = o.value === "alert"; return <button key={o.value} type="button" title={o.hint} disabled={off} aria-pressed={on} onClick={() => setField(f, on ? spec.outputs.filter((x) => x !== o.value) : [...(spec.outputs || []), o.value])} className={`${chip(on)} ${off ? "cursor-not-allowed border-dashed opacity-50" : ""}`}>{o.label}</button>; })}
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">The report always carries the numbers; the narrative is written by the AI step and every figure in it is checked against the numbers before it is sent. A dashboard is composed from the same KPIs at activation.</p>
+     </Field>
+    );
    case "operator":
     return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{OPERATORS.map((o) => <button key={o.value} type="button" aria-pressed={spec.condition?.operator === o.value} onClick={() => setCondition("operator", o.value)} className={chip(spec.condition?.operator === o.value)}>{o.label}</button>)}</div></Field>;
    case "threshold":
@@ -540,13 +858,116 @@ export default function UseCaseComposeScreen() {
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
       <div className="flex flex-wrap items-center gap-1.5">
-       {PER_RUN_CAPS.map((c) => <button key={c} type="button" aria-pressed={spec.blastRadius === c} onClick={() => setField(f, c)} className={chip(spec.blastRadius === c)}>{c}</button>)}
-       <input value={PER_RUN_CAPS.includes(spec.blastRadius) ? "" : spec.blastRadius || ""} onChange={(e) => setField(f, e.target.value || null)} placeholder="or type one" className={`${input} w-32`} />
+       {(spec.template === "document_to_record" ? ["10 records", "20 records", "50 records"] : PER_RUN_CAPS).map((c) => <button key={c} type="button" aria-pressed={spec.blastRadius === c} onClick={() => setField(f, c)} className={chip(spec.blastRadius === c)}>{c}</button>)}
+       <input value={[...PER_RUN_CAPS, "10 records", "20 records", "50 records"].includes(spec.blastRadius) ? "" : spec.blastRadius || ""} onChange={(e) => setField(f, e.target.value || null)} placeholder="or type one" className={`${input} w-32`} />
       </div>
      </Field>
     );
    case "rollback":
-    return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{ROLLBACKS.map((r) => <button key={r} type="button" aria-pressed={spec.rollback === r} onClick={() => setField(f, r)} className={chip(spec.rollback === r)}>{r}</button>)}</div></Field>;
+    return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{(spec.template === "document_to_record" ? ["Cancel the record and remove its lines", ROLLBACKS[2]] : ROLLBACKS).map((r) => <button key={r} type="button" aria-pressed={spec.rollback === r} onClick={() => setField(f, r)} className={chip(spec.rollback === r)}>{r}</button>)}</div></Field>;
+   case "mailbox":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <select value={spec.mailbox} onChange={(e) => setField(f, e.target.value)} className={`${select} w-full`}>
+       <option value="">Choose a connected mailbox…</option>
+       {mailboxes.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      {!mailboxes.length && <p className="mt-1 text-[11px] text-status-warning">No mailbox is connected. Add Gmail or a Microsoft 365 mailbox under Configure → Data sources.</p>}
+     </Field>
+    );
+   case "pollInterval":
+    return <Field key={f} name={f} origin={originOf("schedule")}><div className="flex flex-wrap gap-1.5">{POLL_INTERVALS.map((p) => <button key={p.value} type="button" aria-pressed={spec.schedule === p.value} onClick={() => setField("schedule", p.value)} className={chip(spec.schedule === p.value)}>{p.label}</button>)}</div></Field>;
+   case "messageFilter": {
+    const mf = spec.messageFilter || {};
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      <div className="flex flex-wrap items-center gap-1.5">
+       {[["unread", "Unread only"], ["hasAttachment", "Has an attachment"], ["notOwnDomain", "Not from our own domain"]].map(([k, l]) => <button key={k} type="button" aria-pressed={!!mf[k]} onClick={() => setNested(f, k, !mf[k])} className={chip(!!mf[k])}>{l}</button>)}
+       <input value={mf.senderPattern || ""} onChange={(e) => setNested(f, "senderPattern", e.target.value)} placeholder="optional: words the subject must contain" className={`${input} w-64`} />
+      </div>
+     </Field>
+    );
+   }
+   case "documentType":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{DOCUMENT_TYPES.map((d) => <button key={d.value} type="button" title={d.hint} aria-pressed={spec.documentType === d.value} onClick={() => setField(f, d.value)} className={chip(spec.documentType === d.value)}>{d.label}</button>)}</div></Field>;
+   case "extractionTemplate":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <ExtractionTemplateField spec={spec} setTemplate={setExtractionTemplate} description={spec.goal} setExampleDocument={(doc) => setSpec((s) => applyPatch(s, { exampleDocument: doc }, ORIGIN.authored))} />
+     </Field>
+    );
+   case "exampleDocument":
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      {spec.exampleDocument ? (
+       <div className="flex items-center gap-2 text-sm"><FileText size={14} className="text-primary" /><span className="font-medium text-text-primary">{spec.exampleDocument.name}</span><span className="text-xs text-text-muted">· expected values attached</span><button type="button" onClick={() => setField(f, null)} className="text-text-muted hover:text-status-critical" aria-label="Remove example"><X size={12} /></button></div>
+      ) : (
+       <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setField(f, { name: "PO-27012128-sample.pdf", expected: true })} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-semibold text-text-secondary hover:border-primary hover:text-primary"><Upload size={12} /> Upload a sample document</button>
+        <span className="text-[11px] text-text-muted">One PDF of the format, with its expected values. Optional; it becomes the AI step's example and the first golden case.</span>
+       </div>
+      )}
+     </Field>
+    );
+   case "masterData": {
+    const md = spec.masterData || {};
+    const gapRoles = new Set(blocking.filter((g) => g.field === "masterData").map((g) => g.role));
+    const needed = new Map(rolesNeeded(spec).map((r) => [r.id, r]));
+    const hasMapping = !!findMapping(spec);
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      {!hasMapping && <p className="mb-1.5 text-[11px] text-status-warning">Choose the record mapping first — which roles this use case resolves follows from what the mapping reads and the guardrails need.</p>}
+      <div className="grid gap-1.5">
+       {MASTER_DATA_ROLES.map((r) => {
+        const why = needed.has(r.id) ? roleReason(spec, r.id) : null;
+        return (
+         <div key={r.id} className={`grid grid-cols-[11rem_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1 ${gapRoles.has(r.id) ? "bg-status-warning-light/50" : needed.has(r.id) ? "" : "opacity-60"}`}>
+          <span className="text-xs font-semibold text-text-primary" title={r.hint}>{r.label}<span className="block font-normal text-[10px] text-text-muted">{why || "not used by this use case"}</span></span>
+          <select value={md[r.id] || ""} onChange={(e) => setNested(f, r.id, e.target.value)} className={select}>
+           <option value="">{r.concept} → {needed.has(r.id) ? "choose an object…" : "not needed"}</option>
+           {concepts.map((c) => <option key={c.id} value={c.name}>{c.name} · {c.sourceLabel}</option>)}
+          </select>
+         </div>
+        );
+       })}
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer — Customer, Contact, Location, Product, Order — not to the target's table names. Only the roles the mapping reads and the guardrails need are resolved; a document that maps no product is never asked for one.</p>
+     </Field>
+    );
+   }
+   case "matchThresholds": {
+    const t = spec.matchThresholds || {};
+    const row = (k, label) => (
+     <label key={k} className="flex items-center gap-2 text-xs text-text-secondary"><span className="w-28 font-semibold text-text-primary">{label}</span><input type="range" min="0.5" max="1" step="0.05" value={t[k] ?? 0.8} onChange={(e) => setNested(f, k, Number(e.target.value))} className="flex-1" /><span className="w-10 tabular-nums">≥ {(t[k] ?? 0.8).toFixed(2)}</span></label>
+    );
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      <div className="grid gap-1.5 sm:grid-cols-2">{row("address", "Address")}{row("product", "Product")}{row("name", "Customer name")}
+       <label className="flex items-center gap-2 text-xs text-text-secondary"><span className="w-28 font-semibold text-text-primary">Ambiguous within</span><input type="number" step="0.01" min="0" max="0.2" value={t.ambiguity ?? 0.05} onChange={(e) => setNested(f, "ambiguity", Number(e.target.value))} className={`${input} w-20`} /><span>of the best</span></label>
+      </div>
+      <button type="button" aria-pressed={!!t.aiDisambiguation} onClick={() => setNested(f, "aiDisambiguation", !t.aiDisambiguation)} className={`mt-2 ${chip(!!t.aiDisambiguation)}`}>AI disambiguation between candidates above threshold</button>
+      <p className="mt-1.5 text-[11px] text-text-muted">Below threshold is an exception with the closest match and its score — never a guess.</p>
+     </Field>
+    );
+   }
+   case "recordGuardrails":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <GuardrailRulesField spec={spec} template={findTemplate(spec)} setRules={setRecordGuardrails} />
+     </Field>
+    );
+   case "exceptionsTo":
+    return <Field key={f} name={f} {...fieldProps(f)}><input value={spec.exceptionsTo} onChange={(e) => setField(f, e.target.value)} placeholder="orders-desk@yourcompany.com" className={input} /><p className="mt-1 text-[11px] text-text-muted">One email per exception: the classification in words, what was extracted, and a link to the in-app record with the document and the candidates.</p></Field>;
+   case "acknowledge":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5"><button type="button" aria-pressed={!!spec.acknowledge} onClick={() => setField(f, true)} className={chip(!!spec.acknowledge)}>Reply with the record number, or the reason</button><button type="button" aria-pressed={!spec.acknowledge} onClick={() => setField(f, false)} className={chip(!spec.acknowledge)}>No reply</button></div></Field>;
+   case "targetObjects":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <RecordMappingField spec={spec} template={findTemplate(spec)} target={spec.writeback} setMapping={setRecordMapping} description={spec.goal} />
+     </Field>
+    );
+   case "createdAs":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{CREATED_AS.map((c) => <button key={c.value} type="button" title={c.hint} aria-pressed={spec.createdAs === c.value} onClick={() => setField(f, c.value)} className={chip(spec.createdAs === c.value)}>{c.label}</button>)}</div></Field>;
    case "schedule":
     return <Field key={f} name={f} origin={originOf(f)}><select value={spec.schedule} onChange={(e) => setField(f, e.target.value)} className={`${select} w-full`}>{SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>;
    default:
@@ -591,8 +1012,8 @@ export default function UseCaseComposeScreen() {
       <div className="space-y-2 px-3.5 pb-3">
        <textarea rows={2} value={oneGoText} onChange={(e) => setOneGoText(e.target.value)} placeholder={example ? `e.g. ${example.prompt}` : "Say what you want, as you would to a colleague."} className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
        <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={!oneGoText.trim()} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">Fill the form from this</button>
-        {example && <button type="button" onClick={() => setOneGoText(example.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {example.title} example</button>}
+        <button type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</button>
+        {examples.map((ex) => <button key={ex.title} type="button" onClick={() => setOneGoText(ex.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {ex.title} example</button>)}
         <span className="text-[11px] text-text-muted">Whatever it recognises is filled in; the rest stays for you or the assistant.</span>
        </div>
       </div>
@@ -609,42 +1030,66 @@ export default function UseCaseComposeScreen() {
      )}
     </div>
 
-    <div className="rounded-xl border border-border bg-surface p-3">
+    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface p-3">
      <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
      <p className="mt-1 text-sm text-text-primary">{describeShape(spec)}</p>
      {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? " — an admin, since nobody approves each change" : ""}.</p>}
-    </div>
+    </div>}
 
     <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
      <Field name="goal" gap={gapFor("goal")} origin={originOf("goal")} hint="What this exists to do, in your words. Free text; it drives nothing." onAsk={() => openAssistant("goal")}>
       <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} resize-none`} />
      </Field>
      <Field name="title" origin={spec.origin?.title === ORIGIN.authored ? ORIGIN.authored : spec.title ? "proposed" : null} hint="How it appears in the catalogue. Proposed from the KPIs; overwrite it any time.">
-      <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is a KPI" className={input} />
+      <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is enough to name it" className={input} />
      </Field>
     </div>
 
-    {category.trigger && (
-     <Field name="mode" origin={null}>
-      <div className="grid gap-2 sm:grid-cols-2">
-       {category.trigger.map((t) => (
-        <button key={t.shape} type="button" aria-pressed={spec.shape === t.shape} onClick={() => setMode(t.shape)} className={`rounded-lg border px-3 py-2 text-left ${spec.shape === t.shape ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
-         <span className="block text-sm font-semibold text-text-primary">{t.label}</span>
-         <span className="block text-xs text-text-muted">{t.hint}</span>
-        </button>
-       ))}
-      </div>
-     </Field>
+    {/* A category with templates: read from the words, never asked up front. While undecided
+        the form is the goal alone, with a hint; once decided, one line says what was read and
+        offers to correct it. */}
+    {category.templates && !spec.template && (
+     <div className="rounded-xl border border-dashed border-border bg-surface-secondary/60 px-4 py-3">
+      <p className="text-sm text-text-primary">Say what arrives and the form will follow.</p>
+      <p className="mt-0.5 text-xs text-text-secondary">A KPI on a schedule — <em>“reorder SKUs below their reorder point”</em> — or a document — <em>“purchase orders arrive as PDFs in the orders mailbox”</em>. Write it in the goal above, describe it in one go, or ask the assistant.</p>
+      {String(spec.goal || "").trim().length > 12 && (
+       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-text-muted">I couldn't tell from that — is it</span>
+        {category.templates.map((t) => <button key={t.id} type="button" onClick={() => setTemplate(t.id)} className="rounded-full border border-border-light bg-surface px-2.5 py-1 font-semibold text-text-secondary hover:border-primary hover:text-primary">{t.label.toLowerCase()}</button>)}
+        <span className="text-text-muted">?</span>
+       </div>
+      )}
+     </div>
     )}
+    {category.templates && spec.template && (
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+      <Sparkles size={12} className="text-primary" />
+      <span className="text-text-secondary">Read from your description as</span>
+      <span className="font-semibold text-text-primary">{category.templates.find((t) => t.id === spec.template)?.label.toLowerCase()}</span>
+      <span className="text-text-muted">— {category.templates.find((t) => t.id === spec.template)?.hint}</span>
+      <button type="button" onClick={() => setTemplate(category.templates.find((t) => t.id !== spec.template)?.id)} className="ml-auto font-semibold text-text-muted hover:text-primary">Not this? Treat it as {category.templates.find((t) => t.id !== spec.template)?.label.toLowerCase()}</button>
+     </div>
+    )}
+
+    {/* The kind is read from the words, never picked (K26): the goal decides whether this
+        reports, diagnoses, finds who is at risk, or alerts; change the goal to change it. */}
+    {category.trigger && (() => { const t = category.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || category.trigger[0]; return (
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+      <Sparkles size={12} className="text-primary" />
+      <span className="text-text-secondary">Read from your goal as</span>
+      <span className="font-semibold text-text-primary">{t.label.replace(/^\w/, (c) => c.toLowerCase())}</span>
+      <span className="text-text-muted">— {t.hint}</span>
+     </div>
+    ); })()}
 
     {fields.filter((f) => f !== "schedule").map(renderField)}
 
-    <div className="grid gap-3 sm:grid-cols-2">
+    {!(category.templates && !spec.template) && <div className="grid gap-3 sm:grid-cols-2">
      <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
       <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
      </Field>
-     {renderField("schedule")}
-    </div>
+     {!fields.includes("pollInterval") && renderField("schedule")}
+    </div>}
 
     {dataGaps.map((g) => (
      <div key={g.id} className="flex flex-wrap items-start gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-2.5">

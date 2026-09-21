@@ -17,6 +17,8 @@ export const INTERNAL_SOURCE_TYPES = [
   { id: "airflow", label: "Apache Airflow", category: "Orchestration", implemented: true },
   { id: "aws_glue", label: "AWS Glue", category: "Orchestration", implemented: true },
   { id: "s3", label: "Amazon S3", category: "Object storage", implemented: true },
+  { id: "gmail", label: "Gmail", category: "Mailbox", implemented: true },
+  { id: "microsoft365", label: "Microsoft 365 mailbox", category: "Mailbox", implemented: true },
 ];
 
 export const INTERNAL_AUTH_METHODS = [

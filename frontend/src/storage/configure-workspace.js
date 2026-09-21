@@ -108,6 +108,40 @@ export const CONFIGURE_SEED_INTERNAL = [
  seed: true,
  },
  {
+ id: "seed_gmail_orders",
+ sourceType: "gmail",
+ name: "Gmail - orders mailbox (kiruthiga@saturam.com)",
+ host: "imap.gmail.com",
+ port: "993",
+ databaseName: "kiruthiga@saturam.com",
+ schema: "INBOX",
+ authMethod: "oauth",
+ username: "kiruthiga@saturam.com",
+ password: "",
+ apiKey: "",
+ sslMode: "require",
+ permissionLevel: "read_write",
+ credentialRef: "env:gmail",
+ seed: true,
+ },
+ {
+ id: "seed_salesforce_orders",
+ sourceType: "salesforce",
+ name: "Salesforce - Sales Cloud (trial)",
+ host: "northwind-trade-dev-ed.develop.my.salesforce.com",
+ port: "443",
+ databaseName: "ORG_00D_NORTHWIND_TRIAL",
+ schema: "SalesCloud",
+ authMethod: "oauth",
+ username: "egpt.integration@northwind.example",
+ password: "",
+ apiKey: "",
+ sslMode: "require",
+ permissionLevel: "read_write",
+ credentialRef: "env:salesforce",
+ seed: true,
+ },
+ {
  id: "seed_salesforce_gallery",
  sourceType: "salesforce",
  name: "Salesforce - Service Cloud",
@@ -158,8 +192,19 @@ export function normalizeInternal(s) {
  apiKey: s.apiKey || "",
  sslMode: s.sslMode || "require",
  permissionLevel: s.permissionLevel === "read_write" ? "read_write" : "read_only",
+ // Where the platform finds this source's credentials. The interface never holds a password
+ // for a mailbox or a CRM: it holds a reference ("env:gmail", "env:salesforce"; a vault path
+ // in the cloud) and the platform resolves it where the platform runs.
+ credentialRef: s.credentialRef || defaultCredentialRef(s.sourceType),
  seed: !!s.seed,
  };
+}
+
+/** The credential reference a source type resolves to when none was set. */
+export function defaultCredentialRef(sourceType) {
+ if (/gmail|microsoft365/.test(sourceType || "")) return "env:gmail";
+ if (sourceType === "salesforce") return "env:salesforce";
+ return "";
 }
 
 export const CONFIGURE_SEED_LLM = [

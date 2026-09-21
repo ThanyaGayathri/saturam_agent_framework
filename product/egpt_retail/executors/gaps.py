@@ -19,7 +19,7 @@ import asyncio
 import itertools
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import FrozenSet, Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from egpt.workflow.types import StepInput, StepOutput
 
@@ -46,6 +46,10 @@ class AutonomyShape(str, Enum):
     RECOMMEND = "recommend"
     ACT = "act"
 
+
+#: Slots a shape lists that a spec may leave empty and still run: a comparison is asked
+#: for in the person's words or not made -- an Inform without one reports the numbers.
+_OPTIONAL_PARAMETERS: FrozenSet[str] = frozenset({"comparison"})
 
 #: The parameter slots per shape, from build-plan.md section 07's table, verbatim in order.
 SHAPE_PARAMETERS: Mapping[AutonomyShape, Tuple[str, ...]] = {
@@ -259,6 +263,8 @@ def assess_gaps(
     # The chosen autonomy level's parameters.
     shape = shape_for(autonomy, level)
     for slot in SHAPE_PARAMETERS[shape]:
+        if slot in _OPTIONAL_PARAMETERS:
+            continue
         if not _slot_filled(slot, spec, draft):
             source = _SLOT_SOURCES[slot]
             gaps.append(

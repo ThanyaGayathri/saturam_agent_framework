@@ -47,9 +47,18 @@ from egpt.workflow.types import OnError
 from pydantic import BaseModel
 
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.executors.act import ACT_EXECUTORS
 from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
+from egpt_retail.executors.analytics import (
+    check_report_grounding,
+    compare_to_baseline,
+    render_report,
+    send_report,
+)
 from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.diagnostics import decompose_change
+from egpt_retail.executors.documents import DOCUMENT_EXECUTORS
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
 from egpt_retail.executors.golden_gate import check_golden_gate
@@ -60,8 +69,10 @@ from egpt_retail.executors.monitoring import (
     list_silent_schedules,
 )
 from egpt_retail.executors.plan import derive_plan
+from egpt_retail.executors.predict import score_risk
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
+from egpt_retail.executors.recommend import recommend, send_alerts, track_outcomes
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.rfq import check_explanation_grounding, sample_rows
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
@@ -196,6 +207,28 @@ R14_EXECUTORS = (assess_execution_health, list_silent_schedules, assess_quality)
 #: ``test_executor_registry_doc_coverage.py`` walks every row of that document and asserts it
 #: resolves via ``build_registry()``, so this direction of drift fails CI for every package.
 GOLDEN_EXECUTORS = (check_golden_gate,)
+
+#: K15's nine (K-15): the document-to-record template's five (``executors/documents.py``)
+#: and the Act shape's four write-side verbs (``executors/act.py``), which the stage tables
+#: in ``orchestration/compiler.py`` named before anything existed to build them. With these
+#: registered, ``capability_report`` shows both ``act`` rows publishable for the first time;
+#: the one stage still not an executor is Extract, which is a model step by design.
+K15_EXECUTORS = DOCUMENT_EXECUTORS + ACT_EXECUTORS
+
+#: K23's four: the Inform shape's stages after ``read_gold`` (``executors/analytics.py``)
+#: -- the comparison with its baseline backfill, the grounding check on the narrative, the
+#: HTML report and its email. ``compare_to_baseline`` was named by the compiler's Inform
+#: stages since K15 and registered nowhere, which is why no Inform use case could publish.
+K23_EXECUTORS = (
+    compare_to_baseline,
+    check_report_grounding,
+    render_report,
+    send_report,
+)
+#: The diagnostic kind's one new stage (K25): the decomposition between Compare and Explain.
+K25_EXECUTORS = (decompose_change,)
+#: The at-risk kind's predictive stage (K26).
+K26_EXECUTORS = (score_risk, recommend, send_alerts, track_outcomes)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -556,6 +589,10 @@ def build_registry() -> Registry:
         + R14_EXECUTORS
         + K_EXECUTORS
         + GOLDEN_EXECUTORS
+        + K15_EXECUTORS
+        + K23_EXECUTORS
+        + K25_EXECUTORS
+        + K26_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

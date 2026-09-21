@@ -42,6 +42,7 @@ const EMPTY = {
  apiKey: "",
  sslMode: "require",
  permissionLevel: "read_only",
+ credentialRef: "",
 };
 
 const AUTH_OPTIONS = [
@@ -361,9 +362,19 @@ export default function ConfigureInternalSourceForm() {
  />
  )}
  {form.authMethod === "oauth" && (
+ <div className="space-y-2">
+ <label className="block text-sm font-medium text-text-primary" htmlFor="credentialRef">Credential reference</label>
+ <input
+ id="credentialRef"
+ className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+ placeholder="env:gmail"
+ value={form.credentialRef || ""}
+ onChange={(e) => setField("credentialRef", e.target.value)}
+ />
  <p className="text-sm text-text-secondary">
- Use API key or username and password if connecting outside your organisation's OAuth flow.
+ The platform resolves this where it runs: from its environment locally, from a vault in the cloud. The app never stores the secret itself.
  </p>
+ </div>
  )}
 
  {/* Permission level */}

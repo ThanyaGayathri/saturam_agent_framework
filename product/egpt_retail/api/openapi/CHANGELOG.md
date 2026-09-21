@@ -109,6 +109,197 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.14.0 — 2026-09-21 — merge: main's 1.2.4–1.2.6 series folded into the 1.13 line (additive)
+
+Agreed by: Lane K, Lane R. The branch carrying 1.3.0 → 1.13.0 (use cases, extraction
+templates, record mappings, targets, recommendations) merges `main`, whose KPI work went
+on numbering 1.2.4 → 1.2.6 (`Kpi.source_table_status`, `compute`'s `as_of`,
+`FormulaExplanation`, `ColumnUsage` / `TableUsage`). Both series are additive and disjoint;
+this version is the union, numbered above both. The 1.2.x entries stay below in their own
+order.
+
+## 1.13.0 — 2026-09-20 — recommendations: the hand-off to Decision Intelligence (additive)
+
+Agreed by: Lane K. The at-risk kind (K26) ends in a `Recommendation` record -- one open
+quote with its account, its risk and level, the drivers behind the score, and the sales play
+the catalogue chose (`RecommendedAction`: code, what to do, owner, SLA, why); an alert is
+the same record with `action: null`. Four operations read and write them:
+`GET /use-cases/{use_case_id}/recommendations` and `GET /recommendations` (filters: status,
+kind, level, owner; `RecommendationList` carries the counts per status), `GET
+/recommendations/{recommendation_id}`, and `POST /recommendations/{recommendation_id}/status`
+(`RecommendationStatusWrite`: accepted / dismissed / actioned / open, with a note and who) --
+what a consuming Decision Intelligence use case, or a person on the screen, writes back.
+`outcome` and `outcome_at` are written by the producing use case when the horizon ends.
+Nothing existing changes.
+
+## 1.12.0 — 2026-09-18 — the diagnostic kind: `diagnosisOptions` (additive)
+
+Agreed by: Lane K. One new operation, `POST /use-cases/analytics/diagnosis-options`
+(`DiagnosisOptionsRequest` -> `DiagnosisOptions`): for one registered KPI, whether its
+formula can be decomposed and as what, the columns its fact carries that a change can be
+searched across (with distinct counts and descriptions), the rows per period and the
+support floor each sensitivity implies. The form asks nothing the data can decide. The
+`metric_diagnosis` template (Inform) is a new value of `Spec.template`; its slots
+`sensitivity` and `evidence columns` travel in `Spec.parameters` like every other.
+
+## 1.11.3 — 2026-09-18 — `AnalyticsSuggestion.comparison` nullable (additive)
+
+Agreed by: Lane K. A comparison is a choice, never a default: the suggestion sets one only
+when the ask names a period or asks about a change, and is `null` otherwise. The Inform
+shape's `comparison` slot is optional at compile time; a run without one reports the
+numbers as they are (no baseline read, no delta).
+
+## 1.11.2 — 2026-09-18 — `PreflightCheck.advisory` (additive)
+
+Agreed by: Lane K. One new boolean, default false: an advisory check is reported and never
+blocks -- `allowed` and `blocked_by` ignore it. The golden cases become advisory: their
+verdict is shown for the person to weigh, not a gate the platform closes on activation.
+
+## 1.11.1 — 2026-09-17 — `AnalyticsSuggestion.window` (additive)
+
+Agreed by: Lane K. One new, nullable field: the days the numbers should cover when the ask
+names a period ("last week", "monthly"), null for each KPI's own declared window. The
+suggestion also keeps every breakdown the ask names that some registered KPI carries, and
+steps unasked-for breakdowns back behind the overall KPI.
+
+## 1.11.0 — 2026-09-17 — merge: reconcile `usecase_processautomation` with main (additive)
+
+Agreed by: Lane K. Additive on top of both lines -- the use-case work below (1.3.0 .. 1.10.0)
+was authored in parallel with the KPI discovery work on main (1.2.2, 1.2.3) and neither had
+incorporated the other. This version is the union: every path and schema of both, no
+operation or field changed in meaning. Bumped once, to 1.11.0, so a client pinned to either
+line sees a strictly later version.
+
+## 1.10.0 — 2026-09-17 — the target objects suggested from the template (additive)
+
+Agreed by: Lane K. One new operation, `suggestTargetObjects` (`POST
+/record-mappings/suggest-objects`), with `ObjectSuggestRequest` and `ObjectSuggestion`: the
+target's createable objects ranked for a template and a description, the per-line child
+named, a shipped mapping named where one fits the pair. Deterministic and explained. The
+form's Target objects section offers it before the field mapping.
+
+## 1.9.0 — 2026-09-17 — Analytics Automation: the suggestion from the ask (additive)
+
+Agreed by: Lane K. One new operation, `suggestAnalyticsUseCase` (`POST
+/use-cases/analytics/suggest`), with `AnalyticsSuggestRequest`, `AnalyticsKpiSuggestion` and
+`AnalyticsSuggestion`. The Analytics Automation form's intelligence: an ask in the person's
+own words resolved against the governed KPI registry and the gold the deployment holds --
+the KPIs that match and can be reported on, their breakdowns, baseline, cadence, outputs,
+recipients, and every word nothing covers. Deterministic and explained per KPI. Nothing
+stored. `PreflightProbe` gains the Inform shape's three: `gold` (every KPI has a gold row,
+and how fresh), `delivery` (SMTP login for the report), `dry_answer` (the numbers now). The Inform shape's `SHAPE_PARAMETERS` gained three optional slots (`window`,
+`title`, `outputs`) bound to defaults when a spec leaves them blank; not on the wire.
+
+## 1.8.0 — 2026-09-17 — merge: `main` (1.1.8–1.2.1, KPI suggestion and dashboards) into Lane K's use-case work (1.2.0–1.7.0) (additive)
+
+Agreed by: Lane K. Both lines were authored in parallel from 1.1.7 and both are additive, so
+the union is additive too. Two entries below are both numbered 1.2.0 -- Lane K's
+document-to-record template and product's dashboards work -- and every schema and path from
+both sides is present unchanged; the version simply moves past both. The bundled spec and
+the generated models are regenerated from the merged source.
+
+## 1.7.0 — 2026-09-16 — execution health from the use-case runs table (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New optional fields on
+`UseCaseExecutionHealth`; the first real router for `getExecutionHealth` and
+`listSilentSchedules`.
+
+The Monitor screen was a demo: hashed sparklines and a "last run 23 min ago" derived from the
+title. Now `GET /monitoring/execution-health` is computed from `retail_use_case_runs` for every
+use case the interface created, and carries what a person watching a polling automation
+needs beside the contract's counts: the use case's `status`, its `schedule`, what fires it
+(`trigger`: the in-process `poller` locally, the `orchestrator` in the cloud, or nothing),
+`next_expected_at`, the last run's summary, and records created and exceptions held over
+seven days. `silent` is true when the cadence has elapsed one and a half times since the last
+run with nothing fired; `GET /monitoring/schedules/silent` lists the same.
+
+## 1.6.0 — 2026-09-16 — rehearsal sources and golden cases (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and schemas,
+and an optional request body on an existing operation.
+
+A rehearsal had one input: the connected mailbox, all of it. The rehearse screen now offers
+three, and the platform serves them:
+
+| Change | Why |
+|---|---|
+| **`RunRequest` body on `triggerUseCaseRun`, `RehearsalSource`** | A rehearsal runs over chosen messages from the mailbox, the use case's own golden cases, or the generated set -- the person's choice, not the platform's. A live run ignores the body. |
+| **`GET /use-cases/{id}/mailbox/messages`, `MailboxMessage`** | The list a person ticks messages from, read with the platform's credentials and nothing flagged; `processed_before` marks what a live run already carried. |
+| **`POST /use-cases/{id}/preflight/{probe}`, `ProbeResult`** | The readiness screen showed verdicts computed from the form and called the mailbox "connected". Now each row is a live probe: log into the mailbox and count what matches, take a token from the target, read the master data, call the model once, read the golden cases -- and the screen shows each verdict as its probe returns. |
+| **`GoldenCase`, `GET/POST /use-cases/{id}/cases`, `DELETE .../cases/{case_id}`, `POST .../cases/{case_id}/accept`** | A document with what the person expects of it: uploaded, or generated by the platform from the template's fields. Expected values are authored by accepting a run's output. Cases are re-run when the template, guardrails or mapping change (`RunTrigger` gains `regression`), and preflight adds a `golden_cases` check with the pass rate. `UseCaseRun.result.cases` carries each case's verdict. |
+
+## 1.5.0 — 2026-09-15 — the record mapping as data, over the target's live objects (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and schemas
+only.
+
+The last hard-coded piece of the document-to-record template was the write side: one code
+mapping from a resolved purchase order onto Salesforce's Order and OrderItem. Now:
+
+| Change | Why |
+|---|---|
+| **`RecordMapping`, `MappingFieldRow`, `ChildMapping`, `GET /record-mappings`, `POST /record-mappings/suggest`** | A mapping is a parent object with field rows -- each a target field and the source expressions its value comes from -- an optional child per line, the status field `created as` sets, and the rollback action. One interpreter evaluates it; the two Salesforce mappings that ship are rows of the shape; a mapping the form assembles is stored on the spec's `target objects` parameter. A suggestion is proposed deterministically from names over the live fields. |
+| **`GET /targets/{target}/objects`, `GET /targets/{target}/objects/{object}`, `TargetObject`, `TargetField`** | The form offers the org's own objects and their createable fields, read live with the platform's credentials -- required, type, what a reference points at -- so a person maps to what the org actually has, not to a list in code. |
+
+## 1.4.0 — 2026-09-15 — extraction templates and guardrail rules as data (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and new
+schemas only; every existing value is still read.
+
+The first document-driven use case shipped with its template and its six guardrails in code
+(K15). Onboarding a second kind of document from the interface -- a delivery note tomorrow,
+with no engineer -- needs both to be data the person can extend, so:
+
+| Change | Why |
+|---|---|
+| **`ExtractionTemplate`, `GET /extraction-templates`, `POST /extraction-templates/draft`** | A template is a field list, and the extractor, its schema and its validation are generated from that list. The interface stores a template a person assembled (or the model drafted from the description and an example document) on the spec's `extraction template` parameter; the shipped three are rows of the same shape. |
+| **`GuardrailRule`, `GuardrailRuleKind`, `GET /guardrail-rules/kinds`, `POST /guardrail-rules/suggest`** | A guardrail is a *kind* the platform evaluates (eight: duplicate reference, sender known, first-time item, quantity outlier, date window, flagged item, numeric range, total matches lines) applied to a field with parameters. The six purchase-order rows are a preset with their old ids and exception classes, so nothing already authored changes; a new template's rules are suggested from its own field names. |
+
+## 1.3.0 — 2026-09-15 — use-cases: a stored spec, a run mode, the run's own result (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. Every change has a default
+or is a new operation; no P0 caller changes.
+
+The first real `/use-cases` router (K16) needed four things the contract described only for
+an agent-driven flow:
+
+| Change | Why |
+|---|---|
+| **`PUT /use-cases/{id}/spec` (`saveUseCaseSpec`)** | The per-shape form *is* the spec (K15): the interface fills shape, template and parameters itself and never runs the extraction agent for a document-driven use case. `extracted_by: {identifier: interface.form}` keeps a hand-assembled spec distinguishable from an extracted one. |
+| **`?mode=live|rehearse` on `triggerUseCaseRun`, `RunMode`** | The rehearse screen and the live run share one code path: the same compiled workflow, with side effects held and the sample set injected. A simulation of its own in the interface was ahead of the platform and had already drifted from it (scanned copies). |
+| **`UseCaseRun.result`, `UseCaseRun.mode`** | The interface shows what a run created and what it held. `summary` is prose; `result` is the batch the last executor returned, and the screen reads it instead of re-running anything. |
+| **`ScheduleCadence` gains `hourly`, `every_15_minutes`, `every_5_minutes`, `every_minute`** | A mailbox is polled, not read nightly. The interface's poll intervals now have a contract value each. |
+
+Not in this version, on purpose: the orchestrator-facing trigger is still the same
+`POST /use-cases/{id}/runs` -- a Logic App on Azure or a Step Functions task on AWS calls it
+with the internal service token; the body of the run does not know which one did.
+
+## 1.2.0 — 2026-09-15 — use-cases: `Spec.shape`, `Spec.template`, `Spec.parameters` (additive; closes R-15)
+
+Agreed by: Lane K (kiruthiga). Additive -- three optional fields on `Spec` and two new enums --
+so no negotiation; a minor bump rather than a patch because it is the field the whole
+create-use-case flow has been waiting on since open item R-15 (10 Sep).
+
+- **`Spec.shape`** -- the shape the form was filled against, mirroring
+  `contracts.use_case.UseCaseShape`. Until now `Spec` had no shape and the compiler read it
+  from a flat key; the interface has chosen the shape first since the per-shape forms landed.
+- **`Spec.template`** -- the sequence within a shape, where a shape has more than one. The
+  first is `document_to_record` under Act: a Process Automation that turns an emailed
+  document into a record. Same shape, same guarantees around the write; different stages
+  before it. `kpi_change` names the Act sequence that already existed. The interface reads
+  the template from the requirement's words; it is never a form field.
+- **`Spec.parameters`** -- the per-shape form's values keyed exactly by the shape's (or
+  template's) parameter list, so the gap check and the compiler read one place for every
+  shape instead of nine flat keys and `step8.*`. Value shapes for the structured ones
+  (guardrails, candidates, recipient, master data, thresholds) are written into the field's
+  description so the interface and the compiler cannot drift. The draft still wins over the
+  spec, and the compiled workflow records the origin of every value.
+
+Not changed, deliberately: `UseCaseDraft` keeps `step1.autonomy` and `step8.*`, because the
+activation screen reads them back; `Spec.delivery` stays, and `parameters.recipient.channels`
+carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
+document-template guardrail catalogue remain strings with their closed sets documented rather
+than enums -- they are content the product ships, not contract.
 ## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on
@@ -188,7 +379,6 @@ removed or renamed -- so no negotiation and no major bump.
   `[today - 3 years, today]` at `_as_of()` (`executors/gold.py`), the shared point every
   `materialise_gold` caller passes through; out of range is a new **`422`**
   (`common.yaml#/Error`), not the `503`/`409` this route already returns for other refusals.
-
 ## 1.2.3 — 2026-09-17 — kpis: `KpiSuggestionRunRequest.ask`, a request in the customer's words (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on the

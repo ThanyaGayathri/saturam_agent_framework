@@ -10,7 +10,10 @@
     "a general retail pattern, which is exactly what an overlay is for.",
     "",
     "RepGroup comes from the client sample data, which carries a 'Rep Group Owner' column",
-    "on every contact and quote row."
+    "on every contact and quote row.",
+    "",
+    "vocabularies.grain adds the breakdowns the RFQ pipeline report asks for that the core",
+    "grain vocabulary has no word for: lost reason, pipeline stage, sales territory (K22)."
   ],
   "concepts": [
     {
@@ -104,5 +107,25 @@
       "cardinality": "many-to-many",
       "description": "The brands a rep group carries."
     }
-  ]
+  ],
+  "vocabularies": {
+    "grain": [
+      {
+        "value": "lost_reason",
+        "description": "One row per reason a quote was lost (Chosen Competitor, Constraints Budget, ...)."
+      },
+      {
+        "value": "pipeline_stage",
+        "description": "One row per stage of the quote pipeline, prospecting stages up to Closed Won / Closed Lost."
+      },
+      {
+        "value": "sales_territory",
+        "description": "One row per sales representative territory."
+      },
+      {
+        "value": "rfm_segment",
+        "description": "One row per RFM segment of accounts (Champions, Loyal, New, Potential, At risk, Cannot lose them, Hibernating, Lost) -- recency, frequency and monetary quintiles over the trailing year (K26)."
+      }
+    ]
+  }
 }

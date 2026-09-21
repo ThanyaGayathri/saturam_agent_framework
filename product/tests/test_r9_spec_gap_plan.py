@@ -386,12 +386,12 @@ def test_missing_parameters_are_gaps_for_the_chosen_shape(reader, kpis):
         "kpi_identifiers": ["supplier__on_time_rate_30d"],
     }
     inform = assess_gaps(spec, reader=reader, kpis=kpis, draft={}, level=1, now=NOW)
+    # A comparison is a choice, never a gap: an Inform without one reports the numbers.
     assert [g["subject"] for g in _gaps(inform, "missing_parameter")] == [
-        "comparison",
         "schedule",
         "recipient",
     ]
-    assert "spec.time_window" in _gaps(inform, "missing_parameter")[0]["detail"]
+    assert "draft.step8.schedule" in _gaps(inform, "missing_parameter")[0]["detail"]
     act = assess_gaps(
         spec,
         reader=reader,
@@ -684,6 +684,16 @@ def test_metadata_names_exactly_the_registered_executors():
         "check_explanation_grounding",
         "evaluate_alert_condition",
         "check_golden_gate",
+        # K15's four branches: each returns stop=True, only when nothing at all is left.
+        "screen_documents",
+        "resolve_entities",
+        "apply_hard_limits",
+        "apply_per_run_cap",
+        # K25 and K26: each stops only on a refusal -- nothing to diagnose, too little
+        # history to learn from, no scoring to recommend from.
+        "decompose_change",
+        "score_risk",
+        "recommend",
     }
 
 

@@ -16,6 +16,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import FrozenSet, Iterable, List, Mapping, Optional
 
+from egpt_retail.contracts.use_case import TIER_FOR_ROLE
+
 __all__ = [
     "LAZILY_BUILT_AGENT_IDS",
     "NO_MODEL_TIER",
@@ -114,7 +116,16 @@ def model_tier_for(executor_name: Optional[str]) -> str:
     if executor_name is None:
         return NO_MODEL_TIER
     tier = ROUTING_TABLE.get(executor_name)
-    return tier.value if tier is not None else NO_MODEL_TIER
+    if tier is not None:
+        return tier.value
+    # A compiled model step is named ``<use_case_id>__<role>`` (K15, ``compiler.py``) and
+    # its tier follows from the role under G6 -- ``TIER_FOR_ROLE`` is the table for those,
+    # so a use case activated yesterday is routed the same way as one shipped with the
+    # product, without a row per use case here.
+    _, separator, role = executor_name.rpartition("__")
+    if separator and role in TIER_FOR_ROLE:
+        return str(TIER_FOR_ROLE[role])
+    return NO_MODEL_TIER
 
 
 def assert_every_agent_routed(agent_ids: Iterable[str]) -> None:

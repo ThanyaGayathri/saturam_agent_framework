@@ -24,6 +24,7 @@ function migrate(raw) {
  if (out.shape && !out.category) {
   out.category = { inform: "analytics_automation", alert: "analytics_automation", recommend: "decision_intelligence", act: out.objective?.metric ? "process_optimization" : "process_automation" }[out.shape] || null;
  }
+ if (out.category === "process_automation" && !out.template) out.template = "kpi_change";
  if (typeof out.candidates === "string") out.candidates = out.candidates ? { concept: null, filter: out.candidates } : null;
  if (Array.isArray(out.guardrails)) {
   out.guardrails = out.guardrails.map((g) => (g && typeof g === "object" ? g : { rule: String(g), metric: null, operator: "gte", threshold: null, unit: "" }));

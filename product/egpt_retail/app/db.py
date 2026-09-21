@@ -31,6 +31,7 @@ __all__ = [
     "build_warehouse_engine",
     "build_warehouse_readonly_engine",
     "pooled_control_plane_connection",
+    "pooled_control_plane_engine",
     "psycopg_dsn",
 ]
 
@@ -95,6 +96,13 @@ def _pooled_control_plane_engine(db_url: str) -> Engine:
     :func:`build_control_plane_engine`.
     """
     return _validated_engine(db_url)
+
+
+def pooled_control_plane_engine(settings: RetailSettings) -> Engine:
+    """The process-wide pooled ``Engine`` for the control-plane DSN, for an Engine-based store
+    (``egpt_retail.usecases``, ``egpt_retail.alerts``) a router holds across requests. Same
+    cache as :func:`pooled_control_plane_connection` draws from."""
+    return _pooled_control_plane_engine(settings.retail_db_url)
 
 
 def pooled_control_plane_connection(settings: RetailSettings) -> PoolProxiedConnection:

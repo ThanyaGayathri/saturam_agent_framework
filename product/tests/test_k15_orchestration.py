@@ -12,15 +12,22 @@ import pytest
 
 from egpt_retail.contracts.use_case import (
     SHAPE_PARAMETERS,
+    TEMPLATE_PARAMETERS,
+    TEMPLATE_SHAPE,
     TIER_FOR_ROLE,
     UseCaseShape,
+    UseCaseTemplate,
 )
 from egpt_retail.executors.plan import UnknownPlanRef, plan_from_config, plan_refs
 from egpt_retail.orchestration import (
+    OPTIONAL_SLOTS,
     SHAPE_STAGES,
+    TEMPLATE_STAGES,
+    TRIGGER_SLOTS,
     ParameterOrigin,
     StageKind,
     UnknownShape,
+    UnknownTemplate,
     acompile_workflow,
     capability_report,
     compile_workflow,
@@ -37,6 +44,14 @@ FULL = frozenset(
     {
         "read_gold",
         "compare_to_baseline",
+        "decompose_change",
+        "score_risk",
+        "recommend",
+        "send_alerts",
+        "track_outcomes",
+        "check_report_grounding",
+        "render_report",
+        "send_report",
         "record_provenance",
         "deliver_in_app",
         "evaluate_alert_condition",
@@ -47,6 +62,11 @@ FULL = frozenset(
         "write_to_target",
         "apply_per_run_cap",
         "record_rollback_point",
+        "receive_messages",
+        "screen_documents",
+        "resolve_entities",
+        "build_record",
+        "send_email",
     }
 )
 
@@ -179,8 +199,11 @@ def test_a_missing_non_gate_stage_still_emits_what_it_could_build():
     assert [s["name"] for s in normalise_config(report.config)] == [
         "Read gold",
         "Explain",
+        "Check grounding",
         "Record provenance",
+        "Render report",
         "Deliver",
+        "Send report",
     ]
 
 
@@ -343,26 +366,37 @@ def test_every_executor_step_survives_r9s_plan_walker():
     assert len(plan["steps"]) == len(normalise_config(report.config))
 
 
-def test_a_generated_model_step_cannot_be_planned_until_r8_has_a_row():
-    """The finding K15 surfaced, recorded as a test so it cannot be forgotten.
+def test_a_generated_model_step_is_planned_by_its_role():
+    """The finding K15 surfaced (K-9), closed by K16.
 
     R8's ``ROUTING_TABLE`` is a static literal keyed by agent id, and K15 mints an agent id
-    per use case, so no hand-written table can contain one. R9's walker refuses the step --
-    correctly, an unrouted step has no model -- which means a generated Inform, Recommend or
-    Act is unplannable until activation can register a routing row. That path is Lane R's and
-    does not exist (K-9). This test passes today by asserting the refusal, and will fail the
-    day the gap closes, which is exactly when it should be revisited.
+    per use case, so no hand-written table could contain one -- and R9's walker refused the
+    step. The id carries the role (``<use_case_id>__<role>``), the tier follows from the role
+    under G6 (``TIER_FOR_ROLE``), and ``model_tier_for`` now reads it from there: a use case
+    activated yesterday is routed the same way as one shipped with the product.
     """
     report = compiled(UseCaseShape.INFORM)
     assert report.model_steps, "the Inform shape should carry an explanation step"
+    plan = plan_from_config(
+        report.config,
+        use_case_id=report.use_case_id,
+        version=1,
+        workflow_component_id=None,
+        executor_names=FULL,
+        agent_ids=[m["agent_id"] for m in report.model_steps],
+    )
+    agent_steps = [s for s in plan["steps"] if s["kind"] == "agent"]
+    assert (
+        agent_steps
+        and agent_steps[0]["model_tier"] == report.model_steps[0]["model_tier"]
+    )
     with pytest.raises(UnknownPlanRef, match="routing table"):
         plan_from_config(
-            report.config,
-            use_case_id=report.use_case_id,
+            {"steps": [{"type": "Step", "name": "x", "agent_id": "uc__no_such_role"}]},
+            use_case_id="uc",
             version=1,
             workflow_component_id=None,
             executor_names=FULL,
-            agent_ids=[m["agent_id"] for m in report.model_steps],
         )
 
 
@@ -408,8 +442,13 @@ def test_model_steps_are_declared_for_the_prompt_skill_to_author():
 def test_capability_report_names_what_each_shape_still_needs():
     bare = frozenset({"read_gold", "record_provenance", "deliver_in_app"})
     report = capability_report(bare)
-    assert set(report) == {s.value for s in UseCaseShape}
+    assert set(report) == {s.value for s in UseCaseShape} | {
+        "act/document_to_record",
+        "inform/metric_diagnosis",
+        "inform/at_risk",
+    }
     assert "Compare to baseline" in report["inform"]["missing"]
+    assert "Receive" in report["act/document_to_record"]["missing"]
     assert "Write to target" in report["act"]["missing"]
     assert report["inform"]["satisfied_elsewhere"] == {"Compute metrics": "read_gold"}
 
@@ -556,12 +595,20 @@ def test_every_role_the_compiler_can_emit_has_a_template_and_a_tier():
     """A compiled model step with no role template is a prompt nobody can assemble."""
     roles = {
         stage.role
-        for stages in SHAPE_STAGES.values()
+        for stages in [*SHAPE_STAGES.values(), *TEMPLATE_STAGES.values()]
         for stage in stages
         if stage.kind is StageKind.MODEL
     }
     assert roles <= set(sp.ROLE_TEMPLATES)
     assert roles <= set(TIER_FOR_ROLE)
+    assert "extraction" in roles
+
+
+def test_the_extraction_role_can_read_only_the_document():
+    """An extractor that could look things up would correct the document from master data."""
+    tools = set(sp.ROLE_TEMPLATES["extraction"].tools)
+    assert tools == {"document_read"}
+    assert not tools & {"semantic_read", "sql_through_guard", "domain_prose"}
 
 
 def test_a_role_with_no_template_refuses_rather_than_improvising():
@@ -778,3 +825,214 @@ def test_a_missing_non_guard_stage_still_emits_the_rest():
     report = compiled(UseCaseShape.ACT, executors=FULL - {"select_candidates"})
     assert report.config["steps"]
     assert report.publishable is False
+
+
+# --- templates: a sequence within a shape ----------------------------------------------
+
+DOC_DRAFT = {
+    "source_mailbox": "Gmail - orders mailbox",
+    "message_filter": {"unread": True, "has_attachment": True},
+    "document_type": "pdf",
+    "extraction_template": "purchase_order",
+    "master_data": {"customer": "Account", "shipTo": "Address", "product": "Product2"},
+    "match_thresholds": {"address": 0.75, "product": 0.85, "name": 0.8},
+    "guardrails": [{"id": "duplicate_po", "param": 12}],
+    "recipient": "orders-desk@northwind.example",
+    "write_target": "Salesforce - Sales Cloud (trial)",
+    "target_objects": "order_orderitem",
+    "created_as": "draft",
+    "per_run_cap": "20 records",
+    "rollback": "Cancel the record and remove its lines",
+    "schedule": "5m",
+}
+
+
+def compiled_doc(*, executors=FULL, draft=DOC_DRAFT, spec=None):
+    return compile_workflow(
+        spec or {**SPEC, "shape": "act", "template": "document_to_record"},
+        registered_executors=executors,
+        draft=draft,
+    )
+
+
+def test_every_template_is_a_sequence_of_its_shape_with_a_parameter_list():
+    assert set(TEMPLATE_STAGES) == set(UseCaseTemplate) == set(TEMPLATE_PARAMETERS)
+    for tmpl in UseCaseTemplate:
+        assert TEMPLATE_STAGES[tmpl] and TEMPLATE_PARAMETERS[tmpl]
+        assert TEMPLATE_SHAPE[tmpl] in UseCaseShape
+
+
+def test_kpi_change_is_the_act_sequence_itself():
+    assert TEMPLATE_STAGES[UseCaseTemplate.KPI_CHANGE] is SHAPE_STAGES[UseCaseShape.ACT]
+    assert (
+        TEMPLATE_PARAMETERS[UseCaseTemplate.KPI_CHANGE]
+        == SHAPE_PARAMETERS[UseCaseShape.ACT]
+    )
+
+
+def test_a_spec_without_a_template_compiles_exactly_as_before():
+    plain = compiled(UseCaseShape.ACT)
+    assert plain.template is None
+    named = compile_workflow(
+        SPEC, registered_executors=FULL, shape="act", template="kpi_change", draft=DRAFT
+    )
+    assert [s["name"] for s in plain.config["steps"]] == [
+        s["name"] for s in named.config["steps"]
+    ]
+
+
+def test_document_to_record_has_one_model_step_and_it_extracts():
+    stages = TEMPLATE_STAGES[UseCaseTemplate.DOCUMENT_TO_RECORD]
+    models = [st for st in stages if st.kind is StageKind.MODEL]
+    assert [m.role for m in models] == ["extraction"]
+    assert "extraction" in TIER_FOR_ROLE
+
+
+def test_document_to_record_guards_its_write_three_times():
+    stages = TEMPLATE_STAGES[UseCaseTemplate.DOCUMENT_TO_RECORD]
+    guards = [st.name for st in stages if st.guards_write]
+    assert guards == ["Apply guardrails", "Apply change limit", "Record rollback point"]
+    names = [st.name for st in stages]
+    assert names.index("Apply guardrails") < names.index("Write")
+    assert names.index("Apply change limit") < names.index("Write")
+
+
+def test_every_template_slot_is_consumed_by_a_stage_or_the_trigger():
+    """K-14's rule, held for templates too: a slot nothing reads is a form field that lies."""
+    for tmpl, stages in TEMPLATE_STAGES.items():
+        consumed = {slot for st in stages for slot in st.consumes} | set(TRIGGER_SLOTS)
+        assert set(TEMPLATE_PARAMETERS[tmpl]) <= consumed, tmpl
+        for st in stages:
+            assert set(st.consumes) <= set(TEMPLATE_PARAMETERS[tmpl]), (
+                f"{tmpl}/{st.name}"
+            )
+
+
+def test_document_to_record_compiles_and_publishes_on_a_full_deployment():
+    report = compiled_doc()
+    assert report.template is UseCaseTemplate.DOCUMENT_TO_RECORD
+    assert report.shape is UseCaseShape.ACT
+    assert report.publishable, report.refusal_reasons
+    names = [s["name"] for s in report.config["steps"]]
+    assert names == [
+        "Receive",
+        "Screen",
+        "Extract",
+        "Resolve",
+        "Apply guardrails",
+        "Build record",
+        "Apply change limit",
+        "Write",
+        "Record rollback point",
+        "Notify",
+        "Record provenance",
+    ]
+    assert report.model_steps[0]["role"] == "extraction"
+    assert report.required_routing_rows == {
+        f"{report.use_case_id}__extraction": "frontier"
+    }
+
+
+def test_optional_slots_do_not_block_publication():
+    report = compiled_doc()
+    assert "example document" in OPTIONAL_SLOTS
+    assert "example document" not in report.parameters
+    assert "example document" not in report.unfilled_slots
+    assert report.publishable
+
+
+def test_master_data_and_thresholds_default_when_the_form_leaves_them_out():
+    # K24: the form no longer asks for master data (the roles come from the mapping and
+    # are read from the write target) nor thresholds (defaults); an empty slot compiles.
+    draft = {
+        k: v
+        for k, v in DOC_DRAFT.items()
+        if k not in ("master_data", "match_thresholds")
+    }
+    draft["master_data"] = {}
+    report = compiled_doc(draft=draft)
+    assert report.publishable, report.refusal_reasons
+    assert report.parameters["master data"] == {"source": "write target"}
+    assert report.parameter_origins["master data"] is ParameterOrigin.DEFAULT
+    assert report.parameters["match thresholds"] == {}
+
+
+def test_a_required_template_slot_left_empty_blocks_publication():
+    draft = {k: v for k, v in DOC_DRAFT.items() if k != "source_mailbox"}
+    report = compiled_doc(draft=draft)
+    assert report.unfilled_slots == ["source mailbox"]
+    assert not report.publishable
+    assert "document_to_record template requires a 'source mailbox'" in report.notes
+
+
+def test_a_missing_document_executor_is_reported_never_emitted():
+    report = compiled_doc(executors=FULL - {"resolve_entities"})
+    assert report.missing_capabilities == {"Resolve": "resolve_entities"}
+    assert "Resolve" not in [s["name"] for s in report.config["steps"]]
+    assert not report.publishable
+
+
+def test_a_missing_document_write_guard_emits_no_steps():
+    report = compiled_doc(executors=FULL - {"apply_hard_limits"})
+    assert report.config["steps"] == []
+    assert "write guard" in report.notes
+
+
+def test_the_template_must_belong_to_the_shape():
+    with pytest.raises(UnknownTemplate):
+        compile_workflow(
+            {**SPEC, "shape": "inform", "template": "document_to_record"},
+            registered_executors=FULL,
+            draft=DOC_DRAFT,
+        )
+    with pytest.raises(UnknownTemplate):
+        compile_workflow(
+            {**SPEC, "shape": "act", "template": "invoice_magic"},
+            registered_executors=FULL,
+            draft=DOC_DRAFT,
+        )
+
+
+def test_spec_parameters_fill_slots_and_a_typed_value_still_wins():
+    """R-15: `Spec.parameters` keyed by slot is read for every shape and template."""
+    spec = {
+        **SPEC,
+        "shape": "act",
+        "template": "document_to_record",
+        "parameters": {
+            "source mailbox": "Gmail - from the form",
+            "per_run_cap": "5 records",
+        },
+    }
+    draft = {k: v for k, v in DOC_DRAFT.items() if k != "source_mailbox"}
+    report = compile_workflow(spec, registered_executors=FULL, draft=draft)
+    assert report.parameters["source mailbox"] == "Gmail - from the form"
+    assert report.parameter_origins["source mailbox"] is ParameterOrigin.SPEC
+    # The draft's typed cap beats the spec's.
+    assert report.parameters["per-run cap"] == "20 records"
+    assert report.parameter_origins["per-run cap"] is ParameterOrigin.AUTHORED
+
+
+def test_spec_parameters_serve_the_kpi_shapes_too():
+    spec = {**SPEC, "shape": "alert", "parameters": {"operator": "gt", "threshold": 8}}
+    report = compile_workflow(
+        spec,
+        registered_executors=FULL,
+        draft={
+            "step8": {"schedule": "daily", "recipient": "x"},
+            "severity": "critical",
+        },
+    )
+    assert report.parameters["operator"] == "gt"
+    assert report.parameters["threshold"] == 8
+    assert report.parameter_origins["threshold"] is ParameterOrigin.SPEC
+
+
+def test_capability_report_lists_the_document_template_under_its_shape():
+    report = capability_report(FULL - {"receive_messages", "send_email"})
+    row = report["act/document_to_record"]
+    assert row["missing"] == {"Receive": "receive_messages", "Notify": "send_email"}
+    assert row["model_steps"] == 1
+    assert row["parameters"] == list(
+        TEMPLATE_PARAMETERS[UseCaseTemplate.DOCUMENT_TO_RECORD]
+    )
