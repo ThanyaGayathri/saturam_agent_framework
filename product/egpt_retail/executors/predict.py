@@ -264,7 +264,10 @@ async def score_risk(step_input: StepInput) -> StepOutput:
     fact = str(options.get("fact") or FACT)
     churn_days = int(slot(step_input, "churn window") or 60)
     levels = _levels(step_input)
-    top_n = int(slot(step_input, "top n") or 50)
+    # Zero (the default) carries every quote still within its usual range -- the ones a
+    # rep can still save, which is what the report's "act now" counts -- and none of
+    # the stalled backlog; a number carries that many from the ranked list instead.
+    top_n = int(slot(step_input, "top n") or 0)
     settings = RetailSettings()
     engine = _engine(settings)
 
@@ -413,7 +416,9 @@ async def score_risk(step_input: StepInput) -> StepOutput:
             "levels": levels,
             "model": evaluation,
             "summary": summary,
-            "subjects": subjects[:top_n],
+            "subjects": subjects[:top_n]
+            if top_n
+            else [s for s in subjects if not s["stalled"]],
             "subjects_total": len(subjects),
         }
 

@@ -660,7 +660,9 @@ SLOT_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "churn window": lambda spec: 60 if _is_at_risk(spec) else NO_DEFAULT,
         "outcome": lambda spec: "both" if _is_at_risk(spec) else NO_DEFAULT,
         "risk levels": lambda spec: {} if _is_at_risk(spec) else NO_DEFAULT,
-        "top n": lambda spec: 50 if _is_at_risk(spec) else NO_DEFAULT,
+        # Zero means every quote still within its usual range -- the "act now" set --
+        # so the list a person works is the count the report's hero names.
+        "top n": lambda spec: 0 if _is_at_risk(spec) else NO_DEFAULT,
     }
 )
 

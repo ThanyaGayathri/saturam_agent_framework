@@ -33,7 +33,14 @@ export default function RecommendationsPanel({ useCaseId, by = "", compact = fal
   catch (e) { setError(e?.message || String(e)); }
   finally { setBusy(null); }
  };
- const items = data.items || [];
+ const [query, setQuery] = useState("");
+ const all = data.items || [];
+ const items = all.filter((r) => {
+  if (!query) return true;
+  const ctx = r.context || {};
+  const hay = `${r.subject_label} ${r.account_label} ${r.owner} ${ctx.territory || ""} ${ctx.category || ""} ${ctx.segment || ""} ${(r.action || {}).title || ""} ${r.risk_level}`.toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+ });
  const counts = data.counts || {};
  const totals = useMemo(() => ({ value: items.reduce((a, r) => a + (Number(r.value_at_stake) || 0), 0), plays: items.reduce((m, r) => { const t = r.action?.title; if (t) m[t] = (m[t] || 0) + 1; return m; }, {}) }), [items]);
 
@@ -49,12 +56,15 @@ export default function RecommendationsPanel({ useCaseId, by = "", compact = fal
       <button key={v || "both"} type="button" aria-pressed={kind === v} onClick={() => setKind(v)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kind === v ? "bg-surface text-text-primary shadow-sm ring-1 ring-border" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
      ))}
     </div>
-    <button type="button" onClick={load} className="inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh</button>
+    <div className="flex items-center gap-2">
+     <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account, rep, territory…" aria-label="Find in the list" className="w-[240px] rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none" />
+     <button type="button" onClick={load} className="inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh</button>
+    </div>
    </div>
 
    {items.length > 0 && (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
-     <span><strong className="text-text-primary">{items.length}</strong> record{items.length === 1 ? "" : "s"} · <strong className="text-text-primary">{money(totals.value)}</strong> at stake</span>
+     <span><strong className="text-text-primary">{items.length}</strong>{query ? ` of ${all.length}` : ""} record{items.length === 1 ? "" : "s"} · <strong className="text-text-primary">{money(totals.value)}</strong> at stake</span>
      {Object.entries(totals.plays).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => <span key={t} className="rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">{t} · {n}</span>)}
     </p>
    )}

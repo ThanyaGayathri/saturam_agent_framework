@@ -8,7 +8,8 @@ Intelligence and the screen read them; the records ride on the step content for 
 report and the dashboard.
 
 Slots: ``outcome`` (``recommend`` | ``alert`` | ``both``, default both), ``top n`` (how many
-recommendations a run writes, default 50; alerts are per high-risk quote regardless).
+recommendations a run writes; zero, the default, is every carried subject -- the quotes
+still within their usual range; alerts are per high-risk quote regardless).
 """
 
 from __future__ import annotations
@@ -125,7 +126,7 @@ def records_for(
         }
 
     if outcome in ("recommend", "both"):
-        for subject in subjects[:top_n]:
+        for subject in subjects[:top_n] if top_n else subjects:
             record = base(subject, "recommendation")
             record["action"] = play_for(
                 subject,
@@ -158,7 +159,7 @@ async def recommend(step_input: StepInput) -> StepOutput:
         str(risk.get("as_of") or options.get("as_of") or date.today())
     )
     outcome = _outcome(step_input)
-    top_n = int(slot(step_input, "top n") or 50)
+    top_n = int(slot(step_input, "top n") or 0)
     records = records_for(risk, outcome=outcome, top_n=top_n, as_of=as_of)
     use_case_id = str(options.get("use_case_id") or "")
     run_id = options.get("run_id")

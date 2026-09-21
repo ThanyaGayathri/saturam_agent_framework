@@ -202,6 +202,7 @@ export function slotValue(spec, slot) {
   case "evidenceColumns": return (spec.evidenceColumns || []).length ? spec.evidenceColumns.join(", ") : "the fact's own columns";
   case "churnWindow": return `${spec.churnWindow || 60} days without a quote`;
   case "outcome": return { recommend: "recommendations", alert: "alerts", both: "recommendations and alerts" }[spec.outcome || "both"];
+  case "topN": return "every quote still within its usual range";
   case "outputs": return (spec.outputs || []).length ? spec.outputs.join(" + ") : "report";
   case "operator": return spec.condition?.operator ? opLabel(spec.condition.operator) : null;
   case "threshold": return spec.condition?.threshold != null ? `${spec.condition.threshold}${spec.condition.unit || ""}` : null;

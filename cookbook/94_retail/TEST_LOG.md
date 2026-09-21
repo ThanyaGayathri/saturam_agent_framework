@@ -6535,7 +6535,7 @@ for each at-risk one.
 - **The chain (Phase 4):** `at_risk` template (Inform): Read gold → Take the numbers as they
   are → **Track what happened** → **Score risk** → **Recommend** → Explain → Check grounding →
   Record provenance → Render report → Deliver → Send report → **Send alerts**; slots `churn
-  window` (60), `outcome` (both), `risk levels`, `top n` (50) with defaults. The report: a
+  window` (60), `outcome` (both), `risk levels`, `top n` (0 = every quote still within its usual range, so the list is the "act now" count) with defaults. The report: a
   hero strip (act now / already stalled / accounts at risk), the ranked *next best actions*
   with the play, why, the drivers, the owner and SLA, the alerts per rep, and an honesty
   line (what risk means, the model's holdout numbers, the precision tracked so far). The

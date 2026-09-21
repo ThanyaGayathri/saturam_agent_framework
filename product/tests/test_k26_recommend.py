@@ -520,7 +520,7 @@ def test_the_at_risk_kind_compiles_to_the_inform_chain_with_its_three_stages():
     # The defaults the form does not ask for.
     assert report.parameters["churn window"] == 60
     assert report.parameters["outcome"] == "both"
-    assert report.parameters["top n"] == 50
+    assert report.parameters["top n"] == 0  # every quote still within its usual range
     assert report.parameters["outputs"] == ["report", "dashboard"]
     names = [s["name"] for s in report.config["steps"]]
     assert names == [
