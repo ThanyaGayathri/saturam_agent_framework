@@ -41,8 +41,8 @@ What was already decided about it, and still applies:
   focus is reconciled against the fetched list on load, so ids from an older vocabulary never
   leave a "Ranked for" line with no pills. If the graph cannot be asked (503) the prompt says
   so, offers a retry, and the list renders unranked rather than blank. Because the ids are
-  the deployment's own vocabulary terms, a single focused area narrows the suggestion run
-  again without being refused as an unknown area.
+  the deployment's own vocabulary terms, the focus can also be checked against the real
+  vocabulary. It only ranks the list; nothing sends it to a suggestion run any more.
 - **Dashboards are wired to the real API** (D2, #233): `src/services/dashboards-api.js` calls
   `GET/POST/PATCH/DELETE /dashboards` and `GET /dashboards/{id}/data` directly, matching the
   local `Dashboard`/`Tile` shape D1 (#226) aligned field for field
@@ -74,27 +74,21 @@ What was already decided about it, and still applies:
   accepting one only records the decision; the screen says so rather than implying a use case
   now exists somewhere. Separate from `ConfigureSemanticLayer.jsx`'s own "Needs review" tab,
   which is an unrelated, still-local per-source mapping-decision UI this issue does not touch.
-- **"Suggest KPIs" is a real run of the `kpi_suggestion` agent** (F1, #234; run shape #254):
-  the button on the discovery page starts one with `POST /kpis/suggestions` (202, a
-  `KpiSuggestionRun`) and polls `GET /kpis/suggestions/{run_id}` -- every 2s, relaxing to 5s
-  after half a minute, giving up at 4 minutes -- until the row is `succeeded` (its `result` is
-  rendered through the same `rowFromSuggestion` path as before) or `failed` (its `error` is
-  shown as-is; a timeout names the bound it hit). A run is two frontier-tier model calls and
-  takes minutes, so it is never fired on page load. While it waits, the bar becomes a status
-  panel (`SuggestionRunPanel.jsx`): the row's `typical_duration_seconds` (the deployment's
-  own recent run times, contract 1.1.6) sets the expectation up front, its `phase` drives a
-  three-step stepper (reading, proposing, checking) instead of a stopwatch, Cancel stops the
-  polling (the server run finishes on its own and is never read again), and a one-line receipt
-  -- how many, how long, how many adoptable -- stays up until dismissed. The run is started
-  with a focus (contract 1.1.8, `business_areas`): the areas chosen in the focus prompt,
-  filtered to ids the deployment's real vocabulary knows (a stored focus can predate it) --
-  the agents propose for those first, and nothing is dropped for being outside them. Nothing
-  chosen sends nothing, matching the backend's own "no focus" default rather than listing
-  every supported area for no prioritizing effect. Adopting a suggestion is still `POST /kpis`
-  (`createKpi`); nothing else is stored.
-  The synchronous `GET /kpis/suggestions` is deprecated in the contract and no longer called
-  here. Against the stub server the poll never turns terminal (the stub serves the `queued`
-  example every time), which is what the 4-minute ceiling is for.
+- **KPI suggestions are automatic -- there is no "Suggest KPIs" button** (F1, #234; run shape #254;
+  the manual trigger was removed once a connected source's harvest started proposing them itself,
+  contract 1.2.9). The discovery page used to start a `kpi_suggestion` run from a button, poll
+  `GET /kpis/suggestions/{run_id}` behind a three-step stepper with a stopwatch, an expectation from
+  `typical_duration_seconds`, a Cancel and a receipt, mirror the run id into `?run=`, and take a focus
+  and a free-text request for it (the "AI generated KPI" tab of Add KPI). All of that is gone, with
+  `SuggestionRunPanel.jsx` and `AddKpiAiStep.jsx`. What replaces it is small: the page reads the
+  standing suggestions (`GET /kpis/suggestions/current`) when it opens; while a run is still working
+  (`generating`) `SuggestionStatus.jsx` says so -- no stage, no clock, nothing to cancel -- and the page
+  reads the list again every 3s (6s after a minute, giving up at 5) until it lands; a run that failed
+  after a harvest is a banner naming the source and the reason with one "Try again"
+  (`startKpiSuggestionRun({ sourceId })`, the only place the app starts a run). Add KPI is the manual
+  form only. The focus prompt still ranks the list; nothing sends it to a run. The API is unchanged
+  and still accepts `business_areas` and `ask`; nothing here sends them. Adopting a suggestion is
+  still `POST /kpis` (`createKpi`).
 - **A registry KPI's detail panel graphs its value over the last 30 nights** (contract 1.1.9):
   `components/kpi/KpiTrend.jsx`, fed by `GET /kpis/{id}/series` -- the same nightly
   `gold.kpi_value` rows a dashboard's `line`/`bar` tile plots, addressed by KPI. Points are
@@ -108,6 +102,61 @@ What was already decided about it, and still applies:
   KPI gold has never computed. Every proposed formula is a snapshot over the current silver
   rows, so the line grows one real point per night; there is no backfill and no synthetic
   history.
+- **Configure > Data sources is real** (#308, part of #302; contract 1.2.8):
+  `src/services/sources-api.js` calls `GET/POST/PATCH/DELETE /configure/sources` and
+  `POST /configure/sources/{id}/test` (#305), and starts #306's harvest with the framework's
+  own `POST /workflows/harvest-source/runs` (`background=true`, `additional_data={source_id}`,
+  a form body -- `apiForm` in `src/lib/api.js`). `ConfigureWorkspaceContext.jsx` reads the list
+  from the API and, while any source is `building`, re-reads it on the KPI-suggestion cadence
+  (2s, 5s after half a minute, giving up at four minutes with a "check now" notice); the card's
+  state is the row's own `harvest_state`, not a lookup. "Test Connection" on the form shows
+  the API's verdict sentence -- the contract tests only a *stored* source, so a new form is
+  saved first and the form says so. Save on a Postgres/Snowflake source also starts the
+  harvest ("Connect"); other types register and show "Not modelled" with the reason. A real
+  source's semantic-layer screen shows what the harvest read (`GET /semantic/tables?source_id=`,
+  #307) and its own snapshot; it says outright that join/measure review and the personal-data
+  scan are not built for connected sources rather than deriving them from demo data. **Demo
+  seeds stay as UI fixtures**: the six seeded databases are marked "Demo", hidden behind
+  "Show N demo sources", keep their fixture states (`source-model-state.js`), and editing one
+  with real values registers a real source through the API. A localStorage-added internal
+  source from before this wiring is no longer shown; LLM models, external integrations and the
+  cloud profile are unchanged (no backend yet). Verified in a headless browser against the
+  real API, Postgres and Neo4j -- `cookbook/94_retail/P4_frontend_connect_flow.mjs`, results
+  in `cookbook/94_retail/TEST_LOG.md`.
+- **KPI suggestions after a harvest, kept and removable; a connected source's tables in the Data
+  catalog** (part of #302; contract 1.2.9). A source's harvest now ends with one KPI suggestion
+  run for it (the `suggest-kpis` step of the `harvest-source` workflow), and the KPIs page reads
+  what is standing -- `GET /kpis/suggestions/current`, via `fetchCurrentKpiSuggestions` in
+  `src/services/kpis-api.js` -- when it opens, so proposed KPIs are still there after a reload
+  rather than lasting one session. If the run is still working the page says so and reads the list
+  again until it lands (no stepper or clock); if it failed, a banner says which source and why, with "Try again"
+  (`POST /kpis/suggestions` now takes `source_id`). Each suggestion has a trash control (row and
+  detail panel): `dismissKpiSuggestion` -> `POST /kpis/suggestions/dismissals`, remembered by the
+  backend for everyone, so it is neither on the next reload nor in a later run that proposes it
+  again. **A suggestion from a connected source cannot be added to the registry yet**: its
+  tables are in that source's harvest, not the deployment's own semantic snapshot, so the
+  registry would mark the KPI blocked and compute would refuse it. The UI says so instead of
+  offering the button (lifts with #314). The Data catalog (`useDataCatalog`) lists every
+  `modelled` source's tables alongside the deployment's own -- `GET /semantic/tables?source_id=`
+  and, for the columns, `GET /semantic/tables/{name}?source_id=` -- each card marked with its
+  source, and says how many tables a source contributed and when it last synced. Verified in a
+  headless browser against the real API, Postgres and Neo4j --
+  `cookbook/94_retail/P6_kpi_suggestions_after_harvest.mjs` and
+  `P6_kpi_suggestion_failure.mjs`, with the model replaced by the suggestion replay fixture;
+  results in `cookbook/94_retail/TEST_LOG.md`.
+- **A source stuck in `needs_review` has a way out; removing a source frees its schema** (part of
+  #302; contract 1.2.10). `needs_review` means the source's schema is held by another registered
+  source or by the deployment's own warehouse, and nothing was written. The card now shows
+  "Retry modelling" beside "Review N items" (`ConfigureInternalSources.jsx`), the semantic-layer
+  screen says the same instead of "Build model", and saving the source form re-runs the harvest
+  from `needs_review` -- so the message's own remedy, point it at a different schema, actually
+  does something (`ConfigureInternalSourceForm.jsx`'s `wantsHarvest`). `NEEDS_REVIEW_REASON`
+  (`source-model-state.js`) no longer says "reconnect" (no such control) or calls an absent owner
+  "another connected source". `DELETE /configure/sources/{id}` now also removes the source's
+  tables from the semantic graph and its saved KPI suggestions, so a deleted source's schema is
+  free to reuse; the confirm dialog says so, and a `503` (graph unreachable; the source is kept)
+  reaches the screen as the API's own sentence. Verified in a headless browser --
+  `cookbook/94_retail/P7_needs_review_way_out.mjs`, results in `cookbook/94_retail/TEST_LOG.md`.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

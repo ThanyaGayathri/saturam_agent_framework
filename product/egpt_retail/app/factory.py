@@ -35,6 +35,7 @@ from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.monitoring import router as monitoring_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.api.routers.semantic import router as semantic_router
+from egpt_retail.api.routers.sources import router as sources_router
 from egpt_retail.api.routers.targets import router as targets_router
 from egpt_retail.api.routers.use_cases import router as use_cases_router
 from egpt_retail.app.components import (
@@ -49,6 +50,8 @@ from egpt_retail.app.db import (
     psycopg_dsn,
 )
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.secrets import LocalEncryptedSecretStore
+from egpt_retail.configure.store import DataSourceStore
 from egpt_retail.dashboards.query_results import DashboardQueryResultStore
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.delivery import apply_delivery_ddl
@@ -58,6 +61,7 @@ from egpt_retail.playground.store import PlaygroundStore
 from egpt_retail.recommendations import apply_recommendations_ddl
 from egpt_retail.semantic.proposals import ProposalStore
 from egpt_retail.suggestions.dashboard_runs import DashboardSuggestionRunStore
+from egpt_retail.suggestions.dismissals import SuggestionDismissalStore
 from egpt_retail.suggestions.runs import SuggestionRunStore
 from egpt_retail.usecases.ddl import apply_use_case_ddl
 
@@ -112,17 +116,23 @@ def _start_use_case_poller(settings: RetailSettings) -> Any:
 
 
 def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
-    """Provisions R11's, R13's and B1's control-plane tables once, at boot -- not per request
-    (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh connection
-    per call, but do not re-run DDL on it). Synchronous and cheap (advisory lock, ``CREATE ...
-    IF NOT EXISTS``); run inside the composed lifespan below, same startup point K1's memory
-    check runs at, for the same reason: a deployment that cannot provision its own tables
-    should fail at boot, not on the first request that touches them.
+    """Provisions R11's, R13's, B1's and #304's control-plane tables once, at boot -- not per
+    request (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh
+    connection per call, but do not re-run DDL on it). Synchronous and cheap (advisory lock,
+    ``CREATE ... IF NOT EXISTS``); run inside the composed lifespan below, same startup point
+    K1's memory check runs at, for the same reason: a deployment that cannot provision its own
+    tables should fail at boot, not on the first request that touches them.
 
     ``KpiRegistryStore``'s ``semantic.kpi_definition`` table is otherwise only provisioned by
     ``semantic/refresh.py``'s offline refresh job or ``entrypoints/suggest.py`` -- neither
     guaranteed to have run before the API serves traffic, which left a fresh deployment's
     first ``GET /kpis`` a raw "relation does not exist" 500 instead of an empty list.
+
+    ``LocalEncryptedSecretStore``'s own table is the one exception: provisioned only when
+    ``retail_secret_store_provider`` is ``local_encrypted`` *and* an encryption key is
+    actually set. An unset key is refused where it is used, not at startup -- same posture
+    as ``retail_warehouse_db_url`` elsewhere in this module -- because a deployment that has
+    not configured secrets yet may also not have registered a data source yet.
     """
     import psycopg
 
@@ -134,7 +144,16 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         KpiRegistryStore(connection).ensure_schema()
         ProposalStore(connection).ensure_schema()
         SuggestionRunStore(connection).ensure_schema()
+        SuggestionDismissalStore(connection).ensure_schema()
         DashboardSuggestionRunStore(connection).ensure_schema()
+        DataSourceStore(connection).ensure_schema()
+        if (
+            settings.retail_secret_store_provider == "local_encrypted"
+            and settings.retail_secret_encryption_key
+        ):
+            LocalEncryptedSecretStore(
+                connection, settings.retail_secret_encryption_key
+            ).ensure_schema()
     finally:
         connection.close()
     # The Engine-based tables: R7's provenance and delivery records (every compiled
@@ -342,6 +361,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(business_areas_router)
     base_app.include_router(kpis_router)
     base_app.include_router(semantic_router)
+    base_app.include_router(sources_router)
     base_app.include_router(use_cases_router)
     base_app.include_router(extraction_templates_router)
     base_app.include_router(targets_router)

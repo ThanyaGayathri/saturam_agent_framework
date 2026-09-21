@@ -32,6 +32,8 @@ from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.store import DataSourceStore
+from egpt_retail.contracts.data_source import DataSource
 from egpt_retail.contracts.semantic import Column, SemanticReadError, Table, TableRef
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.proposals import (
@@ -399,14 +401,69 @@ def _table_out(table: Table) -> wire.Table:
     )
 
 
+def _registered_source(settings: RetailSettings, source_id: str) -> DataSource:
+    """The registered data source ``source_id`` names, or a 404 -- the one place a source-scoped
+    read checks that the source exists, so the listing and the table detail cannot disagree
+    about what counts as "no such source"."""
+    connection = pooled_control_plane_connection(settings)
+    try:
+        source = DataSourceStore(connection).get(source_id)
+    finally:
+        connection.close()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"No such source: {source_id!r}.")
+    return source
+
+
+def _source_listing(
+    settings: RetailSettings, source_id: str, include_proposed: bool
+) -> wire.TableList:
+    """``GET /semantic/tables?source_id=`` (#307): one registered source's own tables.
+
+    404 for an id no data source was registered under -- an unknown id silently returning an
+    empty list would look identical to a source that is registered and simply not harvested
+    yet, and those are different answers. ``snapshot`` is that source's: the graph's one
+    ``SemanticSnapshot`` node is the operator's pointer and a source's harvest never writes it,
+    so the version comes off the tables it tagged and the timestamp and name off the
+    registration row.
+    """
+    source = _registered_source(settings, source_id)
+    try:
+        with open_semantic_reader(settings, source_id=source_id) as reader:
+            refs = reader.list_tables(include_proposed=include_proposed)
+            version = reader.source_snapshot_version()
+    except (SemanticReadError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # ``version`` comes off the tables the source holds *now*, ``harvested_at`` off the
+    # registration row, so a harvested source whose tables were since all pruned has a real
+    # timestamp and no version to read. Both fields answer "has this source been harvested",
+    # so they must not disagree: "unharvested" only ever sits beside "never".
+    harvested_at = source.last_harvest_at
+    return wire.TableList(
+        tables=[_table_ref_out(r) for r in refs],
+        snapshot=wire.Snapshot(
+            version=version or ("empty" if harvested_at else "unharvested"),
+            harvested_at=harvested_at.isoformat() if harvested_at else "never",
+            source=source.name,
+        ),
+    )
+
+
 @router.get("/semantic/tables", response_model=wire.TableList)
 def list_semantic_tables(
     request: Request,
     include_proposed: bool = Query(default=False),
+    source_id: Optional[str] = Query(default=None),
     _: None = Depends(require_scopes("semantic:read")),
 ):
     _include_proposed_allowed(request, include_proposed)
     settings = RetailSettings()
+    # ``is not None``, not truthiness: an omitted parameter is the operator's listing, but an
+    # explicit ``source_id=`` names no registered source and is a 404 like any other unknown
+    # id. It would otherwise fall into the operator branch only because the operator's own
+    # ``source_id`` happens to be ``""`` too.
+    if source_id is not None:
+        return _source_listing(settings, source_id, include_proposed)
     try:
         with open_semantic_reader(settings) as reader:
             refs = reader.list_tables(include_proposed=include_proposed)
@@ -428,12 +485,23 @@ def get_semantic_table(
     table_name: str,
     request: Request,
     include_proposed: bool = Query(default=False),
+    source_id: Optional[str] = Query(default=None),
     _: None = Depends(require_scopes("semantic:read")),
 ):
+    """One table with its columns. With ``source_id`` (contract 1.2.9) the table is looked up
+    among that registered source's own harvest -- the scoping ``GET /semantic/tables`` already
+    applies -- so a table the listing shows under a source can be read back under it. Without
+    it, the deployment's own warehouse, as before: a source's tables never answer there."""
     _include_proposed_allowed(request, include_proposed)
     settings = RetailSettings()
+    # ``is not None``, not truthiness, for the same reason as the listing: an explicit empty
+    # ``source_id=`` names no registered source and is a 404, not the operator's warehouse.
+    reader_scope = {}
+    if source_id is not None:
+        _registered_source(settings, source_id)
+        reader_scope = {"source_id": source_id}
     try:
-        with open_semantic_reader(settings) as reader:
+        with open_semantic_reader(settings, **reader_scope) as reader:
             table = reader.get_table(table_name, include_proposed=include_proposed)
     except (SemanticReadError, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

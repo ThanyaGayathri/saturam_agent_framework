@@ -635,6 +635,18 @@ class HarvestRequest(BaseModel):
     source_id: str
 
 
+class HarvestState(Enum):
+    """
+    Where the source stands in the semantic-layer pipeline. `not_started` means nothing has read its schema yet; `building` means the `harvest-source` workflow is running; `modelled` means its tables are in the graph and answer questions; `needs_review` means the harvest stopped on something a person must settle (today: its schema name is already claimed by another connected source); `error` means the last harvest failed -- test the connection and retry. Same vocabulary as the frontend's `MODEL_STATES`.
+    """
+
+    not_started = "not_started"
+    building = "building"
+    modelled = "modelled"
+    needs_review = "needs_review"
+    error = "error"
+
+
 class HarvestStatus(Enum):
     queued = "queued"
     running = "running"
@@ -749,6 +761,14 @@ class KpiSourceWrite(BaseModel):
     linked_kpi_ids: list[str] | None = None
 
 
+class KpiSuggestionDismissalRequest(BaseModel):
+    identifier: str = Field(
+        ...,
+        description="The suggestion's `identifier` (`KpiSuggestion.identifier`). Matched case-insensitively.",
+        min_length=1,
+    )
+
+
 class KpiSuggestionRunPhase(Enum):
     """
     The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the
@@ -786,6 +806,10 @@ class KpiSuggestionRunRequest(BaseModel):
         None,
         description="What the customer wants to measure, in their own words (\"Add KPI\" -> AI generated).\nHanded to the agents as the request to answer first, after the focus and before the\nstanding ask -- a steer, never a filter: what comes back is still every metric the data\nsupports, judged and stamped exactly as an unprompted run's would be, so a request the\nharvest cannot back produces no invented metric, only the agent's note saying so.\nWhitespace-only reads as absent.\n",
         max_length=2000,
+    )
+    source_id: str | None = Field(
+        None,
+        description="A registered data source (`InternalSource.id`) to suggest for. The run reads only that\nsource's tables and is recorded as that source's run (`KpiSuggestionRun.source_id`), so\nits result replaces the source's earlier suggestions in `GET /kpis/suggestions/current`.\nThis is how a run that failed after a harvest is started again for the same source.\n`404` for an id no source has, `409` for a source whose harvest has not finished\n(`InternalSource.harvest_state` is not `modelled`): there are no tables to read yet.\nAbsent (or null) is the deployment's own warehouse, as before.\n",
     )
 
 
@@ -2218,7 +2242,12 @@ class InternalSource(BaseModel):
     ssl_mode: str | None = "require"
     permission_level: PermissionLevel
     has_credentials: bool
+    harvest_state: HarvestState
     last_harvest_id: str | None = None
+    last_harvest_at: AwareDatetime | None = Field(
+        None,
+        description='When the last harvest reached a terminal state; `null` until one has. The Configure card\'s "Last sync".',
+    )
     created_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
 
 
@@ -2376,6 +2405,19 @@ class KpiSuggestion(BaseModel):
     )
     feasibility: Feasibility | None = None
     proposed_by: SkillRef | None = None
+    source_id: str | None = Field(
+        None,
+        description="The registered data source (`InternalSource.id`) whose tables this suggestion was proposed from -- the source whose harvest triggered the run that produced it. Null for a suggestion proposed over the deployment's own warehouse (a run started by `POST /kpis/suggestions`).",
+    )
+
+
+class KpiSuggestionDismissal(BaseModel):
+    """
+    A suggestion a person removed. It stays out of `GET /kpis/suggestions/current` and out of every suggestion run read from then on, including runs that propose it again -- a dismissal is a decision, and the agent has no memory of it.
+    """
+
+    identifier: str
+    dismissed_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
 
 
 class KpiSuggestionList(BaseModel):
@@ -2415,6 +2457,10 @@ class KpiSuggestionRun(BaseModel):
     ask: str | None = Field(
         None,
         description="The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.",
+    )
+    source_id: str | None = Field(
+        None,
+        description="The registered data source (`InternalSource.id`) this run was started for. A run is started for a source automatically when that source's harvest finishes (the `suggest-kpis` step of the `harvest-source` workflow), and reads only that source's tables. Null for a run started by `POST /kpis/suggestions`, which reads the deployment's own warehouse.",
     )
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None
@@ -3208,6 +3254,38 @@ class KpiSeries(BaseModel):
     computed_at: AwareDatetime | None = None
     status: KpiHealthStatus
     provenance_ref: str | None = None
+
+
+class KpiSuggestionCurrent(BaseModel):
+    """
+    The suggestions a person should see now, kept between visits. Unlike a run (which is one
+    pass of the agent and is read by id), this is the standing answer to "what has the platform
+    proposed that I have not yet adopted or dismissed": the newest successful run of each
+    source (and of the deployment's own warehouse), merged, less every suggestion already in
+    the registry and every one a person dismissed (`POST /kpis/suggestions/dismissals`). A
+    suggestion appears once even if more than one source proposed it.
+
+    `generating` and `failed` are for the screen to say what is happening behind the list: a
+    run still working (a source was just connected, and its suggestions are on the way) and
+    the most recent run that failed with no later success to replace it (so a missing list is
+    explained rather than silent). Both are runs with `result` omitted -- the list is
+    `suggestions`.
+
+    """
+
+    suggestions: list[KpiSuggestion]
+    notes: str = Field(
+        ...,
+        description="What the runs that produced `suggestions` said was missing (the skill template's refusal shape). Empty when nothing was.",
+    )
+    generating: KpiSuggestionRun | None = Field(
+        None,
+        description="A run that is `queued` or `running` now, newest first if several are; poll it with `GET /kpis/suggestions/{run_id}` and read this again when it finishes. Null when nothing is running.",
+    )
+    failed: KpiSuggestionRun | None = Field(
+        None,
+        description="The newest run that ended `failed` and has not been superseded by a later success for the same source. Null when there is none.",
+    )
 
 
 class KpiWrite(BaseModel):

@@ -1,0 +1,131 @@
+{
+ "suggestions": [
+  {
+   "identifier": "store__count",
+   "name": "Store Count",
+   "description": "Store Count across the connected source.",
+   "business_area": "sales",
+   "concept": null,
+   "grain": "overall",
+   "result_shape": "scalar",
+   "rationale": "Derived from store.",
+   "business_value": "Tracks store count.",
+   "derived_from_tables": [
+    "store"
+   ],
+   "confidence": "high",
+   "proposed_sql": "SELECT COUNT(*) FROM store",
+   "formula_explanation": null,
+   "column_usage": [],
+   "table_usage": [],
+   "feasibility": {
+    "kpi_id": "store__count",
+    "verdict": "ready",
+    "missing_tables": [],
+    "rationale": "Every source table is present.",
+    "semantic_snapshot": "replay.1"
+   },
+   "proposed_by": {
+    "identifier": "kpi_suggestion",
+    "version": "0.1.0"
+   },
+   "source_id": null
+  },
+  {
+   "identifier": "store_visit__visit_count",
+   "name": "Store Visit Count",
+   "description": "Store Visit Count across the connected source.",
+   "business_area": "sales",
+   "concept": null,
+   "grain": "overall",
+   "result_shape": "scalar",
+   "rationale": "Derived from store_visit.",
+   "business_value": "Tracks store visit count.",
+   "derived_from_tables": [
+    "store_visit"
+   ],
+   "confidence": "high",
+   "proposed_sql": "SELECT COUNT(*) FROM store_visit",
+   "formula_explanation": null,
+   "column_usage": [],
+   "table_usage": [],
+   "feasibility": {
+    "kpi_id": "store_visit__visit_count",
+    "verdict": "ready",
+    "missing_tables": [],
+    "rationale": "Every source table is present.",
+    "semantic_snapshot": "replay.1"
+   },
+   "proposed_by": {
+    "identifier": "kpi_suggestion",
+    "version": "0.1.0"
+   },
+   "source_id": null
+  },
+  {
+   "identifier": "store_visit__visits_per_store",
+   "name": "Visits Per Store",
+   "description": "Visits Per Store across the connected source.",
+   "business_area": "sales",
+   "concept": null,
+   "grain": "overall",
+   "result_shape": "scalar",
+   "rationale": "Derived from store_visit, store.",
+   "business_value": "Tracks visits per store.",
+   "derived_from_tables": [
+    "store_visit",
+    "store"
+   ],
+   "confidence": "high",
+   "proposed_sql": "SELECT COUNT(*) FROM store_visit",
+   "formula_explanation": null,
+   "column_usage": [],
+   "table_usage": [],
+   "feasibility": {
+    "kpi_id": "store_visit__visits_per_store",
+    "verdict": "ready",
+    "missing_tables": [],
+    "rationale": "Every source table is present.",
+    "semantic_snapshot": "replay.1"
+   },
+   "proposed_by": {
+    "identifier": "kpi_suggestion",
+    "version": "0.1.0"
+   },
+   "source_id": null
+  },
+  {
+   "identifier": "store__locations_covered",
+   "name": "Locations Covered",
+   "description": "Locations Covered across the connected source.",
+   "business_area": "sales",
+   "concept": null,
+   "grain": "overall",
+   "result_shape": "scalar",
+   "rationale": "Derived from store.",
+   "business_value": "Tracks locations covered.",
+   "derived_from_tables": [
+    "store"
+   ],
+   "confidence": "medium",
+   "proposed_sql": "SELECT COUNT(*) FROM store",
+   "formula_explanation": null,
+   "column_usage": [],
+   "table_usage": [],
+   "feasibility": {
+    "kpi_id": "store__locations_covered",
+    "verdict": "ready",
+    "missing_tables": [],
+    "rationale": "Every source table is present.",
+    "semantic_snapshot": "replay.1"
+   },
+   "proposed_by": {
+    "identifier": "kpi_suggestion",
+    "version": "0.1.0"
+   },
+   "source_id": null
+  }
+ ],
+ "notes": "",
+ "semantic_snapshot": "replay.1"
+}

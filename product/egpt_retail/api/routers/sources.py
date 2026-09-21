@@ -1,0 +1,571 @@
+"""#305 -- the real router backing ``/configure/sources`` (``InternalSource``).
+
+``api/openapi/paths/configure.yaml`` defined this resource -- ``listSources``,
+``createSource``, ``getSource``, ``updateSource``, ``deleteSource``, ``testSource`` -- before
+#304 landed: a stub-only contract the R3 stub server has served examples from since phase
+zero, with nothing behind it (the same "contract first, wiring later" shape
+``semantic.py``'s router docstring describes). This module is that wiring: every operation
+backed by #304's ``DataSourceStore``/``SecretStore`` for real, closing the "Create data
+source" flow's actual gap (#302) -- today ``ConfigureInternalSourceForm.jsx`` writes only to
+Supabase/localStorage, and this is the backend it should have been calling.
+
+**Scope: ``InternalSource`` only.** ``ExternalIntegration`` (``/configure/integrations`` --
+``ConfigureExternalForm.jsx``'s OAuth API connectors) is a different integration shape
+entirely and is not touched here; see ``contracts/data_source.py``'s module docstring.
+
+**Test-connection is a real, bounded probe, not a simulation.** ``POST
+/configure/sources/{id}/test`` opens an actual connection with the stored credential and
+closes it immediately -- replacing ``ConfigureInternalSourceForm.jsx``'s
+``window.alert("Demo only...")`` stub. Because this app now makes outbound connections to a
+caller-supplied host and port, a new attack surface, three things are enforced:
+
+* **The host guard** (``configure/host_guard.py``, which documents the policy): loopback,
+  link-local and unspecified addresses are refused, checked against the *resolved* address.
+  The host is resolved once, and the connection is then made to that checked address
+  (``hostaddr``), never to the hostname a second time, so a name cannot rebind past the check.
+* **A hard time bound.** Name resolution is bounded, the connection attempt has
+  ``connect_timeout``, the verification query has a ``statement_timeout``, and the whole probe
+  runs under one wall-clock deadline (:data:`_PROBE_DEADLINE_SECONDS`) so a server that
+  stalls after the handshake cannot hold the request.
+* **Always a result.** Whatever goes wrong inside the probe comes back as a ``ConnectionTestResult``
+  with ``ok: false`` and is recorded on the row, never a raw 500 -- and never a raw driver
+  exception (``_classify_connection_error``), only a small fixed vocabulary of reasons, so a
+  stack trace or an internal hostname never reaches the response.
+
+Only Postgres is actually implemented (:data:`_TESTABLE_SOURCE_TYPES`) -- every other
+registered ``source_type`` has no driver in this product yet and says so rather than pretending
+to have tried (and, making no connection, is not subject to the host guard).
+
+**Sources are deployment-wide, not per-user -- a deliberate decision.** No route filters by,
+or checks, ``created_by``: any principal holding ``config:read`` sees every registered source
+and any holding ``configure:write`` can change, delete or test one. That differs from
+``dashboards.py``, which scopes to an owner, on purpose. A deployment serves one customer (D3),
+Configure is an administrative surface already gated by those two scopes, and a registered
+source feeds the *single* shared semantic layer every user reads -- so a source visible only to
+whoever registered it would hide, from their colleagues, data that everyone's answers are built
+from. ``created_by`` is attribution only. If a deployment ever needs per-owner sources,
+``DataSourceStore.list(created_by=...)`` already supports the filter; the routes would need to
+enforce it.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterator, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from egpt_retail.api import models as wire
+from egpt_retail.app.db import pooled_control_plane_connection
+from egpt_retail.app.scopes import require_scopes
+from egpt_retail.app.semantic import open_semantic_reader
+from egpt_retail.app.settings import RetailSettings
+from egpt_retail.configure.host_guard import check_host, run_with_timeout
+from egpt_retail.configure.secrets import (
+    SecretNotFoundError,
+    SecretStore,
+    build_secret_store,
+)
+from egpt_retail.configure.store import DataSourceConflictError, DataSourceStore
+from egpt_retail.contracts.data_source import (
+    AuthMethod,
+    ConnectionTestResult,
+    Credential,
+    DataSource,
+    DataSourceCreate,
+    DataSourceType,
+    DataSourceUpdate,
+    DataSourceValidationError,
+    HarvestState,
+    PermissionLevel,
+)
+from egpt_retail.suggestions.runs import SuggestionRunStore
+
+__all__ = ["router"]
+
+log = logging.getLogger("egpt_retail.api.routers.sources")
+
+router = APIRouter()
+
+
+# --- connection + store dependencies -------------------------------------------------------
+
+
+def _control_plane_connection() -> Iterator[Any]:
+    """Shared by :func:`_source_store` and :func:`_secret_store` below -- FastAPI caches a
+    ``Depends`` result per request, so a route asking for both gets one connection, not two."""
+    settings = RetailSettings()
+    connection = pooled_control_plane_connection(settings)
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+def _source_store(
+    connection: Any = Depends(_control_plane_connection),
+) -> DataSourceStore:
+    return DataSourceStore(connection)
+
+
+def _secret_store(
+    connection: Any = Depends(_control_plane_connection),
+) -> SecretStore:
+    return build_secret_store(RetailSettings(), connection)
+
+
+def _suggestion_runs(
+    connection: Any = Depends(_control_plane_connection),
+) -> SuggestionRunStore:
+    return SuggestionRunStore(connection)
+
+
+def _caller_id(request: Request) -> str:
+    """Mirrors ``kpis.py``'s ``_caller_id``/``dashboards.py``'s ``_owner`` exactly --
+    duplicated, not imported, matching this codebase's existing convention of each router
+    owning its own copy. Used only for ``created_by`` attribution, never as an authorization
+    check -- ``require_scopes`` already gates every write."""
+    if not getattr(request.state, "authorization_enabled", False):
+        return "local"
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=401, detail="This token carries no subject claim."
+        )
+    return str(user_id)
+
+
+def _not_found(source_id: str) -> HTTPException:
+    return HTTPException(status_code=404, detail=f"No such source: {source_id!r}.")
+
+
+# --- wire conversions ------------------------------------------------------------------------
+
+
+def _source_out(source: DataSource) -> wire.InternalSource:
+    return wire.InternalSource(
+        id=source.id,
+        source_type=wire.SourceType(source.source_type.value),
+        name=source.name,
+        host=source.host,
+        port=source.port,
+        database_name=source.database_name,
+        schema=source.schema_name,
+        auth_method=wire.AuthMethod(source.auth_method.value),
+        username=source.username,
+        ssl_mode=source.ssl_mode,
+        permission_level=wire.PermissionLevel(source.permission_level.value),
+        has_credentials=True,
+        harvest_state=wire.HarvestState(source.harvest_state.value),
+        last_harvest_id=source.last_harvest_run_id,
+        last_harvest_at=source.last_harvest_at,
+        created_at=source.created_at,
+    )
+
+
+def _credential_from_write(body: "wire.InternalSourceWrite") -> Credential:
+    return Credential(
+        auth_method=AuthMethod(body.auth_method.value),
+        username=body.username,
+        password=body.password,
+        api_key=body.api_key,
+    )
+
+
+def _credential_from_patch(
+    body: "wire.InternalSourcePatch", stored: Callable[[], Credential]
+) -> Optional[Credential]:
+    """``None`` means "no credential in this patch, leave the stored one alone".
+
+    Any of ``auth_method``/``username``/``password``/``api_key`` on the patch rotates the
+    credential, and "omitted fields are unchanged" (the wire contract's own rule) holds for the
+    ones left out: when the auth method is not changing, the omitted parts are carried over
+    from the stored credential (``stored()`` reads it lazily, so a patch that touches no
+    credential field never reads a secret). That is what lets a form change only the username
+    or only the password. A patch that *changes* the auth method carries nothing over -- the
+    old material belongs to a different method -- so it must supply the new one in full, and
+    :func:`~egpt_retail.contracts.data_source.validate_update` refuses it if it does not."""
+    if (
+        body.auth_method is None
+        and body.username is None
+        and body.password is None
+        and body.api_key is None
+    ):
+        return None
+    try:
+        current = stored()
+    except SecretNotFoundError:
+        raise DataSourceValidationError(
+            "credential",
+            "the stored credential is unavailable, so a partial change cannot be applied; "
+            "send the full credential",
+        ) from None
+    auth_method = (
+        AuthMethod(body.auth_method.value)
+        if body.auth_method is not None
+        else current.auth_method
+    )
+    if auth_method is not current.auth_method:
+        return Credential(
+            auth_method=auth_method,
+            username=body.username,
+            password=body.password,
+            api_key=body.api_key,
+        )
+    return replace(
+        current,
+        username=body.username if body.username is not None else current.username,
+        password=body.password if body.password is not None else current.password,
+        api_key=body.api_key if body.api_key is not None else current.api_key,
+    )
+
+
+def _create_from_write(
+    body: "wire.InternalSourceWrite", *, created_by: str
+) -> DataSourceCreate:
+    return DataSourceCreate(
+        name=body.name,
+        source_type=DataSourceType(body.source_type.value),
+        host=body.host,
+        database_name=body.database_name,
+        credential=_credential_from_write(body),
+        port=body.port,
+        schema_name=body.schema_ or "",
+        ssl_mode=body.ssl_mode or "require",
+        permission_level=(
+            PermissionLevel(body.permission_level.value)
+            if body.permission_level is not None
+            else PermissionLevel.READ_ONLY
+        ),
+        created_by=created_by,
+    )
+
+
+def _update_from_patch(
+    body: "wire.InternalSourcePatch", stored: Callable[[], Credential]
+) -> DataSourceUpdate:
+    return DataSourceUpdate(
+        name=body.name,
+        host=body.host,
+        port=body.port,
+        database_name=body.database_name,
+        schema_name=body.schema_,
+        ssl_mode=body.ssl_mode,
+        permission_level=(
+            PermissionLevel(body.permission_level.value)
+            if body.permission_level is not None
+            else None
+        ),
+        credential=_credential_from_patch(body, stored),
+    )
+
+
+# --- routes ------------------------------------------------------------------------------
+
+
+@router.get("/configure/sources", response_model=list[wire.InternalSource])
+def list_sources(
+    store: DataSourceStore = Depends(_source_store),
+    _: None = Depends(require_scopes("config:read")),
+):
+    return [_source_out(source) for source in store.list()]
+
+
+@router.post("/configure/sources", response_model=wire.InternalSource, status_code=201)
+def create_source(
+    body: "wire.InternalSourceWrite",
+    request: Request,
+    store: DataSourceStore = Depends(_source_store),
+    secrets: SecretStore = Depends(_secret_store),
+    _: None = Depends(require_scopes("configure:write")),
+):
+    created_by = _caller_id(request)
+    try:
+        created = store.create(_create_from_write(body, created_by=created_by), secrets)
+    except DataSourceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _source_out(created)
+
+
+@router.get("/configure/sources/{source_id}", response_model=wire.InternalSource)
+def get_source(
+    source_id: str,
+    store: DataSourceStore = Depends(_source_store),
+    _: None = Depends(require_scopes("config:read")),
+):
+    source = store.get(source_id)
+    if source is None:
+        raise _not_found(source_id)
+    return _source_out(source)
+
+
+@router.patch("/configure/sources/{source_id}", response_model=wire.InternalSource)
+def update_source(
+    source_id: str,
+    body: "wire.InternalSourcePatch",
+    store: DataSourceStore = Depends(_source_store),
+    secrets: SecretStore = Depends(_secret_store),
+    _: None = Depends(require_scopes("configure:write")),
+):
+    existing = store.get(source_id)
+    if existing is None:
+        raise _not_found(source_id)
+    try:
+        patch = _update_from_patch(body, lambda: secrets.read(existing.secret_ref))
+        updated = store.update(source_id, patch, secrets)
+    except DataSourceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DataSourceConflictError as exc:
+        # Concurrent credential rotations of one source kept beating this one. Nothing was
+        # written and no secret was left behind; the caller can simply retry.
+        raise HTTPException(
+            status_code=409,
+            detail="This source's credential was changed by another request. Retry.",
+        ) from exc
+    if updated is None:
+        raise _not_found(source_id)
+    return _source_out(updated)
+
+
+def _forget_source_tables(settings: RetailSettings, source_id: str) -> int:
+    """Remove the source's tables from the semantic graph -- see
+    :meth:`~egpt_retail.semantic.store.SemanticGraphStore.delete_source_tables`. Raises whatever
+    the graph raises; the caller decides what that means."""
+    with open_semantic_reader(settings, source_id=source_id) as graph:
+        return graph.delete_source_tables(source_id)
+
+
+def _graph_cleaner() -> Callable[[str], int]:
+    """The graph cleanup as a dependency, so a test can stand in for Neo4j the way it stands in
+    for the control plane."""
+    return lambda source_id: _forget_source_tables(RetailSettings(), source_id)
+
+
+@router.delete("/configure/sources/{source_id}", status_code=204)
+def delete_source(
+    source_id: str,
+    store: DataSourceStore = Depends(_source_store),
+    secrets: SecretStore = Depends(_secret_store),
+    runs: SuggestionRunStore = Depends(_suggestion_runs),
+    forget_tables: Callable[[str], int] = Depends(_graph_cleaner),
+    _: None = Depends(require_scopes("configure:write")),
+):
+    """Delete a source -- and everything it left behind.
+
+    A source is not only its row and its secret. Harvesting it wrote its tables into the semantic
+    graph, tagged with its id, and it may have left KPI suggestion runs. The graph outlives the
+    row, so deleting only the row (as this route once did) left the tables claiming their
+    schema: the next source registered with the same schema was refused by the schema-collision
+    guard on behalf of a source that no longer existed, and stopped in ``needs_review``.
+
+    **Order, deliberately: the graph first, then the saved suggestions, then the row and the
+    secret.** If the graph cannot be reached the answer is ``503`` and the source is *kept*: the
+    person can retry, and nothing is orphaned -- which is the bug this fixes. Deleting the row
+    first and failing to clean the graph afterwards would produce exactly that orphan, with no
+    row left to retry against. A source that was never harvested (``not_started``) has nothing in
+    the graph, so it does not need the graph to be up to be deleted.
+
+    **What is removed, and what is deliberately kept.** Removed: the source's tables and their
+    columns and edges in the graph (the shared ontology concepts they linked to stay), its
+    ``kpi_suggestion_run`` rows (the only control-plane table with a ``source_id``), its row and
+    its secret. Kept: KPI *dismissals* (by identifier and deployment-wide -- a decision about a
+    suggestion, not part of a source), proposals (they carry no source), and KPIs already adopted
+    into the registry (governed content; one whose tables are gone reads as blocked).
+
+    **A source deleted while ``building``.** Its harvest is running in a workflow and can write
+    after this cleanup has run, so the graph is swept a second time once the row is gone, and the
+    harvest itself checks the source still exists after it writes and removes what it wrote if
+    not (``executors/data_source_harvest.py``). Either alone leaves a window; together they close
+    it, and a claim that still slips through is treated as stale by the next harvest that meets
+    it.
+    """
+    source = store.get(source_id)
+    if source is None:
+        raise _not_found(source_id)
+
+    if source.harvest_state is not HarvestState.NOT_STARTED:
+        try:
+            forget_tables(source_id)
+        except Exception:
+            log.exception(
+                "delete source %s: its tables could not be removed from the semantic graph",
+                source_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "This source's tables could not be removed from the semantic graph, so "
+                    "the source was not deleted. Try again in a moment."
+                ),
+            ) from None
+    try:
+        runs.delete_for_source(source_id)
+    except Exception:
+        log.exception(
+            "delete source %s: its KPI suggestion runs could not be removed", source_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "This source's saved KPI suggestions could not be removed, so the source "
+                "was not deleted. Try again in a moment."
+            ),
+        ) from None
+
+    if not store.delete(source_id, secrets):
+        raise _not_found(source_id)  # a concurrent delete got there first
+
+    if source.harvest_state is HarvestState.BUILDING:
+        # A harvest was running: it may have written after the cleanup above. The row is gone,
+        # so a failure here is only logged -- the next harvest that meets a stale claim heals it.
+        try:
+            forget_tables(source_id)
+            runs.delete_for_source(source_id)
+        except Exception:
+            log.warning(
+                "delete source %s: the second sweep after a building delete failed",
+                source_id,
+                exc_info=True,
+            )
+    return None
+
+
+# --- test-connection: SSRF guard, driver dispatch, safe error classification --------------
+
+#: Source types with an actual driver in this product today. Every other registered
+#: ``source_type`` returns a clear "not implemented" result rather than pretending to have
+#: tried -- the same honesty principle #306's ``HARVESTABLE_SOURCE_TYPES`` already applies to
+#: harvest (that set also names Snowflake, which does not yet have a driver here either --
+#: #306 is where that dependency will actually be added; this set is narrower on purpose,
+#: scoped to what *this* router can attempt today).
+_TESTABLE_SOURCE_TYPES = frozenset({DataSourceType.POSTGRES})
+
+_CONNECT_TIMEOUT_SECONDS = 5.0
+_STATEMENT_TIMEOUT_MS = 5000
+
+#: Wall-clock ceiling on the whole probe -- connect, handshake and the verification query. The
+#: per-phase timeouts above bound each step against a server that responds; this bounds the
+#: sum, and a server that stops responding altogether (which no server-side timeout can help
+#: with), so the request always returns.
+_PROBE_DEADLINE_SECONDS = 12.0
+
+
+def _classify_connection_error(exc: BaseException) -> str:
+    """A small, fixed vocabulary -- never the raw driver exception. See the module
+    docstring's security note."""
+    text = str(exc).lower()
+    if "password authentication failed" in text or (
+        "role" in text and "does not exist" in text
+    ):
+        return "Authentication failed."
+    if "timeout" in text or "timed out" in text:
+        return "Connection timed out."
+    if "does not exist" in text and "database" in text:
+        return "The named database does not exist."
+    if "does not support ssl" in text:
+        # The form defaults ssl_mode to ``require``; a server without SSL then fails
+        # before authentication, and "Could not connect." sent people looking at the
+        # host and port. The fix is a setting on this source, so say which one.
+        return "The server does not support SSL. Set this source's SSL mode to prefer or disable."
+    return "Could not connect."
+
+
+def _probe_postgres(
+    source: DataSource, credential: Credential, address: str
+) -> ConnectionTestResult:
+    """Connects to ``address`` -- the host guard's checked address, not ``source.host`` again
+    -- and reads the schema's table count. ``host`` is still passed so TLS verification and
+    SNI use the name; libpq does not resolve it when ``hostaddr`` is given. Runs on a worker
+    thread under :data:`_PROBE_DEADLINE_SECONDS`; may raise anything, which
+    :func:`_test_postgres_connection` turns into a result."""
+    import psycopg
+
+    connection = psycopg.connect(
+        host=source.host,
+        hostaddr=address,
+        port=source.port or 5432,
+        dbname=source.database_name,
+        user=credential.username,
+        password=credential.password or credential.api_key,
+        connect_timeout=int(_CONNECT_TIMEOUT_SECONDS),
+        sslmode=source.ssl_mode or "require",
+    )
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SET statement_timeout = {_STATEMENT_TIMEOUT_MS}")
+            cursor.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema = %s",
+                (source.schema_name or "public",),
+            )
+            row = cursor.fetchone()
+            table_count = row[0] if row is not None else 0
+    finally:
+        connection.close()
+    message = (
+        f"Connected as {credential.username}; {table_count} table(s) visible in "
+        f"schema {source.schema_name or 'public'}."
+    )
+    return ConnectionTestResult(
+        ok=True, message=message, tested_at=datetime.now(timezone.utc)
+    )
+
+
+def _test_postgres_connection(
+    source: DataSource, credential: Credential, address: str
+) -> ConnectionTestResult:
+    """Always returns a :class:`ConnectionTestResult`: a failure at any stage -- connect, auth,
+    the query, or the deadline -- is ``ok: False`` with a fixed-vocabulary reason."""
+    try:
+        return run_with_timeout(
+            _probe_postgres, _PROBE_DEADLINE_SECONDS, source, credential, address
+        )
+    except TimeoutError:
+        message = "Connection timed out."
+    except Exception as exc:  # psycopg raises a wide OperationalError family
+        message = _classify_connection_error(exc)
+    return ConnectionTestResult(
+        ok=False, message=message, tested_at=datetime.now(timezone.utc)
+    )
+
+
+@router.post("/configure/sources/{source_id}/test")
+def test_source(
+    source_id: str,
+    store: DataSourceStore = Depends(_source_store),
+    secrets: SecretStore = Depends(_secret_store),
+    _: None = Depends(require_scopes("configure:write")),
+):
+    source = store.get(source_id)
+    if source is None:
+        raise _not_found(source_id)
+
+    now = datetime.now(timezone.utc)
+    if source.source_type not in _TESTABLE_SOURCE_TYPES:
+        # No connection is attempted, so there is nothing for the host guard to guard.
+        result = ConnectionTestResult(
+            ok=False,
+            message=f"Testing a {source.source_type.value} connection is not implemented yet.",
+            tested_at=now,
+        )
+    else:
+        checked = check_host(source.host, source.port or 5432)
+        if checked.address is None:
+            result = ConnectionTestResult(
+                ok=False, message=checked.message or "Could not connect.", tested_at=now
+            )
+        else:
+            try:
+                credential = secrets.read(source.secret_ref)
+            except SecretNotFoundError:
+                result = ConnectionTestResult(
+                    ok=False,
+                    message="The stored credential could not be read.",
+                    tested_at=now,
+                )
+            else:
+                result = _test_postgres_connection(source, credential, checked.address)
+
+    store.record_test_result(source_id, result)
+    return {"ok": result.ok, "detail": result.message, "tested_at": result.tested_at}

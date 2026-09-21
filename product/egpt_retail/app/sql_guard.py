@@ -36,6 +36,7 @@ from egpt_retail.warehouse.schema import (
 __all__ = [
     "SemanticTableAllowlist",
     "WarehouseReadAllowlist",
+    "build_source_read_guard",
     "build_warehouse_read_guard",
 ]
 
@@ -133,4 +134,38 @@ def build_warehouse_read_guard(
         statement_timeout_ms=statement_timeout_ms,
         dialect="postgres",
         schema=set(WAREHOUSE_READ_SCHEMAS),
+    )
+
+
+def build_source_read_guard(
+    reader: SemanticRead,
+    *,
+    schema: str,
+    row_cap: int = 1000,
+    statement_timeout_ms: int = 5000,
+) -> SQLGuard:
+    """The read guard for one self-serve data source (#307): its own tables, its own schema.
+
+    ``reader`` must be a :class:`~egpt_retail.semantic.store.SemanticGraphStore` scoped to the
+    source (``open_semantic_reader(settings, source_id=...)``) -- the allow-list is whatever
+    that reader lists, so a reader scoped to the operator would allow the operator's table
+    names against a customer's connection, and the reverse. Unlike
+    :func:`build_warehouse_read_guard` there is no gold and no per-KPI view: those belong to
+    the operator's warehouse, and nothing materialises into a customer's database.
+
+    ``schema`` names the source's one harvested schema (``DataSource.schema_name``), for the
+    same reason the warehouse guard names silver and gold: the allow-list is bare-name-only,
+    so without it the guard cannot tell ``public.orders`` from ``other.orders``.
+
+    This is the building block, not the wiring: nothing routes a KPI or a dashboard tile to
+    a customer's connection yet -- a KPI's ``source_tables`` are still resolved against the
+    operator's warehouse only. That routing needs its own design (whose credential runs the
+    read, and through which read-only role) and is deliberately not attempted here.
+    """
+    return SQLGuard(
+        allowlist=SemanticTableAllowlist(reader),
+        row_cap=row_cap,
+        statement_timeout_ms=statement_timeout_ms,
+        dialect="postgres",
+        schema={schema},
     )

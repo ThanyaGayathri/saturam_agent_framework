@@ -50,6 +50,9 @@ dependencies = [
   # The ambient/managed-identity credential path AzureBlobObjectStore falls back to when no
   # explicit account key is configured -- the Container Apps analogue of workload identity.
   "azure-identity",
+  # #304: AzureKeyVaultSecretStore (configure/secrets.py), the production home for a
+  # registered data source's credential. Not inherited: egpt[os] carries no Azure SDK at all.
+  "azure-keyvault-secrets",
   "sqlalchemy",
   # R6's SQL guard (product/egpt_retail/app/sql_guard.py imports egpt.guardrails.sql_guard,
   # which imports sqlglot unconditionally). Not inherited: egpt[os] carries no sqlglot, only

@@ -109,6 +109,15 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.15.0 — 2026-09-21 — merge: self-serve data sources (1.2.7–1.2.10) into the 1.14 line (additive)
+
+Agreed by: Lane R. The branch carrying 1.2.7 → 1.2.10 (control-plane data sources, harvest,
+semantic scoping, persistent KPI suggestions) merges `main` at 1.14.0 (use cases,
+extraction templates, record mappings, targets, recommendations, KPI panel fields).
+Both series are additive and disjoint; this version is the union, numbered above both.
+The 1.2.7–1.2.10 entries stay below in their own order, after 1.14.0's 1.2.0 use-case
+entry and before 1.2.6.
+
 ## 1.14.0 — 2026-09-21 — merge: main's 1.2.4–1.2.6 series folded into the 1.13 line (additive)
 
 Agreed by: Lane K, Lane R. The branch carrying 1.3.0 → 1.13.0 (use cases, extraction
@@ -300,6 +309,99 @@ activation screen reads them back; `Spec.delivery` stays, and `parameters.recipi
 carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
 document-template guardrail catalogue remain strings with their closed sets documented rather
 than enums -- they are content the product ships, not contract.
+## 1.2.10 — 2026-09-21 — configure: `deleteSource` removes the source's graph tables and answers `503` when it cannot (additive)
+
+Agreed by: Lane R (contract owner). Additive (a new response on an existing operation), so no
+negotiation and no major bump. Part of #302.
+
+- **`DELETE /configure/sources/{source_id}` now removes what the source's harvest left behind**:
+  its tables, columns and their edges in the semantic graph, and its saved KPI suggestion runs,
+  as well as its row and its secret. Until now it removed only the last two. The tables stayed,
+  still claiming their schema, so the next source registered with the same schema was refused by
+  the schema-collision guard and stopped in `needs_review` -- on behalf of a source that no
+  longer existed, with no way out in the UI.
+- **`503`**, new. The graph is cleaned *before* the row is deleted, so when it (or the
+  suggestion store) cannot be reached the source is **kept** and the call can be repeated;
+  deleting the row anyway would produce exactly the orphan this fixes. A source that was never
+  harvested (`not_started`) needs no graph and is deleted regardless. No request or success
+  shape changed.
+- Deliberately kept: KPI dismissals (deployment-wide decisions about a suggestion), proposals
+  (they carry no source), and KPIs already adopted into the registry.
+
+## 1.2.9 — 2026-09-21 — kpis: persistent suggestions (`getCurrentKpiSuggestions`, `dismissKpiSuggestion`); semantic: `getSemanticTable` `source_id` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of
+#302: what a connected source gives the customer once its harvest is over.
+
+- **`GET /kpis/suggestions/current`** (`getCurrentKpiSuggestions`, `KpiSuggestionCurrent`). A
+  suggestion run is a job and its result was read by id, so proposed KPIs lasted as long as
+  the page that started the run: reload, or come back tomorrow, and they were gone. This is
+  the standing answer instead -- the newest successful run of each source, merged, less what
+  is already in the registry and what a person dismissed. The KPIs page reads it on open.
+  `generating` names a run still working (a source was just connected, its suggestions are on
+  the way) and `failed` the newest run that failed with no later success, so an empty list is
+  explained rather than silent.
+- **`POST /kpis/suggestions/dismissals`** (`dismissKpiSuggestion`, `kpis:write`). Removes a
+  suggestion for good: it stays out of `current` and out of every run read afterwards,
+  including a later run that proposes the same identifier (the agent has no memory of what was
+  declined -- `ProposalStore` makes the same rule for proposals, "re-proposing a rejected thing
+  is the failure mode"). Idempotent. Deployment-wide, like the registry it feeds.
+- **`KpiSuggestionRun.source_id`** and **`KpiSuggestion.source_id`** (nullable). A run is now
+  also started for a source automatically when its harvest finishes (the `suggest-kpis` step
+  of the `harvest-source` workflow) and reads only that source's tables; the field says which.
+  Null for a run started by `POST /kpis/suggestions`, which reads the deployment's own
+  warehouse, as before.
+- **`KpiSuggestionRunRequest.source_id`** (optional). Starts a run for one connected source, so
+  the run that failed after a harvest (no model configured, a quota) can be started again for
+  that source rather than only for the deployment's own warehouse. `404` for an unknown source,
+  `409` while its harvest has not finished.
+- **`getSemanticTable` `source_id`** (query, optional). `listSemanticTables` gained it in
+  1.2.7, so a source's tables could be listed but not read back: the Data catalog listed them
+  and found no columns. Absent still means the deployment's own warehouse.
+
+## 1.2.8 — 2026-09-20 — configure: `InternalSource.harvest_state`, `last_harvest_at` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump. Part of
+#302 (phase 4, #308).
+
+- **`HarvestState`** (enum: `not_started`, `building`, `modelled`, `needs_review`, `error`)
+  and **`InternalSource.harvest_state`** (required). The Configure card reports semantic-layer
+  readiness, not reachability -- and until now the only readiness it could show came from a
+  hardcoded per-seed lookup in the frontend (`source-model-state.js`'s `BY_ID`). #306's
+  `harvest-source` workflow already records exactly this state on the row
+  (`configure.data_source.harvest_state`, the same five words); the wire just never carried
+  it, so a screen polling `GET /configure/sources` after starting a harvest had nothing to
+  read. `required` rather than optional because every row has one (the column defaults to
+  `not_started`); a client is never left guessing what an absent field means.
+- **`InternalSource.last_harvest_at`** (Timestamp, nullable). The card's "Last sync". `null`
+  until a harvest reaches a terminal state -- the card says "Never" rather than fabricating a
+  time, which is the bug the redesign fixed and this field keeps fixed.
+
+`last_harvest_id` is unchanged. The run id alone was never enough to draw the card: reading a
+run's status needs the framework's `GET /workflows/{id}/runs/{run_id}` plus the `session_id`
+the 202 returned, and says nothing about `needs_review`, which is a decision recorded on the
+source, not a run outcome.
+
+## 1.2.7 — 2026-09-20 — semantic: `listSemanticTables` `source_id` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new optional query parameter and one new
+`404` response on one operation, nothing removed or renamed -- so no negotiation and no major
+bump.
+
+- **`GET /semantic/tables?source_id=`** (#307). Absent means the deployment's own warehouse,
+  exactly what this operation returned before a customer could register a source. Present
+  lists that registered source's tables (`InternalSource.id`); an id naming no registered
+  source is `404`. The two sets never mix: a self-serve source's tables are absent from the
+  default listing, and the default listing's tables absent under a source -- the property
+  the SQL guard's allow-list and KPI feasibility depend on, since both are computed from this
+  listing and a customer's `orders` must not make an operator KPI look ready. Under a
+  `source_id`, `snapshot` describes that source's own harvest (newest table snapshot version,
+  last harvest time, source name), never the deployment's.
+- An explicit empty `source_id=` is not the same as omitting it: it names no registered source
+  and is `404`. And a registered source that was harvested but now holds no tables reports
+  `snapshot.version: "empty"` beside its real `harvested_at`; `"unharvested"` appears only
+  with `harvested_at: "never"`, so the two fields cannot disagree.
+
 ## 1.2.6 — 2026-09-19 — kpis: `ColumnUsage`, `TableUsage` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- two new schemas, one new optional field on

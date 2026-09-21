@@ -16,6 +16,31 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.memory.config import build_memory_config
 
 
+def _stub_engine_ddl(monkeypatch):
+    """The Engine-based tables (provenance, delivery, use cases, recommendations,
+    rollback) must not open a real database in these unit tests."""
+
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        factory_module, "build_control_plane_engine", lambda settings: _FakeEngine()
+    )
+
+    def _noop(_engine):
+        return None
+
+    for name in (
+        "apply_provenance_ddl",
+        "apply_delivery_ddl",
+        "apply_use_case_ddl",
+        "apply_rollback_ddl",
+        "apply_recommendations_ddl",
+    ):
+        monkeypatch.setattr(factory_module, name, _noop)
+
+
 @pytest.mark.parametrize("mode", [ProviderMode.LOCAL, ProviderMode.FRONTIER])
 def test_provider_mode_setting_reaches_memory_config(mode):
     """One setting, both subsystems. It was hardcoded to FRONTIER while knowledge read the
@@ -50,7 +75,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_nine_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -86,7 +111,14 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
         "DashboardSuggestionRunStore",
         _fake_store("dashboard_suggestion_run"),
     )
+    monkeypatch.setattr(factory_module, "DataSourceStore", _fake_store("data_source"))
+    monkeypatch.setattr(
+        factory_module, "SuggestionDismissalStore", _fake_store("suggestion_dismissal")
+    )
 
+    # The secret-store settings are pinned, not left to the environment: a developer who has
+    # EGPT_RETAIL_SECRET_ENCRYPTION_KEY set (to try registering a source locally) would
+    # otherwise get a real LocalEncryptedSecretStore built on the fake connection above.
     class _FakeEngine:
         def dispose(self):
             pass
@@ -115,10 +147,14 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
     )
 
     factory_module._ensure_control_plane_schemas(
-        RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
+        RetailSettings(
+            retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db",
+            retail_secret_store_provider="local_encrypted",
+            retail_secret_encryption_key=None,
+        )
     )
 
-    # The seven connection-based stores, then the four Engine-based tables.
+    # The nine connection-based stores, then the five Engine-based tables.
     assert calls == [
         "playground",
         "dashboard",
@@ -126,13 +162,136 @@ def test_ensure_control_plane_schemas_provisions_all_seven_stores(monkeypatch):
         "kpi",
         "proposal",
         "suggestion_run",
+        "suggestion_dismissal",
         "dashboard_suggestion_run",
+        "data_source",
         "provenance",
         "delivery",
         "use_cases",
         "recommendations",
         "rollback",
     ]
+
+
+def test_ensure_control_plane_schemas_skips_local_secret_store_without_a_key(
+    monkeypatch,
+):
+    """#304: an unset ``retail_secret_encryption_key`` must not fail boot -- only a data
+    source registration attempt should ever hit that refusal, same posture as
+    ``retail_warehouse_db_url``. The default settings used by every other case in this file
+    (no encryption key set) already covers this; this test makes the coverage explicit and
+    would fail loudly if ``_ensure_control_plane_schemas`` ever tried to construct a
+    ``LocalEncryptedSecretStore`` unconditionally."""
+
+    class _FakeConnection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr("psycopg.connect", lambda dsn: _FakeConnection())
+    for name in (
+        "PlaygroundStore",
+        "DashboardStore",
+        "DashboardQueryResultStore",
+        "KpiRegistryStore",
+        "ProposalStore",
+        "SuggestionRunStore",
+        "DashboardSuggestionRunStore",
+        "DataSourceStore",
+        "SuggestionDismissalStore",
+    ):
+
+        class _NoopStore:
+            def __init__(self, connection):
+                pass
+
+            def ensure_schema(self):
+                pass
+
+        monkeypatch.setattr(factory_module, name, _NoopStore)
+
+    def _fail_if_constructed(*args, **kwargs):
+        raise AssertionError(
+            "LocalEncryptedSecretStore must not be constructed without an encryption key"
+        )
+
+    monkeypatch.setattr(
+        factory_module, "LocalEncryptedSecretStore", _fail_if_constructed
+    )
+    _stub_engine_ddl(monkeypatch)
+
+    factory_module._ensure_control_plane_schemas(
+        RetailSettings(
+            retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db",
+            retail_secret_encryption_key=None,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider", "key", "provisioned"),
+    [
+        # The only combination that provisions the local secret table.
+        ("local_encrypted", "a-key", True),
+        # Key Vault holds the secrets: a key set alongside it is not this store's business.
+        ("azure_key_vault", "a-key", False),
+        # An unset key is refused where it is used, not at boot.
+        ("local_encrypted", None, False),
+        ("azure_key_vault", None, False),
+    ],
+)
+def test_ensure_control_plane_schemas_provisions_the_local_secret_table_only_when_it_is_used(
+    monkeypatch, provider, key, provisioned
+):
+    """#304: ``LocalEncryptedSecretStore``'s table is provisioned only for the
+    ``local_encrypted`` provider *with* a key -- every branch of that conditional."""
+    provisioned_with: list = []
+
+    class _FakeConnection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr("psycopg.connect", lambda dsn: _FakeConnection())
+    for name in (
+        "PlaygroundStore",
+        "DashboardStore",
+        "DashboardQueryResultStore",
+        "KpiRegistryStore",
+        "ProposalStore",
+        "SuggestionRunStore",
+        "DashboardSuggestionRunStore",
+        "DataSourceStore",
+        "SuggestionDismissalStore",
+    ):
+
+        class _NoopStore:
+            def __init__(self, connection):
+                pass
+
+            def ensure_schema(self):
+                pass
+
+        monkeypatch.setattr(factory_module, name, _NoopStore)
+
+    class _FakeSecretStore:
+        def __init__(self, connection, encryption_key):
+            assert isinstance(connection, _FakeConnection)
+            self._key = encryption_key
+
+        def ensure_schema(self):
+            provisioned_with.append(self._key)
+
+    monkeypatch.setattr(factory_module, "LocalEncryptedSecretStore", _FakeSecretStore)
+    _stub_engine_ddl(monkeypatch)
+
+    factory_module._ensure_control_plane_schemas(
+        RetailSettings(
+            retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db",
+            retail_secret_store_provider=provider,
+            retail_secret_encryption_key=key,
+        )
+    )
+
+    assert provisioned_with == ([key] if provisioned else [])
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():

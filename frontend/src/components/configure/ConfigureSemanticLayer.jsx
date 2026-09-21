@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Check, GitMerge, Ruler, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, GitMerge, Loader2, RefreshCw, Ruler, ShieldCheck, Sparkles, Table2 } from "lucide-react";
 import { useConfigureWorkspace } from "../../context/ConfigureWorkspaceContext";
-import { metricsUnlockedBy, modelStateFor } from "./source-model-state";
+import { fetchSemanticTables } from "../../services/semantic-tables-api";
+import { HARVESTABLE_SOURCE_TYPES } from "../../services/sources-api";
+import { MODEL_STATES, formatSync, metricsUnlockedBy, modelStateFor } from "./source-model-state";
 import { decisionsForSource, entitiesForSource, sensitiveColumnsForSource } from "./semantic-model";
 
 /**
@@ -15,6 +17,13 @@ import { decisionsForSource, entitiesForSource, sensitiveColumnsForSource } from
  *
  * Reached from the source card rather than from a tab of its own: the semantic layer belongs to
  * the source it was derived from, and a global tab would be empty until something is connected.
+ *
+ * Two kinds of source arrive here (#308). A REAL one (registered through `/configure/sources`)
+ * shows what #306's harvest actually read -- `GET /semantic/tables?source_id=` (#307), its own
+ * snapshot, its own harvest state -- and says plainly what has not been built for it yet: the
+ * join/measure review and the personal-data scan below are not run for connected sources, so
+ * nothing is invented for them. A seeded DEMO row still shows the catalogue-derived review the
+ * design was drawn around.
  */
 
 const KIND_META = {
@@ -117,97 +126,345 @@ const ROLE_STYLE = {
  dimension: "bg-surface-tertiary text-text-muted",
 };
 
-export default function ConfigureSemanticLayer() {
+function Header({ source, right, children }) {
  const navigate = useNavigate();
- const [params] = useSearchParams();
- const { data, hydrated } = useConfigureWorkspace();
- const sourceId = params.get("source");
+ return (
+  <div className="flex flex-wrap items-start justify-between gap-3">
+   <div>
+    <button
+     type="button"
+     onClick={() => navigate("/configure/internal-sources")}
+     className="mb-1 inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-text-primary"
+    >
+     <ArrowLeft size={13} />
+     Data sources
+    </button>
+    <h2 className="text-xl font-bold text-text-primary">{source.name}</h2>
+    <p className="mt-0.5 max-w-2xl text-sm text-text-secondary">{children}</p>
+   </div>
+   {right}
+  </div>
+ );
+}
 
- const source = useMemo(
-  () => (data.internalSources || []).find((s) => s.id === sourceId) || null,
-  [data.internalSources, sourceId]
+function Tabs({ tabs, tab, setTab }) {
+ return (
+  <div className="flex gap-1 border-b border-border">
+   {tabs.map((t) => (
+    <button
+     key={t.id}
+     type="button"
+     onClick={() => setTab(t.id)}
+     className={`relative -mb-px border-b-2 px-3 pb-2.5 pt-2 text-sm font-semibold transition-colors ${
+      tab === t.id ? "border-primary text-primary" : "border-transparent text-text-muted hover:text-text-secondary"
+     }`}
+    >
+     {t.label}
+     <span
+      className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${
+       tab === t.id ? "bg-primary-light text-primary" : "bg-surface-secondary text-text-muted"
+      }`}
+     >
+      {t.count}
+     </span>
+    </button>
+   ))}
+  </div>
+ );
+}
+
+function formatHarvestedAt(iso) {
+ if (!iso || iso === "never") return "never";
+ const t = Date.parse(iso);
+ if (Number.isNaN(t)) return iso;
+ return new Date(t).toLocaleString();
+}
+
+/** A real source: its own harvest, read from the API; nothing derived from demo data. */
+function LiveSourceSemanticLayer({ source }) {
+ const navigate = useNavigate();
+ const { startInternalHarvest } = useConfigureWorkspace();
+ const model = modelStateFor(source);
+ const pill = MODEL_STATES[model.state] || MODEL_STATES.not_started;
+ const [tab, setTab] = useState("review");
+ const [listing, setListing] = useState({ state: "loading", tables: [], snapshot: null, error: null });
+ const [starting, setStarting] = useState(false);
+ const [startError, setStartError] = useState(null);
+
+ // Re-read when the polled harvest state changes, so the table list appears the moment a
+ // build finishes without anyone reloading the page.
+ useEffect(() => {
+  const controller = new AbortController();
+  setListing((prev) => ({ ...prev, state: "loading", error: null }));
+  fetchSemanticTables({ sourceId: source.id, signal: controller.signal })
+   .then((res) => {
+    if (controller.signal.aborted) return;
+    setListing({ state: "ready", tables: res?.tables || [], snapshot: res?.snapshot || null, error: null });
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setListing({ state: "error", tables: [], snapshot: null, error: err?.detail || err?.message || "Could not read the semantic layer." });
+   });
+  return () => controller.abort();
+ }, [source.id, source.harvestState]);
+
+ const harvestable = HARVESTABLE_SOURCE_TYPES.has(source.sourceType);
+ const onHarvest = async () => {
+  setStarting(true);
+  setStartError(null);
+  try {
+   await startInternalHarvest(source.id);
+  } catch (err) {
+   setStartError(err?.detail || err?.message || "Could not start modelling.");
+  } finally {
+   setStarting(false);
+  }
+ };
+
+ const harvestButton = harvestable && (
+  <button
+   type="button"
+   onClick={onHarvest}
+   disabled={starting || model.state === "building"}
+   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+  >
+   <RefreshCw size={14} className={starting ? "animate-spin" : ""} />
+   {model.state === "modelled"
+    ? "Model again"
+    : model.state === "error" || model.state === "needs_review"
+     ? "Retry modelling"
+     : "Build model"}
+  </button>
  );
 
+ const tables = listing.tables;
+ const unharvested = !listing.snapshot || listing.snapshot.version === "unharvested";
+
+ return (
+  <div className="space-y-5">
+   <Header
+    source={source}
+    right={
+     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold ${pill.pill}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+      {pill.label}
+     </span>
+    }
+   >
+    What the harvest read from this source. Confirm what was inferred before answers are built on it —
+    a wrong join produces a believable, wrong number.
+   </Header>
+
+   {/* The source's own snapshot, not the operator's: which harvest this listing is, and when. */}
+   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border bg-surface-secondary px-4 py-2.5 text-xs text-text-secondary">
+    <span>
+     Snapshot{" "}
+     <strong className="font-mono text-text-primary">
+      {listing.state === "loading" ? "…" : unharvested ? "none yet" : listing.snapshot.version}
+     </strong>
+    </span>
+    <span>
+     Last harvest <strong className="text-text-primary">{formatSync(model.syncedMinsAgo)}</strong>
+     {source.lastHarvestAt ? <span className="text-text-muted"> ({formatHarvestedAt(source.lastHarvestAt)})</span> : null}
+    </span>
+    <span>
+     Schema <strong className="font-mono text-text-primary">{source.schema || "—"}</strong>
+    </span>
+   </div>
+
+   {startError && (
+    <div role="alert" className="rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+     {startError}
+    </div>
+   )}
+
+   <Tabs
+    tab={tab}
+    setTab={setTab}
+    tabs={[
+     { id: "review", label: "Needs review", count: model.reviewItems || 0 },
+     { id: "tables", label: "Tables", count: listing.state === "ready" ? tables.length : "…" },
+    ]}
+   />
+
+   {tab === "review" && (
+    <div className="space-y-3">
+     {model.state === "needs_review" && (
+      <div className="rounded-xl border border-status-warning-border bg-status-warning-light p-4">
+       <div className="flex items-start gap-2.5">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0 text-status-warning" />
+        <div className="min-w-0">
+         <p className="text-sm font-semibold text-text-primary">The harvest stopped before writing anything</p>
+         <p className="mt-1 text-sm text-text-secondary">{model.reason}</p>
+         <div className="mt-3 flex flex-wrap gap-2">
+          <button
+           type="button"
+           onClick={() => navigate(`/configure/internal-sources/edit/${encodeURIComponent(source.id)}`)}
+           className="rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-primary-hover"
+          >
+           Edit source
+          </button>
+          {harvestButton}
+         </div>
+        </div>
+       </div>
+      </div>
+     )}
+     {model.state === "building" && (
+      <div className="flex items-center gap-3 rounded-xl border border-status-info-border bg-status-info-light px-4 py-3 text-sm text-status-info">
+       <Loader2 size={16} className="animate-spin" />
+       {model.step}
+      </div>
+     )}
+     {model.state === "error" && (
+      <div className="rounded-xl border border-status-critical-border bg-status-critical-light p-4">
+       <p className="text-sm font-semibold text-text-primary">The last harvest failed</p>
+       <p className="mt-1 text-sm text-text-secondary">
+        {model.error} The Data sources form's Test Connection shows the reason the API classified.
+       </p>
+       <div className="mt-3 flex flex-wrap gap-2">
+        <button
+         type="button"
+         onClick={() => navigate(`/configure/internal-sources/edit/${encodeURIComponent(source.id)}`)}
+         className="rounded-lg border border-border-light bg-surface px-3.5 py-1.5 text-sm font-semibold text-text-primary hover:bg-surface-secondary"
+        >
+         Test connection
+        </button>
+        {harvestButton}
+       </div>
+      </div>
+     )}
+     {model.state === "not_started" && (
+      <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-14 text-center">
+       <p className="text-sm font-semibold text-text-primary">Not modelled yet</p>
+       <p className="mt-1 text-sm text-text-muted">
+        {harvestable
+         ? "Nothing has read this source's schema. Build the model to see its tables here."
+         : "No connector models this source type yet, so there is nothing to review."}
+       </p>
+       {harvestButton && <div className="mt-4 flex justify-center">{harvestButton}</div>}
+      </div>
+     )}
+     {model.state === "modelled" && (
+      <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-14 text-center">
+       <Check size={26} className="mx-auto mb-3 text-status-success" />
+       <p className="text-sm font-semibold text-text-primary">Nothing waiting on you</p>
+       <p className="mt-1 mx-auto max-w-lg text-sm text-text-muted">
+        This harvest recorded tables and columns. Join-path and measure review for connected sources is
+        not built yet, so no decision is proposed here — the Tables tab is what was read.
+       </p>
+      </div>
+     )}
+    </div>
+   )}
+
+   {tab === "tables" && (
+    <div className="space-y-3">
+     {listing.state === "loading" && (
+      <p className="inline-flex items-center gap-2 text-sm text-text-secondary">
+       <Loader2 size={14} className="animate-spin" /> Reading the semantic layer…
+      </p>
+     )}
+     {listing.state === "error" && (
+      <div role="alert" className="rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+       {listing.error}
+      </div>
+     )}
+     {listing.state === "ready" && tables.length === 0 && (
+      <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-14 text-center">
+       <Table2 size={26} className="mx-auto mb-3 text-text-muted" />
+       <p className="text-sm font-semibold text-text-primary">No tables recorded for this source</p>
+       <p className="mt-1 text-sm text-text-muted">
+        {model.state === "modelled"
+         ? "The harvest found no tables in the configured schema."
+         : "They appear here once a harvest has run."}
+       </p>
+      </div>
+     )}
+     {listing.state === "ready" && tables.length > 0 && (
+      <div className="overflow-hidden rounded-xl border border-border">
+       <table className="w-full text-sm">
+        <thead className="bg-surface-secondary text-left text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+         <tr>
+          <th className="px-4 py-2">Table</th>
+          <th className="px-4 py-2">Schema</th>
+          <th className="px-4 py-2 text-right">Rows</th>
+         </tr>
+        </thead>
+        <tbody>
+         {tables.map((t) => (
+          <tr key={`${t.schema}.${t.name}`} className="border-t border-border">
+           <td className="px-4 py-2 font-mono text-text-primary">{t.name}</td>
+           <td className="px-4 py-2 font-mono text-xs text-text-secondary">{t.schema}</td>
+           <td className="px-4 py-2 text-right text-text-secondary">
+            {t.row_count == null ? "—" : Number(t.row_count).toLocaleString()}
+           </td>
+          </tr>
+         ))}
+        </tbody>
+       </table>
+      </div>
+     )}
+    </div>
+   )}
+
+   {/* Said outright rather than shown as a clean result: a scan that never ran is not a scan
+       that found nothing. */}
+   <div className="flex items-start gap-2.5 rounded-xl border border-border bg-surface-secondary px-4 py-3">
+    <ShieldCheck size={16} className="mt-0.5 text-text-muted" />
+    <div className="text-sm">
+     <p className="font-semibold text-text-primary">Personal-data scan not run for connected sources</p>
+     <p className="text-text-muted">
+      Column-level sensitivity for a connected source is not classified yet; nothing here is excluded or allowed on
+      that basis.
+     </p>
+    </div>
+   </div>
+  </div>
+ );
+}
+
+/** A seeded demo row: the catalogue-derived review the design was drawn around. */
+function DemoSourceSemanticLayer({ source }) {
+ const navigate = useNavigate();
  const [resolved, setResolved] = useState(() => new Set());
  const [tab, setTab] = useState("review");
 
- const sourceType = source?.sourceType;
+ const sourceType = source.sourceType;
  const entities = useMemo(() => entitiesForSource(sourceType), [sourceType]);
  const decisions = useMemo(() => decisionsForSource(sourceType), [sourceType]);
  const sensitive = useMemo(() => sensitiveColumnsForSource(sourceType), [sourceType]);
  const unlocked = useMemo(() => metricsUnlockedBy(sourceType), [sourceType]);
 
- if (!hydrated) return <p className="text-sm text-text-secondary">Loading…</p>;
-
- if (!source) {
-  return (
-   <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-16 text-center">
-    <p className="text-sm text-text-secondary">Pick a source to see what we understand about it.</p>
-    <button
-     type="button"
-     onClick={() => navigate("/configure/internal-sources")}
-     className="mt-3 text-sm font-semibold text-primary hover:underline"
-    >
-     Back to data sources
-    </button>
-   </div>
-  );
- }
-
  const open = decisions.filter((d) => !resolved.has(d.id));
- const model = modelStateFor(source.id);
+ const model = modelStateFor(source);
 
  return (
   <div className="space-y-5">
-   <div className="flex flex-wrap items-start justify-between gap-3">
-    <div>
-     <button
-      type="button"
-      onClick={() => navigate("/configure/internal-sources")}
-      className="mb-1 inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-text-primary"
-     >
-      <ArrowLeft size={13} />
-      Data sources
-     </button>
-     <h2 className="text-xl font-bold text-text-primary">{source.name}</h2>
-     <p className="mt-0.5 max-w-2xl text-sm text-text-secondary">
-      What we understand about this source. Confirm what was inferred before answers are built on it —
-      a wrong join produces a believable, wrong number.
-     </p>
-    </div>
-    {open.length === 0 && (
-     <span className="inline-flex items-center gap-1.5 rounded-full bg-status-success-light px-3 py-1.5 text-sm font-semibold text-status-success">
-      <Check size={15} />
-      Everything confirmed
-     </span>
-    )}
-   </div>
+   <Header
+    source={source}
+    right={
+     open.length === 0 && (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-status-success-light px-3 py-1.5 text-sm font-semibold text-status-success">
+       <Check size={15} />
+       Everything confirmed
+      </span>
+     )
+    }
+   >
+    What we understand about this source. Confirm what was inferred before answers are built on it —
+    a wrong join produces a believable, wrong number.
+   </Header>
 
-   <div className="flex gap-1 border-b border-border">
-    {[
+   <Tabs
+    tab={tab}
+    setTab={setTab}
+    tabs={[
      { id: "review", label: "Needs review", count: open.length },
      { id: "entities", label: "Entities", count: entities.length },
      { id: "metrics", label: "Metrics unlocked", count: unlocked.length },
-    ].map((t) => (
-     <button
-      key={t.id}
-      type="button"
-      onClick={() => setTab(t.id)}
-      className={`relative -mb-px border-b-2 px-3 pb-2.5 pt-2 text-sm font-semibold transition-colors ${
-       tab === t.id ? "border-primary text-primary" : "border-transparent text-text-muted hover:text-text-secondary"
-      }`}
-     >
-      {t.label}
-      <span
-       className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${
-        tab === t.id ? "bg-primary-light text-primary" : "bg-surface-secondary text-text-muted"
-       }`}
-      >
-       {t.count}
-      </span>
-     </button>
-    ))}
-   </div>
+    ]}
+   />
 
    {tab === "review" && (
     <div className="space-y-3">
@@ -320,4 +577,42 @@ export default function ConfigureSemanticLayer() {
    )}
   </div>
  );
+}
+
+export default function ConfigureSemanticLayer() {
+ const navigate = useNavigate();
+ const [params] = useSearchParams();
+ const { data, hydrated, sourcesStatus } = useConfigureWorkspace();
+ const sourceId = params.get("source");
+
+ const source = useMemo(
+  () => (data.internalSources || []).find((s) => s.id === sourceId) || null,
+  [data.internalSources, sourceId]
+ );
+
+ if (!hydrated) return <p className="text-sm text-text-secondary">Loading…</p>;
+
+ if (!source) {
+  // A real source's id is only known once the list has loaded; do not say "pick a source"
+  // to someone who arrived by its link a moment before the API answered.
+  if (sourceId && sourcesStatus.state === "loading") {
+   return <p className="text-sm text-text-secondary">Loading…</p>;
+  }
+  return (
+   <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-16 text-center">
+    <p className="text-sm text-text-secondary">
+     {sourceId ? "That source is not connected any more." : "Pick a source to see what we understand about it."}
+    </p>
+    <button
+     type="button"
+     onClick={() => navigate("/configure/internal-sources")}
+     className="mt-3 text-sm font-semibold text-primary hover:underline"
+    >
+     Back to data sources
+    </button>
+   </div>
+  );
+ }
+
+ return source.seed ? <DemoSourceSemanticLayer source={source} /> : <LiveSourceSemanticLayer source={source} />;
 }

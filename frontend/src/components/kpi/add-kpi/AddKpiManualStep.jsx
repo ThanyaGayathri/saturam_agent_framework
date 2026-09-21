@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { fetchSemanticTables } from "../../../services/semantic-tables-api";
 import { FIELD_INPUT } from "../ModeCard";
 import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
@@ -14,9 +14,7 @@ import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
  * slugified server-side, so "RFQ quote" is as good as "rfq_quote").
  *
  * Source tables come from `GET /semantic/tables`: the same allow-list the SQL guard enforces,
- * so a formula can only ever name a table the semantic layer exposes. Fetched once per mount
- * -- and the modal keeps this step mounted (hidden) across "Change how", so a look back at the
- * mode cards neither refetches nor loses the draft.
+ * so a formula can only ever name a table the semantic layer exposes. Fetched once per mount.
  *
  * `saving` is the modal's, not this step's: the modal needs it to refuse a backdrop / X
  * dismiss while the POST is in flight (see `AddKpiModal.jsx`); this step only reports it.
@@ -30,7 +28,6 @@ export default function AddKpiManualStep({
  onRetryAreas,
  saving = false,
  onSavingChange,
- onBack,
  onCreate,
 }) {
  const [name, setName] = useState("");
@@ -123,16 +120,6 @@ export default function AddKpiManualStep({
 
  return (
   <>
-   <button
-    type="button"
-    onClick={onBack}
-    disabled={saving}
-    className="mb-4 inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-text-primary disabled:opacity-60"
-   >
-    <ArrowLeft size={13} />
-    Change how
-   </button>
-
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
     <div className="sm:col-span-2">
      <label htmlFor="kpi-name" className={LABEL}>Name</label>

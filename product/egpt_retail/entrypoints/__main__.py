@@ -104,6 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After the refresh, run the KPI and use case suggestion pass and file proposals.",
     )
+    harvest.add_argument(
+        "--source-id",
+        default="",
+        help=(
+            "Harvest one self-serve source (its /configure/sources id) with its stored "
+            "credential, the same executor the harvest-source workflow runs."
+        ),
+    )
 
     # The step between building the layer and suggesting over it: which of the customer's
     # tables is which concept. Separate so it can be re-run after an overlay or a comment
@@ -177,11 +185,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "harvest":
         from egpt_retail.entrypoints.harvest import main as run_harvest
 
+        # Forward every flag, --source-id included, so harvest.py's own parser is the one
+        # place that decides whether the combination is valid (--source-id refuses the
+        # warehouse flags as a usage error); dropping them here would ignore them silently.
         argv_harvest = ["--schema", args.schema, "--version", args.version]
         if args.propose:
             argv_harvest.append("--propose")
         if args.suggest:
             argv_harvest.append("--suggest")
+        if args.source_id:
+            argv_harvest += ["--source-id", args.source_id]
         return run_harvest(argv_harvest)
     if args.command == "propose":
         from egpt_retail.semantic.propose import propose as run_propose
