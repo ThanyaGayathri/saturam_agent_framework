@@ -1,8 +1,8 @@
 /**
  * The AI-composed dashboard flow's backend seam: `POST /dashboards/suggestions` +
- * `GET /dashboards/suggestions/{run_id}`. Same run-then-poll shape `services/kpis-api.js`'s
- * `startKpiSuggestionRun`/`fetchKpiSuggestionRun` already use (#254) -- a live model call takes
- * minutes, not seconds, so it is a resource to poll, not a response to await.
+ * `GET /dashboards/suggestions/{run_id}`. A run to start and poll (#254), the way KPI suggestion
+ * runs were before they became automatic -- a live model call takes minutes, not seconds, so it is
+ * a resource to poll, not a response to await.
  */
 
 import { apiGet, apiJson } from "../lib/api";

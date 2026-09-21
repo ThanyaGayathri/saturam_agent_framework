@@ -347,6 +347,9 @@ KpiSuggestion:
       $ref: './common.yaml#/Feasibility'
     proposed_by:
       $ref: './common.yaml#/SkillRef'
+    source_id:
+      type: [string, "null"]
+      description: The registered data source (`InternalSource.id`) whose tables this suggestion was proposed from -- the source whose harvest triggered the run that produced it. Null for a suggestion proposed over the deployment's own warehouse (a run started by `POST /kpis/suggestions`).
 
 KpiSuggestionList:
   type: object
@@ -401,6 +404,16 @@ KpiSuggestionRunRequest:
         supports, judged and stamped exactly as an unprompted run's would be, so a request the
         harvest cannot back produces no invented metric, only the agent's note saying so.
         Whitespace-only reads as absent.
+    source_id:
+      type: [string, "null"]
+      description: |
+        A registered data source (`InternalSource.id`) to suggest for. The run reads only that
+        source's tables and is recorded as that source's run (`KpiSuggestionRun.source_id`), so
+        its result replaces the source's earlier suggestions in `GET /kpis/suggestions/current`.
+        This is how a run that failed after a harvest is started again for the same source.
+        `404` for an id no source has, `409` for a source whose harvest has not finished
+        (`InternalSource.harvest_state` is not `modelled`): there are no tables to read yet.
+        Absent (or null) is the deployment's own warehouse, as before.
 
 KpiSuggestionRun:
   type: object
@@ -433,6 +446,9 @@ KpiSuggestionRun:
     ask:
       type: [string, "null"]
       description: The request the run was started with (`KpiSuggestionRunRequest.ask`), echoed so a screen restoring a run can say what it was for. Null when none.
+    source_id:
+      type: [string, "null"]
+      description: The registered data source (`InternalSource.id`) this run was started for. A run is started for a source automatically when that source's harvest finishes (the `suggest-kpis` step of the `harvest-source` workflow), and reads only that source's tables. Null for a run started by `POST /kpis/suggestions`, which reads the deployment's own warehouse.
     created_at:
       $ref: './common.yaml#/Timestamp'
     started_at:
@@ -658,3 +674,56 @@ KpiComputeResult:
     run_id: {type: string}
     error: {type: [string, "null"]}
     reason: {type: [string, "null"]}
+
+KpiSuggestionCurrent:
+  type: object
+  description: |
+    The suggestions a person should see now, kept between visits. Unlike a run (which is one
+    pass of the agent and is read by id), this is the standing answer to "what has the platform
+    proposed that I have not yet adopted or dismissed": the newest successful run of each
+    source (and of the deployment's own warehouse), merged, less every suggestion already in
+    the registry and every one a person dismissed (`POST /kpis/suggestions/dismissals`). A
+    suggestion appears once even if more than one source proposed it.
+
+    `generating` and `failed` are for the screen to say what is happening behind the list: a
+    run still working (a source was just connected, and its suggestions are on the way) and
+    the most recent run that failed with no later success to replace it (so a missing list is
+    explained rather than silent). Both are runs with `result` omitted -- the list is
+    `suggestions`.
+  required: [suggestions, notes]
+  properties:
+    suggestions:
+      type: array
+      items:
+        $ref: './kpis.yaml#/KpiSuggestion'
+    notes:
+      type: string
+      description: What the runs that produced `suggestions` said was missing (the skill template's refusal shape). Empty when nothing was.
+    generating:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiSuggestionRun'
+        - type: "null"
+      description: A run that is `queued` or `running` now, newest first if several are; poll it with `GET /kpis/suggestions/{run_id}` and read this again when it finishes. Null when nothing is running.
+    failed:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiSuggestionRun'
+        - type: "null"
+      description: The newest run that ended `failed` and has not been superseded by a later success for the same source. Null when there is none.
+
+KpiSuggestionDismissalRequest:
+  type: object
+  required: [identifier]
+  properties:
+    identifier:
+      type: string
+      minLength: 1
+      description: The suggestion's `identifier` (`KpiSuggestion.identifier`). Matched case-insensitively.
+
+KpiSuggestionDismissal:
+  type: object
+  description: A suggestion a person removed. It stays out of `GET /kpis/suggestions/current` and out of every suggestion run read from then on, including runs that propose it again -- a dismissal is a decision, and the agent has no memory of it.
+  required: [identifier, dismissed_at]
+  properties:
+    identifier: {type: string}
+    dismissed_at:
+      $ref: './common.yaml#/Timestamp'

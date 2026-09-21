@@ -1,0 +1,367 @@
+"""#307 -- ``GET /semantic/tables?source_id=`` and ``build_source_read_guard``, DB-free.
+
+The graph-side property they depend on -- that a source's tables and the operator's never
+appear in each other's reads, including when they share a bare table name -- is proved
+against a real Neo4j by ``test_semantic_live.py::TestSourceScoping``. This file covers the
+router's own branching (default path untouched, 404 for an unknown source, the source's own
+snapshot) and the guard's allow-list, with the reader faked.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
+
+import pytest
+from egpt.exceptions import SQLGuardRefusal
+from egpt_retail.api.routers import semantic as semantic_module
+from egpt_retail.app.sql_guard import build_source_read_guard
+from egpt_retail.contracts.semantic import Column, Snapshot, Table, TableRef
+from egpt_retail.semantic.store import SemanticGraphStore
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+
+class _FakeReader:
+    """A reader that lists whatever it was scoped to. ``scope`` records the ``source_id`` it
+    was opened with, so a test can assert the router asked for the right one."""
+
+    def __init__(self, tables: Dict[str, List[TableRef]], scope: str) -> None:
+        self._tables = tables
+        self.scope = scope
+
+    def list_tables(self, *, include_proposed: bool = False):
+        return tuple(self._tables.get(self.scope, ()))
+
+    def snapshot(self) -> Snapshot:
+        return Snapshot(
+            version="op.1", harvested_at="2026-09-01T00:00:00Z", source="warehouse"
+        )
+
+    def source_snapshot_version(self) -> Optional[str]:
+        return "src.7" if self._tables.get(self.scope) else None
+
+    def get_table(self, name: str, *, include_proposed: bool = False):
+        """The table named ``name`` among what this reader is scoped to -- as the real
+        reader's scoped read is, so a name held only by another scope is absent."""
+        for ref in _DETAIL_TABLES.get(self.scope, ()):
+            if ref.name == name:
+                return Table(
+                    ref=ref,
+                    columns=(
+                        Column(name="id", data_type="text", nullable=False),
+                        Column(
+                            name=f"col_of_{self.scope or 'operator'}", data_type="text"
+                        ),
+                    ),
+                    description=f"{ref.name} as held by scope {self.scope or 'operator'!r}",
+                )
+        return None
+
+
+_TABLES = {
+    "": [TableRef(name="orders", schema="silver", row_count=10)],
+    "ds_1": [TableRef(name="orders", schema="public", row_count=3)],
+}
+
+#: What ``get_table`` can find per scope: the listing's tables plus one held by only one side,
+#: so a lookup can prove a name held by another scope is absent.
+_DETAIL_TABLES = {
+    "": _TABLES[""] + [TableRef(name="operator_only", schema="silver", row_count=1)],
+    "ds_1": _TABLES["ds_1"]
+    + [TableRef(name="source_only", schema="public", row_count=2)],
+}
+
+
+def _client(monkeypatch, *, registered: Dict[str, Any]) -> tuple:
+    opened: List[str] = []
+
+    @contextmanager
+    def _open(settings, driver=None, *, source_id=""):
+        opened.append(source_id)
+        yield _FakeReader(_TABLES, source_id)
+
+    class _Store:
+        def __init__(self, connection):
+            pass
+
+        def get(self, source_id):
+            return registered.get(source_id)
+
+    class _Conn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(semantic_module, "open_semantic_reader", _open)
+    monkeypatch.setattr(semantic_module, "DataSourceStore", _Store)
+    monkeypatch.setattr(
+        semantic_module, "pooled_control_plane_connection", lambda s: _Conn()
+    )
+
+    app = FastAPI()
+    app.include_router(semantic_module.router)
+
+    @app.middleware("http")
+    async def _auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = ["semantic:read"]
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app), opened
+
+
+def _source(**overrides: Any) -> Any:
+    fields = dict(
+        name="Customer warehouse",
+        last_harvest_at=datetime(2026, 9, 20, 8, 0, tzinfo=timezone.utc),
+    )
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+class TestListSemanticTablesSourceId:
+    def test_without_source_id_it_is_the_operators_listing_and_snapshot(
+        self, monkeypatch
+    ):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get("/semantic/tables").json()
+        assert opened == [""]  # the operator scope, exactly as before #307
+        assert [t["schema"] for t in body["tables"]] == ["silver"]
+        assert body["snapshot"]["version"] == "op.1"
+
+    def test_with_source_id_it_is_that_sources_listing_and_snapshot(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get("/semantic/tables", params={"source_id": "ds_1"}).json()
+        assert opened == ["ds_1"]
+        assert [t["schema"] for t in body["tables"]] == ["public"]
+        assert body["snapshot"] == {
+            "version": "src.7",
+            "harvested_at": "2026-09-20T08:00:00+00:00",
+            "source": "Customer warehouse",
+        }
+
+    def test_an_unknown_source_is_404_not_an_empty_list(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={})
+        response = client.get("/semantic/tables", params={"source_id": "ds_missing"})
+        assert response.status_code == 404
+        assert "ds_missing" in response.json()["detail"]
+        assert opened == []  # never reached the graph
+
+    def test_a_registered_but_unharvested_source_is_an_empty_answer(self, monkeypatch):
+        client, _ = _client(
+            monkeypatch,
+            registered={"ds_new": _source(last_harvest_at=None)},
+        )
+        body = client.get("/semantic/tables", params={"source_id": "ds_new"}).json()
+        assert body["tables"] == []
+        assert body["snapshot"]["version"] == "unharvested"
+        assert body["snapshot"]["harvested_at"] == "never"
+
+    def test_a_harvested_source_whose_tables_are_gone_does_not_contradict_itself(
+        self, monkeypatch
+    ):
+        """``version`` is read off the tables held now and ``harvested_at`` off the
+        registration, so a harvested source that was since pruned to nothing has a real
+        timestamp and no version. It must not say "unharvested" beside a real time."""
+        client, _ = _client(monkeypatch, registered={"ds_gone": _source()})
+        body = client.get("/semantic/tables", params={"source_id": "ds_gone"}).json()
+        assert body["tables"] == []
+        assert body["snapshot"]["version"] == "empty"
+        assert body["snapshot"]["harvested_at"] == "2026-09-20T08:00:00+00:00"
+
+    def test_an_empty_source_id_is_an_unknown_source_not_the_operators_listing(
+        self, monkeypatch
+    ):
+        """An omitted parameter is the operator's listing; ``source_id=`` is not the same
+        thing. It names no registered source, so it is a 404 -- not the operator's tables
+        by way of the operator's own source id also being the empty string."""
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get("/semantic/tables", params={"source_id": ""})
+        assert response.status_code == 404
+        assert opened == []  # never reached the graph, and not the operator scope
+
+
+class TestGetSemanticTableSourceId:
+    """``GET /semantic/tables/{name}?source_id=`` (contract 1.2.9): the table a listing shows
+    under a source can be read back under it. Without this the Data catalog listed a
+    harvested source's tables and found no columns for any of them."""
+
+    def test_without_source_id_it_is_the_operators_table(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get("/semantic/tables/orders").json()
+        assert body["ref"]["schema"] == "silver"
+        assert "operator" in body["description"]
+        assert opened == [""]
+
+    def test_with_source_id_it_is_that_sources_table_and_columns(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get(
+            "/semantic/tables/orders", params={"source_id": "ds_1"}
+        ).json()
+        assert body["ref"]["schema"] == "public"
+        assert [c["name"] for c in body["columns"]] == ["id", "col_of_ds_1"]
+        assert opened == ["ds_1"]
+
+    def test_a_table_only_the_source_holds_is_found_under_it(self, monkeypatch):
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/source_only", params={"source_id": "ds_1"}
+        )
+        assert response.status_code == 200
+
+    def test_a_sources_table_never_answers_in_the_default_lookup(self, monkeypatch):
+        """The operator's read must not see a customer's table -- the same guarantee the
+        listing gives, so a customer's `source_only` cannot stand in for an operator table."""
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        assert client.get("/semantic/tables/source_only").status_code == 404
+
+    def test_an_operator_table_is_not_found_under_a_source(self, monkeypatch):
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/operator_only", params={"source_id": "ds_1"}
+        )
+        assert response.status_code == 404
+        assert "operator_only" in response.json()["detail"]
+
+    def test_an_unknown_source_is_a_404_and_never_reaches_the_graph(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/orders", params={"source_id": "ds_missing"}
+        )
+        assert response.status_code == 404
+        assert "ds_missing" in response.json()["detail"]
+        assert opened == []
+
+    def test_an_empty_source_id_is_an_unknown_source_not_the_operators_table(
+        self, monkeypatch
+    ):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get("/semantic/tables/orders", params={"source_id": ""})
+        assert response.status_code == 404
+        assert opened == []
+
+
+class _RecordingDriver:
+    """A Neo4j driver that records what it is asked. ``opened`` counts sessions, so a test can
+    prove a refusal happened before the graph was so much as contacted."""
+
+    def __init__(self, tables_removed: int = 2) -> None:
+        self.statements: List[tuple] = []
+        self.opened = 0
+        self.write_transactions = 0
+        self._removed = tables_removed
+
+    def session(self, **kwargs: Any) -> "_RecordingDriver":
+        self.opened += 1
+        return self
+
+    def __enter__(self) -> "_RecordingDriver":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def execute_write(self, function: Any, *args: Any) -> Any:
+        self.write_transactions += 1
+        return function(self, *args)
+
+    def run(self, statement: str, **params: Any) -> Any:
+        self.statements.append((statement, params))
+        removed = self._removed
+
+        class _Result:
+            def single(self) -> Any:
+                return {"n": removed}
+
+        return _Result()
+
+
+class TestDeleteSourceTables:
+    """``SemanticGraphStore.delete_source_tables``: what it may touch is proved against a real
+    Neo4j by ``test_source_delete_live.py`` (another source's tables, the operator's, and the
+    shared concepts all survive). Here: the statements it sends, and the refusal that must come
+    before any of them."""
+
+    @staticmethod
+    def _store(driver: _RecordingDriver) -> SemanticGraphStore:
+        return SemanticGraphStore(driver=driver, database="neo4j")
+
+    @pytest.mark.parametrize("empty", ["", None])
+    def test_the_operators_own_warehouse_is_refused_before_the_graph_is_contacted(
+        self, empty: Any
+    ) -> None:
+        driver = _RecordingDriver()
+        with pytest.raises(ValueError, match="never removes"):
+            self._store(driver).delete_source_tables(empty)
+        assert driver.opened == 0
+        assert driver.statements == []
+
+    def test_the_async_twin_refuses_the_same_way(self) -> None:
+        import asyncio
+
+        driver = _RecordingDriver()
+        with pytest.raises(ValueError):
+            asyncio.run(self._store(driver).adelete_source_tables(""))
+        assert driver.opened == 0
+
+    def test_it_is_one_write_transaction_returning_how_many_tables_went(self) -> None:
+        driver = _RecordingDriver(tables_removed=3)
+        assert self._store(driver).delete_source_tables("ds_1") == 3
+        assert (
+            driver.write_transactions == 1
+        )  # a failure part-way leaves the graph as it was
+
+    def test_every_statement_is_scoped_by_the_sources_id_and_by_nothing_else(
+        self,
+    ) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert len(driver.statements) == 2  # columns, then tables
+        for statement, params in driver.statements:
+            assert params == {"source_id": "ds_1"}  # no schema, no name: the tag alone
+            assert "t.source_id = $source_id" in statement
+            # the second guard, in the query itself: the operator's tables are stored with
+            # source_id = '', so an empty id that got past the Python check must match nothing
+            assert "$source_id <> ''" in statement
+            assert (
+                "schema" not in statement
+            )  # not by schema: identity is (schema, name)
+            assert "DETACH DELETE" in statement  # concept links go with the tables
+
+    def test_the_shared_concepts_are_never_matched(self) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert not any("SemanticConcept" in st for st, _ in driver.statements)
+
+    def test_columns_are_removed_before_their_tables(self) -> None:
+        driver = _RecordingDriver()
+        self._store(driver).delete_source_tables("ds_1")
+        assert "SemanticColumn" in driver.statements[0][0]
+        assert "SemanticTable" in driver.statements[1][0]
+
+
+class TestBuildSourceReadGuard:
+    @staticmethod
+    def _guard(schema: str = "public"):
+        return build_source_read_guard(_FakeReader(_TABLES, "ds_1"), schema=schema)
+
+    def test_a_statement_over_the_sources_tables_passes(self):
+        self._guard().check("SELECT id FROM public.orders")
+
+    def test_a_table_the_source_does_not_hold_is_refused(self):
+        with pytest.raises(SQLGuardRefusal):
+            self._guard().check("SELECT * FROM public.secrets")
+
+    def test_another_schema_is_refused_even_for_an_allowed_bare_name(self):
+        """The allow-list is bare-name-only -- ``orders`` is allowed -- so it is the named
+        schema that stops ``silver.orders`` (the operator's) running on a customer's
+        connection."""
+        with pytest.raises(SQLGuardRefusal):
+            self._guard().check("SELECT * FROM silver.orders")
+
+    def test_a_write_is_refused(self):
+        with pytest.raises(SQLGuardRefusal):
+            self._guard().check("DELETE FROM public.orders")

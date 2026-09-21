@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
  AlertTriangle,
@@ -66,6 +66,9 @@ function sourcesFor(kpi) {
  return [...new Set(labels)].sort();
 }
 
+// Room the remove/dismiss confirmation needs below its button (px) -- see `openConfirmDelete`.
+const CONFIRM_POPOVER_ROOM = 150;
+
 const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
 
 /**
@@ -118,10 +121,17 @@ export const NOT_SELECTABLE_REASONS = {
    </>
   ),
  },
+ // A suggestion proposed from a connected source cannot be adopted yet (see the adopt button
+ // below), so "click Add to my metrics first" would send the customer to a button that is not there.
+ fromSource: {
+  text: "Proposed from a connected source. It can't be added to your metrics yet, so it can't go on a dashboard.",
+  node: "Proposed from a connected source. It can't be added to your metrics yet, so it can't go on a dashboard.",
+ },
 };
 
 export function notSelectableReasonFor(row, bucket) {
  if (bucket === "blocked") return NOT_SELECTABLE_REASONS.blocked;
+ if (row.suggested && row.suggestion?.source_id) return NOT_SELECTABLE_REASONS.fromSource;
  if (row.suggested) return NOT_SELECTABLE_REASONS.adoptFirst;
  return NOT_SELECTABLE_REASONS.blocked;
 }
@@ -275,6 +285,8 @@ function KpiTable({
  onAdopt,
  onRemove,
  removeState,
+ onDismiss,
+ dismissState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -294,14 +306,35 @@ function KpiTable({
  // easy to miss in review: it *is* in the DOM and *is* clickable, it is just invisible.
  const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
  const [confirmDeletePos, setConfirmDeletePos] = useState(null);
+ // The button the open confirmation points at, and where it was: what a scroll is judged against.
+ const confirmAnchorRef = useRef(null);
  const openConfirmDelete = (key, buttonEl) => {
   const rect = buttonEl.getBoundingClientRect();
+  confirmAnchorRef.current = { el: buttonEl, top: rect.top };
   setConfirmDeleteKey(key);
-  setConfirmDeletePos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+  // Below the button, unless there is not room for it there: the popover is fixed to the viewport
+  // and any scroll closes it (below), so one that opened partly off the bottom edge could not be
+  // reached at all -- reaching it means scrolling, and scrolling closes it. Above the button then.
+  const below = rect.bottom + 6 + CONFIRM_POPOVER_ROOM <= window.innerHeight;
+  setConfirmDeletePos({
+   ...(below ? { top: rect.bottom + 6 } : { bottom: window.innerHeight - rect.top + 6 }),
+   right: Math.max(8, window.innerWidth - rect.right),
+  });
  };
  const closeConfirmDelete = () => {
+  confirmAnchorRef.current = null;
   setConfirmDeleteKey(null);
   setConfirmDeletePos(null);
+ };
+ // A scroll closes the confirmation only if it moved the button the confirmation points at: the
+ // popover's position was captured once, so it would drift away from a button that scrolled, but
+ // a scroll that left the button where it was (the tail of the scroll that brought the row into
+ // view, arriving just after the popover opened) has nothing to correct -- and closing on it
+ // shut the confirmation before it could be used.
+ const closeConfirmDeleteIfAnchorMoved = () => {
+  const anchor = confirmAnchorRef.current;
+  if (!anchor?.el?.isConnected) return closeConfirmDelete();
+  if (Math.abs(anchor.el.getBoundingClientRect().top - anchor.top) > 1) closeConfirmDelete();
  };
  // A click on the trash button itself is handled by its own onClick (toggling the armed row,
  // including switching straight to a different row's confirm without this effect's help); this
@@ -315,10 +348,10 @@ function KpiTable({
    if (!e.target.closest?.("[data-remove-popover-root]")) closeConfirmDelete();
   };
   document.addEventListener("mousedown", close);
-  window.addEventListener("scroll", closeConfirmDelete, true);
+  window.addEventListener("scroll", closeConfirmDeleteIfAnchorMoved, true);
   return () => {
    document.removeEventListener("mousedown", close);
-   window.removeEventListener("scroll", closeConfirmDelete, true);
+   window.removeEventListener("scroll", closeConfirmDeleteIfAnchorMoved, true);
   };
  }, [confirmDeleteKey]);
  const previewDesc = rows
@@ -424,6 +457,15 @@ function KpiTable({
         const reason = !selectable ? notSelectableReasonFor(r, bucket) : null;
         const isSelected = selected.has(key);
         const confidence = r.suggested ? CONFIDENCE[r.suggestion?.confidence] : null;
+        // One trash control, two meanings. On a registry row it removes a governed KPI from the
+        // registry (`onRemove`); on a suggestion it dismisses the proposal -- nothing exists yet
+        // to remove, and the backend remembers the decision so the same suggestion is not
+        // shown again on the next visit, even if a later run proposes it once more.
+        const rowRemove = r.suggested ? onDismiss : r.kpi.fromRegistry ? onRemove : null;
+        const rowRemoveState = r.suggested ? dismissState : removeState;
+        const rowIdentifier = r.suggested ? r.suggestion?.identifier : r.kpi.identifier;
+        const rowRemoving = rowRemoveState?.identifier === rowIdentifier && !rowRemoveState?.error;
+        const rowRemoveError = rowRemoveState?.identifier === rowIdentifier ? rowRemoveState?.error : null;
         return (
          <tr
           key={key}
@@ -504,7 +546,11 @@ function KpiTable({
           </td>
           <td className="w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] align-middle px-1 py-3 pr-3 text-right">
            <div className="inline-flex items-center justify-end gap-0.5">
-            {r.suggested && bucket === "ready" && r.suggestion.proposed_sql ? (
+            {/* Not for a suggestion proposed from a connected source (`source_id`): it would register
+                as a KPI the registry then marks blocked -- its tables are in the source's harvest,
+                not the deployment's own semantic snapshot -- and compute refuses it. The detail
+                panel says why. Lifts when KPI SQL can be routed to a source's own connection (#314). */}
+            {r.suggested && bucket === "ready" && r.suggestion.proposed_sql && !r.suggestion.source_id ? (
              <button
               type="button"
               disabled={adoptingIds.has(r.suggestion.identifier)}
@@ -515,13 +561,14 @@ function KpiTable({
               <Plus size={15} />
              </button>
             ) : null}
-            {!r.suggested && r.kpi.fromRegistry && onRemove ? (
+            {rowRemove ? (
              <span className="relative" data-remove-popover-root>
               <button
                type="button"
                className="rounded-md p-1.5 text-text-muted opacity-80 transition-all hover:bg-status-critical-light hover:text-status-critical hover:opacity-100"
-               aria-label={`Remove ${r.kpi.name} from my metrics`}
-               title="Remove from my metrics"
+               aria-label={r.suggested ? `Dismiss suggestion ${r.kpi.name}` : `Remove ${r.kpi.name} from my metrics`}
+               title={r.suggested ? "Dismiss this suggestion" : "Remove from my metrics"}
+               data-testid={r.suggested ? "dismiss-suggestion" : undefined}
                onClick={(e) =>
                 confirmDeleteKey === key ? closeConfirmDelete() : openConfirmDelete(key, e.currentTarget)
                }
@@ -533,29 +580,41 @@ function KpiTable({
                createPortal(
                 <div
                  role="dialog"
-                 aria-label={`Remove ${r.kpi.name}?`}
+                 aria-label={r.suggested ? `Dismiss ${r.kpi.name}?` : `Remove ${r.kpi.name}?`}
                  data-remove-popover-root
-                 style={{ top: confirmDeletePos.top, right: confirmDeletePos.right }}
+                 style={{ top: confirmDeletePos.top, bottom: confirmDeletePos.bottom, right: confirmDeletePos.right }}
                  className="fixed z-30 w-56 rounded-lg border border-border bg-surface p-3 text-left shadow-lg"
                 >
                  <p className="text-xs leading-snug text-text-secondary">
-                  Remove <strong className="font-semibold text-text-primary">{r.kpi.name}</strong> from your
-                  registry? Dashboards using it must be changed first; you can adopt it again later.
+                  {r.suggested ? (
+                   <>
+                    Dismiss <strong className="font-semibold text-text-primary">{r.kpi.name}</strong>? It
+                    won't be suggested again, for anyone.
+                   </>
+                  ) : (
+                   <>
+                    Remove <strong className="font-semibold text-text-primary">{r.kpi.name}</strong> from your
+                    registry? Dashboards using it must be changed first; you can adopt it again later.
+                   </>
+                  )}
                  </p>
-                 {removeState?.identifier === r.kpi.identifier && removeState.error && (
-                  <p className="mt-1.5 text-xs text-status-critical">{removeState.error}</p>
-                 )}
+                 {rowRemoveError && <p className="mt-1.5 text-xs text-status-critical">{rowRemoveError}</p>}
                  <div className="mt-2.5 flex items-center gap-3">
                   <button
                    type="button"
-                   disabled={removeState?.identifier === r.kpi.identifier && !removeState.error}
-                   onClick={() => onRemove(r)}
+                   disabled={rowRemoving}
+                   onClick={() => rowRemove(r)}
+                   data-testid={r.suggested ? "confirm-dismiss-suggestion" : undefined}
                    className="inline-flex items-center gap-1.5 rounded-md bg-status-critical px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                    <Trash2 size={12} />
-                   {removeState?.identifier === r.kpi.identifier && !removeState.error
-                    ? "Removing…"
-                    : "Yes, remove"}
+                   {rowRemoving
+                    ? r.suggested
+                     ? "Dismissing…"
+                     : "Removing…"
+                    : r.suggested
+                     ? "Yes, dismiss"
+                     : "Yes, remove"}
                   </button>
                   <button
                    type="button"
@@ -654,6 +713,8 @@ export default function KpiDiscovery({
  onAdopt,
  onRemove,
  removeState,
+ onDismiss,
+ dismissState,
  adoptingIds,
  adoptErrors,
  onToggleActive,
@@ -964,6 +1025,8 @@ export default function KpiDiscovery({
           onAdopt={onAdopt}
           onRemove={onRemove}
           removeState={removeState}
+          onDismiss={onDismiss}
+          dismissState={dismissState}
           adoptingIds={adoptingIds}
           adoptErrors={adoptErrors}
           onToggleActive={onToggleActive}

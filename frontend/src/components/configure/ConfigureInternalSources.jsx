@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Database, Link2, MoreVertical, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowRight, Database, Link2, MoreVertical, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import { CatalogSearchToolbar } from "../shared/CatalogSearchToolbar";
 import { SOURCE_ICON, BRAND_COLOR } from "../shared/SourceLogoTile";
 import { useConfigureWorkspace } from "../../context/ConfigureWorkspaceContext";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { internalSourceTypeLabel, externalIntegrationsForProfile } from "../../domain/configure-catalogs";
+import { HARVESTABLE_SOURCE_TYPES } from "../../services/sources-api";
 import { MODEL_STATES, formatSync, metricsUnlockedBy, modelStateFor, workspaceReadiness } from "./source-model-state";
 
 /**
@@ -19,6 +20,11 @@ import { MODEL_STATES, formatSync, metricsUnlockedBy, modelStateFor, workspaceRe
  * The card reports SEMANTIC-LAYER READINESS rather than reachability. Whether a connection is
  * alive says nothing about whether the product can answer a question from it, and readiness is
  * the thing that gates suggestions, dashboards and the playground.
+ *
+ * Databases are real (#308): `GET /configure/sources` through the workspace context, each
+ * card's state is the row's own `harvest_state`, and while one is `building` the context polls
+ * the list so the card moves on its own. The demo platform rows and the seeded demo databases
+ * are still fixtures, marked "Demo" and hidden by default.
  */
 
 /** Warehouses answer analytical questions; the split matters when choosing what to model first. */
@@ -63,10 +69,23 @@ function SourceIcon({ typeId }) {
  );
 }
 
-function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSeeUnlocked }) {
+function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSeeUnlocked, onHarvest }) {
  const [menuOpen, setMenuOpen] = useState(false);
+ const [starting, setStarting] = useState(false);
  const pill = MODEL_STATES[model.state] || MODEL_STATES.not_started;
- const unlocked = metricsUnlockedBy(source.sourceType);
+ // The "metrics unlocked" claim comes from the demo dataset catalogue and is only ever true of
+ // the demo fixtures; a real source's tables have nothing to do with it.
+ const unlocked = source.isSeed ? metricsUnlockedBy(source.sourceType) : [];
+ const canHarvest = !!onHarvest && source.live && source.harvestable;
+
+ const startHarvest = async () => {
+  setStarting(true);
+  try {
+   await onHarvest();
+  } finally {
+   setStarting(false);
+  }
+ };
 
  return (
   <div className="relative flex flex-col rounded-2xl border border-border bg-surface p-5 transition-shadow hover:shadow-md">
@@ -119,14 +138,19 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
    <p className="mb-3 mt-0.5 truncate text-xs text-text-muted">{source.subtitle}</p>
 
    {/* Mid-build: counts are still moving, so progress replaces them rather than showing a
-       number that will be wrong in ten seconds. */}
+       number that will be wrong in ten seconds. A real harvest reports no percentage (it is
+       one step), so its bar is indeterminate rather than a number made up to move it. */}
    {model.state === "building" ? (
     <div className="mt-auto border-t border-border pt-3">
      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-tertiary">
-      <div
-       className="h-full rounded-full bg-primary transition-[width] duration-500"
-       style={{ width: `${model.progress || 0}%` }}
-      />
+      {model.progress == null ? (
+       <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+      ) : (
+       <div
+        className="h-full rounded-full bg-primary transition-[width] duration-500"
+        style={{ width: `${model.progress || 0}%` }}
+       />
+      )}
      </div>
      <p className="mt-2 text-xs text-text-muted">{model.step || "Building semantic layer…"}</p>
     </div>
@@ -192,6 +216,27 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
      {model.error || "Modelling failed. Check the connection and retry."}
     </p>
    )}
+   {/* A registered-but-unmodelled or failed real source can be (re)modelled from here. Only
+       for source types #306's workflow has a connector for; the rest register and stop.
+       `needs_review` is a way out, not a dead end: a schema claim that has since been released
+       (the other source was removed) needs only a retry, and one that has not needs the source
+       edited first -- which is why saving the form re-runs the harvest from this state too. */}
+   {canHarvest && ["error", "not_started", "needs_review"].includes(model.state) && (
+    <button
+     type="button"
+     onClick={startHarvest}
+     disabled={starting}
+     className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
+    >
+     <RefreshCw size={13} className={starting ? "animate-spin" : ""} />
+     {model.state === "error" || model.state === "needs_review" ? "Retry modelling" : "Build model"}
+    </button>
+   )}
+   {source.live && !source.harvestable && model.state === "not_started" && (
+    <p className="mt-3 text-xs text-text-muted">
+     Registered. No connector models {source.typeLabel} yet, so it cannot answer questions.
+    </p>
+   )}
   </div>
  );
 }
@@ -199,20 +244,26 @@ function SourceCard({ source, model, onEdit, onRemove, onOpenSemanticLayer, onSe
 export default function ConfigureInternalSources() {
  const navigate = useNavigate();
  const { profileId } = useDemoProfile();
- const { data, hydrated, removeInternal, removeExternal } = useConfigureWorkspace();
+ const {
+  data,
+  hydrated,
+  removeInternal,
+  removeExternal,
+  sourcesStatus,
+  refreshSources,
+  harvestPollingStalled,
+  startInternalHarvest,
+ } = useConfigureWorkspace();
  const [search, setSearch] = useState("");
  const [filter, setFilter] = useState("all");
-
+ const [actionError, setActionError] = useState(null);
 
  // Seeded demo rows (`seed: true`) are static placeholders, not real connections -- excluded
  // from the default grid (and everything computed from it: counts, readiness) so this page
  // only ever *counts* sources someone actually connected. They stay in storage rather than
  // being deleted, and are still reachable through the "Show N demo sources" toggle below --
- // without a real edit link to a seed row, `ConfigureInternalSourceForm`'s "clear `seed` on
- // save" fix would be dead code, since a row filtered out of every list has no Edit button
- // pointing at it anywhere in the UI. Revealing them (marked "Demo") gives that fix a real
- // path: editing one with real credentials and saving clears `seed`, and it then reappears
- // as a normal source even with the toggle off.
+ // editing one with real credentials and saving registers a real source through the API
+ // (the demo row itself stays a fixture).
  const { allSources, seedCount } = useMemo(() => {
   const internal = (data.internalSources || []).map((s) => ({
    id: s.id,
@@ -223,6 +274,10 @@ export default function ConfigureInternalSources() {
    sourceType: s.sourceType,
    kind: null,
    isSeed: !!s.seed,
+   live: !s.seed,
+   harvestable: HARVESTABLE_SOURCE_TYPES.has(s.sourceType),
+   harvestState: s.harvestState,
+   lastHarvestAt: s.lastHarvestAt,
    editPath: `/configure/internal-sources/edit/${encodeURIComponent(s.id)}`,
    remove: () => removeInternal(s.id),
   }));
@@ -240,6 +295,8 @@ export default function ConfigureInternalSources() {
    sourceType: e.providerId,
    kind: "platform",
    isSeed: !!e.seed,
+   live: false,
+   harvestable: false,
    editPath: `/configure/external/edit/${encodeURIComponent(e.id)}`,
    remove: () => removeExternal(e.id),
   }));
@@ -261,21 +318,34 @@ export default function ConfigureInternalSources() {
  // MOMENT -- it is worth showing when it happens, not as a permanent fixture -- so it is keyed on
  // the transition rather than on the state.
  const [justCompleted, setJustCompleted] = useState(null);
- // Presentation-only completion of the in-flight build, so the transition (and the banner it
- // triggers) can actually be seen. The real pipeline replaces this; the UI around it does not
- // change.
+
+ // A real source's transition is read off the polled state: `building` last time, `modelled`
+ // now. Remembered per id so a re-render with no change never re-fires the banner.
+ const lastLiveState = useRef(new Map());
+ useEffect(() => {
+  for (const s of realSources) {
+   if (!s.live) continue;
+   const prev = lastLiveState.current.get(s.id);
+   if (prev === "building" && s.harvestState === "modelled") setJustCompleted(s);
+   lastLiveState.current.set(s.id, s.harvestState);
+  }
+ }, [realSources]);
+
+ // Presentation-only completion of a DEMO fixture's in-flight build, so the transition (and
+ // the banner it triggers) can be seen without a real warehouse. Real sources never enter
+ // this: their progress is the polled `harvest_state`.
  const [completedIds, setCompletedIds] = useState(() => new Set());
  const [progress, setProgress] = useState({});
 
- const buildingSources = useMemo(
-  () => sources.filter((s) => modelStateFor(s.id).state === "building" && !completedIds.has(s.id)),
+ const buildingSeeds = useMemo(
+  () => sources.filter((s) => s.isSeed && modelStateFor(s).state === "building" && !completedIds.has(s.id)),
   [sources, completedIds]
  );
 
  useEffect(() => {
-  if (buildingSources.length === 0) return undefined;
-  const target = buildingSources[0];
-  const base = modelStateFor(target.id).progress || 0;
+  if (buildingSeeds.length === 0) return undefined;
+  const target = buildingSeeds[0];
+  const base = modelStateFor(target).progress || 0;
   const started = Date.now();
   const id = setInterval(() => {
    const pct = Math.min(100, base + ((Date.now() - started) / 7000) * (100 - base));
@@ -287,12 +357,13 @@ export default function ConfigureInternalSources() {
    }
   }, 220);
   return () => clearInterval(id);
- }, [buildingSources]);
+ }, [buildingSeeds]);
 
- // Resolved state for a card: the seeded state, with the in-flight build's progress applied and
- // its completion honoured.
+ // Resolved state for a card: a real source's polled state as-is; a demo fixture's seeded
+ // state with the simulated build's progress applied and its completion honoured.
  const stateFor = (source) => {
-  const model = modelStateFor(source.id);
+  const model = modelStateFor(source);
+  if (!source.isSeed) return model;
   if (completedIds.has(source.id)) {
    return { ...model, state: "modelled", modelled: model.tables ?? model.modelled, syncedMinsAgo: 0 };
   }
@@ -300,6 +371,31 @@ export default function ConfigureInternalSources() {
    return { ...model, progress: progress[source.id] };
   }
   return model;
+ };
+
+ const harvestFor = (source) => async () => {
+  setActionError(null);
+  try {
+   await startInternalHarvest(source.id);
+  } catch (err) {
+   setActionError(`Could not start modelling ${source.name}: ${err?.detail || err?.message || "unknown error"}`);
+  }
+ };
+
+ const removeFor = (source) => async () => {
+  // A real source that was ever modelled takes its tables and its saved KPI suggestions with it
+  // (`DELETE /configure/sources/{id}`); say so, since that is more than the card itself.
+  const takesItsModelWithIt = source.live && source.harvestState && source.harvestState !== "not_started";
+  const consequence = takesItsModelWithIt
+    ? " Its tables are removed from the semantic layer, along with the KPI suggestions made from them."
+    : "";
+  if (!window.confirm(`Remove "${source.name}"?${consequence}`)) return;
+  setActionError(null);
+  try {
+   await source.remove();
+  } catch (err) {
+   setActionError(`Could not remove ${source.name}: ${err?.detail || err?.message || "unknown error"}`);
+  }
  };
 
  // Databases and connected platforms, normalised into one shape so the card does not have to
@@ -321,36 +417,83 @@ export default function ConfigureInternalSources() {
 
  return (
   <div className="space-y-5">
+   {/* The API is the list. Say so when it cannot be read, rather than rendering an empty grid
+       that looks like "nothing connected". The last good list stays on screen underneath. */}
+   {sourcesStatus.state === "error" && (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+     <span>Could not load connected sources from the API: {sourcesStatus.error}</span>
+     <button
+      type="button"
+      onClick={() => refreshSources()}
+      className="rounded-lg border border-status-critical-border bg-surface px-3 py-1.5 text-xs font-semibold text-status-critical hover:bg-status-critical-light"
+     >
+      Retry
+     </button>
+    </div>
+   )}
+   {actionError && (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-3 text-sm text-status-critical">
+     <span>{actionError}</span>
+     <button type="button" onClick={() => setActionError(null)} className="rounded-lg p-1 hover:bg-surface" aria-label="Dismiss">
+      <X size={14} />
+     </button>
+    </div>
+   )}
+   {harvestPollingStalled && (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-warning-border bg-status-warning-light px-4 py-3 text-sm text-status-warning">
+     <span>A source has been building for over four minutes. Stopped checking automatically.</span>
+     <button
+      type="button"
+      onClick={() => refreshSources()}
+      className="rounded-lg border border-status-warning-border bg-surface px-3 py-1.5 text-xs font-semibold text-status-warning hover:bg-status-warning-light"
+     >
+      Check now
+     </button>
+    </div>
+   )}
+
    {/* The moment a source becomes useful. Dismissible and transient by design: it answers
        "was connecting that worth it?", which is a question asked once, not a status to live
-       with. It names metrics rather than tables because nobody connects a warehouse to obtain
-       tables. */}
+       with. A demo fixture names metrics (from the demo catalogue); a real source names what
+       actually happened -- its tables are in the semantic layer. */}
    {justCompleted && (() => {
-    const unlocked = metricsUnlockedBy(justCompleted.sourceType);
-    if (unlocked.length === 0) return null;
+    const unlocked = justCompleted.isSeed ? metricsUnlockedBy(justCompleted.sourceType) : [];
     return (
      <div className="flex flex-wrap items-start gap-3 rounded-xl border border-primary/35 bg-primary-light/50 px-4 py-3.5 dark:bg-primary/10">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
        <Sparkles size={17} />
       </div>
       <div className="min-w-0 flex-1">
-       <p className="text-sm font-bold text-text-primary">
-        {justCompleted.name} is modelled: {unlocked.length} new metrics you can measure
-       </p>
-       <p className="mt-0.5 text-sm text-text-secondary">
-        Including {unlocked.slice(0, 3).join(", ")}
-        {unlocked.length > 3 ? ` and ${unlocked.length - 3} more` : ""}.
-       </p>
+       {unlocked.length > 0 ? (
+        <>
+         <p className="text-sm font-bold text-text-primary">
+          {justCompleted.name} is modelled: {unlocked.length} new metrics you can measure
+         </p>
+         <p className="mt-0.5 text-sm text-text-secondary">
+          Including {unlocked.slice(0, 3).join(", ")}
+          {unlocked.length > 3 ? ` and ${unlocked.length - 3} more` : ""}.
+         </p>
+        </>
+       ) : (
+        <>
+         <p className="text-sm font-bold text-text-primary">{justCompleted.name} is modelled</p>
+         <p className="mt-0.5 text-sm text-text-secondary">
+          Its tables and columns are in the semantic layer. Review what was read before answers are built on it.
+         </p>
+        </>
+       )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
        <button
         type="button"
         onClick={() =>
-         navigate(`/kpis/discover?unlocked=${encodeURIComponent(justCompleted.sourceType)}`)
+         unlocked.length > 0
+          ? navigate(`/kpis/discover?unlocked=${encodeURIComponent(justCompleted.sourceType)}`)
+          : navigate(`/configure/semantic-layer?source=${encodeURIComponent(justCompleted.id)}`)
         }
         className="rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
        >
-        Review them
+        {unlocked.length > 0 ? "Review them" : "View semantic layer"}
        </button>
        <button
         type="button"
@@ -386,7 +529,8 @@ export default function ConfigureInternalSources() {
        )}
       </div>
       <p className="mt-0.5 text-xs text-text-secondary">
-       {readiness.modelled} of {readiness.total} sources modelled · {readiness.tables} tables
+       {readiness.modelled} of {readiness.total} sources modelled
+       {readiness.tables > 0 ? ` · ${readiness.tables} tables` : ""}
       </p>
      </div>
      <div className="min-w-[200px] flex-1 max-w-sm">
@@ -460,11 +604,17 @@ export default function ConfigureInternalSources() {
       <Database size={28} className="text-text-secondary" />
      </div>
      <h3 className="text-lg font-bold text-text-primary">
-      {search || filter !== "all" ? "Nothing matches" : "No sources connected"}
+      {search || filter !== "all"
+       ? "Nothing matches"
+       : sourcesStatus.state === "loading"
+       ? "Loading connected sources…"
+       : "No sources connected"}
      </h3>
      <p className="mt-1.5 max-w-sm text-sm text-text-muted">
       {search || filter !== "all"
        ? "Try a different search or filter."
+       : sourcesStatus.state === "loading"
+       ? "Asking the API what is connected."
        : "Connect a database or a platform. As soon as one is connected we model it, and the metrics it supports appear under KPIs."}
      </p>
     </div>
@@ -479,9 +629,8 @@ export default function ConfigureInternalSources() {
        model={stateFor(source)}
        onSeeUnlocked={() => navigate(`/kpis/discover?unlocked=${encodeURIComponent(source.sourceType)}`)}
        onEdit={() => navigate(source.editPath)}
-       onRemove={() => {
-        if (window.confirm(`Remove "${source.name}"?`)) source.remove();
-       }}
+       onRemove={removeFor(source)}
+       onHarvest={source.live && source.harvestable ? harvestFor(source) : null}
        onOpenSemanticLayer={() =>
         navigate(`/configure/semantic-layer?source=${encodeURIComponent(source.id)}`)
        }

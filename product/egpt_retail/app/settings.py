@@ -36,10 +36,16 @@ __all__ = [
     "StorageProvider",
     "KnowledgeBackend",
     "MemoryBackend",
+    "SecretStoreProvider",
     "DEFAULT_DB_URL",
 ]
 
 Role = Literal["api", "pipelines"]
+
+#: Where a registered data source's credential material is written (#304,
+#: ``egpt_retail.configure.secrets``). ``azure_key_vault`` is the deployed path;
+#: ``local_encrypted`` is the ``.venv``/``compose.yaml`` dev fallback.
+SecretStoreProvider = Literal["local_encrypted", "azure_key_vault"]
 
 #: Where the raw drop lives. ``s3`` covers MinIO as well as AWS -- MinIO speaks the S3 API,
 #: which is why the Helm chart's ``storage.provider`` reads ``s3`` rather than ``minio``.
@@ -256,6 +262,31 @@ class RetailSettings(BrandedSettings):
         "connection, not in place of it -- the role is the floor, the guard is the ceiling. Unset is "
         "refused at the point of use, same as retail_warehouse_db_url.",
     )
+    retail_secret_store_provider: SecretStoreProvider = Field(
+        default="local_encrypted",
+        description="Where a registered data source's credential material is written "
+        "(EGPT_RETAIL_SECRET_STORE_PROVIDER, #304): 'azure_key_vault' the deployed path, "
+        "'local_encrypted' the dev fallback (retail_secret_encryption_key, in this database). "
+        "Defaults to the dev fallback deliberately -- a deployment that wants Key Vault must "
+        "say so, rather than an unset variable silently choosing the weaker store.",
+    )
+    retail_key_vault_url: Optional[str] = Field(
+        default=None,
+        description="Key Vault URL, e.g. https://<vault>.vault.azure.net "
+        "(EGPT_RETAIL_KEY_VAULT_URL). Authenticated through the ambient credential chain "
+        "(azure.identity.DefaultAzureCredential), the same managed-identity pattern "
+        "retail_storage_account_url's Azure Blob path uses. Required, and refused at the "
+        "point of use, when retail_secret_store_provider is 'azure_key_vault'.",
+    )
+    retail_secret_encryption_key: Optional[str] = Field(
+        default=None,
+        description="A Fernet key encrypting locally-stored data-source credentials "
+        "(EGPT_RETAIL_SECRET_ENCRYPTION_KEY). Required, and refused at the point of use, "
+        "when retail_secret_store_provider is 'local_encrypted' (the default) and a data "
+        "source is actually registered -- a deployment that never uses Configure never needs "
+        'this. Generate one with `python -c "from cryptography.fernet import Fernet; '
+        'print(Fernet.generate_key().decode())"`.',
+    )
     retail_storage_provider: Optional[StorageProvider] = Field(
         default=None,
         description="Where the raw drop lives: 'local' a directory, 's3' any S3-compatible endpoint "
@@ -409,6 +440,15 @@ class RetailSettings(BrandedSettings):
         "KpiSuggestionList JSON (EGPT_RETAIL_SUGGESTION_REPLAY); when set, a suggestion run "
         "returns it instead of calling the model, so a demo can be rehearsed without spending "
         "model credit. Unset (the default) runs the agents.",
+    )
+    retail_suggest_after_harvest: bool = Field(
+        default=True,
+        description="Whether a source's harvest ends by proposing KPIs for it "
+        "(EGPT_RETAIL_SUGGEST_AFTER_HARVEST). On (the default), the `harvest-source` workflow's "
+        "`suggest-kpis` step runs one KPI suggestion run scoped to the source that was just "
+        "harvested, so the KPIs page has proposals waiting. That run is two frontier-tier model "
+        "calls, so a deployment that would rather pay for suggestions only when someone asks "
+        "(`POST /kpis/suggestions`) turns it off; the harvest itself is unaffected either way.",
     )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,
