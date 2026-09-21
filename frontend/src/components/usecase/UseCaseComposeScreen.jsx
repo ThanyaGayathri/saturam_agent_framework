@@ -372,8 +372,8 @@ export default function UseCaseComposeScreen() {
    if (inferred) base = withTemplate({ ...base, goal: base.goal || msg }, inferred);
   }
   let { patch, understood } = extract(msg, base, ctx);
-  if (category.trigger && (base.shape !== spec.shape || (base.template || null) !== (spec.template || null))) understood = [`read as: ${category.trigger.find((t) => t.shape === base.shape && (t.template || null) === (base.template || null))?.label.toLowerCase()}`, ...understood];
-  if (base.template && base.template !== spec.template) understood = [`read as: ${category.templates.find((t) => t.id === base.template)?.label.toLowerCase()}`, ...understood];
+  if (category?.trigger && (base.shape !== spec.shape || (base.template || null) !== (spec.template || null))) understood = [`read as: ${category.trigger.find((t) => t.shape === base.shape && (t.template || null) === (base.template || null))?.label.toLowerCase()}`, ...understood];
+  if (category?.templates && base.template && base.template !== spec.template) understood = [`read as: ${category.templates.find((t) => t.id === base.template)?.label.toLowerCase()}`, ...understood];
   if (!Object.keys(patch).length && viaAssistant) {
    const direct = directAnswer(msg, blocking[0]);
    if (direct) { patch = direct.patch || direct; understood = [direct.said || `${FIELD_META[blocking[0].field]?.label || blocking[0].field}: ${msg}`]; }
