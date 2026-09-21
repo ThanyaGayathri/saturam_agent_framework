@@ -67,7 +67,17 @@ wholesale, so anything created on the VM since the last sync is lost -- sync bef
 not after.
 
 Container names default to the laptop's (`smv1-pgvector-5532`, `egpt-retail-neo4j`); override
-with `LOCAL_PG` / `LOCAL_NEO4J`.
+with `LOCAL_PG` / `LOCAL_NEO4J`. `RESTORE_ONLY=1` skips the dump and upload and restores what
+`~/egpt/sync` on the VM already holds (`restore-data.sh` is the same thing run from the VM).
+
+**The Neo4j password travels with the data.** Neo4j 5 keeps its users in the `system`
+database, which is inside `/data`, so after a sync the VM's graph accepts the *laptop's*
+password, whatever `NEO4J_AUTH` said when the container was created. `EGPT_RETAIL_NEO4J_PASSWORD`
+in `~/egpt/egpt.env` must therefore equal the local container's (`docker exec egpt-retail-neo4j
+sh -c 'echo $NEO4J_AUTH'`), and the api container recreated after changing it
+(`docker compose ... up -d --force-recreate neo4j api consolidator`). The symptom when it does
+not: `/business-areas` 503 and `/kpis` 500 with `Neo.ClientError.Security.Unauthorized` in
+the api log.
 
 ## Looking at it
 
