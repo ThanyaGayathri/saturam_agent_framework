@@ -693,3 +693,60 @@ def test_track_outcomes_writes_what_happened_and_reports_precision(monkeypatch):
         )
     )
     assert held.content["outcomes"]["status"] == "held"
+
+
+# --- the report email carries the full report as a file --------------------------------------
+
+
+def test_send_mail_attaches_the_full_report():
+    from egpt_retail.documents.mailbox import MailboxConfig, send_mail
+
+    sent = {}
+
+    class Smtp:
+        def __init__(self, host, port):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, message):
+            sent["message"] = message
+
+        def quit(self):
+            pass
+
+    config = MailboxConfig(
+        user="orders@example.com",
+        password="x",
+        imap_host="imap.example",
+        smtp_host="smtp.example",
+        smtp_port=587,
+    )
+    send_mail(
+        config,
+        to=["sales@example.com"],
+        subject="report",
+        body="text",
+        html="<p>top of the list</p>",
+        attachments=[
+            (
+                "at-risk-pipeline-2026-09-21.html",
+                b"<!doctype html><html>full</html>",
+                "text/html",
+            )
+        ],
+        smtp_factory=Smtp,
+    )
+    message = sent["message"]
+    parts = list(message.iter_attachments())
+    assert [p.get_filename() for p in parts] == ["at-risk-pipeline-2026-09-21.html"]
+    assert parts[0].get_content_type() == "text/html"
+    assert b"full" in parts[0].get_payload(decode=True)
+    assert (
+        message.get_body(preferencelist=("html",)).get_content().strip()
+        == "<p>top of the list</p>"
+    )

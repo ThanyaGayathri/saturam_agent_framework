@@ -1342,9 +1342,52 @@ def _precision_words(outcomes: Optional[Mapping[str, Any]]) -> str:
     return "; ".join(parts)
 
 
+#: The ranked list's styles, one entry per role. The app renders them as a stylesheet
+#: (every row light, the whole list scrolls); an email client drops stylesheets, so the
+#: email renders the same roles inline on the rows it carries.
+_NBA: Mapping[str, str] = {
+    "th": f"text-align:left;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb;background:#fff",
+    "thc": f"text-align:center;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb;background:#fff",
+    "td": f"padding:9px 8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top",
+    "n": f"padding:9px 6px 9px 10px;border-bottom:1px solid #f3f4f6;font:12px {_FONT};color:#9ca3af;vertical-align:top;text-align:right;width:22px",
+    "r": f"padding:9px 8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top;text-align:center;white-space:nowrap",
+    "t": "font-weight:600",
+    "m": "color:#6b7280;font-size:12px;margin-top:1px",
+    "p": "font-weight:600;color:#4c1d95",
+    "w": "color:#374151;font-size:12px;margin-top:2px",
+    "o": "font-weight:600;font-size:12px;color:#6d28d9;margin-top:4px",
+    "ch": "color:#b45309",
+    "pl": f"display:inline-block;padding:2px 8px;border-radius:999px;font:600 11px {_FONT}",
+    "hi": "color:#b91c1c;background:#fee2e2",
+    "me": "color:#b45309;background:#fef3c7",
+    "lo": "color:#15803d;background:#dcfce7",
+}
+
+
+def _nba_attr(role: str, inline: bool, extra: str = "") -> str:
+    """``class="…"`` for the app, ``style="…"`` for an email; ``extra`` is appended to
+    the style either way (a row's stripe colour is data, not a role)."""
+    if inline:
+        base = ";".join(_NBA[r] for r in role.split() if r in _NBA)
+        return f' style="{base}{";" + extra if extra else ""}"'
+    return f' class="{role}"' + (f' style="{extra}"' if extra else "")
+
+
+_NBA_STYLE = (
+    "<style>.nb{width:100%;border-collapse:collapse}.nb th{position:sticky;top:0}"
+    ".nb tr.z td{background:#fafafa}"
+    + "".join(
+        f".nb .{k}{{{v}}}" for k, v in _NBA.items() if k not in ("th", "thc", "td")
+    )
+    + f".nb th{{{_NBA['th']}}}.nb th.thc{{{_NBA['thc']}}}.nb td{{{_NBA['td']}}}"
+    + "</style>"
+)
+
 #: How many recommendations an email carries: Gmail clips a message past 102 KB, and a
 #: row is close to a kilobyte, so the email shows the top of the list and links to the rest.
 EMAIL_ROWS = 20
+#: Past this the client clips the message, so the short list is sent instead.
+EMAIL_LIMIT_BYTES = 96 * 1024
 
 
 def _risk_html(
@@ -1405,7 +1448,8 @@ def _risk_html(
     ranked = ""
     if recommendation_result:
         records = list(recommendation_result.get("recommendations") or [])
-        shown = records[:EMAIL_ROWS] if channel == "email" else records
+        shown = records[:EMAIL_ROWS] if channel == "email_short" else records
+        inline = channel.startswith("email")
         rows = ""
         for rank, record in enumerate(shown, start=1):
             context = record.get("context") or {}
@@ -1431,31 +1475,33 @@ def _risk_html(
             )
             level = str(record.get("risk_level") or "low")
             stripe = _LEVEL_COLOUR.get(level, "#e5e7eb")
-            zebra = "#fff" if rank % 2 else "#fafafa"
             churn_note = (
-                ' · <span style="color:#b45309">account at risk of churn</span>'
+                f" · <span{_nba_attr('ch', inline)}>account at risk of churn</span>"
                 if account.get("at_risk")
                 else ""
             )
             rep_note = (
                 " · rep " + e(str(record.get("owner"))) if record.get("owner") else ""
             )
+            # Classes, not inline styles: a row is a third of the bytes, which is what
+            # lets the whole list travel in the email under the client's clip limit.
+            a = lambda role, extra="": _nba_attr(role, inline, extra)  # noqa: E731
+            zebra = (
+                ' style="background:#fafafa"'
+                if inline and rank % 2 == 0
+                else (' class="z"' if rank % 2 == 0 else "")
+            )
             rows += (
-                f'<tr style="background:{zebra}">'
-                f'<td style="padding:9px 6px 9px 10px;border-bottom:1px solid #f3f4f6;border-left:3px solid {stripe};font:12px {_FONT};color:#9ca3af;vertical-align:top;text-align:right;width:22px">{rank}</td>'
-                f'<td style="padding:9px 8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
-                f'<div style="font-weight:600">{e(str(record.get("subject_label") or ""))}</div>'
-                f'<div style="color:#6b7280;font-size:12px;margin-top:1px">{e(str(record.get("account_label") or ""))} · {e(str(context.get("territory") or ""))} · {e(age)}</div>'
-                f'<div style="color:#6b7280;font-size:12px">RFM {e(str(account.get("segment") or "—"))}{churn_note}{rep_note}</div>'
-                "</td>"
-                f'<td style="padding:9px 8px;border-bottom:1px solid #f3f4f6;text-align:center;vertical-align:top;white-space:nowrap">{pill(level)}<div style="font:600 12px {_FONT};color:#111827;margin-top:4px">{e(pct)}</div><div style="font:11px {_FONT};color:#6b7280">{e(_money(record.get("value_at_stake")))}</div></td>'
-                f'<td style="padding:9px 8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
-                f'<div style="font-weight:600;color:#4c1d95">{e(str(action.get("title") or ""))}</div>'
-                f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(action.get("because") or ""))}</div>'
-                f'<div style="color:#6b7280;font-size:12px;margin-top:2px">{e(drivers)}</div>'
-                f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:4px">{e(str(action.get("owner") or ""))}'
-                + sla
-                + "</div></td></tr>"
+                f"<tr{zebra}>"
+                f"<td{a('n', f'border-left:3px solid {stripe}')}>{rank}</td>"
+                f"<td{a('td') if inline else ''}><div{a('t')}>{e(str(record.get('subject_label') or ''))}</div>"
+                f"<div{a('m')}>{e(str(record.get('account_label') or ''))} · {e(str(context.get('territory') or ''))} · {e(age)}</div>"
+                f"<div{a('m')}>RFM {e(str(account.get('segment') or '—'))}{churn_note}{rep_note}</div></td>"
+                f"<td{a('r')}><span{a('pl ' + level[:2])}>{e(level)}</span><div{a('t')}>{e(pct)}</div><div{a('m')}>{e(_money(record.get('value_at_stake')))}</div></td>"
+                f"<td{a('td') if inline else ''}><div{a('p')}>{e(str(action.get('title') or ''))}</div>"
+                f"<div{a('w')}>{e(because)}</div>"
+                f"<div{a('m')}>{e(drivers)}</div>"
+                f"<div{a('o')}>{e(str(action.get('owner') or ''))}{e(sla)}</div></td></tr>"
             )
         plays = recommendation_result.get("plays") or {}
         chips = "".join(
@@ -1465,7 +1511,7 @@ def _risk_html(
         rs = recommendation_result.get("summary") or {}
         left = len(records) - len(shown)
         more = (
-            f'<p style="font:13px {_FONT};color:#374151;margin:10px 0 0;padding:8px 10px;background:#f5f3ff;border-radius:8px">The first {len(shown)} of {len(records)}. '
+            f'<p style="font:13px {_FONT};color:#374151;margin:10px 0 0;padding:8px 10px;background:#f5f3ff;border-radius:8px">The first {len(shown)} of {len(records)} here; the full report, with every one, is attached. '
             + (
                 f'<a href="{e(dashboard_url)}" style="color:#6d28d9;font-weight:600">Open the live dashboard</a> for all {len(records)}, searchable by account, rep or territory.'
                 if dashboard_url
@@ -1505,12 +1551,11 @@ def _risk_html(
                 if channel != "email"
                 else "<div>"
             )
-            + f'<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><thead><tr style="position:sticky;top:0;background:#fff">'
-            f'<th style="border-bottom:1px solid #e5e7eb"></th>'
-            f'<th style="text-align:left;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Quote · account</th>'
-            f'<th style="text-align:center;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Risk · at stake</th>'
-            f'<th style="text-align:left;padding:6px 8px;font:600 11px {_FONT};color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb">Play · why · owner</th>'
-            f"</tr></thead><tbody>{rows}</tbody></table></div>{more}{alert_line}</div>"
+            + ("" if inline else _NBA_STYLE)
+            + '<table class="nb" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><thead><tr>'
+            + f"<th{_nba_attr('th', inline)}></th><th{_nba_attr('th', inline)}>Quote · account</th>"
+            + f"<th{_nba_attr('thc', inline)}>Risk · at stake</th><th{_nba_attr('th', inline)}>Play · why · owner</th>"
+            + f"</tr></thead><tbody>{rows}</tbody></table></div>{more}{alert_line}</div>"
         )
 
     segments = risk.get("summary", {}).get("rfm_segments") or {}
@@ -1587,10 +1632,12 @@ async def render_report(step_input: StepInput) -> StepOutput:
         recommendation_result=recommendation_result,
         outcomes=outcomes,
     )
-    # The email carries the top of a long list and links to the rest -- a mail client
-    # clips past ~100 KB -- while the app's copy carries every row.
-    email_body = (
-        report_html(
+    # The email is the same report as the app's; only when a run's list would take the
+    # message past the client's clip limit does the email carry the top of it and link
+    # to the rest.
+    email_body = html_body
+    if risk:
+        email_body = report_html(
             comparison,
             explanation,
             title=title,
@@ -1603,9 +1650,20 @@ async def render_report(step_input: StepInput) -> StepOutput:
             outcomes=outcomes,
             channel="email",
         )
-        if risk
-        else html_body
-    )
+        if len(email_body.encode("utf-8")) > EMAIL_LIMIT_BYTES:
+            email_body = report_html(
+                comparison,
+                explanation,
+                title=title,
+                use_case=str(options.get("use_case_title") or ""),
+                dashboard_url=str(options.get("dashboard_url") or ""),
+                grounding=grounding,
+                diagnosis=diagnosis,
+                risk=risk,
+                recommendation_result=recommendation_result,
+                outcomes=outcomes,
+                channel="email_short",
+            )
     text_body = report_text(
         comparison,
         explanation,
@@ -1655,6 +1713,21 @@ async def render_report(step_input: StepInput) -> StepOutput:
 
 
 # --- send_report ---------------------------------------------------------------------------
+
+
+def _report_filename(title: str, as_of: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60] or "report"
+    return f"{slug}-{as_of}.html" if as_of else f"{slug}.html"
+
+
+def _standalone_report(body: str, title: str) -> str:
+    """The report as a complete HTML document a browser opens on its own."""
+    return (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        f"<title>{html.escape(title)}</title>"
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '</head><body style="margin:0;background:#f9fafb">' + body + "</body></html>"
+    )
 
 
 async def send_report(step_input: StepInput) -> StepOutput:
@@ -1745,6 +1818,23 @@ async def send_report(step_input: StepInput) -> StepOutput:
             subject=subject,
             body=str(report.get("text") or ""),
             html=str(report.get("email_html") or report.get("html") or ""),
+            # The full report rides along as a file -- the same document the app shows --
+            # so a mail client's clip limit never decides what the reader gets.
+            attachments=[
+                (
+                    _report_filename(
+                        str(report.get("title") or "report"),
+                        str(report.get("as_of") or ""),
+                    ),
+                    _standalone_report(
+                        str(report.get("html") or ""),
+                        str(report.get("title") or "Report"),
+                    ).encode("utf-8"),
+                    "text/html",
+                )
+            ]
+            if report.get("html")
+            else None,
         )
     except Exception as exc:  # the mailbox refused; the run still records the report
         return StepOutput(

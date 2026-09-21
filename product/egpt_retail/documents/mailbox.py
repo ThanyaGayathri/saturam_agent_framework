@@ -351,10 +351,13 @@ def send_mail(
     body: str,
     smtp_factory: Any = None,
     html: Optional[str] = None,
+    attachments: Optional[Sequence[Tuple[str, bytes, str]]] = None,
 ) -> Dict[str, Any]:
     """Send one message: plain text, with an HTML alternative when ``html`` is given (the
-    report email, K23). ``smtp_factory(host, port)`` returns an object with
-    ``smtplib.SMTP``'s ``starttls``/``login``/``send_message``/``quit``."""
+    report email, K23), and ``attachments`` as ``(filename, bytes, mime type)`` -- the full
+    report as a file when the body carries only the top of it (K26). ``smtp_factory(host,
+    port)`` returns an object with ``smtplib.SMTP``'s ``starttls``/``login``/
+    ``send_message``/``quit``."""
     if not config.configured:
         raise ValueError(
             "mailbox has no user/password: set the source or GMAIL_USER/GMAIL_APP_PASSWORD"
@@ -366,6 +369,14 @@ def send_mail(
     message.set_content(body)
     if html:
         message.add_alternative(html, subtype="html")
+    for filename, payload, mime in attachments or ():
+        maintype, _, subtype = (mime or "application/octet-stream").partition("/")
+        message.add_attachment(
+            payload,
+            maintype=maintype,
+            subtype=subtype or "octet-stream",
+            filename=filename,
+        )
     factory = smtp_factory or smtplib.SMTP
     client = factory(config.smtp_host, config.smtp_port)
     try:
