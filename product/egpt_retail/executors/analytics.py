@@ -1311,7 +1311,7 @@ def _risk_text(
         rs = recommendation_result.get("summary") or {}
         lines.append(
             f"  Recommendations: {rs.get('recommendations')} worth {_money(rs.get('value_at_stake'))}; "
-            f"alerts: {rs.get('alerts')} to {rs.get('owners')} reps"
+            f"{rs.get('alerts')} of them high risk, alerted to {rs.get('owners')} reps"
         )
         for record in recommendation_result.get("recommendations") or []:
             action = record.get("action") or {}
@@ -1426,7 +1426,7 @@ def _risk_html(
         + stat(
             "Act now",
             str(summary.get("at_risk_within_range", 0)),
-            f"quotes at risk, still in range · {_money(summary.get('value_at_risk_within_range'))}",
+            f"of {summary.get('within_range', 0)} still inside their window are at risk · {_money(summary.get('value_at_risk_within_range'))}",
             "#b91c1c",
         )
         + stat(

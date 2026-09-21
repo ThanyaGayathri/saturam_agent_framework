@@ -327,7 +327,7 @@ export function runStats(run) {
    // Whether the run compared anything (a comparison is a choice) and whether it diagnosed a change (K25).
    compared: !!result.comparison_result?.comparison && result.comparison_result.comparison !== "none", diagnosed: !!result.diagnosis,
    // The at-risk kind (K26): what was scored and what the run ended in.
-   scored: result.risk ? { open: result.risk.summary?.open_quotes || 0, atRiskInRange: result.risk.summary?.at_risk_within_range || 0, recommendations: result.recommendation_result?.summary?.recommendations || 0, alerts: result.recommendation_result?.summary?.alerts || 0, alertsStatus: result.alerts?.status || null } : null,
+   scored: result.risk ? { open: result.risk.summary?.open_quotes || 0, withinRange: result.risk.summary?.within_range || 0, atRiskInRange: result.risk.summary?.at_risk_within_range || 0, recommendations: result.recommendation_result?.summary?.recommendations || 0, alerts: result.recommendation_result?.summary?.alerts || 0, alertsStatus: result.alerts?.status || null } : null,
    byClass: result.grounding?.passed === false ? { NARRATIVE_WITHHELD: 1 } : {}, idle: false, durationMs,
    records: [], notify: status || null, recipients: result.delivery?.to || [],
    headline: result.report.headline || "", withheld: result.grounding?.passed === false,

@@ -47,7 +47,9 @@ A JSON object:
   `usual_days`, `drivers[]` (each a `text` in words), `account` (`segment`, `at_risk`,
   `recency_days`), `play` (`title`, `because`, `owner`, `sla_hours`), `value_at_stake_text`.
 - `plays[]` -- each `{play, count}`: how many recommendations carry each play, by its title.
-- `alerts` -- `count`, `reps` (how many reps), `by_rep` (rep → count).
+- `alerts` -- `count`, `reps` (how many reps), `by_rep` (rep → count). The alerts are
+  the high-risk subset of the recommendations, also sent to their reps -- never add them
+  to the recommendations; say "N of them".
 - `tracked_so_far` -- per risk level, of the earlier recommendations whose horizon has
   ended: `named`, `did_not_convert`, `rate`. Empty on a first run.
 - `kpis[]` -- the registry KPIs read for context, each `name`, `current`, `unit`.
