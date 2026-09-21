@@ -1114,13 +1114,6 @@ export default function KpiDiscoveryPage() {
   [areaState.areas]
  );
  const realAreaLabel = (id) => realAreaLabelById[id] || id || "";
- // What the AI step of "Add KPI" tells the person their focus is -- the same label lookup
- // every registry row's grouping already uses.
- const focusAreaLabels = useMemo(
-  () => (suggestBusinessAreas || []).map(realAreaLabel).filter(Boolean),
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `realAreaLabel` closes over `realAreaLabelById` only.
-  [suggestBusinessAreas, realAreaLabelById]
- );
 
  const nameToIdsMap = useMemo(() => datasetIdsByLinkedKpiName(), []);
  const processLabelById = useMemo(
@@ -1342,13 +1335,7 @@ export default function KpiDiscoveryPage() {
     <AddKpiModal
      areaState={areaState}
      onRetryAreas={loadAreas}
-     focusAreaLabels={focusAreaLabels}
-     runInFlight={suggestionState.status === "loading"}
      onClose={closeAddKpi}
-     onStartAi={(ask) => {
-      closeAddKpi();
-      runSuggestions({ ask });
-     }}
      onCreateManual={createManualKpi}
     />
    )}
