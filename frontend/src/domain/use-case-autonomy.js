@@ -185,6 +185,24 @@ export function templateFromText(text) {
  if (doc && kpi) return /\b(pdf|attachment|e-?mail|mailbox|inbox|document|invoice)\b/.test(t) ? "document_to_record" : "kpi_change";
  return null;
 }
+/**
+ * An Analytics Automation's kind, read from the words (K26): the person never picks it.
+ * The same cues the platform's suggestion uses -- who or what is at risk / will not
+ * convert / churn / stalled is the at-risk kind; "why" or a fall is the diagnostic; a
+ * threshold to be told about is the alert; anything else the monitoring report. Null when
+ * the words say nothing yet, so a blank goal changes nothing.
+ */
+export function analyticsKindFromText(text) {
+ const t = String(text || "").toLowerCase().trim();
+ if (!t) return null;
+ if (/\bat[- ]risk\b|\brisk of\b|\bchurn|\bnot convert|\bwon'?t convert|\bstall|\blikely to (lose|lapse|not close)|\bwhich (quotes|accounts|customers|deals) (are|will)|\bwill we lose\b/.test(t)) return { shape: "inform", template: "at_risk" };
+ if (/^\s*(why|what happened|what caused|explain why)/.test(t) || /\b(drop|dropped|fell|falling|declin|down)\b/.test(t)) return { shape: "inform", template: "metric_diagnosis" };
+ const alertCue = /\b(alert|notify|tell (me|the|us)|let me know|when [^.]* (goes above|falls below|crosses|exceeds|drops below|is above|is below)|threshold|breach)\b/.test(t);
+ const reportCue = /\b(explain|compare|report|breakdown|analy[sz]e|drivers?|visibility|digest|summary)\b/.test(t);
+ if (alertCue && !reportCue) return { shape: "alert", template: null };
+ return { shape: "inform", template: null };
+}
+
 export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.id === spec.template) || null;
 
 /**

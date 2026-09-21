@@ -15,7 +15,7 @@ import {
  CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES,
  FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
  PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldMetaFor, fieldsFor, templateFromText,
+ TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldMetaFor, fieldsFor, analyticsKindFromText, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
@@ -289,12 +289,6 @@ export default function UseCaseComposeScreen() {
   setAssistantOpen(false);
   lastAsked.current = null;
  };
- const setMode = (shapeId, template = null) => {
-  if (shapeId === spec.shape && (template || null) === (spec.template || null)) return;
-  const next = persist(withShape(spec, shapeId, spec.category, template || null));
-  setSpecState(next);
-  lastAsked.current = null;
- };
  const setTemplate = (id) => {
   if (id === spec.template) return;
   const next = persist(withTemplate(spec, id));
@@ -369,13 +363,16 @@ export default function UseCaseComposeScreen() {
 
  const ingest = (msg, { viaAssistant = true } = {}) => {
   const mode = modeFromText(msg);
-  let base = mode === spec.shape ? spec : withShape(spec, mode, spec.category);
+  const kind = spec.category === "analytics_automation" ? analyticsKindFromText(msg) : null;
+  let base = kind
+   ? (kind.shape === spec.shape && (kind.template || null) === (spec.template || null) ? spec : withShape(spec, kind.shape, spec.category, kind.template))
+   : mode === spec.shape ? spec : withShape(spec, mode, spec.category);
   if (category?.templates && !base.template) {
    const inferred = templateFromText(`${base.goal || ""} ${msg}`);
    if (inferred) base = withTemplate({ ...base, goal: base.goal || msg }, inferred);
   }
   let { patch, understood } = extract(msg, base, ctx);
-  if (mode !== spec.shape) understood = [`output: ${category.trigger.find((t) => t.shape === mode)?.label.toLowerCase()}`, ...understood];
+  if (category.trigger && (base.shape !== spec.shape || (base.template || null) !== (spec.template || null))) understood = [`read as: ${category.trigger.find((t) => t.shape === base.shape && (t.template || null) === (base.template || null))?.label.toLowerCase()}`, ...understood];
   if (base.template && base.template !== spec.template) understood = [`read as: ${category.templates.find((t) => t.id === base.template)?.label.toLowerCase()}`, ...understood];
   if (!Object.keys(patch).length && viaAssistant) {
    const direct = directAnswer(msg, blocking[0]);
@@ -491,6 +488,11 @@ export default function UseCaseComposeScreen() {
   if (field === "goal" && categoryOf(s)?.templates && !s.template) {
    const inferred = templateFromText(value);
    if (inferred) base = withTemplate({ ...s, goal: value }, inferred);
+  }
+  // An Analytics Automation's kind is read from the goal, never picked (K26).
+  if (field === "goal" && s.category === "analytics_automation") {
+   const kind = analyticsKindFromText(value);
+   if (kind && (kind.shape !== s.shape || (kind.template || null) !== (s.template || null))) base = withShape({ ...s, goal: value }, kind.shape, s.category, kind.template);
   }
   const next = applyPatch(base, { [FIELD_META[field]?.key || field]: value }, ORIGIN.authored);
   const primary = registry.find((k) => k.name === next.metricIds[0]);
@@ -1067,18 +1069,16 @@ export default function UseCaseComposeScreen() {
      </div>
     )}
 
-    {category.trigger && (
-     <Field name="mode" origin={null}>
-      <div className={`grid gap-2 ${category.trigger.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-       {category.trigger.map((t) => { const on = spec.shape === t.shape && (spec.template || null) === (t.template || null); return (
-        <button key={`${t.shape}:${t.template || ""}`} type="button" aria-pressed={on} onClick={() => setMode(t.shape, t.template || null)} className={`rounded-lg border px-3 py-2 text-left ${on ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
-         <span className="block text-sm font-semibold text-text-primary">{t.label}</span>
-         <span className="block text-xs text-text-muted">{t.hint}</span>
-        </button>
-       ); })}
-      </div>
-     </Field>
-    )}
+    {/* The kind is read from the words, never picked (K26): the goal decides whether this
+        reports, diagnoses, finds who is at risk, or alerts; change the goal to change it. */}
+    {category.trigger && (() => { const t = category.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || category.trigger[0]; return (
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+      <Sparkles size={12} className="text-primary" />
+      <span className="text-text-secondary">Read from your goal as</span>
+      <span className="font-semibold text-text-primary">{t.label.replace(/^\w/, (c) => c.toLowerCase())}</span>
+      <span className="text-text-muted">— {t.hint}</span>
+     </div>
+    ); })()}
 
     {fields.filter((f) => f !== "schedule").map(renderField)}
 
