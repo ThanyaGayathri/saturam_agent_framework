@@ -14463,7 +14463,7 @@
         ],
         "operationId": "setRecommendationStatus",
         "summary": "Accept, dismiss or mark actioned (1.13.0).",
-        "description": "What Decision Intelligence -- or a person on the Recommendations screen, which is the\nsame contract -- writes back. A decided record is kept as decided by later runs of\nthe producing use case; only an open one is refreshed.\n",
+        "description": "What Decision Intelligence -- or a person acting on the dashboard's list, which is the\nsame contract -- writes back. A decided record is kept as decided by later runs of\nthe producing use case; only an open one is refreshed.\n",
         "x-egpt-scopes": [
           "use-cases:write"
         ],

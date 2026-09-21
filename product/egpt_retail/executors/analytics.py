@@ -1519,7 +1519,7 @@ def _risk_html(
             + (
                 f'<a href="{e(dashboard_url)}" style="color:#6d28d9;font-weight:600">Open the live dashboard</a> for all {len(records)}, searchable by account, rep or territory.'
                 if dashboard_url
-                else f"All {len(records)} are on the dashboard and the use case's Recommendations tab."
+                else f"All {len(records)} are on the use case's dashboard."
             )
             + "</p>"
             if left > 0
@@ -1546,7 +1546,7 @@ def _risk_html(
         ranked = (
             '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:12px 0;background:#fff">'
             f'<div style="font:600 14px {_FONT};color:#111827">Next best actions'
-            f' <span style="font-weight:500;color:#6b7280">· {rs.get("recommendations")} recommendations worth {e(_money(rs.get("value_at_stake")))}, ranked by what can still be saved</span></div>'
+            f' <span style="font-weight:500;color:#6b7280">· {rs.get("recommendations")} recommendations worth {e(_money(rs.get("value_at_stake")))}, ranked by what can still be saved, weighted by what the account is worth</span></div>'
             f'<div style="margin:8px 0 10px">{chips}</div>'
             # In the app the list scrolls inside the report; an email client ignores the
             # overflow, which is why the email carries a capped list instead.

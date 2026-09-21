@@ -45,7 +45,7 @@ from egpt_retail.predict.model import (
     fit_logistic,
     predict_proba,
 )
-from egpt_retail.predict.rfm import rfm_segments
+from egpt_retail.predict.rfm import importance_of, rfm_segments
 
 __all__ = [
     "risk_of",
@@ -375,6 +375,10 @@ async def score_risk(step_input: StepInput) -> StepOutput:
                         "frequency": int(account.get("frequency", 0)),
                         "monetary": round(float(account.get("monetary", 0.0)), 2),
                         "segment": account.get("segment"),
+                        "r": int(account.get("r", 0) or 0),
+                        "f": int(account.get("f", 0) or 0),
+                        "m": int(account.get("m", 0) or 0),
+                        "importance": importance_of(account.get("segment")),
                         "at_risk": bool(account.get("at_risk", False)),
                         "won": int(account.get("won", 0)),
                         "lost": int(account.get("lost", 0)),
@@ -382,7 +386,12 @@ async def score_risk(step_input: StepInput) -> StepOutput:
                 }
             )
         # Still within the usual range first: those a rep can still save.
-        subjects.sort(key=lambda s: (s["stalled"], -s["value_at_risk"], -s["risk"]))
+        # What to save first: still-in-range quotes, by the value at risk weighted by
+        # what the account is worth -- a Cannot-lose-them account's $6K outranks a
+        # one-off buyer's $9K.
+        for s in subjects:
+            s["priority"] = round(s["value_at_risk"] * s["account"]["importance"], 2)
+        subjects.sort(key=lambda s: (s["stalled"], -s["priority"], -s["risk"]))
         counts = {
             lvl: sum(1 for s in subjects if s["level"] == lvl)
             for lvl in ("high", "medium", "low")

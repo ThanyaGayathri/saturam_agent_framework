@@ -1386,7 +1386,7 @@ x-egpt-responses:
     operationId: setRecommendationStatus
     summary: Accept, dismiss or mark actioned (1.13.0).
     description: |
-      What Decision Intelligence -- or a person on the Recommendations screen, which is the
+      What Decision Intelligence -- or a person acting on the dashboard's list, which is the
       same contract -- writes back. A decided record is kept as decided by later runs of
       the producing use case; only an open one is refreshed.
     x-egpt-scopes: [use-cases:write]

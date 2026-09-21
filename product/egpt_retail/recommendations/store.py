@@ -242,7 +242,8 @@ class RecommendationStore:
                     # The report's order: still-in-range first (those a rep can still save), then
                     # by what is at stake weighted by how likely it is lost.
                     "ORDER BY COALESCE(CAST(context->>'stalled' AS boolean), false) ASC, "
-                    "value_at_stake * risk_score DESC, created_at DESC LIMIT :limit"
+                    "COALESCE(CAST(context->>'priority' AS double precision), "
+                    "value_at_stake * risk_score) DESC, created_at DESC LIMIT :limit"
                 ),
                 params,
             ).mappings()

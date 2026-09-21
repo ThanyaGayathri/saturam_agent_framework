@@ -202,6 +202,21 @@ def play_for(
             f"open {int(age)} days, twice the usual {int(usual)}, and worth less than "
             f"half the territory's typical open quote"
         )
+    elif level == "high" and rfm in ("cannot lose them", "champions"):
+        # The account, not the quote, is what is at stake: a senior contact, whatever
+        # the quote's size.
+        code = "ESCALATE"
+        quotes = int(account.get("frequency") or 0)
+        won = float(account.get("monetary") or 0)
+        reasons.append(
+            f"high risk on a {account.get('segment')} account "
+            f"({quotes} quote{'s' if quotes != 1 else ''} this year"
+            + (f", ${won:,.0f} won)" if won > 0 else ")")
+        )
+    elif level == "high" and rfm == "new":
+        # A first buyer stalling is a trust problem, not a price problem.
+        code = "DECISION_SUPPORT"
+        reasons.append("high risk on a new account's first quotes")
     elif level == "high" and territory_median_value and value > territory_median_value:
         code = "ESCALATE"
         reasons.append(

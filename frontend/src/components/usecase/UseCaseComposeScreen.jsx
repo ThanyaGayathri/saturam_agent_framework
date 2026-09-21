@@ -747,7 +747,7 @@ export default function UseCaseComposeScreen() {
         <span className="block text-xs text-text-muted">{why}</span>
        </button>
       ); })}</div>
-      <p className="mt-1.5 text-[11px] text-text-muted">Every recommendation is a record: the quote, its risk and drivers, the play with who owns it and by when. Decision Intelligence, or a person on the Recommendations screen, accepts or dismisses it; the run after the horizon writes what happened.</p>
+      <p className="mt-1.5 text-[11px] text-text-muted">Every recommendation is a record: the quote, its risk and drivers, the play with who owns it and by when. Decision Intelligence accepts or dismisses it through the recommendations API; the run after the horizon writes what happened.</p>
      </Field>
     );
    }

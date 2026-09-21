@@ -118,9 +118,91 @@ class TestCatalogue:
         )
         assert release["code"] == "RELEASE"
         escalate = play_for(
-            _subject(level="high", value=9000.0), territory_median_value=5000.0
+            _subject(
+                level="high",
+                value=9000.0,
+                account={"segment": "Potential", "at_risk": False},
+            ),
+            territory_median_value=5000.0,
         )
         assert escalate["code"] == "ESCALATE" and "$9,000" in escalate["because"]
+
+    def test_the_account_segment_shapes_the_play_on_an_in_range_quote(self):
+        # A Champion or a Cannot-lose-them account at high risk is escalated whatever the
+        # quote's size: the account is what is at stake.
+        champion = play_for(
+            _subject(
+                level="high",
+                value=1200.0,
+                account={
+                    "segment": "Champions",
+                    "at_risk": False,
+                    "frequency": 3,
+                    "monetary": 12000.0,
+                },
+            ),
+            territory_median_value=5000.0,
+        )
+        assert (
+            champion["code"] == "ESCALATE"
+            and "Champions account" in champion["because"]
+        )
+        keep = play_for(
+            _subject(
+                level="high",
+                value=1200.0,
+                account={
+                    "segment": "Cannot lose them",
+                    "at_risk": False,
+                    "frequency": 5,
+                    "monetary": 30000.0,
+                },
+            ),
+            territory_median_value=5000.0,
+        )
+        assert (
+            keep["code"] == "ESCALATE"
+            and "5 quotes this year, $30,000 won" in keep["because"]
+        )
+        # A new account stalling on its first quotes gets decision support, not a discount.
+        new = play_for(
+            _subject(
+                level="high", value=1200.0, account={"segment": "New", "at_risk": False}
+            ),
+            territory_median_value=5000.0,
+        )
+        assert new["code"] == "DECISION_SUPPORT"
+        # Medium risk on a Champion is still a re-engage: the rule is for high risk.
+        medium = play_for(
+            _subject(
+                level="medium",
+                value=1200.0,
+                account={"segment": "Champions", "at_risk": False},
+            ),
+            territory_median_value=5000.0,
+        )
+        assert medium["code"] == "RE_ENGAGE"
+        # The last loss and a stalled tiny quote still come first.
+        lost = play_for(
+            _subject(
+                level="high",
+                last_lost_reason="Chosen Competitor",
+                account={"segment": "Champions", "at_risk": False},
+            )
+        )
+        assert lost["code"] == "COMPETITIVE_RESPONSE"
+        release = play_for(
+            _subject(
+                level="high",
+                stalled=True,
+                age_days=80,
+                usual_days=26,
+                value=900.0,
+                account={"segment": "Champions", "at_risk": False},
+            ),
+            territory_median_value=5000.0,
+        )
+        assert release["code"] == "RELEASE"
         default = play_for(
             _subject(level="medium", value=4000.0, age_days=25),
             territory_median_value=5000.0,

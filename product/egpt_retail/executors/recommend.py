@@ -118,6 +118,7 @@ def records_for(
                 "usual_days": subject.get("usual_days"),
                 "stalled": subject.get("stalled"),
                 "p_convert": subject.get("p_convert"),
+                "priority": subject.get("priority"),
                 "last_lost_reason": subject.get("last_lost_reason"),
                 "account": dict(account),
                 "as_of": as_of.isoformat(),

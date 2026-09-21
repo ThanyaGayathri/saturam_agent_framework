@@ -60,7 +60,7 @@ function NextBestActions({ recommendations }) {
  return (
   <div className="mt-3">
    <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
-    <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · {all.length} recommendations · {money(value)} at stake · ranked by what can still be saved</span>
+    <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · {all.length} recommendations · {money(value)} at stake · ranked by what can still be saved, weighted by what the account is worth</span>
     <span className="ml-auto text-[11px] font-semibold text-primary">{open ? "Hide" : "Show all"}</span>
    </button>
    <div className="mt-1 flex flex-wrap items-center gap-1.5">

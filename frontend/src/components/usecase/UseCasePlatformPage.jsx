@@ -4,7 +4,6 @@ import { ArrowLeft, ExternalLink, Pause, Pencil, Play, Trash2 } from "lucide-rea
 import PlatformRunPanel from "./PlatformRunPanel";
 import RunHistory from "./RunHistory";
 import PlanViews from "./PlanViews";
-import RecommendationsPanel from "./RecommendationsPanel";
 import { STATUS_PILL } from "../UseCaseGallery";
 import { cadenceLabel, specFromPlatform } from "../../domain/use-case-platform";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -127,19 +126,13 @@ export default function UseCasePlatformPage() {
           </div>
 
           <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-            {[["runs", "Runs"], ...(atRisk ? [["recommendations", "Recommendations"]] : []), ["flow", "How it runs"]].map(([v, label]) => (
+            {[["runs", "Runs"], ["flow", "How it runs"]].map(([v, label]) => (
               <button key={v} type="button" onClick={() => setTab(v)} aria-pressed={tab === v} className={`rounded-md px-3 py-1 ${tab === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
             ))}
           </div>
 
           {tab === "flow" && (fullSpec ? <PlanViews spec={fullSpec} /> : <p className="text-sm text-text-muted">Reading the specification…</p>)}
 
-          {tab === "recommendations" && (
-            <div className="space-y-2">
-              <p className="text-xs text-text-secondary">What this use case hands to Decision Intelligence: one record per at-risk quote with the play the catalogue chose, who owns it and why. Accepting or dismissing here is the same write a consuming use case makes; a decided record is kept by later runs, an open one is refreshed.</p>
-              <RecommendationsPanel useCaseId={id} />
-            </div>
-          )}
 
           {tab === "runs" && useCase.status === "activated" && (
             <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description={atRisk ? "Trains the risk model on the closed history, scores every open quote, chooses a play for each at-risk one, writes the recommendations, checks the briefing's figures, sends the report and the reps' alerts: the same run the schedule makes." : (useCase.tags || []).includes("metric_diagnosis") ? "Reads the KPI, finds where its change sits by arithmetic, has the AI step write the sentence from that ranking, checks every figure, and sends the report: the same run the schedule makes." : (useCase.tags || []).includes("analytics_automation") ? "Reads the KPIs from gold (and the baseline's when one is chosen), writes and checks the narrative, and sends the report: the same run the schedule makes." : "Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new."} createdAs="draft" onFinished={load} />

@@ -297,9 +297,31 @@ class TestScoreRisk:
         } <= set(first)
         assert first["account"]["segment"] in RFM_SEGMENTS
         assert 0.0 <= first["risk"] <= 1.0
-        # Still-in-range quotes come before the stalled ones.
+        # Still-in-range quotes come before the stalled ones; within each, by the value
+        # at risk weighted by what the account is worth.
         stalled_flags = [s["stalled"] for s in risk["subjects"]]
         assert stalled_flags == sorted(stalled_flags)
+        in_range = [s for s in risk["subjects"] if not s["stalled"]]
+        assert [s["priority"] for s in in_range] == sorted(
+            (s["priority"] for s in in_range), reverse=True
+        )
+        assert all(
+            abs(
+                s["priority"]
+                - round(s["value_at_risk"] * s["account"]["importance"], 2)
+            )
+            < 0.02
+            for s in risk["subjects"]
+        )
+        assert {s["account"]["importance"] for s in risk["subjects"]} <= {
+            0.8,
+            0.9,
+            1.0,
+            1.2,
+            1.4,
+            1.5,
+        }
+        assert all({"r", "f", "m"} <= set(s["account"]) for s in risk["subjects"])
         assert risk_of(StepInput(previous_step_content=out.content)) == risk
 
     def test_churn_window_slot_flags_accounts(self, stubbed_warehouse):
