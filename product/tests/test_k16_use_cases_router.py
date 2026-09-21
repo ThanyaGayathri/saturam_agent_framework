@@ -377,6 +377,25 @@ def _service(
     )
 
 
+class _NoRecommendations:
+    """The recommendations store's contract with nothing in it."""
+
+    deleted: List[str] = []
+
+    def delete_for_use_case(self, use_case_id: str) -> int:
+        self.deleted.append(use_case_id)
+        return 0
+
+    def list(self, **filters: Any) -> List[Dict[str, Any]]:
+        return []
+
+    def counts(self, use_case_id: Optional[str] = None) -> Dict[str, int]:
+        return {}
+
+    def get(self, recommendation_id: str) -> Optional[Dict[str, Any]]:
+        return None
+
+
 @contextmanager
 def _client(
     service: UseCaseService, *, authorization: bool = False, scopes: tuple = ()
@@ -392,6 +411,9 @@ def _client(
 
     app.include_router(module.router)
     app.dependency_overrides[module.use_case_service] = lambda: service
+    # The recommendations store (K26) is a control-plane table; a router test never
+    # opens one, so deleting a use case cascades into a stand-in that records the call.
+    app.dependency_overrides[module.recommendation_store] = lambda: _NoRecommendations()
     with TestClient(app) as client:
         yield client
 
@@ -1648,6 +1670,9 @@ def test_execution_health_reads_the_runs_and_names_the_trigger() -> None:
 
     app.include_router(monitoring_module.router)
     app.dependency_overrides[module.use_case_service] = lambda: service
+    # The recommendations store (K26) is a control-plane table; a router test never
+    # opens one, so deleting a use case cascades into a stand-in that records the call.
+    app.dependency_overrides[module.recommendation_store] = lambda: _NoRecommendations()
     app.dependency_overrides[monitoring_module.schedule_trigger] = lambda: "poller"
     with TestClient(app) as client:
         body = client.get("/monitoring/execution-health").json()
