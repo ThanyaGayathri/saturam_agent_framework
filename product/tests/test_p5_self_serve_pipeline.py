@@ -34,6 +34,7 @@ from egpt_retail.contracts.data_source import (
 from egpt_retail.entrypoints import __main__ as cli
 from egpt_retail.entrypoints import harvest as harvest_cli
 from egpt_retail.executors import data_source_harvest as executor_module
+from egpt_retail.executors import kpi_suggestions as kpi_suggestions_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_MODEL_STATES = (
@@ -54,7 +55,7 @@ def _settings() -> RetailSettings:
 
 
 class TestOneExecutorThreeEntryPoints:
-    def test_the_harvest_source_workflow_is_registered_with_the_executor_as_its_only_step(
+    def test_the_harvest_source_workflow_is_the_harvest_then_the_kpi_suggestions(
         self,
     ) -> None:
         settings = _settings()
@@ -62,8 +63,14 @@ class TestOneExecutorThreeEntryPoints:
             w.id: w for w in build_workflows(settings, build_control_plane_db(settings))
         }
         workflow = workflows[HARVEST_SOURCE_WORKFLOW_ID]
-        assert [step.name for step in workflow.steps] == ["harvest-source"]
+        assert [step.name for step in workflow.steps] == [
+            "harvest-source",
+            "suggest-kpis",
+        ]
         assert workflow.steps[0].executor is executor_module.harvest_source
+        # After the harvest, never before it: a harvest that fails or is refused stops the
+        # workflow, so a source with no tables never gets a suggestion run.
+        assert workflow.steps[1].executor is kpi_suggestions_module.suggest_kpis
         # Background runs (what the frontend asks for with background=true) require a db on
         # the workflow; without it the framework answers 400 and the card never leaves
         # "not modelled".

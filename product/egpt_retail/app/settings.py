@@ -428,6 +428,15 @@ class RetailSettings(BrandedSettings):
         "returns it instead of calling the model, so a demo can be rehearsed without spending "
         "model credit. Unset (the default) runs the agents.",
     )
+    retail_suggest_after_harvest: bool = Field(
+        default=True,
+        description="Whether a source's harvest ends by proposing KPIs for it "
+        "(EGPT_RETAIL_SUGGEST_AFTER_HARVEST). On (the default), the `harvest-source` workflow's "
+        "`suggest-kpis` step runs one KPI suggestion run scoped to the source that was just "
+        "harvested, so the KPIs page has proposals waiting. That run is two frontier-tier model "
+        "calls, so a deployment that would rather pay for suggestions only when someone asks "
+        "(`POST /kpis/suggestions`) turns it off; the harvest itself is unaffected either way.",
+    )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,
         description="Seconds between consolidator ticks in loop mode (EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL).",

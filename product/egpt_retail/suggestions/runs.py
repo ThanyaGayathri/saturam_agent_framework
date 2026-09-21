@@ -35,6 +35,7 @@ from typing import Any, Mapping, Optional, Sequence, Tuple
 __all__ = [
     "RUN_SCHEMA",
     "TYPICAL_DURATION_SAMPLE",
+    "CurrentRuns",
     "SuggestionRunPhase",
     "SuggestionRunRecord",
     "SuggestionRunStatus",
@@ -104,6 +105,11 @@ class SuggestionRunRecord:
     #: agents' message, kept on the row so a poll can say what the run was for. ``None``
     #: when the run was started without one.
     ask: Optional[str] = None
+    #: The registered data source this run was started for -- the one whose harvest just
+    #: finished -- or ``None`` for a run over the deployment's own warehouse (one started by
+    #: ``POST /kpis/suggestions``). Also what makes a run's *scope*: the standing suggestions
+    #: are the newest successful run of each scope (:meth:`SuggestionRunStore.current`).
+    source_id: Optional[str] = None
 
     @property
     def terminal(self) -> bool:
@@ -111,6 +117,29 @@ class SuggestionRunRecord:
             SuggestionRunStatus.SUCCEEDED,
             SuggestionRunStatus.FAILED,
         )
+
+
+@dataclass(frozen=True)
+class CurrentRuns:
+    """What :meth:`SuggestionRunStore.current` found: the runs behind the standing list of
+    suggestions, and what is happening behind it."""
+
+    #: The newest successful run of each scope (a source, or the deployment's own warehouse),
+    #: newest first. Their ``result`` is the suggestions.
+    succeeded: Tuple[SuggestionRunRecord, ...] = ()
+    #: A run still ``queued`` or ``running`` -- the newest, if several -- or ``None``.
+    generating: Optional[SuggestionRunRecord] = None
+    #: The newest ``failed`` run that no later success of the same scope has replaced, or
+    #: ``None``. A failure that a later run got past is history, not something to show.
+    #: One failure, across every scope, by design: the page has one banner with one "Try
+    #: again". When two scopes have a standing failure the newer is the one reported, and the
+    #: other is reported once that one is replaced by a success of its own scope.
+    failed: Optional[SuggestionRunRecord] = None
+
+
+def _scope(source_id: Optional[str]) -> str:
+    """A run's scope: the source it was started for, or ``''`` for the deployment's own."""
+    return source_id or ""
 
 
 def _ddl(schema: str) -> Tuple[str, ...]:
@@ -146,6 +175,11 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         # place; every older row reads as "no request", which is what it was.
         f"""ALTER TABLE {schema}.kpi_suggestion_run
         ADD COLUMN IF NOT EXISTS ask text""",
+        # A table provisioned before a run could be started for a source (contract 1.2.9)
+        # gains the column in place; every older row reads as "the deployment's own warehouse",
+        # which is what it was.
+        f"""ALTER TABLE {schema}.kpi_suggestion_run
+        ADD COLUMN IF NOT EXISTS source_id text""",
         f"""DO $$ BEGIN
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -169,6 +203,10 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         # sort/scan of the (unpurged) whole table.
         f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_succeeded_finished
         ON {schema}.kpi_suggestion_run (finished_at DESC) WHERE status = 'succeeded'""",
+        # `current()` reads the newest successful (and failed) run of each scope.
+        f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_scope_finished
+        ON {schema}.kpi_suggestion_run ((coalesce(source_id, '')), finished_at DESC)
+        WHERE status IN ('succeeded', 'failed')""",
         f"""COMMENT ON TABLE {schema}.kpi_suggestion_run IS
         'One row per POST /kpis/suggestions (#254). Polled by GET /kpis/suggestions/{{id}}; '
         'result is the KpiSuggestionList once succeeded, error the reason once failed; '
@@ -178,7 +216,7 @@ def _ddl(schema: str) -> Tuple[str, ...]:
 
 _COLUMNS = (
     "id, status, business_area, created_at, started_at, finished_at, result, error, "
-    "business_areas, phase, ask"
+    "business_areas, phase, ask, source_id"
 )
 
 
@@ -220,18 +258,26 @@ class SuggestionRunStore:
         business_area: Optional[str],
         business_areas: Sequence[str] = (),
         ask: Optional[str] = None,
+        source_id: Optional[str] = None,
     ) -> SuggestionRunRecord:
         """Record a new, queued run and return it. ``business_areas`` is the focus and
         ``ask`` the customer's request the run was started with, both kept on the row so
-        the poll can echo what was asked for."""
+        the poll can echo what was asked for. ``source_id`` names the registered data source
+        the run is for (``None``: the deployment's own warehouse)."""
         identifier = f"sr_{uuid.uuid4().hex}"
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""INSERT INTO {self._schema}.kpi_suggestion_run
-                        (id, business_area, business_areas, ask)
-                    VALUES (%s, %s, %s, %s)
+                        (id, business_area, business_areas, ask, source_id)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING {_COLUMNS}""",
-                (identifier, business_area, json.dumps(list(business_areas)), ask),
+                (
+                    identifier,
+                    business_area,
+                    json.dumps(list(business_areas)),
+                    ask,
+                    source_id,
+                ),
             )
             row = cursor.fetchone()
         self._connection.commit()
@@ -242,9 +288,12 @@ class SuggestionRunStore:
         business_area: Optional[str],
         business_areas: Sequence[str] = (),
         ask: Optional[str] = None,
+        source_id: Optional[str] = None,
     ) -> SuggestionRunRecord:
         """Async variant."""
-        return await asyncio.to_thread(self.create, business_area, business_areas, ask)
+        return await asyncio.to_thread(
+            self.create, business_area, business_areas, ask, source_id
+        )
 
     def mark_running(self, identifier: str) -> None:
         """``queued`` -> ``running``. A no-op on a row that has already moved on."""
@@ -338,6 +387,86 @@ class SuggestionRunStore:
         """Async variant."""
         return await asyncio.to_thread(self.get, identifier, stale_after=stale_after)
 
+    def current(self, *, stale_after: Optional[timedelta] = None) -> CurrentRuns:
+        """The runs behind the standing list of suggestions -- see :class:`CurrentRuns`.
+
+        ``stale_after`` closes a ``queued``/``running`` run whose executor is gone, exactly as
+        :meth:`get` does for one run, so a run lost mid-flight cannot leave the page waiting
+        on ``generating`` forever: it becomes ``failed`` here, and is reported as such.
+
+        One row per scope, because a scope's newest success is the whole of what it currently
+        proposes -- an older run of the same scope is superseded by it, while another scope's
+        run is not (two sources each keep their own suggestions).
+
+        "Newest" is the run that *finished* last (``finished_at``), not the one that was
+        created last: runs of one scope can overlap (a manual run started while a harvest's
+        is still going), and the one that finishes last holds the answer that is current.
+        """
+        if stale_after is not None:
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"""UPDATE {self._schema}.kpi_suggestion_run
+                        SET status = 'failed', error = %s, finished_at = now()
+                        WHERE status = ANY(%s) AND created_at < %s""",
+                    (
+                        LOST_RUN_ERROR,
+                        list(_OPEN),
+                        datetime.now(timezone.utc) - stale_after,
+                    ),
+                )
+            self._connection.commit()
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT DISTINCT ON (coalesce(source_id, '')) {_COLUMNS}
+                    FROM {self._schema}.kpi_suggestion_run
+                    WHERE status = 'succeeded'
+                    ORDER BY coalesce(source_id, ''), finished_at DESC""",
+            )
+            succeeded = [_record(row) for row in cursor.fetchall()]
+            cursor.execute(
+                f"""SELECT {_COLUMNS} FROM {self._schema}.kpi_suggestion_run
+                    WHERE status = ANY(%s)
+                    ORDER BY created_at DESC LIMIT 1""",
+                (list(_OPEN),),
+            )
+            row = cursor.fetchone()
+            generating = _record(row) if row is not None else None
+            cursor.execute(
+                f"""SELECT DISTINCT ON (coalesce(source_id, '')) {_COLUMNS}
+                    FROM {self._schema}.kpi_suggestion_run
+                    WHERE status = 'failed'
+                    ORDER BY coalesce(source_id, ''), finished_at DESC""",
+            )
+            failures = [_record(row) for row in cursor.fetchall()]
+        self._connection.commit()
+
+        succeeded_at = {
+            _scope(run.source_id): run.finished_at
+            for run in succeeded
+            if run.finished_at
+        }
+        standing = [
+            run
+            for run in failures
+            if run.finished_at is not None
+            and (
+                _scope(run.source_id) not in succeeded_at
+                or run.finished_at > succeeded_at[_scope(run.source_id)]
+            )
+        ]
+        succeeded.sort(key=lambda run: run.finished_at or run.created_at, reverse=True)
+        # One banner for every scope, not one per scope: see ``CurrentRuns.failed``.
+        failed = max(
+            standing, key=lambda run: run.finished_at or run.created_at, default=None
+        )
+        return CurrentRuns(
+            succeeded=tuple(succeeded), generating=generating, failed=failed
+        )
+
+    async def acurrent(self, *, stale_after: Optional[timedelta] = None) -> CurrentRuns:
+        """Async variant."""
+        return await asyncio.to_thread(self.current, stale_after=stale_after)
+
     def typical_duration(
         self, *, sample: int = TYPICAL_DURATION_SAMPLE
     ) -> Optional[float]:
@@ -406,6 +535,7 @@ def _record(row: Any) -> SuggestionRunRecord:
         business_areas,
         phase,
         ask,
+        source_id,
     ) = row
     if isinstance(result, str):  # a driver that hands jsonb back undecoded
         result = json.loads(result)
@@ -423,4 +553,5 @@ def _record(row: Any) -> SuggestionRunRecord:
         business_areas=tuple(business_areas or ()),
         phase=SuggestionRunPhase(phase) if phase is not None else None,
         ask=ask,
+        source_id=source_id,
     )

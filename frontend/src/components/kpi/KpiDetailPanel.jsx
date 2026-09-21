@@ -569,6 +569,9 @@ export default function KpiDetailPanel({
  onAdopt,
  adopting = false,
  adoptError = null,
+ onDismiss,
+ dismissing = false,
+ dismissError = null,
  onSaveEdit,
  savingEdit = false,
  editError = null,
@@ -1114,7 +1117,14 @@ export default function KpiDetailPanel({
  {/* Gated the same way the card's own adopt button is: only a `ready` suggestion with a
      formula can become a real KPI -- which an edit above can supply where the agent left
      none, or fix where feasibility (still the original suggestion's) says otherwise. */}
- {!editingDraft && bucketFor(detailRow) === "ready" && detailRow.suggestion.proposed_sql && (
+ {!editingDraft && detailRow.suggestion.source_id && (
+ <p className="text-xs leading-relaxed text-text-secondary" data-testid="source-suggestion-note">
+ Proposed from a connected data source. It can't be added to your metrics yet: KPIs are computed
+ from your deployment's own warehouse, and computing over a connected source isn't supported yet.
+ You can still dismiss it.
+ </p>
+ )}
+ {!editingDraft && !detailRow.suggestion.source_id && bucketFor(detailRow) === "ready" && detailRow.suggestion.proposed_sql && (
  <div className="space-y-1.5">
  <button
  type="button"
@@ -1126,6 +1136,24 @@ export default function KpiDetailPanel({
  {adopting ? "Adding…" : "Add to my metrics"}
  </button>
  {adoptError && <p className="text-xs text-status-critical">{adoptError}</p>}
+ </div>
+ )}
+ {/* Dismiss: the suggestion is removed for good -- not shown again on any later visit, for
+     anyone, even if a later run proposes it once more. Offered on every suggestion, whatever
+     its feasibility, since "I don't want this" does not depend on whether it could be adopted. */}
+ {!editingDraft && onDismiss && (
+ <div className="space-y-1.5">
+ <button
+ type="button"
+ disabled={dismissing}
+ onClick={() => onDismiss(detailRow)}
+ data-testid="panel-dismiss-suggestion"
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-text-secondary hover:text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={14} />
+ {dismissing ? "Dismissing…" : "Dismiss this suggestion"}
+ </button>
+ {dismissError && <p className="text-xs text-status-critical">{dismissError}</p>}
  </div>
  )}
  </div>

@@ -18,7 +18,7 @@ import pytest
 from egpt.exceptions import SQLGuardRefusal
 from egpt_retail.api.routers import semantic as semantic_module
 from egpt_retail.app.sql_guard import build_source_read_guard
-from egpt_retail.contracts.semantic import Snapshot, TableRef
+from egpt_retail.contracts.semantic import Column, Snapshot, Table, TableRef
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -42,10 +42,35 @@ class _FakeReader:
     def source_snapshot_version(self) -> Optional[str]:
         return "src.7" if self._tables.get(self.scope) else None
 
+    def get_table(self, name: str, *, include_proposed: bool = False):
+        """The table named ``name`` among what this reader is scoped to -- as the real
+        reader's scoped read is, so a name held only by another scope is absent."""
+        for ref in _DETAIL_TABLES.get(self.scope, ()):
+            if ref.name == name:
+                return Table(
+                    ref=ref,
+                    columns=(
+                        Column(name="id", data_type="text", nullable=False),
+                        Column(
+                            name=f"col_of_{self.scope or 'operator'}", data_type="text"
+                        ),
+                    ),
+                    description=f"{ref.name} as held by scope {self.scope or 'operator'!r}",
+                )
+        return None
+
 
 _TABLES = {
     "": [TableRef(name="orders", schema="silver", row_count=10)],
     "ds_1": [TableRef(name="orders", schema="public", row_count=3)],
+}
+
+#: What ``get_table`` can find per scope: the listing's tables plus one held by only one side,
+#: so a lookup can prove a name held by another scope is absent.
+_DETAIL_TABLES = {
+    "": _TABLES[""] + [TableRef(name="operator_only", schema="silver", row_count=1)],
+    "ds_1": _TABLES["ds_1"]
+    + [TableRef(name="source_only", schema="public", row_count=2)],
 }
 
 
@@ -156,6 +181,66 @@ class TestListSemanticTablesSourceId:
         response = client.get("/semantic/tables", params={"source_id": ""})
         assert response.status_code == 404
         assert opened == []  # never reached the graph, and not the operator scope
+
+
+class TestGetSemanticTableSourceId:
+    """``GET /semantic/tables/{name}?source_id=`` (contract 1.2.9): the table a listing shows
+    under a source can be read back under it. Without this the Data catalog listed a
+    harvested source's tables and found no columns for any of them."""
+
+    def test_without_source_id_it_is_the_operators_table(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get("/semantic/tables/orders").json()
+        assert body["ref"]["schema"] == "silver"
+        assert "operator" in body["description"]
+        assert opened == [""]
+
+    def test_with_source_id_it_is_that_sources_table_and_columns(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        body = client.get(
+            "/semantic/tables/orders", params={"source_id": "ds_1"}
+        ).json()
+        assert body["ref"]["schema"] == "public"
+        assert [c["name"] for c in body["columns"]] == ["id", "col_of_ds_1"]
+        assert opened == ["ds_1"]
+
+    def test_a_table_only_the_source_holds_is_found_under_it(self, monkeypatch):
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/source_only", params={"source_id": "ds_1"}
+        )
+        assert response.status_code == 200
+
+    def test_a_sources_table_never_answers_in_the_default_lookup(self, monkeypatch):
+        """The operator's read must not see a customer's table -- the same guarantee the
+        listing gives, so a customer's `source_only` cannot stand in for an operator table."""
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        assert client.get("/semantic/tables/source_only").status_code == 404
+
+    def test_an_operator_table_is_not_found_under_a_source(self, monkeypatch):
+        client, _ = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/operator_only", params={"source_id": "ds_1"}
+        )
+        assert response.status_code == 404
+        assert "operator_only" in response.json()["detail"]
+
+    def test_an_unknown_source_is_a_404_and_never_reaches_the_graph(self, monkeypatch):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get(
+            "/semantic/tables/orders", params={"source_id": "ds_missing"}
+        )
+        assert response.status_code == 404
+        assert "ds_missing" in response.json()["detail"]
+        assert opened == []
+
+    def test_an_empty_source_id_is_an_unknown_source_not_the_operators_table(
+        self, monkeypatch
+    ):
+        client, opened = _client(monkeypatch, registered={"ds_1": _source()})
+        response = client.get("/semantic/tables/orders", params={"source_id": ""})
+        assert response.status_code == 404
+        assert opened == []
 
 
 class TestBuildSourceReadGuard:

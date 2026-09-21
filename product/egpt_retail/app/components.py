@@ -50,6 +50,7 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
 from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.data_source_harvest import harvest_source
+from egpt_retail.executors.kpi_suggestions import suggest_kpis
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
@@ -537,11 +538,13 @@ def build_workflows(
             name="Harvest source",
             description=(
                 "A registered data source's own schema (#306), read for real and written "
-                "into the shared semantic graph, tagged by which source produced it. "
-                "additional_data={'source_id': '...'} names which one."
+                "into the shared semantic graph, tagged by which source produced it; then "
+                "one KPI suggestion run scoped to that source, kept for the KPIs page "
+                "(suggest-kpis, contract 1.2.9). additional_data={'source_id': '...'} "
+                "names which one."
             ),
             db=db,
-            steps=_chain((harvest_source,)),
+            steps=_chain((harvest_source, suggest_kpis)),
         ),
     ]
 

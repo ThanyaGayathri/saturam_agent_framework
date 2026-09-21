@@ -6188,3 +6188,53 @@ superseded by this one);
 rather than committing an unrelated repo-wide reformat.
 
 ---
+
+### P6_kpi_suggestions_after_harvest.mjs, P6_kpi_suggestion_failure.mjs
+
+**Status:** PASS
+
+**Description:** KPI suggestions after a harvest, kept between visits and removable, and the
+harvested tables in the Data catalog (part of #302, contract 1.2.9). Driven in headless
+Chromium (Playwright) against the real API on :7777 (Postgres :5532, Neo4j :7687) and the Vite
+dev server on :3000. **The model was not called**: this environment has no model credentials, so
+the API ran in the suggestion replay mode (`EGPT_RETAIL_SUGGESTION_REPLAY` ->
+`P6_replay_suggestions.json`, four suggestions over the `store`/`store_visit` tables). Everything
+else is real: the workflow, the run rows, the graph, the API and the pages.
+
+`P6_kpi_suggestions_after_harvest.mjs` registers a Postgres source through the Configure form and
+saves it, then: the source reaches Modelled; the `suggest-kpis` step proposes its four
+suggestions on its own, each stamped with the source; opening the KPIs page while that run is
+still working shows its progress and then the suggestions with no run started by the page;
+reloading keeps all four and starts no run; dismissing one (trash, confirm) posts the dismissal,
+removes the row, leaves the other three, and the backend stops listing it; after a reload it is
+still gone; a second harvest (the replay proposes all four again) does not bring it back and
+lists the others once each; and the Data catalog gains a group for the source's schema with both
+tables, each marked with the source, their columns read back (2 and 4 attributes), and a line
+saying two tables were contributed and when. No console errors and no failed API calls.
+
+`P6_kpi_suggestion_failure.mjs` leaves a failed run for the source and opens the KPIs page: a
+banner names the source and the recorded reason and the standing suggestions stay beside it;
+"Try again" posts `source_id`, and once the run succeeds the banner is gone and the backend
+reports no failure. A suggestion proposed from the source has no "Add to my metrics" (row or
+panel), a note in the panel says why, and it can still be dismissed.
+
+**Found while running it:** the confirm popover on a row near the bottom of the viewport opened
+partly off-screen and closed on any scroll -- including the tail of the scroll that brought the
+row into view -- so it could not be confirmed. It now opens above the button when there is no
+room below and closes on scroll only if the button it points at actually moved. Also found: a
+suggestion from a connected source can be adopted (`POST /kpis` -> 201) but the registry marks
+the KPI `blocked` (`Missing from the semantic snapshot: store`) and `POST .../compute` answers
+409, because KPI SQL is not routed to a source's own connection (#314); the UI therefore does
+not offer it. An earlier run of the request log filtered on `127.0.0.1` while the app calls
+`localhost`, so its "no new run started" assertions could not fail; fixed, and both now assert
+they can see API calls at all.
+
+**Not verified:** a real model run (the agents, their prompts, and how long two frontier-tier
+calls take against a real source); more than one API instance behind the run table.
+
+**Result:** all checks pass. DB-side: `product/tests/test_kpi_suggestions_live.py` (28 tests
+against the compose Postgres) covers `SuggestionRunStore.current()` and the dismissal store,
+mutation-checked (per-scope newest success, failure superseded by a later success, the
+stale-run guard); router, workflow-step and scoped-table-detail tests are DB-free.
+
+---
