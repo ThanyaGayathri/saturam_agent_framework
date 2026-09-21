@@ -1425,6 +1425,12 @@ def _current_out(
     is already in the registry (a run that predates its adoption still lists it, and offering
     to add what is already added would only produce a 409). ``notes`` are the runs' own, joined
     without repeats -- a screen shows them only when there is nothing else to say.
+
+    ``seen``, ``dismissed`` and ``registered`` are all keyed by the bare identifier, with no
+    ``source_id``, on purpose: the registry's own key is the identifier alone, so two sources
+    proposing the same one (say both harvest a ``store`` table and get ``store__row_count``)
+    are proposing one registry entry. It is listed once, dismissing it hides it for both, and
+    adopting it takes it off both -- offering the second source's copy would only be a 409.
     """
     seen: set = set()
     merged: list[wire.KpiSuggestion] = []

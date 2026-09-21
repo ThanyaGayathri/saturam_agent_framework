@@ -75,6 +75,9 @@ async def suggest_kpis(step_input: StepInput) -> StepOutput:
     from egpt_retail.api.routers import kpis as kpis_router
 
     try:
+        # Called directly, not resolved through FastAPI's ``Depends``: this works only while
+        # ``_suggestion_registry_snapshot`` takes no parameters. If it ever gains a
+        # ``Depends(...)`` argument, resolve it here too, or this call fails at run time.
         snapshot = await asyncio.to_thread(kpis_router._suggestion_registry_snapshot)
         record = await asyncio.to_thread(
             kpis_router._with_run_store,
@@ -97,17 +100,27 @@ async def suggest_kpis(step_input: StepInput) -> StepOutput:
         record.identifier, settings, snapshot, None, (), None, source_id=source_id
     )
 
-    final = await asyncio.to_thread(
-        kpis_router._with_run_store,
-        settings,
-        lambda store: store.get(record.identifier),
-    )
-    status = final.status.value if final is not None else "unknown"
-    count = (
-        len(final.result.get("suggestions", []))
-        if final is not None and final.result is not None
-        else 0
-    )
+    # The outcome is already on the row; reading it back only fills in this step's own record.
+    # So a read that fails (a dropped connection) is logged and reported as "unknown" -- it
+    # must not raise, or the workflow engine marks the whole harvest run failed.
+    status, count = "unknown", 0
+    try:
+        final = await asyncio.to_thread(
+            kpis_router._with_run_store,
+            settings,
+            lambda store: store.get(record.identifier),
+        )
+        if final is not None:
+            status = final.status.value
+            count = (
+                len(final.result.get("suggestions", []))
+                if final.result is not None
+                else 0
+            )
+    except Exception:
+        log.exception(
+            "suggest_kpis(%s): could not read back run %s", source_id, record.identifier
+        )
     log.info(
         "suggest_kpis(%s): run %s %s (%d suggestion(s))",
         source_id,

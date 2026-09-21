@@ -2595,6 +2595,59 @@ def test_current_lists_a_suggestion_once_and_keeps_the_newer_proposal(monkeypatc
     assert [s["name"] for s in body["suggestions"]] == ["From the newer run"]
 
 
+def _two_sources_proposing_the_same_kpi():
+    """ds_new and ds_old both harvested a ``store`` table and both propose
+    ``store__row_count``; ds_old also proposes one of its own."""
+    from egpt_retail.suggestions.runs import CurrentRuns
+
+    return CurrentRuns(
+        succeeded=(
+            _succeeded_run(
+                "sr_new",
+                [_suggestion(identifier="store__row_count")],
+                source_id="ds_new",
+            ),
+            _succeeded_run(
+                "sr_old",
+                [
+                    _suggestion(identifier="store__row_count"),
+                    _suggestion(identifier="old__only"),
+                ],
+                source_id="ds_old",
+            ),
+        )
+    )
+
+
+def test_a_dismissal_hides_an_identifier_for_every_source_that_proposed_it(monkeypatch):
+    """Deliberate: the registry's key is the identifier alone, so two sources proposing
+    ``store__row_count`` are proposing one KPI. Dismissing it does not leave the other
+    source's copy behind to reappear."""
+    store = _CurrentRunStore()
+    store.current_runs = _two_sources_proposing_the_same_kpi()
+    with _current_client(monkeypatch, store, scopes=(), authorization=False) as client:
+        assert _ids(client.get("/kpis/suggestions/current").json()) == [
+            "store__row_count",
+            "old__only",
+        ]
+        client.post(
+            "/kpis/suggestions/dismissals", json={"identifier": "store__row_count"}
+        )
+        assert _ids(client.get("/kpis/suggestions/current").json()) == ["old__only"]
+
+
+def test_a_registered_identifier_is_left_out_whichever_source_proposed_it(monkeypatch):
+    """Same rule for the registry: adopting ``store__row_count`` (from either source) takes
+    the other source's identical proposal off the list, where offering it would be a 409."""
+    store = _CurrentRunStore()
+    store.current_runs = _two_sources_proposing_the_same_kpi()
+    adopted = replace(_kpi(), identifier="store__row_count")
+    with _current_client(monkeypatch, store, definitions=[adopted]) as client:
+        body = client.get("/kpis/suggestions/current").json()
+
+    assert _ids(body) == ["old__only"]
+
+
 def test_current_leaves_out_what_is_already_in_the_registry(monkeypatch):
     from egpt_retail.suggestions.runs import CurrentRuns
 

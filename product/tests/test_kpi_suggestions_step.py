@@ -24,10 +24,16 @@ from egpt_retail.suggestions.runs import SuggestionRunRecord, SuggestionRunStatu
 
 
 class _RunStore:
-    def __init__(self, *, fail_create: Optional[BaseException] = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_create: Optional[BaseException] = None,
+        fail_get: Optional[BaseException] = None,
+    ) -> None:
         self.rows: Dict[str, SuggestionRunRecord] = {}
         self.created_with: List[tuple] = []
         self._fail_create = fail_create
+        self._fail_get = fail_get
 
     def create(self, business_area, business_areas=(), ask=None, source_id=None):
         if self._fail_create is not None:
@@ -44,6 +50,8 @@ class _RunStore:
         return record
 
     def get(self, identifier, *, stale_after=None):
+        if self._fail_get is not None:
+            raise self._fail_get
         return self.rows.get(identifier)
 
 
@@ -168,6 +176,36 @@ class TestAFailedSuggestionRunIsNotAFailedHarvest:
         assert output.success is True
         assert output.content["status"] == "not_started"
         assert wired.calls["executed"] == []
+
+    def test_a_read_back_that_fails_after_the_run_finished_leaves_the_step_successful(
+        self, wired, caplog: pytest.LogCaptureFixture
+    ):
+        """The run's outcome is on its row before the step reads it back for its own record;
+        a dropped connection on that read must not fail the harvest workflow run."""
+        wired.calls["store"] = _RunStore(fail_get=RuntimeError("connection reset"))
+        output = _run(_step("ds_1"))
+
+        assert output.success is True
+        assert not output.stop
+        assert output.error is None
+        (executed,) = wired.calls["executed"]  # the run itself did happen
+        assert output.content == {
+            "source_id": "ds_1",
+            "suggestion_run_id": executed["run_id"],
+            "status": "unknown",
+            "suggestions": 0,
+        }
+        assert any(r.exc_info for r in caplog.records)  # logged, with the traceback
+
+    def test_the_read_back_failure_text_never_carries_the_exception_message(
+        self, wired
+    ):
+        wired.calls["store"] = _RunStore(
+            fail_get=RuntimeError("password=hunter2 at db.internal")
+        )
+        output = _run(_step())
+        assert "hunter2" not in str(output.content)
+        assert "db.internal" not in str(output.content)
 
 
 class TestSkipped:

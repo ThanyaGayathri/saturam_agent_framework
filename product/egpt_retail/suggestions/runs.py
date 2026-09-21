@@ -131,6 +131,9 @@ class CurrentRuns:
     generating: Optional[SuggestionRunRecord] = None
     #: The newest ``failed`` run that no later success of the same scope has replaced, or
     #: ``None``. A failure that a later run got past is history, not something to show.
+    #: One failure, across every scope, by design: the page has one banner with one "Try
+    #: again". When two scopes have a standing failure the newer is the one reported, and the
+    #: other is reported once that one is replaced by a success of its own scope.
     failed: Optional[SuggestionRunRecord] = None
 
 
@@ -394,6 +397,10 @@ class SuggestionRunStore:
         One row per scope, because a scope's newest success is the whole of what it currently
         proposes -- an older run of the same scope is superseded by it, while another scope's
         run is not (two sources each keep their own suggestions).
+
+        "Newest" is the run that *finished* last (``finished_at``), not the one that was
+        created last: runs of one scope can overlap (a manual run started while a harvest's
+        is still going), and the one that finishes last holds the answer that is current.
         """
         if stale_after is not None:
             with self._connection.cursor() as cursor:
@@ -448,6 +455,7 @@ class SuggestionRunStore:
             )
         ]
         succeeded.sort(key=lambda run: run.finished_at or run.created_at, reverse=True)
+        # One banner for every scope, not one per scope: see ``CurrentRuns.failed``.
         failed = max(
             standing, key=lambda run: run.finished_at or run.created_at, default=None
         )

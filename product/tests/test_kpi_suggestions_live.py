@@ -117,6 +117,23 @@ def _idents(record: Any) -> list:
     return [s["identifier"] for s in record.result["suggestions"]]
 
 
+def _result(*identifiers: str) -> dict:
+    return {
+        "suggestions": [{"identifier": i} for i in identifiers],
+        "notes": "",
+        "semantic_snapshot": "snap",
+    }
+
+
+def _overlapping(env: Any, source_id: Optional[str], count: int = 2) -> list:
+    """``count`` runs of one scope, all created and running before any finishes -- the
+    caller then finishes them in whatever order it is testing."""
+    records = [env.runs.create(None, (), env.marker, source_id) for _ in range(count)]
+    for record in records:
+        env.runs.mark_running(record.identifier)
+    return records
+
+
 class TestRunsRememberTheirSource:
     def test_a_run_created_for_a_source_reads_back_with_it(self, env):
         record = env.run(env.source("a"), outcome=None)
@@ -187,6 +204,35 @@ class TestCurrentKeepsTheNewestSuccessOfEachSource:
             a.identifier,
         ]
 
+    def test_the_newest_is_the_run_that_finished_last_not_the_one_created_last(
+        self, env
+    ):
+        """Runs of one scope can overlap. ``finished_at`` decides which is current, so a
+        regression to ``created_at`` ordering (which would pick ``second``) is caught."""
+        first, second = _overlapping(env, env.source("a"))
+        env.runs.mark_succeeded(second.identifier, _result("second__one"))
+        time.sleep(0.01)  # distinct now() values
+        env.runs.mark_succeeded(first.identifier, _result("first__one"))
+
+        current = env.mine(env.runs.current().succeeded)
+
+        assert [r.identifier for r in current] == [first.identifier]
+        assert _idents(current[0]) == ["first__one"]
+
+    def test_scopes_are_ordered_by_when_they_finished_not_when_they_were_created(
+        self, env
+    ):
+        a_first, a_second = _overlapping(env, env.source("a"))
+        (b,) = _overlapping(env, env.source("b"), count=1)
+        env.runs.mark_succeeded(b.identifier, _result("b__one"))
+        time.sleep(0.01)
+        env.runs.mark_succeeded(a_first.identifier, _result("a__one"))
+        env.runs.mark_failed(a_second.identifier, "not the newest success")
+
+        current = env.mine(env.runs.current().succeeded)
+
+        assert [r.identifier for r in current] == [a_first.identifier, b.identifier]
+
     def test_a_later_failure_does_not_take_a_sources_suggestions_away(self, env):
         source = env.source("a")
         good = env.run(source, suggestions=["a__one"])
@@ -253,6 +299,47 @@ class TestCurrentReportsWhatIsRunningAndWhatFailed:
         failed = env.runs.current().failed
 
         assert failed is None or failed.source_id != source
+
+    def test_the_failure_reported_is_the_one_that_finished_last_not_created_last(
+        self, env
+    ):
+        first, second = _overlapping(env, env.source("a"))
+        env.runs.mark_failed(second.identifier, "second failed")
+        time.sleep(0.01)
+        env.runs.mark_failed(first.identifier, "first failed")
+
+        failed = env.runs.current().failed
+
+        assert failed is not None and failed.identifier == first.identifier
+
+    def test_two_sources_failing_report_one_failure_and_the_other_once_it_is_replaced(
+        self, env
+    ):
+        """One banner, by design (``CurrentRuns.failed``): the newer failure is reported;
+        the older source's failure is not lost, and is reported once the newer source has
+        a success of its own."""
+        older = env.run(env.source("a"), outcome="failed", error="a failed")
+        newer = env.run(env.source("b"), outcome="failed", error="b failed")
+
+        assert env.runs.current().failed.identifier == newer.identifier
+
+        env.run(env.source("b"), suggestions=["b__one"])  # b recovers
+
+        failed = env.runs.current().failed
+        assert failed is not None and failed.identifier == older.identifier
+
+    def test_across_sources_the_failure_reported_finished_last_not_created_last(
+        self, env
+    ):
+        (a,) = _overlapping(env, env.source("a"), count=1)
+        (b,) = _overlapping(env, env.source("b"), count=1)  # created after a
+        env.runs.mark_failed(b.identifier, "b failed")
+        time.sleep(0.01)
+        env.runs.mark_failed(a.identifier, "a failed")  # ...but a finished last
+
+        failed = env.runs.current().failed
+
+        assert failed is not None and failed.identifier == a.identifier
 
     def test_a_failure_older_than_the_success_of_another_source_still_stands(self, env):
         """Success supersedes failure *within a scope*: b's success does not explain away a's
