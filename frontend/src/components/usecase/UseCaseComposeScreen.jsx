@@ -378,7 +378,9 @@ export default function UseCaseComposeScreen() {
    const direct = directAnswer(msg, blocking[0]);
    if (direct) { patch = direct.patch || direct; understood = [direct.said || `${FIELD_META[blocking[0].field]?.label || blocking[0].field}: ${msg}`]; }
   }
-  const goal = base.goal ? base.goal : msg;
+  // Said in one go, the description is the goal; the assistant's answers only fill a goal
+  // that is still empty.
+  const goal = viaAssistant && base.goal ? base.goal : msg;
   const next = commit(applyPatch({ ...base, goal }, patch, ORIGIN.spec));
   return { next, understood };
  };

@@ -150,6 +150,12 @@ export function applyPatch(spec, patch, origin) {
 export function proposeTitle(spec) {
  const m = spec.metricIds?.[0];
  if (spec.template === "document_to_record") { const t = findTemplate(spec); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
+ if (spec.template === "at_risk") {
+  // The at-risk kind is named for what it watches, not for the question: a sales
+  // organisation calls this its at-risk pipeline.
+  const cadence = spec.schedule === "weekly" ? "weekly" : spec.schedule === "daily" ? "daily" : spec.schedule === "monthly" ? "monthly" : "";
+  return `At-risk pipeline${cadence ? ` — ${cadence}` : ""}`;
+ }
  if (spec.category === "analytics_automation" && spec.analytics) {
   // Named from the ask, the way a person would title a report; the identifier is not a name.
   // The first clause of the ask, the way a person would title a report: "Full visibility

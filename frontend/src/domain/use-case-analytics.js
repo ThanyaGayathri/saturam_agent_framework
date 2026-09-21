@@ -28,7 +28,8 @@ export function patchFromSuggestion(suggestion, spec) {
   notify: (suggestion?.recipients || []).join(", ") || spec.notify,
   // Both kinds produce a report and a dashboard (decided 18 Sep); the diagnostic's differ in shape.
   outputs: ["report", "dashboard"],
-  title: spec.title || suggestion?.title || "",
+  // A title the person typed stays; one an earlier suggestion proposed follows the new ask.
+  title: spec.origin?.title === "authored" && spec.title ? spec.title : suggestion?.title || spec.title || "",
   analytics: analyticsFromSuggestion(suggestion),
  };
  // A diagnostic ask is the diagnostic kind (K25): one KPI, the change decomposed. The
