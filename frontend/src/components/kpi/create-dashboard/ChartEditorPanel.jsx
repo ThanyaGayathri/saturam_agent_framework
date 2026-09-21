@@ -294,6 +294,12 @@ export default function ChartEditorPanel({ chart, onSave, onDelete, onClose }) {
       <input
        value={title}
        onChange={(e) => setTitle(e.target.value)}
+       // SlidePanel is not portaled, so this input is a DOM child of the builder's <form>, which is
+       // already submittable when a KPI-page selection pre-fills the charts. Enter here would
+       // create the dashboard and discard this in-progress edit. Save stays on the button.
+       onKeyDown={(e) => {
+        if (e.key === "Enter") e.preventDefault();
+       }}
        className="w-full rounded-md border border-border bg-surface-default px-2.5 py-1.5 text-sm text-text-primary focus:border-primary focus:outline-none"
       />
      </div>
