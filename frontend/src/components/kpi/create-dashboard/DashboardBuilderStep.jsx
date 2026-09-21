@@ -71,6 +71,7 @@ export default function DashboardBuilderStep({
  filterColumns,
  setFilterColumns,
  readyKpis,
+ readyKpisLoading = false,
  aiSuggested,
  contextSummary,
  onBack,
@@ -349,8 +350,15 @@ export default function DashboardBuilderStep({
     </label>
     <input
      id="db-name"
+     autoFocus={!name}
      value={name}
      onChange={(e) => setName(e.target.value)}
+     // The charts are already pre-filled when a KPI-page selection lands here, so the form is
+     // submittable the moment the customer starts typing a name; Enter on this field would
+     // create the dashboard before they have looked at the chart list. Submit stays on the button.
+     onKeyDown={(e) => {
+      if (e.key === "Enter") e.preventDefault();
+     }}
      placeholder="e.g. Stock-outs vs margin"
      className="mt-1.5 w-full rounded-lg border border-border bg-surface-default px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
     />
@@ -553,7 +561,12 @@ export default function DashboardBuilderStep({
 
     {!aiSuggested && (
      <div className="mt-3">
-      <MetricPicker readyKpis={readyKpis} selectedIdentifiers={selectedIdentifiers} onAdd={addMetricAsChart} />
+      <MetricPicker
+        readyKpis={readyKpis}
+        loading={readyKpisLoading}
+        selectedIdentifiers={selectedIdentifiers}
+        onAdd={addMetricAsChart}
+       />
      </div>
     )}
    </div>

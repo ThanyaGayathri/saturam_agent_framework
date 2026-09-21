@@ -1,5 +1,8 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
-import { COMPARISONS, LIMIT_OPERATORS, OPERATORS, ROLLBACKS, SEVERITIES, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
+import { findTemplate, headerFields, lineFields, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
+import { needsOf, normalizeRules, ruleCheck, suggestRules } from "./guardrail-rules";
+import { loadMappingCatalogue } from "./record-mappings";
+import { CATEGORIES, COMPARISONS, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, ROLLBACKS, SEVERITIES, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
 
 /**
@@ -43,6 +46,15 @@ const BAD_WHEN_HIGH = /stockout|markdown|abandon|return|shrink|overtime|wait|fai
 
 /** The direction a breach usually means for a metric: above for things that are bad when high. */
 export const defaultOperatorFor = (metricName) => (BAD_WHEN_HIGH.test(metricName || "") ? "gt" : "lt");
+
+/** Which semantic-layer objects can stand in for a master-data concept, by name. */
+const CONCEPT_PATTERNS = {
+ Customer: /account|customer/i,
+ Contact: /contact|buyer/i,
+ Location: /address|location|site|ship/i,
+ Product: /product|sku|item|material/i,
+ Order: /\border/i,
+};
 
 const kpiByName = (ctx, name) => (ctx.registry || []).find((k) => k.name === name) || null;
 const datasetsFor = (kpi) => KPI_DATA_CATALOG_DATASETS.filter((d) => (kpi?.datasetIds || []).includes(d.id) || (d.linkedKpiNames || []).includes(kpi?.name));
@@ -285,6 +297,82 @@ export function suggestFor(gap, spec, ctx) {
    };
   }
 
+  case "template": {
+   const c = CATEGORIES[spec.category];
+   const inferred = templateFromText(spec.goal);
+   const opts = (c?.templates || []).map((t) => ({ label: t.label, why: t.hint, patch: { template: t.id } }));
+   return {
+    lead: inferred ? `Reading your description, this looks like: ${opts.find((o) => o.patch.template === inferred)?.label.toLowerCase()}.` : "I couldn't tell from the description whether a KPI or a document drives this.",
+    options: opts,
+    preferred: opts.find((o) => o.patch.template === inferred)?.label || null,
+   };
+  }
+  case "mailbox": {
+   const boxes = ctx.mailboxes || [];
+   if (!boxes.length) return { lead: "No mailbox is connected yet. Add one under Configure → Data sources (Gmail or Microsoft 365).", options: [], preferred: null };
+   return { lead: `${boxes.length === 1 ? "One mailbox is connected" : `${boxes.length} mailboxes are connected`}: ${boxes.join(", ")}.`, options: boxes.map((b) => ({ label: b, why: "connected mailbox", patch: { mailbox: b } })), preferred: boxes[0] };
+  }
+  case "extractionTemplate": {
+   const catalogue = loadTemplateCatalogue();
+   const proposed = proposeTemplateNames(spec.goal || "", catalogue);
+   const options = catalogue.map((t) => ({ label: t.label, why: `${t.source === "shipped" ? "ships with the platform" : "saved in this workspace"} · ${headerFields(t).length} header fields, ${lineFields(t).length} per line → creates ${t.record === "order" ? "an order" : `a ${t.record}`}`, patch: { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } }));
+   for (const p of proposed) options.unshift({ label: `New: ${p.label}`, why: "named in your description and not in the catalogue yet — the platform drafts its fields, you edit them", patch: { extractionTemplateDraft: p } });
+   const inText = matchTemplateInText(spec.goal || "", catalogue);
+   return {
+    lead: proposed.length ? `Your description names a ${proposed[0].label.toLowerCase()}, which no template covers yet. Draft one from the description, or pick a catalogue template.` : `${catalogue.length} document templates are in the catalogue; each fixes the fields the AI step fills. A new kind is drafted from your description and an example.`,
+    options,
+    preferred: proposed.length ? `New: ${proposed[0].label}` : inText?.label || catalogue[0].label,
+   };
+  }
+  case "masterData": {
+   const role = MASTER_DATA_ROLES.find((r) => r.id === gap.role);
+   if (!role) return null;
+   const matches = (concept, c) => CONCEPT_PATTERNS[concept].test(c.name) || CONCEPT_PATTERNS[concept].test(c.technicalName || "");
+   const cands = (ctx.concepts || []).filter((c) => matches(role.concept, c));
+   const target = (ctx.writeTargets || [])[0] || "";
+   const preferredC = cands.find((c) => target && c.sourceLabel && target.toLowerCase().startsWith(c.sourceLabel.toLowerCase())) || cands[0];
+   if (!cands.length) return { lead: `No business object for ${role.label.toLowerCase()} is in the semantic layer yet — harvest the target system first.`, options: [], preferred: null };
+   // Every role at once, from the system this writes to: one connection for reads and writes.
+   const sourceLabel = preferredC?.sourceLabel;
+   const all = {};
+   for (const r of MASTER_DATA_ROLES) {
+    const c = (ctx.concepts || []).find((x) => x.sourceLabel === sourceLabel && matches(r.concept, x));
+    if (c) all[r.id] = c.name;
+   }
+   const allLabel = `All from ${sourceLabel}`;
+   return {
+    lead: `${role.concept} in the semantic layer maps to ${cands.length === 1 ? `one object: ${cands[0].name}` : cands.map((c) => `${c.name} (${c.sourceLabel})`).join(", ")}.${preferredC && target ? ` ${sourceLabel} is the system this writes to — one connection for reads and writes, and it carries ${Object.keys(all).length} of the ${MASTER_DATA_ROLES.length} objects.` : ""}`,
+    options: [
+     ...(Object.keys(all).length >= 3 ? [{ label: allLabel, why: MASTER_DATA_ROLES.filter((r) => all[r.id]).map((r) => `${r.label} → ${all[r.id]}`).join(" · "), patch: { masterData: { ...(spec.masterData || {}), ...all } } }] : []),
+     ...cands.map((c) => ({ label: c.name, why: `${c.technicalName} · ${c.sourceLabel}`, patch: { masterData: { ...(spec.masterData || {}), [role.id]: c.name } } })),
+    ],
+    preferred: Object.keys(all).length >= 3 ? allLabel : preferredC?.name || null,
+   };
+  }
+  case "recordGuardrails": {
+   const have = new Set(normalizeRules(spec.recordGuardrails).map((g) => g.id));
+   const m = spec.masterData || {};
+   const tpl = findTemplate(spec);
+   const suggested = suggestRules(tpl);
+   if (!tpl) return { lead: "Pick the document template first; the checks are suggested from its fields.", options: [], preferred: null };
+   const options = suggested.filter((g) => !have.has(g.id)).map((g) => ({ label: g.label, why: `${ruleCheck(g).toLowerCase()}${needsOf(g) && !m[needsOf(g)] ? ` — needs ${MASTER_DATA_ROLES.find((r) => r.id === needsOf(g))?.label.toLowerCase()} bound` : ""}`, patch: { recordGuardrails: [...normalizeRules(spec.recordGuardrails), g] } }));
+   const all = { label: `All ${suggested.length} suggested`, why: suggested.map((g) => g.label.toLowerCase()).join(", "), patch: { recordGuardrails: suggested } };
+   const history = suggested.filter((g) => needsOf(g) === "orderHistory").length;
+   return { lead: `${suggested.length} checks follow from the ${tpl.label.toLowerCase()}'s own fields. ${m.orderHistory ? "History is bound, so the history checks can run." : history ? `${history} of them need history bound under master data.` : ""}`.trim(), options: [all, ...options], preferred: all.label };
+  }
+  case "exceptionsTo": {
+   const guess = spec.owner && /@/.test(spec.owner) ? spec.owner : null;
+   return { lead: "Exceptions are sent by email as well as recorded in the app. The order desk's shared address is the usual choice.", options: guess ? [{ label: guess, why: "the owner", patch: { exceptionsTo: guess } }] : [], preferred: guess };
+  }
+  case "targetObjects": {
+   const target = spec.writeback || (ctx.writeTargets || [])[0] || "";
+   const key = /salesforce/i.test(target) ? "salesforce" : target.toLowerCase();
+   const tpl = findTemplate(spec);
+   const opts = loadMappingCatalogue().filter((m) => m.target === key);
+   if (!opts.length) return { lead: `${target || "The target"} has no mapping yet. Build one on the form: pick the object it creates, and the platform suggests the rows from names.`, options: [], preferred: null };
+   const preferred = opts.find((o) => tpl && o.record === tpl.record) || opts[0];
+   return { lead: `${target || "The target"} can create ${opts.map((o) => o.label).join(" or ")}.${preferred && tpl ? ` A ${tpl.label.toLowerCase()} becomes ${preferred.label}.` : ""} A new object is mapped on the form over the org's own fields.`, options: opts.map((o) => ({ label: o.label, why: `${o.fields.length + (o.child?.fields.length || 0)} mapped fields${o.source === "shipped" ? "" : " · saved in this workspace"}`, patch: { targetObjects: o.id, recordMappingDef: o.source === "shipped" ? null : o } })), preferred: preferred?.label || null };
+  }
   case "writeTarget": {
    const targets = ctx.writeTargets || [];
    if (!targets.length) return null;
@@ -305,6 +393,7 @@ export function suggestFor(gap, spec, ctx) {
    };
 
   case "perRunCap":
+   if (spec.template === "document_to_record") return { lead: "One poll is a run. The change limit is the most records it may create in one poll; the rest wait for the next poll. Start with what the order desk would key by hand in the same time.", options: ["10 records", "20 records", "50 records"].map((c) => ({ label: c, why: c === "20 records" ? "a common starting limit" : c === "10 records" ? "tightest" : "for a busy mailbox", patch: { blastRadius: c } })), preferred: "20 records" };
    return {
     lead: "The simulation will show how many records a run would touch. The change limit is what an approver would otherwise be: the most it can get wrong in one go. Start small; raise it once the simulation shows the shape of a run.",
     options: ["10 SKUs", "50 SKUs", "200 SKUs"].map((c) => ({ label: c, why: c === "50 SKUs" ? "a common starting cap" : c === "10 SKUs" ? "tightest" : "for a large catalogue", patch: { blastRadius: c } })),
@@ -312,6 +401,7 @@ export function suggestFor(gap, spec, ctx) {
    };
 
   case "rollback": {
+   if (spec.template === "document_to_record") { const target = spec.writeback || "the target"; return { lead: `Each record created in ${target} is kept with its request payload and returned ids, so a run can be reversed as a unit — cancelling the parent and removing its lines.`, options: [{ label: "Cancel the record and remove its lines", why: "reversible as a unit", patch: { rollback: "Cancel the record and remove its lines" } }, ...ROLLBACKS.slice(2).map((r) => ({ label: r, why: "a person reverses it", patch: { rollback: r } }))], preferred: "Cancel the record and remove its lines" }; }
    const target = spec.writeback || "the target";
    return {
     lead: `Every change to ${target} is stamped with the run, so the prior value can be kept per record — restoring it is the cleanest rollback.`,

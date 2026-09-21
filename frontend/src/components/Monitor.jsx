@@ -21,8 +21,9 @@ import {
  Zap,
 } from "lucide-react";
 import { useAlerts } from "../hooks/useAlerts";
+import { fetchExecutionHealth } from "../services/use-cases-api";
+import { cadenceLabel } from "../domain/use-case-platform";
 import { useProcesses } from "../hooks/useProcesses";
-import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
 import { useKpiRegistry } from "../hooks/useKpiRegistry";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { loadConfigureWorkspace } from "../storage/configure-workspace";
@@ -63,58 +64,10 @@ function hash01(key) {
  }
  return ((h >>> 0) % 1000) / 1000;
 }
-function useCaseStatusFor(uc, alerts) {
- const processIds = String(uc?.process || "")
- .split(",")
- .map((s) => s.trim())
- .filter(Boolean);
- const linkedCritical = alerts.some(
- (a) => a.status !== "resolved" && a.severity === "critical" && processIds.includes(a.processId)
- );
- const linkedWarning = alerts.some(
- (a) => a.status !== "resolved" && a.severity === "warning" && processIds.includes(a.processId)
- );
- if (linkedCritical) return { label: "Degraded", tone: "warning" };
- if (linkedWarning) return { label: "Degraded", tone: "warning" };
- return { label: "Healthy", tone: "ok" };
-}
-function Sparkline({ points, positive = true, className = "" }) {
- if (!Array.isArray(points) || points.length < 2) return null;
- const vbH = 38;
- const pts = normalizeSeriesYs(points, 8, vbH - 8);
- const path = smoothLinePath(pts);
- const stroke = positive ? "#12b76a" : "#f04438";
- return (
- <ChartHoverWrap
- dataLength={points.length}
- renderTooltip={(idx) => (
- <span className="flex flex-col gap-0.5">
- <span className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
- Point {idx + 1}
- </span>
- <span className="text-xs font-semibold tabular-nums">{formatChartNumber(points[idx])}</span>
- </span>
- )}
- >
- <ResponsiveChartBox viewHeight={vbH} maxHeight={56} className={className}>
- <path
- d={path}
- fill="none"
- stroke={stroke}
- strokeWidth={2.75}
- strokeLinecap="round"
- strokeLinejoin="round"
- vectorEffect="non-scaling-stroke"
- />
- </ResponsiveChartBox>
- </ChartHoverWrap>
- );
-}
 export default function Monitor() {
  const navigate = useNavigate();
  const { alerts, hydrated: alertsHydrated, unreadCount, criticalUnreadCount } = useAlerts();
  const { processes, hydrated: processesHydrated } = useProcesses();
- const { entries: useCases, hydrated: useCasesHydrated } = useUseCaseCatalog();
  const { hydrated: kpiHydrated } = useKpiRegistry();
  // Read-only view of the Configure workspace data so we don't require the
  // ConfigureWorkspaceProvider to be mounted (it's scoped to /configure).
@@ -124,20 +77,37 @@ export default function Monitor() {
  setWorkspace(loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId));
  }, [storageKeys.CONFIGURE_WORKSPACE, profileId]);
  const workspaceHydrated = workspace !== null;
+ // Execution health from the platform (K20): real runs, real schedules, real silence.
+ const [health, setHealth] = useState(null);
+ const [healthError, setHealthError] = useState(null);
+ useEffect(() => {
+ let alive = true;
+ const load = () => fetchExecutionHealth().then((h) => { if (alive) { setHealth(h); setHealthError(null); } }).catch((err) => { if (alive) { setHealth({ as_of: null, use_cases: [] }); setHealthError(err?.status === 0 ? "The platform is not running." : err?.detail || err?.message); } });
+ load();
+ const t = setInterval(load, 30000);
+ return () => { alive = false; clearInterval(t); };
+ }, []);
+ const platformUseCases = useMemo(() => health?.use_cases || [], [health]);
  const ready =
- alertsHydrated && processesHydrated && useCasesHydrated && kpiHydrated && workspaceHydrated;
+ alertsHydrated && processesHydrated && kpiHydrated && workspaceHydrated;
  const processById = useMemo(
  () => Object.fromEntries((processes || []).map((p) => [p.id, p])),
  [processes]
  );
  // Stat tiles for the header strip.
  const stats = useMemo(() => {
- const activeUseCases = (useCases || []).length;
+ const activeUseCases = platformUseCases.filter((u) => u.status === "activated").length;
+ const runs7d = platformUseCases.reduce((n, u) => n + (u.runs_7d || 0), 0);
+ const exceptions7d = platformUseCases.reduce((n, u) => n + (u.exceptions_7d || 0), 0);
+ const created7d = platformUseCases.reduce((n, u) => n + (u.created_7d || 0), 0);
+ const silent = platformUseCases.filter((u) => u.silent).length;
+ const failed7d = platformUseCases.reduce((n, u) => n + (u.failures_7d || 0), 0);
  const criticalAlerts = alerts.filter((a) => a.status !== "resolved" && a.severity === "critical").length;
  const sources = workspace?.internalSources || [];
  const sourcesOk = sources.length;
  const external = (workspace?.externalIntegrations || []).filter((e) => e.status === "active");
  return {
+ runs7d, exceptions7d, created7d, silent, failed7d,
  activeUseCases,
  criticalAlerts,
  openAlerts: alerts.filter((a) => a.status !== "resolved").length,
@@ -146,7 +116,7 @@ export default function Monitor() {
  avgLatencyMs: 620 + Math.round(hash01("latency") * 180),
  tasksToday: 1284 + Math.round(hash01("tasks") * 340),
  };
- }, [alerts, useCases, workspace]);
+ }, [alerts, workspace, platformUseCases]);
  // Alerts sorted once for the "Needs attention" strip.
  const topOpenAlerts = useMemo(
  () => sortAlertsForDisplay(alerts.filter((a) => a.status !== "resolved")).slice(0, 5),
@@ -179,32 +149,20 @@ export default function Monitor() {
  processName: p.name,
  });
  });
- (useCases || []).slice(0, 4).forEach((uc, i) => {
- const offset = 15 * 60 * 1000 + Math.round(hash01(`uc${uc.id}`) * 45 * 60 * 1000) + i * 120_000;
+ platformUseCases.forEach((uc) => {
+ if (!uc.last_run_at) return;
  feed.push({
- id: `uc-${uc.id}-${i}`,
- at: now - offset,
+ id: `uc-${uc.use_case_id}`,
+ at: new Date(uc.last_run_at).getTime(),
  kind: "use-case",
- title: `${uc.title || "Use case"} produced an answer`,
- tag: uc.businessArea || "",
+ title: `${uc.title} ${uc.last_run_status === "failed" ? "failed" : "ran"}${uc.last_run_summary ? `: ${uc.last_run_summary}` : ""}`,
+ tag: uc.schedule ? cadenceLabel(uc.schedule) : "",
  processName: "",
  });
  });
  feed.sort((a, b) => b.at - a.at);
  return feed.slice(0, 12);
- }, [alerts, processes, useCases, processById]);
- // Use case execution status cards.
- const useCaseRows = useMemo(() => {
- return (useCases || []).slice(0, 6).map((uc) => {
- const status = useCaseStatusFor(uc, alerts);
- const seed = hash01(uc.id || uc.title || "uc");
- const points = Array.from({ length: 10 }, (_, i) =>
- 50 + Math.sin(i * 0.9 + seed * 6) * 12 + (seed - 0.5) * 20 + (status.tone === "ok" ? 3 : -4)
- );
- const lastRunMins = 3 + Math.round(seed * 55);
- return { uc, status, points, lastRunMins };
- });
- }, [useCases, alerts]);
+ }, [alerts, processes, processById, platformUseCases]);
  // KPI drift: top movers, derived from alerts that reference a KPI.
  const kpiDrift = useMemo(() => {
  const withKpi = alerts.filter((a) => a.kpi && a.kpi.name && a.status !== "resolved");
@@ -282,23 +240,24 @@ export default function Monitor() {
  <StatTile
  icon={ClipboardList}
  iconTone="text-status-success bg-status-success-light dark:bg-status-success/15"
- label="Launched use cases"
+ label="Active use cases"
  value={stats.activeUseCases}
- helper="Running in this workspace"
+ helper={platformUseCases.length > stats.activeUseCases ? `${platformUseCases.length - stats.activeUseCases} paused or draft` : "On the platform"}
+ onClick={() => navigate("/use-cases/gallery")}
  />
  <StatTile
  icon={Zap}
- iconTone="text-status-warning bg-status-warning-light dark:bg-status-warning/15"
- label="Tasks today"
- value={stats.tasksToday.toLocaleString()}
- helper="Across all processes"
+ iconTone="text-status-info bg-status-info-light dark:bg-status-info/15"
+ label="Runs, 7 days"
+ value={stats.runs7d.toLocaleString()}
+ helper={stats.failed7d ? `${stats.failed7d} failed` : "None failed"}
  />
  <StatTile
  icon={Activity}
- iconTone="text-status-info bg-status-info-light dark:bg-status-info/15"
- label="Avg response"
- value={`${stats.avgLatencyMs} ms`}
- helper="Rolling 1h median"
+ iconTone={stats.silent > 0 ? "text-status-critical bg-status-critical-light dark:bg-status-critical/15" : "text-status-success bg-status-success-light dark:bg-status-success/15"}
+ label="Records, 7 days"
+ value={`${stats.created7d} · ${stats.exceptions7d}`}
+ helper={stats.silent > 0 ? `${stats.silent} schedule(s) silent` : "created · held as exceptions"}
  />
  <StatTile
  icon={AlertTriangle}
@@ -382,58 +341,52 @@ export default function Monitor() {
  Use case execution
  </h2>
  <p className="mt-0.5 text-sm text-text-secondary">
- Each launched use case, and the KPI it is moving.
+ Every use case on the platform: its schedule, what fires it, its last run, and what the last seven days created and held.
  </p>
  </div>
  <Link
- to="/use-cases"
+ to="/use-cases/gallery"
  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
  >
  Manage use cases
  <ArrowRight className="h-3 w-3" aria-hidden />
  </Link>
  </header>
- <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
- {useCaseRows.length === 0 ? (
- <p className="col-span-full rounded-xl border border-dashed border-border bg-surface-secondary px-6 py-10 text-center text-sm text-text-secondary">
- No use cases have been launched yet.
- </p>
- ) : (
- useCaseRows.map(({ uc, status, points, lastRunMins }) => (
- <article
- key={uc.id || uc.title}
- className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-sm dark:bg-surface-default"
- >
- <div className="flex items-start justify-between gap-2">
- <div className="min-w-0">
- <h3 className="truncate text-sm font-semibold text-text-primary">
- {uc.title || "Untitled use case"}
- </h3>
- {uc.businessArea ? (
- <span className="mt-1 inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/30">
- {uc.businessArea}
- </span>
- ) : null}
- </div>
- <StatusPill tone={status.tone} label={status.label} />
- </div>
- <div className="w-full">
- <Sparkline points={points} positive={status.tone === "ok"} />
- </div>
- <div className="flex items-center justify-between text-xs text-text-muted">
- <span>Last run {lastRunMins} min ago</span>
- <Link
- to="/use-cases/dashboard"
- className="inline-flex items-center gap-1 font-semibold text-primary hover:text-primary-hover"
- >
- Open impact
- <ArrowRight className="h-3 w-3" aria-hidden />
- </Link>
- </div>
- </article>
- ))
+ {healthError && <p className="mb-3 rounded-lg border border-status-critical-border bg-status-critical-light px-3 py-2 text-sm text-status-critical">{healthError}</p>}
+ {health === null && !healthError && <p className="text-sm text-text-muted">Reading the platform…</p>}
+ {health !== null && platformUseCases.length === 0 && !healthError && (
+ <p className="rounded-xl border border-dashed border-border bg-surface-secondary px-6 py-10 text-center text-sm text-text-secondary">No use case has been activated on the platform yet.</p>
  )}
+ {platformUseCases.length > 0 && (
+ <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm dark:bg-surface-default">
+ <table className="w-full min-w-[820px] text-sm">
+ <thead className="bg-surface-secondary text-[11px] uppercase tracking-wide text-text-muted">
+ <tr><th className="px-3 py-2 text-left">Use case</th><th className="px-3 py-2 text-left">Schedule</th><th className="px-3 py-2 text-left">Last run</th><th className="px-3 py-2 text-left">Next expected</th><th className="px-3 py-2 text-right">Runs 7d</th><th className="px-3 py-2 text-right">Created 7d</th><th className="px-3 py-2 text-right">Exceptions 7d</th><th className="px-3 py-2 text-left">Health</th></tr>
+ </thead>
+ <tbody>
+ {platformUseCases.map((u) => {
+ const tone = u.status !== "activated" ? "muted" : u.silent || u.last_run_status === "failed" ? "critical" : u.failures_7d > 0 ? "warning" : "ok";
+ const label = u.status === "paused" ? "Paused" : u.status !== "activated" ? "Not active" : u.silent ? "Silent" : u.last_run_status === "failed" ? "Last run failed" : u.failures_7d > 0 ? "Degraded" : u.last_run_status ? "Healthy" : "Waiting for first run";
+ const next = u.next_expected_at ? new Date(u.next_expected_at) : null;
+ const due = next && next.getTime() < Date.now();
+ return (
+ <tr key={u.use_case_id} className="cursor-pointer border-t border-border hover:bg-surface-secondary/60" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(u.use_case_id)}`)}>
+ <td className="px-3 py-2"><p className="font-semibold text-text-primary">{u.title}</p><p className="text-[11px] text-text-muted">v{u.version} · {u.status}</p></td>
+ <td className="px-3 py-2 text-xs text-text-secondary">{u.schedule ? cadenceLabel(u.schedule) : "on demand"}{u.schedule && <p className="text-[11px] text-text-muted">{u.trigger === "poller" ? "fired by the local poller" : u.trigger === "orchestrator" ? "fired by the orchestrator" : "nothing fires it here; Run now only"}</p>}</td>
+ <td className="px-3 py-2 text-xs text-text-secondary">{u.last_run_at ? <><span className={u.last_run_status === "succeeded" ? "text-status-success" : u.last_run_status === "failed" ? "text-status-critical" : ""}>{u.last_run_status}</span> · {relativeTimeFromNow(new Date(u.last_run_at).getTime())}<p className="text-[11px] text-text-muted">{u.last_run_summary}</p></> : "never"}</td>
+ <td className="px-3 py-2 text-xs text-text-secondary">{next ? <span className={due ? "text-status-critical" : ""}>{due ? "overdue since " : ""}{next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : "—"}</td>
+ <td className="px-3 py-2 text-right tabular-nums text-text-primary">{u.runs_7d}{u.failures_7d ? <span className="ml-1 text-[11px] text-status-critical">({u.failures_7d} failed)</span> : null}</td>
+ <td className="px-3 py-2 text-right tabular-nums text-status-success">{u.created_7d}</td>
+ <td className="px-3 py-2 text-right tabular-nums text-status-critical">{u.exceptions_7d}</td>
+ <td className="px-3 py-2"><StatusPill tone={tone} label={label} /></td>
+ </tr>
+ );
+ })}
+ </tbody>
+ </table>
+ {health?.as_of && <p className="px-3 py-2 text-[11px] text-text-muted">As of {new Date(health.as_of).toLocaleTimeString()} · refreshes every 30 s · a schedule is silent when one and a half cadences pass with nothing fired.</p>}
  </div>
+ )}
  </section>
  {/* ── Two-column: KPI drift + Activity feed ───────────────────────── */}
  <section className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[2fr_3fr]" data-tour-monitor="drift-activity">
@@ -634,12 +587,14 @@ function StatusPill({ tone, label }) {
  ? "bg-status-success-light text-status-success ring-1 ring-status-success-border dark:bg-status-success/15 dark:ring-status-success-border/55"
  : tone === "warning"
  ? "bg-status-warning-light text-status-warning ring-1 ring-status-warning-border dark:bg-status-warning/15 dark:ring-status-warning-border/55"
+ : tone === "muted"
+ ? "bg-surface-secondary text-text-muted ring-1 ring-border"
  : "bg-status-critical-light text-status-critical ring-1 ring-status-critical-border dark:bg-status-critical/15 dark:ring-status-critical-border/55";
  return (
  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${toneClass}`}>
  <span
  className={`inline-block h-1.5 w-1.5 rounded-full ${
- tone === "ok" ? "bg-status-success-dot" : tone === "warning" ? "bg-status-warning-dot" : "bg-status-critical-dot"
+ tone === "ok" ? "bg-status-success-dot" : tone === "warning" ? "bg-status-warning-dot" : tone === "muted" ? "bg-border-light" : "bg-status-critical-dot"
  }`}
  aria-hidden
  />

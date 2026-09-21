@@ -42,6 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Snapshot version to record. Defaults to a UTC timestamp.",
     )
     parser.add_argument(
+        "--propose",
+        action="store_true",
+        help=(
+            "After the refresh, run the mapping and enrichment proposers over the new layer "
+            "and file table-to-concept proposals for review (K8)."
+        ),
+    )
+    parser.add_argument(
         "--suggest",
         action="store_true",
         help=(
@@ -59,6 +67,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     report = refresh_semantic_layer(schema=args.schema, version=args.version)
     for line in report.lines():
         log.info("%s", line)
+    if args.propose:
+        from egpt_retail.semantic.propose import propose
+
+        proposed = propose(schema=args.schema)
+        for line in proposed.lines():
+            log.info("%s", line)
     if args.suggest:
         from egpt_retail.entrypoints.suggest import suggest
 

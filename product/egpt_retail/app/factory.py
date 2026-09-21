@@ -13,6 +13,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any, List
 
+from egpt.answer_provenance import apply_provenance_ddl
 from egpt.memory.startup import assert_memory_wired
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
@@ -27,24 +28,38 @@ from starlette.middleware.cors import CORSMiddleware
 
 from egpt_retail.api.routers.business_areas import router as business_areas_router
 from egpt_retail.api.routers.dashboards import router as dashboards_router
+from egpt_retail.api.routers.extraction_templates import (
+    router as extraction_templates_router,
+)
 from egpt_retail.api.routers.kpis import router as kpis_router
+from egpt_retail.api.routers.monitoring import router as monitoring_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.api.routers.semantic import router as semantic_router
+from egpt_retail.api.routers.targets import router as targets_router
+from egpt_retail.api.routers.use_cases import router as use_cases_router
 from egpt_retail.app.components import (
     abuild_memory_provider,
     build_agents,
     build_registry,
     build_workflows,
 )
-from egpt_retail.app.db import build_control_plane_db, psycopg_dsn
+from egpt_retail.app.db import (
+    build_control_plane_db,
+    build_control_plane_engine,
+    psycopg_dsn,
+)
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.dashboards.query_results import DashboardQueryResultStore
 from egpt_retail.dashboards.store import DashboardStore
+from egpt_retail.delivery import apply_delivery_ddl
+from egpt_retail.documents.rollback import apply_rollback_ddl
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
+from egpt_retail.recommendations import apply_recommendations_ddl
 from egpt_retail.semantic.proposals import ProposalStore
 from egpt_retail.suggestions.dashboard_runs import DashboardSuggestionRunStore
 from egpt_retail.suggestions.runs import SuggestionRunStore
+from egpt_retail.usecases.ddl import apply_use_case_ddl
 
 __all__ = ["OS_ID", "build_agent_os"]
 
@@ -84,6 +99,18 @@ def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
     return _lifespan
 
 
+def _start_use_case_poller(settings: RetailSettings) -> Any:
+    """K16's in-process poller, only when the setting says so (see ``usecases/poller.py``)."""
+    if not settings.retail_use_case_poller:
+        return None
+    from egpt_retail.api.routers.use_cases import use_case_service
+    from egpt_retail.usecases.poller import UseCasePoller
+
+    poller = UseCasePoller(use_case_service())
+    poller.start()
+    return poller
+
+
 def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
     """Provisions R11's, R13's and B1's control-plane tables once, at boot -- not per request
     (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh connection
@@ -110,6 +137,20 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         DashboardSuggestionRunStore(connection).ensure_schema()
     finally:
         connection.close()
+    # The Engine-based tables: R7's provenance and delivery records (every compiled
+    # workflow ends in ``record_provenance``, so a fresh control plane without the table
+    # fails every first run at its last step), K16's use cases and runs, and the rollback
+    # ledger the Act executors write. All idempotent; ``egpt-retail migrate`` applies the
+    # same DDL for a deployment that migrates before it serves.
+    engine = build_control_plane_engine(settings)
+    try:
+        apply_provenance_ddl(engine)
+        apply_delivery_ddl(engine)
+        apply_use_case_ddl(engine)
+        apply_recommendations_ddl(engine)
+        apply_rollback_ddl(engine)
+    finally:
+        engine.dispose()
 
 
 def _combined_lifespan(settings: RetailSettings, agents: List[Any]) -> Any:
@@ -121,7 +162,12 @@ def _combined_lifespan(settings: RetailSettings, agents: List[Any]) -> Any:
     async def _lifespan(app: Any, agent_os: Any):
         _ensure_control_plane_schemas(settings)
         async with memory_lifespan(app, agent_os):
-            yield
+            poller = _start_use_case_poller(settings)
+            try:
+                yield
+            finally:
+                if poller is not None:
+                    await poller.stop()
 
     return _lifespan
 
@@ -296,6 +342,10 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(business_areas_router)
     base_app.include_router(kpis_router)
     base_app.include_router(semantic_router)
+    base_app.include_router(use_cases_router)
+    base_app.include_router(extraction_templates_router)
+    base_app.include_router(targets_router)
+    base_app.include_router(monitoring_router)
     _register_exception_handlers(base_app)
 
     os_app = EgptOS(

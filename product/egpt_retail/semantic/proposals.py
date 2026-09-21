@@ -96,6 +96,16 @@ class ProposalKind(str, Enum):
 #: their own consumers -- a KPI lands in the registry, a use case on a screen -- so ``apply``
 #: leaves them alone rather than pretending to have applied them. A kind that has no graph
 #: target is not a lesser proposal; it is a proposal about somewhere else.
+#: The order accepted graph-bound proposals are applied in: the concept node before anything
+#: that points at it.
+_APPLY_ORDER: Dict[ProposalKind, int] = {
+    ProposalKind.ENRICHMENT: 0,
+    ProposalKind.MAPPING: 1,
+    ProposalKind.AUTHORITATIVE_SOURCE: 2,
+    ProposalKind.JOIN: 3,
+    ProposalKind.COLUMN_MEANING: 4,
+}
+
 GRAPH_KINDS = frozenset(
     {
         ProposalKind.ENRICHMENT,
@@ -718,9 +728,16 @@ class ProposalStore:
         """
         applied: List[str] = []
         failed: List[Refusal] = []
-        for proposal in self.list(state=ReviewState.ACCEPTED):
-            if proposal.applied_at is not None or proposal.kind not in GRAPH_KINDS:
-                continue
+        # Enrichment lands first within one run: a mapping, an authoritative source or a
+        # column meaning names a concept, and the concept node is what an enrichment
+        # writes. Reviewed in any order, applied in the order the graph needs.
+        pending_apply = [
+            p
+            for p in self.list(state=ReviewState.ACCEPTED)
+            if p.applied_at is None and p.kind in GRAPH_KINDS
+        ]
+        pending_apply.sort(key=lambda p: _APPLY_ORDER.get(p.kind, 9))
+        for proposal in pending_apply:
             try:
                 self._apply_one(store, proposal)
             except Exception as error:  # noqa: BLE001 -- recorded, not swallowed
