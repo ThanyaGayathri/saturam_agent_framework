@@ -77,7 +77,7 @@ function ThisWeeksTen({ risk, recommendations }) {
        <p className={q.level === "high" ? "text-status-critical" : "text-status-warning"}>{Math.round((q.risk || 0) * 100)}% risk</p>
        <p className="text-[11px] text-text-muted">{money(q.value_at_risk)} at risk</p>
       </div>
-      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-[11px] text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] font-semibold text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
      </div>
     ); })}
    </div>

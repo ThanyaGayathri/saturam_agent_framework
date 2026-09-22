@@ -1450,6 +1450,12 @@ def _focus_html(
         )
         level = str(q.get("level") or "low")
         days_left = int(q.get("days_left") or 0)
+        hours = int(action.get("sla_hours") or 0)
+        sla = (
+            f" · within {hours // 24}d"
+            if hours >= 24
+            else (f" · within {hours}h" if hours else "")
+        )
         label = str(record.get("subject_label") or f"Quote {q.get('quote_id')}")
         risk_pct = f"{float(q.get('risk') or 0) * 100:.0f}% risk"
         when = (
@@ -1470,7 +1476,8 @@ def _focus_html(
             f'<div style="font-size:11px;color:#6b7280">{e(_money(q.get("value_at_risk")))} at risk</div></td>'
             f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
             f'<div style="font-weight:600;color:#4c1d95">{e(str(action.get("title") or ""))}</div>'
-            f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:2px">{e(str(action.get("owner") or record.get("owner") or ""))}</div></td>'
+            f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(action.get("because") or ""))}</div>'
+            f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:2px">{e(str(action.get("owner") or record.get("owner") or ""))}{e(sla)}</div></td>'
             "</tr>"
         )
     counts = focus.get("factor_counts") or {}
