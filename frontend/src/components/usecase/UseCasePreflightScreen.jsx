@@ -14,7 +14,7 @@ import { syncUseCaseToPlatform } from "../../services/use-case-platform";
 import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
-import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderGroupLabel, builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 3 of 6: preflight.
@@ -321,7 +321,7 @@ export default function UseCasePreflightScreen() {
      if (arriving) {
       return (
        <div key={`${c.id}-arriving`}>
-        {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
+        {firstOfGroup && <p className={builderGroupLabel}>{groupLabel}</p>}
         <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-text-muted">
          <Loader2 size={15} className="animate-spin text-primary" /> {c.probe ? `Connecting: ${c.title.toLowerCase()}, the platform is opening it now…` : `Checking ${c.title.toLowerCase()}…`}
         </div>
@@ -333,8 +333,8 @@ export default function UseCasePreflightScreen() {
      const needsAck = c.level === "warn" && !acked.has(c.id);
      return (
       <div key={c.id} className="readiness-check">
-       {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
-       <div className={`rounded-xl border px-4 py-3 ${meta.bg}`}>
+       {firstOfGroup && <p className={builderGroupLabel}>{groupLabel}</p>}
+       <div className={`rounded-xl border px-4 py-3 shadow-sm ${meta.bg}`}>
        <div className="flex flex-wrap items-start gap-2.5">
         <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${c.level === "pass" ? "bg-status-success-light" : c.level === "warn" ? "bg-status-warning-light" : "bg-status-critical-light"}`}><Icon size={13} className={meta.cls} /></span>
         <div className="min-w-0 flex-1">

@@ -14,7 +14,7 @@ import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { activateOnPlatform } from "../../services/use-case-platform";
 import PlatformRunPanel, { explain } from "./PlatformRunPanel";
-import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderCardHeading, builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 6 of 6: activation.
@@ -49,9 +49,9 @@ function autonomyOf(spec) {
 
 function Card({ Icon, title, children, aside }) {
  return (
-  <section className="rounded-xl border border-border bg-surface p-4">
+  <section className="rounded-xl border border-border bg-surface p-4 shadow-sm">
    <div className="flex items-start justify-between gap-3">
-    <h2 className="flex items-center gap-2 text-sm font-bold text-text-primary"><Icon size={15} className="text-text-secondary" />{title}</h2>
+    <h2 className={`flex items-center gap-2 ${builderCardHeading}`}><Icon size={15} className="text-text-secondary" />{title}</h2>
     {aside}
    </div>
    <div className="mt-2">{children}</div>

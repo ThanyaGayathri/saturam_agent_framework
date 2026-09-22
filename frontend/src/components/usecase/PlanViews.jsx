@@ -30,7 +30,7 @@ export default function PlanViews({ spec, generatedNote = true }) {
        composes the flow at design time -- the shape is the template, the spec fills its slots.
        At run time each step is taken by an executor, a model, or a person. */}
    {generatedNote && (
-    <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 sm:grid-cols-[auto_1fr]">
+    <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 shadow-sm sm:grid-cols-[auto_1fr]">
      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-light text-primary"><Bot size={16} /></span>
      <div className="min-w-0 text-sm">
       <p className="font-semibold text-text-primary">Workflow generated from the specification</p>
@@ -41,6 +41,10 @@ export default function PlanViews({ spec, generatedNote = true }) {
     </div>
    )}
 
+   {/* The run-time counts and the sentence qualifying them are one thought, so they sit in
+       one panel. Loose on the page they read as two orphan lines between the card above and
+       the tabs below, belonging to neither. */}
+   <div className="space-y-2 rounded-xl border border-border bg-surface-secondary/60 px-3.5 py-3">
    <div className="flex flex-wrap items-center gap-2 text-xs">
     <span className="text-text-muted">At run time:</span>
     {["system", "model", "person"].map((w) => (
@@ -58,9 +62,10 @@ export default function PlanViews({ spec, generatedNote = true }) {
      }[plan.shape.id]}
     </span>
    </div>
-   <p className="text-xs text-text-muted">
+   <p className="text-xs leading-relaxed text-text-muted">
     {spec.template === "document_to_record" ? `Runs once per document found; ${plan.stages.filter((s) => s.guardsWrite).length} steps that a change may not run without.` : `${plan.stages.filter((s) => s.satisfiedBy).length} of the ${plan.stages.length} steps already covered by the nightly KPI computation, ${plan.stages.filter((s) => s.guardsWrite).length} that a change may not run without.`} Every decision point is an automated step; an AI step, where there is one, explains or recommends and never decides.
    </p>
+   </div>
 
    <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
     {["flow", "orchestration"].map((v) => (

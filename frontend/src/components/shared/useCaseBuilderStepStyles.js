@@ -16,6 +16,18 @@ export const builderStepEyebrow = catalogEyebrow;
 export const builderStepH1 = catalogH1;
 export const builderStepSubtitle = catalogSubtitle;
 
+/**
+ * A label naming the group of cards under it. The margins are part of the token on purpose:
+ * the rhythm is the point. A group label needs more air above it than its cards have between
+ * them, or the groups stop reading as groups -- step 3 had 20px above the label and 4px
+ * below it, so each label sat against the card it named and the sections ran together.
+ */
+export const builderGroupLabel =
+  "mb-2 mt-6 text-[11px] font-bold uppercase tracking-[0.12em] text-text-muted";
+
+/** The heading of a card within a step. Steps 5 and 6 share it; 6 puts an icon before it. */
+export const builderCardHeading = "text-sm font-bold text-text-primary";
+
 /** Back on the left, the step's own action on the right. */
 export const builderStepFooter =
   "flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4";

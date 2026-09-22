@@ -11,7 +11,7 @@ import PlatformRunPanel from "./PlatformRunPanel";
 import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
-import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderCardHeading, builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 5 of 6: rehearse.
@@ -63,8 +63,8 @@ function proposalFor(writeback, i, s) {
 
 function Section({ title, children }) {
  return (
-  <section className="rounded-xl border border-border bg-surface p-4">
-   <h2 className="text-sm font-bold text-text-primary">{title}</h2>
+  <section className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+   <h2 className={builderCardHeading}>{title}</h2>
    <div className="mt-2">{children}</div>
   </section>
  );
