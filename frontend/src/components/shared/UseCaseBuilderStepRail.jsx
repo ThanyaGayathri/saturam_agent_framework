@@ -28,11 +28,11 @@ const STEPS = [
 
 export function UseCaseBuilderStepRail({ current }) {
   return (
-    // Sticky: on a long step the rail is the one thing that says where you are, so it stays
-    // put rather than scrolling away with the first screenful.
+    // Sticky below the app header, which is 72px and sticks at top-0 with z-40. Anything less
+    // than that and the rail slides underneath it on the way down.
     <nav
       aria-label={`Step ${current} of ${STEPS.length}`}
-      className="sticky top-6 hidden max-h-[calc(100vh-6rem)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl border border-border-light bg-primary-light/70 px-4 py-6 shadow-sm backdrop-blur-md dark:border-border dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
+      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl border border-border-light bg-primary-light/70 px-4 py-6 shadow-sm backdrop-blur-md dark:border-border dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
     >
       <ol className="space-y-0.5">
         {STEPS.map((label, i) => {
@@ -104,12 +104,15 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
     );
   }
   return (
-    <div className="mx-auto flex w-full max-w-[1312px] items-start gap-6 px-6 py-6">
+    // Full bleed with a page gutter, the way UCBuilderLayout does it, so the rail sits at the
+    // left edge instead of being pushed inward by a centred column.
+    <div className="flex w-full items-start gap-6 p-4 sm:p-6 md:gap-8 md:p-8">
       <UseCaseBuilderStepRail current={current} />
-      {/* The step's work sits on its own white sheet, the way the rail sits on its lavender
-          panel. Two surfaces, one page: it is what tells you the rail is navigation and the
-          sheet is the thing you are filling in. */}
-      <div className="min-w-0 flex-1 space-y-5 rounded-2xl border border-border-light bg-surface px-6 py-8 shadow-sm dark:border-border sm:px-8 md:px-10">
+      {/* The step's work sits on its own sheet, the way the rail sits on its lavender panel.
+          Two surfaces, one page: it is what tells you the rail is navigation and the sheet is
+          the thing you are filling in. The wash at the top of the sheet carries the page's
+          tint into it so the two surfaces belong to the same page. */}
+      <div className="min-w-0 flex-1 space-y-5 rounded-2xl border border-border-light bg-gradient-to-b from-primary-light/30 via-surface to-surface px-6 py-8 shadow-sm dark:border-border dark:from-surface-secondary/40 sm:px-8 md:px-10">
         {children}
       </div>
     </div>
