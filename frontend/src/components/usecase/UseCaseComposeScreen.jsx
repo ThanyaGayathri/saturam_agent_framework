@@ -1,8 +1,30 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
- AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, FileText, Gauge, HelpCircle, Info, Lock,
- MessageSquare, Plus, Save, Send, Sparkles, Upload, Wand2, Workflow, X,
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  FileText,
+  Gauge,
+  HelpCircle,
+  Info,
+  ListChecks,
+  Lock,
+  MessageSquare,
+  Plus,
+  Save,
+  Send,
+  Sparkles,
+  Upload,
+  Wand2,
+  Workflow,
+  X,
 } from "lucide-react";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useUseCaseCatalog } from "../../hooks/useUseCaseCatalog";
@@ -83,8 +105,8 @@ const ORIGIN_LABEL = {
  proposed: { text: "proposed", cls: "text-text-muted" },
 };
 
-const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none";
-const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
+const input = "w-full rounded-lg border border-border-light bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none transition focus:border-primary focus:ring-1 focus:ring-primary";
+const select = "rounded-lg border border-border-light bg-surface px-3 py-2 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-1 focus:ring-primary";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
 
 /**
@@ -116,6 +138,9 @@ const FIELD_GROUP = {
 
 const FIELD_GROUP_LABEL = ["What it looks at", "What it does, and its limits", "Who sees it, and when"];
 
+/** One icon per section: what it reads, what it is allowed to do, who hears about it. */
+const FIELD_GROUP_ICON = [Database, ListChecks, Send];
+
 /** Sections earn their space on a form long enough to have them; a short one stays a list. */
 const GROUPING_THRESHOLD = 4;
 
@@ -129,13 +154,15 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
  // An unfilled field is marked by its border and its "needed" label, not by a filled panel:
  // five amber blocks down the page read as five errors rather than as work still to do.
  return (
-  <div className={`rounded-lg border bg-surface px-3 py-2.5 ${gap ? "border-status-warning-border" : "border-border"}`}>
+  <div className={`rounded-xl border bg-surface px-3.5 py-3 transition ${gap ? "border-status-warning-border" : "border-border"}`}>
    <div className="flex items-center justify-between gap-2">
     <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
      {meta.label}
      {PROPOSED_CONTRACT_FIELDS.has(name) && <span title="Not in the API contract yet (open item R-15)." className="rounded bg-surface-secondary px-1 py-px text-[9px] normal-case tracking-normal text-text-muted">proposed</span>}
     </span>
-    {gap ? <span className="text-[11px] font-semibold text-status-warning">needed</span> : o ? <span className={`text-[11px] ${o.cls}`}>{o.text}</span> : null}
+    {gap
+     ? <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning"><AlertCircle size={11} aria-hidden />needed</span>
+     : o ? <span className={`shrink-0 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] ${o.cls}`}>{o.text}</span> : null}
    </div>
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
@@ -1061,7 +1088,8 @@ export default function UseCaseComposeScreen() {
       </p>
      </div>
      <div className="flex items-center gap-2">
-      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${state === "ready" ? "bg-status-success-light text-status-success" : state === "blocked_on_data" ? "bg-status-critical-light text-status-critical" : "bg-status-warning-light text-status-warning"}`}>
+      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${state === "ready" ? "bg-status-success-light text-status-success" : state === "blocked_on_data" ? "bg-status-critical-light text-status-critical" : "bg-status-warning-light text-status-warning"}`}>
+       {state === "ready" ? <CheckCircle2 size={13} aria-hidden /> : state === "blocked_on_data" ? <AlertTriangle size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
        {state === "ready" ? "Complete" : state === "blocked_on_data" ? "Blocked on data" : `${stillNeeded} still needed`}
       </span>
       {!assistantOpen && (
@@ -1154,14 +1182,14 @@ export default function UseCaseComposeScreen() {
 
     {shownFields.map((f) => (
      groupBefore[f] !== undefined
-      ? <Fragment key={`grp-${f}`}><p className={builderGroupLabel}>{FIELD_GROUP_LABEL[groupBefore[f]]}</p>{renderField(f)}</Fragment>
+      ? <Fragment key={`grp-${f}`}><p className={`flex items-center gap-1.5 ${builderGroupLabel}`}>{(() => { const GroupIcon = FIELD_GROUP_ICON[groupBefore[f]]; return <GroupIcon size={13} aria-hidden />; })()}{FIELD_GROUP_LABEL[groupBefore[f]]}</p>{renderField(f)}</Fragment>
       : renderField(f)
     ))}
 
     {/* Owner and the schedule close the "who sees it, and when" group. When no field above
         opened it -- a shape with no recipient -- the label belongs here instead. */}
     {!(category.templates && !spec.template) && <>
-     {grouped && !openedGroups.has(2) && <p className={builderGroupLabel}>{FIELD_GROUP_LABEL[2]}</p>}
+     {grouped && !openedGroups.has(2) && <p className={`flex items-center gap-1.5 ${builderGroupLabel}`}><Send size={13} aria-hidden />{FIELD_GROUP_LABEL[2]}</p>}
      <div className="grid items-start gap-3 sm:grid-cols-2">
       <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
        <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />

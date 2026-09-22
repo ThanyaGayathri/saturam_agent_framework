@@ -111,10 +111,11 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
       {/* The step's work sits on its own sheet, the way the rail sits on its grey panel. Two
           surfaces on a tinted page, each held by its own fill rather than an outline: it is
           what tells you the rail is navigation and the sheet is the thing you are filling in.
-          The sheet is flat white and the page behind it carries the gradient -- that is how the
-          reference does it, sampled: sheet #ffffff at every height, page #f1f4ff fading to
-          #ffffff. */}
-      <div className="min-w-0 flex-1 rounded-2xl bg-surface px-6 py-8 shadow-md sm:px-8 md:px-10">
+          The sheet is flat white, unshadowed, and the page behind it carries the gradient --
+          that is how the reference does it, sampled: its sheet is #ffffff at every height, and
+          a scan across its left edge low down goes rail #e9ecf4 straight to #ffffff with no
+          shadow and no border. The sheet's edge only reads where the page is still tinted. */}
+      <div className="min-w-0 flex-1 rounded-2xl bg-surface px-6 py-8 sm:px-8 md:px-10">
         {/* The work keeps a reading column and lets the sheet carry the air around it, rather
             than running the full width of a sheet that grows with the window. */}
         <div className="mx-auto w-full max-w-3xl space-y-5">{children}</div>
