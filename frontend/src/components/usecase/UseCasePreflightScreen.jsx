@@ -16,6 +16,7 @@ import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
 import { builderGroupLabel, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 3 of 6: preflight.
@@ -357,9 +358,9 @@ export default function UseCasePreflightScreen() {
     <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className={builderStepBackButton}>Back to the specification</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!done ? "checking…" : fails.length > 0 ? `${fails.length} to fix` : `${unacked.length} to acknowledge`}</span>}
-     <button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+     <Button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="gap-1.5 disabled:cursor-not-allowed disabled:opacity-40">
       <ShieldCheck size={15} /> See how it will run <ArrowRight size={15} />
-     </button>
+     </Button>
     </div>
    </div>
   </UseCaseBuilderStepFrame>

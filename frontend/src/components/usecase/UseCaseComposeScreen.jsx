@@ -58,6 +58,8 @@ import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
 import { builderGroupLabel, builderStepBackButton, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
+import Badge from "../ui/Badge";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
  *  approval of the old one says nothing about the new one. */
@@ -161,8 +163,8 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
      {PROPOSED_CONTRACT_FIELDS.has(name) && <span title="Not in the API contract yet (open item R-15)." className="rounded bg-surface-secondary px-1 py-px text-[9px] normal-case tracking-normal text-text-muted">proposed</span>}
     </span>
     {gap
-     ? <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning"><AlertCircle size={11} aria-hidden />needed</span>
-     : o ? <span className={`shrink-0 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] ${o.cls}`}>{o.text}</span> : null}
+     ? <Badge variant="warning" className="shrink-0 text-[11px] font-semibold"><AlertCircle size={11} aria-hidden />needed</Badge>
+     : o ? <Badge className={`shrink-0 text-[11px] ${o.cls}`}>{o.text}</Badge> : null}
    </div>
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
@@ -250,8 +252,8 @@ function CategoryPicker({ onChoose }) {
         </p>
         <div className="mt-3 flex flex-wrap gap-1.5">
          {c.templates
-          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
-          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
+          ? c.templates.map((t) => <Badge key={t.id} className="text-[11px]">{t.label}</Badge>)
+          : fields.filter((f) => f !== "schedule").map((f) => <Badge key={f} className="text-[11px]">{FIELD_META[f].label}</Badge>)}
         </div>
         </div>
         {/* What it does to your systems is the consequential line, so it sits below a rule
@@ -1088,10 +1090,10 @@ export default function UseCaseComposeScreen() {
       </p>
      </div>
      <div className="flex items-center gap-2">
-      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${state === "ready" ? "bg-status-success-light text-status-success" : state === "blocked_on_data" ? "bg-status-critical-light text-status-critical" : "bg-status-warning-light text-status-warning"}`}>
+      <Badge variant={state === "ready" ? "success" : state === "blocked_on_data" ? "critical" : "warning"} className="px-2.5 py-1 font-semibold">
        {state === "ready" ? <CheckCircle2 size={13} aria-hidden /> : state === "blocked_on_data" ? <AlertTriangle size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
        {state === "ready" ? "Complete" : state === "blocked_on_data" ? "Blocked on data" : `${stillNeeded} still needed`}
-      </span>
+      </Badge>
       {!assistantOpen && (
        <button type="button" onClick={() => openAssistant()} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-light px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary hover:text-white">
         <MessageSquare size={13} /> Ask the assistant
@@ -1110,7 +1112,7 @@ export default function UseCaseComposeScreen() {
       <div className="space-y-2 px-3.5 pb-3">
        <textarea rows={2} value={oneGoText} onChange={(e) => setOneGoText(e.target.value)} placeholder={example ? `e.g. ${example.prompt}` : "Say what you want, as you would to a colleague."} className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
        <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</button>
+        <Button size="sm" type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</Button>
         {examples.map((ex) => <button key={ex.title} type="button" onClick={() => setOneGoText(ex.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {ex.title} example</button>)}
         <span className="text-[11px] text-text-muted">Whatever it recognises is filled in; the rest stays for you or the assistant.</span>
        </div>
@@ -1220,9 +1222,9 @@ export default function UseCaseComposeScreen() {
       <Save size={14} /> Save as draft
       {dataGaps.length > 0 && <span className="rounded-full bg-status-critical-light px-1.5 py-0.5 text-[10px] font-semibold text-status-critical">blocked on data</span>}
      </button>
-     <button type="button" disabled={blocking.length > 0} onClick={() => navigate("/use-cases/builder/preflight")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+     <Button type="button" disabled={blocking.length > 0} onClick={() => navigate("/use-cases/builder/preflight")} className="gap-1.5 disabled:cursor-not-allowed disabled:opacity-40">
       <Lock size={14} /> Save & validate <ArrowRight size={14} />
-     </button>
+     </Button>
     </div>
    </section>
 
@@ -1262,7 +1264,7 @@ export default function UseCaseComposeScreen() {
      </div>
      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border bg-surface p-3">
       <textarea rows={2} value={draftText} onChange={(e) => setDraftText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Answer, or say it in your words…" className="min-h-[44px] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-      <button type="submit" disabled={!draftText.trim()} className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-40" aria-label="Send"><Send size={16} /></button>
+      <Button size="icon" type="submit" disabled={!draftText.trim()} className="h-10 w-10 disabled:opacity-40" aria-label="Send"><Send size={16} /></Button>
      </form>
     </aside>
    )}

@@ -16,6 +16,7 @@ import { activateOnPlatform } from "../../services/use-case-platform";
 import PlatformRunPanel, { explain } from "./PlatformRunPanel";
 import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 6 of 6: activation.
@@ -152,7 +153,7 @@ export default function UseCaseActivateScreen() {
     )}
     <div className={builderStepFooter}>
      <button type="button" onClick={() => set("activation", null)} className={builderStepBackButton}>Undo</button>
-     <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">Go to use cases</button>
+     <Button type="button" onClick={() => navigate("/use-cases/gallery")} className="gap-1.5">Go to use cases</Button>
     </div>
    </UseCaseBuilderStepFrame>
   );
@@ -299,9 +300,9 @@ export default function UseCaseActivateScreen() {
     <button type="button" onClick={() => navigate("/use-cases/builder/rehearse")} className={builderStepBackButton}>Back to the simulation</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!spec.planApprovedAt ? "Approve the workflow first." : "Set an owner first."}</span>}
-     <button type="button" disabled={blocked || activating} onClick={activate} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+     <Button type="button" disabled={blocked || activating} onClick={activate} className="gap-1.5 disabled:cursor-not-allowed disabled:opacity-40">
       <Rocket size={15} /> {activating ? "Activating on the platform…" : handoff ? "Submit to go live" : `Go live in ${spec.environment}`}
-     </button>
+     </Button>
     </div>
    </div>
   </UseCaseBuilderStepFrame>

@@ -13,6 +13,7 @@ import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 5 of 6: rehearse.
@@ -307,9 +308,9 @@ export default function UseCaseRehearseScreen() {
     <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className={builderStepBackButton}>
      That's not right: back to the plan
     </button>
-    <button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
+    <Button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="gap-1.5">
      Looks right: continue <ArrowRight size={15} />
-    </button>
+    </Button>
    </div>
   </UseCaseBuilderStepFrame>
  );

@@ -5,6 +5,7 @@ import PlanViews from "./PlanViews";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 4 of 6: the plan.
@@ -52,9 +53,9 @@ export default function UseCasePlanScreen() {
     </button>
     <div className="flex items-center gap-3">
      {approved && <span className="inline-flex items-center gap-1 text-xs font-semibold text-status-success"><Check size={13} /> Approved</span>}
-     <button type="button" onClick={approve} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
+     <Button type="button" onClick={approve} className="gap-1.5">
       <Check size={15} /> This is how it should run <ArrowRight size={15} />
-     </button>
+     </Button>
     </div>
    </div>
   </UseCaseBuilderStepFrame>
