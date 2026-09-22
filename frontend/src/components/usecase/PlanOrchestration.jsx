@@ -52,26 +52,26 @@ export default function PlanOrchestration({ steps, exceptionsTo }) {
      <div className="absolute left-0 top-0 origin-top-left" style={{ width, height, transform: `scale(${zoom})` }}>
       <svg className="absolute inset-0" width={width} height={height} aria-hidden>
        <defs>
-        <marker id="orch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9a9aa6" /></marker>
-        <marker id="orch-arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#dc2626" /></marker>
+        <marker id="orch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--app-text-muted, #9a9aa6)" /></marker>
+        <marker id="orch-arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--theme-status-critical, #dc2626)" /></marker>
        </defs>
        {nodes.map((n, i) => {
         const next = nodes[i + 1];
         const cx = n.x + n.w / 2;
         return (
          <g key={n.id}>
-          {next && <line x1={cx} y1={n.y + n.h} x2={cx} y2={next.y - 3} stroke="#9a9aa6" strokeWidth="1.5" markerEnd="url(#orch-arrow)" />}
+          {next && <line x1={cx} y1={n.y + n.h} x2={cx} y2={next.y - 3} stroke="var(--app-text-muted, #9a9aa6)" strokeWidth="1.5" markerEnd="url(#orch-arrow)" />}
           {next && n.branch && (
            <g>
-            <rect x={cx + 8} y={n.y + n.h + 10} width={n.branch.yes.length * 6 + 14} height="16" rx="8" fill="#e6fffe" stroke="#5eead4" />
-            <text x={cx + 15} y={n.y + n.h + 21} fontSize="10" fontWeight="600" fill="#0d9488">{n.branch.yes}</text>
+            <rect x={cx + 8} y={n.y + n.h + 10} width={n.branch.yes.length * 6 + 14} height="16" rx="8" fill="var(--theme-status-success-light, #e6fffe)" stroke="var(--theme-status-success-border, #5eead4)" />
+            <text x={cx + 15} y={n.y + n.h + 21} fontSize="10" fontWeight="600" fill="var(--theme-status-success-dot, #0d9488)">{n.branch.yes}</text>
            </g>
           )}
           {n.branch && (
            <g>
-            <path d={edge(n.x + n.w, n.y + n.h / 2, sink.x - 3, sink.y + sink.h / 2)} fill="none" stroke="#dc2626" strokeWidth="1.4" strokeDasharray="5 4" markerEnd="url(#orch-arrow-red)" />
-            <rect x={n.x + n.w + 10} y={n.y + n.h / 2 - 18} width={n.branch.no.length * 6 + 14} height="16" rx="8" fill="#fef2f2" stroke="#fecaca" />
-            <text x={n.x + n.w + 17} y={n.y + n.h / 2 - 7} fontSize="10" fontWeight="600" fill="#dc2626">{n.branch.no}</text>
+            <path d={edge(n.x + n.w, n.y + n.h / 2, sink.x - 3, sink.y + sink.h / 2)} fill="none" stroke="var(--theme-status-critical, #dc2626)" strokeWidth="1.4" strokeDasharray="5 4" markerEnd="url(#orch-arrow-red)" />
+            <rect x={n.x + n.w + 10} y={n.y + n.h / 2 - 18} width={n.branch.no.length * 6 + 14} height="16" rx="8" fill="var(--theme-status-critical-light, #fef2f2)" stroke="var(--theme-status-critical-border, #fecaca)" />
+            <text x={n.x + n.w + 17} y={n.y + n.h / 2 - 7} fontSize="10" fontWeight="600" fill="var(--theme-status-critical, #dc2626)">{n.branch.no}</text>
            </g>
           )}
          </g>

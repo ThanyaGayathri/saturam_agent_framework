@@ -4,6 +4,7 @@ import { planFor } from "../../domain/use-case-plan";
 import PlanPipeline from "./PlanPipeline";
 import PlanOrchestration from "./PlanOrchestration";
 import { displayName } from "../../domain/use-case-autonomy";
+import Tabs from "../ui/Tabs";
 
 /**
  * The plan as a person reads it: who made it, who runs each step, and the two views of the
@@ -67,13 +68,8 @@ export default function PlanViews({ spec, generatedNote = true }) {
    </p>
    </div>
 
-   <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-    {["flow", "orchestration"].map((v) => (
-     <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>
-      {v === "flow" ? "Pipeline" : "Orchestration"}
-     </button>
-    ))}
-   </div>
+   {/* The app's own tab control, not a pill toggle invented here. */}
+   <Tabs size="sm" activeTab={view} onChange={setView} tabs={[{ value: "flow", label: "Pipeline" }, { value: "orchestration", label: "Orchestration" }]} />
 
    {view === "flow" && <PlanPipeline steps={plan.steps} />}
    {view === "orchestration" && <PlanOrchestration steps={plan.steps} exceptionsTo={spec.exceptionsTo || spec.notify} />}

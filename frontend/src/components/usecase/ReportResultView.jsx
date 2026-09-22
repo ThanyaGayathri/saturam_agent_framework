@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ExternalLink, ShieldCheck, ShieldAlert } from "lucide-react";
 import { reportResult } from "../../domain/use-case-analytics";
 import DiagnosisInsight from "./DiagnosisInsight";
+import Tabs from "../ui/Tabs";
 
 /**
  * An Inform run's result (K23): the report as the recipient sees it, the grounding verdict
@@ -113,11 +114,7 @@ export default function ReportResultView({ run, live }) {
     {run.provenance_ref && <span>· provenance {run.provenance_ref}</span>}
    </p>
 
-   <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-    {[["report", "The report"], ...(r.diagnosis ? [["why", "Where the change sits"]] : []), ...(r.risk ? [["actions", "Next best actions"], ["model", "The model"]] : []), ["numbers", "The numbers"]].map(([v, label]) => (
-     <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
-    ))}
-   </div>
+   <Tabs size="sm" activeTab={view} onChange={setView} tabs={[["report", "The report"], ...(r.diagnosis ? [["why", "Where the change sits"]] : []), ...(r.risk ? [["actions", "Next best actions"], ["model", "The model"]] : []), ["numbers", "The numbers"]].map(([value, label]) => ({ value, label }))} />
 
    {view === "report" && (
     <div className="overflow-hidden rounded-lg border border-border bg-surface">

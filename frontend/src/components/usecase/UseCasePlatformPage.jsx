@@ -14,6 +14,7 @@ const relativeTimeFromNow = (ts) => _rel(typeof ts === "string" ? new Date(ts).g
 import { activateUseCase, deleteUseCase, fetchUseCase, fetchUseCaseSpec, listUseCaseRuns, pauseUseCase } from "../../services/use-cases-api";
 import { fetchDashboardList } from "../../services/dashboards-api";
 import { catalogH1 } from "../shared/useCaseCatalogPageStyles";
+import Tabs from "../ui/Tabs";
 
 /**
  * One use case on the platform (K20): what it is, how it is triggered, its run history with
@@ -127,11 +128,7 @@ export default function UseCasePlatformPage() {
             ].map(([k, v]) => <div key={k} className="rounded-xl border border-border bg-surface-secondary px-3 py-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{k}</p><p className="mt-0.5 text-sm font-semibold text-text-primary">{v}</p></div>)}
           </div>
 
-          <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-            {[["runs", "Runs"], ...(atRisk ? [["recommendations", "Recommendations"]] : []), ["flow", "How it runs"]].map(([v, label]) => (
-              <button key={v} type="button" onClick={() => setTab(v)} aria-pressed={tab === v} className={`rounded-md px-3 py-1 ${tab === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
-            ))}
-          </div>
+          <Tabs size="sm" activeTab={tab} onChange={setTab} tabs={[["runs", "Runs"], ...(atRisk ? [["recommendations", "Recommendations"]] : []), ["flow", "How it runs"]].map(([value, label]) => ({ value, label }))} />
 
           {tab === "flow" && (fullSpec ? <PlanViews spec={fullSpec} /> : <p className="text-sm text-text-muted">Reading the specification…</p>)}
 
