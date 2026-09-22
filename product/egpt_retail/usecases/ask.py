@@ -10,7 +10,8 @@ what it can ask.
 
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, timedelta
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from sqlalchemy import text
@@ -67,7 +68,7 @@ QUESTIONS: Sequence[Dict[str, Any]] = (
     {
         "id": "top_accounts",
         "label": "Which accounts should we call first?",
-        "cues": ("account", "customer", "call first", "who first"),
+        "cues": ("account", "call first", "who first", "which customers"),
     },
     {
         "id": "usual_time",
@@ -89,12 +90,19 @@ QUESTIONS: Sequence[Dict[str, Any]] = (
 )
 
 
+def _cue_hit(cue: str, question: str) -> bool:
+    """A cue matches at the start of a word, never inside one: "lose" must not fire on
+    "closed", which silently sent "what is our closed won rate?" to the lost-reason
+    answer. A cue may still be a prefix ("stall" hits "stalled")."""
+    return re.search(r"\b" + re.escape(cue), question) is not None
+
+
 def _match(question: str) -> Optional[str]:
     q = question.lower()
     # Longer, more specific cues first so "at risk by brand" beats "at stake".
     best: Tuple[int, Optional[str]] = (0, None)
     for spec in QUESTIONS:
-        score = max((len(c) for c in spec["cues"] if c in q), default=0)
+        score = max((len(c) for c in spec["cues"] if _cue_hit(c, q)), default=0)
         if score > best[0]:
             best = (score, spec["id"])
     return best[1]
@@ -108,6 +116,14 @@ def _rows(
             dict(r)
             for r in connection.execute(text(statement), dict(params)).mappings()
         ]
+
+
+def _number(value: Any) -> Optional[float]:
+    """A gold value as a float -- the view hands `value` out as a string on purpose."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _money(value: Any) -> str:
@@ -729,6 +745,262 @@ def q_this_week(engine: Engine, run: Mapping[str, Any], as_of: str) -> Dict[str,
     }
 
 
+# --- a KPI by name, from the registry and gold ---------------------------------------------
+
+#: Words that carry no meaning when matching a question to a KPI's name.
+_STOP = {
+    "what",
+    "whats",
+    "what's",
+    "is",
+    "are",
+    "the",
+    "our",
+    "my",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "for",
+    "we",
+    "us",
+    "how",
+    "many",
+    "much",
+    "do",
+    "does",
+    "have",
+    "show",
+    "me",
+    "tell",
+    "give",
+    "current",
+    "now",
+    "today",
+    "value",
+    "number",
+    "count",
+    "please",
+    "and",
+    "to",
+}
+
+
+# Every column gold writes on every KPI view. What is left over is the KPI's own grain --
+# "source_snapshot" is lineage, and charting it once produced a single bar labelled with a
+# snapshot id and silently emptied the trend.
+_GOLD_COLUMNS = {
+    "as_of",
+    "value",
+    "computed_at",
+    "source_snapshot",
+    "run_id",
+    "kpi_identifier",
+    "source_tables",
+    "formula_sha256",
+    "unit",
+    "grain",
+}
+
+
+def _words(text_: str) -> List[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", str(text_).lower()) if w not in _STOP]
+
+
+def kpi_match(
+    question: str, registry: Sequence[Mapping[str, Any]]
+) -> Tuple[Optional[Mapping[str, Any]], int]:
+    """The registered KPI a question names, and how many of its words it named. Matching
+    is on the KPI's own name and identifier -- nothing is invented; a KPI the registry
+    does not hold cannot be answered."""
+    asked = set(_words(question))
+    best: Tuple[Optional[Mapping[str, Any]], int] = (None, 0)
+    for kpi in registry:
+        name_words = set(_words(kpi.get("name") or "")) | set(
+            _words(
+                str(kpi.get("identifier") or "").replace("rfq__", "").replace("_", " ")
+            )
+        )
+        if not name_words:
+            continue
+        hits = len(asked & name_words)
+        # Every word of a short name has to be there; a longer name may keep one back.
+        needed = min(2, len(name_words)) if len(name_words) <= 2 else 2
+        if hits >= needed and hits > best[1]:
+            best = (kpi, hits)
+    return best
+
+
+def q_kpi_value(
+    engine: Engine, kpi: Mapping[str, Any], as_of: str, history_days: int = 90
+) -> Dict[str, Any]:
+    """One registered KPI: its value in gold at the latest business date, how it moved,
+    its breakdown rows when it has a grain, and the definition behind it."""
+    from egpt_retail.warehouse.gold import (
+        latest_as_of,
+        read_gold_history_statement,
+        read_gold_statement,
+    )
+
+    identifier = str(kpi.get("identifier"))
+    name = str(kpi.get("name") or identifier)
+    unit = str(kpi.get("unit") or "")
+    latest = latest_as_of(engine, identifier)
+    if latest is None:
+        return {
+            "intro": f"{name} is registered but has no computed value yet.",
+            "blocks": [
+                {
+                    "id": "insight",
+                    "type": "insight",
+                    "headline": f"{name} has never been computed. Compute it on the KPI screen and ask again.",
+                    "sentiment": "neutral",
+                },
+            ],
+            "followUps": _follow_ups(""),
+            "lineage": _lineage(
+                as_of, "The KPI registry; nothing in gold for this KPI."
+            ),
+        }
+    rows = _rows(engine, read_gold_statement(identifier), {"as_of": latest})
+    history = _rows(
+        engine,
+        read_gold_history_statement(identifier),
+        {"as_of": latest, "since": latest - timedelta(days=history_days)},
+    )
+    grain_keys = [k for k in (rows[0].keys() if rows else []) if k not in _GOLD_COLUMNS]
+
+    def fmt(v: Any) -> str:
+        n = _number(v)
+        if n is None:
+            return "—"
+        if unit == "%":
+            return f"{n:.1f}%"
+        if unit.upper() == "USD":
+            return _money(n)
+        return f"{n:,.0f}" if float(n).is_integer() else f"{n:,.1f}"
+
+    def whole(row: Mapping[str, Any]) -> bool:
+        """The row that stands for the KPI itself, not one of its dimensions."""
+        return not grain_keys or all(
+            row.get(k) in (None, "", "overall", "all") for k in grain_keys
+        )
+
+    overall = [r for r in rows if whole(r)]
+    breakdown = sorted(
+        (r for r in rows if not whole(r)), key=lambda r: -(_number(r.get("value")) or 0)
+    )
+    # One value per business date, latest computation of that date winning -- a date
+    # recomputed against a newer snapshot must not appear twice in the trend.
+    by_date: Dict[Any, float] = {}
+    for row in sorted(
+        (r for r in history if whole(r) and _number(r.get("value")) is not None),
+        key=lambda r: (r["as_of"], str(r.get("computed_at") or "")),
+    ):
+        by_date[row["as_of"]] = _number(row.get("value")) or 0.0
+    series = sorted(by_date.items())
+    change = ""
+    if len(series) > 1:
+        first, last = series[0][1], series[-1][1]
+        delta = (last or 0.0) - (first or 0.0)
+        if abs(delta) > 0.0001:
+            change = f" -- {'up' if delta > 0 else 'down'} from {fmt(first)} on {series[0][0]}"
+    if overall:
+        headline = f"{name} is {fmt(overall[0].get('value'))} as of {latest}{change}."
+    elif breakdown and unit != "%":
+        # A KPI that only exists per dimension has no single figure of its own. Counts and
+        # amounts add up; a rate does not, so it is never totalled here.
+        total = sum(_number(r.get("value")) or 0 for r in breakdown)
+        label = (grain_keys[0] if grain_keys else "row").replace("_", " ")
+        headline = f"{name} totals {fmt(total)} across {len(breakdown)} {label}s as of {latest}."
+    elif breakdown:
+        key0 = grain_keys[0] if grain_keys else ""
+        headline = (
+            f"{name} is reported by {key0.replace('_', ' ')}: highest is "
+            f"{breakdown[0].get(key0)} at {fmt(breakdown[0].get('value'))} as of {latest}."
+        )
+    else:
+        headline = f"{name} has no rows in gold for {latest}."
+    blocks: List[Dict[str, Any]] = [
+        {
+            "id": "insight",
+            "type": "insight",
+            "headline": headline,
+            "subtext": str(kpi.get("description") or ""),
+            "sentiment": "neutral",
+        }
+    ]
+    if len(series) > 2:
+        blocks.append(
+            {
+                "id": "trend",
+                "type": "chart",
+                "title": f"{name}, last {history_days} days",
+                "chartKind": "line",
+                "data": [{"label": str(d), "value": v} for d, v in series],
+                "config": {"xKey": "label", "yKey": "value"},
+            }
+        )
+    if len(breakdown) > 1 and grain_keys:
+        key = grain_keys[0]
+        ordered = breakdown
+        # "At-risk accounts by segment by customer segment" -- a KPI whose name already
+        # names its grain keeps its own name as the title.
+        by_title = (
+            name if " by " in name.lower() else f"{name} by {key.replace('_', ' ')}"
+        )
+        blocks.append(
+            {
+                "id": "by",
+                "type": "chart",
+                "title": by_title,
+                "chartKind": "bar",
+                "data": [
+                    {"label": str(r.get(key)), "value": _number(r.get("value")) or 0}
+                    for r in ordered[:10]
+                ],
+                "config": {"xKey": "label", "yKey": "value"},
+            }
+        )
+        blocks.append(
+            {
+                "id": "table",
+                "type": "table",
+                "title": f"By {key.replace('_', ' ')}",
+                "columns": [
+                    {"key": key, "label": key.replace("_", " ").title()},
+                    {"key": "value", "label": name},
+                ],
+                "rows": [
+                    {key: str(r.get(key)), "value": fmt(r.get("value"))}
+                    for r in ordered
+                ],
+            }
+        )
+    return {
+        "intro": f"{name}, computed against its definition in the KPI registry.",
+        "blocks": blocks,
+        "followUps": _follow_ups(""),
+        "lineage": {
+            "sources": [
+                {
+                    "system": f"KPI registry · {identifier}",
+                    "scope": str(kpi.get("description") or name),
+                    "isReal": True,
+                    "note": "The definition this figure is computed from.",
+                },
+                {
+                    "system": f"gold.kpi_{identifier}",
+                    "scope": f"business date {latest}",
+                    "isReal": True,
+                    "note": "The materialised value, as every dashboard reads it.",
+                },
+            ]
+        },
+    }
+
+
 HANDLERS: Dict[str, Callable[[Engine, Mapping[str, Any], str], Dict[str, Any]]] = {
     "at_risk_by_brand": q_at_risk_by_brand,
     "at_risk_by_category": q_at_risk_by_category,
@@ -846,10 +1118,29 @@ def ask(
     question: str,
     run_result: Mapping[str, Any],
     as_of: Optional[str] = None,
+    registry: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """The answer-block payload for one question over the use case's data and latest run."""
     day = as_of or str(((run_result.get("risk") or {}).get("as_of")) or date.today())
     qid = _match(question)
+    # A question that names a registered KPI outright is that KPI's, even when one of the
+    # ten shares a word with it ("quote conversion within the usual range" against the
+    # cycle-time answer's "usual"). Three of its words is naming it, not brushing past it.
+    kpi, hits = kpi_match(question, registry or [])
+    if kpi is not None and (qid is None or hits >= 3):
+        answer = q_kpi_value(engine, kpi, day)
+        answer["matched"] = f"kpi:{kpi.get('identifier')}"
+        answer["variant"] = "answer-block"
+        answer["dataGrounded"] = True
+        answer["source"] = "kpi-registry"
+        answer["trace"] = [
+            f"Looking up {kpi.get('name')} in the KPI registry",
+            f"Reading gold.kpi_{kpi.get('identifier')} at its latest business date",
+            "Reading the trailing 90 days for the movement",
+            "Reading its breakdown rows",
+        ]
+        answer["narrative"] = _narrative(answer)
+        return answer
     if qid is None:
         return {
             "matched": None,

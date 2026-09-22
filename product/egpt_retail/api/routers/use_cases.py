@@ -317,11 +317,36 @@ async def ask_use_case(
             "blocks": [],
             "followUps": [q["label"] for q in QUESTIONS[:4]],
         }
-    engine = build_warehouse_engine(RetailSettings())
-    try:
-        return await asyncio.to_thread(ask, engine, body.question, last["result"])
-    finally:
-        engine.dispose()
+    settings = RetailSettings()
+
+    # The registry is read so a question that names a KPI is answered from its own
+    # definition and its gold value, never from anything invented here.
+    def answer() -> Dict[str, Any]:
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        connection = pooled_control_plane_connection(settings)
+        try:
+            registry = [
+                {
+                    "identifier": k.identifier,
+                    "name": k.name,
+                    "description": k.description,
+                    "unit": k.unit,
+                    "grain": getattr(k.grain, "value", k.grain),
+                }
+                for k in KpiRegistryStore(connection).list()
+                if k.active
+            ]
+        finally:
+            connection.close()
+        engine = build_warehouse_engine(settings)
+        try:
+            return ask(engine, body.question, last["result"], registry=registry)
+        finally:
+            engine.dispose()
+
+    return await asyncio.to_thread(answer)
 
 
 @router.get("/use-cases/{use_case_id}/ask/questions")
