@@ -163,8 +163,8 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
      {PROPOSED_CONTRACT_FIELDS.has(name) && <span title="Not in the API contract yet (open item R-15)." className="rounded bg-surface-secondary px-1 py-px text-[9px] normal-case tracking-normal text-text-muted">proposed</span>}
     </span>
     {gap
-     ? <Badge variant="warning" className="shrink-0 text-[11px] font-semibold"><AlertCircle size={11} aria-hidden />needed</Badge>
-     : o ? <Badge className={`shrink-0 text-[11px] ${o.cls}`}>{o.text}</Badge> : null}
+     ? <Badge variant="warning" className="shrink-0 font-semibold"><AlertCircle size={11} aria-hidden />needed</Badge>
+     : o ? <Badge className={`shrink-0 ${o.cls}`}>{o.text}</Badge> : null}
    </div>
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
@@ -252,8 +252,8 @@ function CategoryPicker({ onChoose }) {
         </p>
         <div className="mt-3 flex flex-wrap gap-1.5">
          {c.templates
-          ? c.templates.map((t) => <Badge key={t.id} className="text-[11px]">{t.label}</Badge>)
-          : fields.filter((f) => f !== "schedule").map((f) => <Badge key={f} className="text-[11px]">{FIELD_META[f].label}</Badge>)}
+          ? c.templates.map((t) => <Badge key={t.id}>{t.label}</Badge>)
+          : fields.filter((f) => f !== "schedule").map((f) => <Badge key={f}>{FIELD_META[f].label}</Badge>)}
         </div>
         </div>
         {/* What it does to your systems is the consequential line, so it sits below a rule
@@ -641,9 +641,9 @@ export default function UseCaseComposeScreen() {
       <Field key={f} name={f} {...fieldProps(f)}>
        <div className="grid gap-1">
         {spec.metricIds.map((m) => (
-         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
-          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}</span></div>
-          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
+          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[11px] text-text-muted">{m}</span></div>
+          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="rounded p-1.5 text-text-muted transition hover:bg-status-critical-light hover:text-status-critical"><X size={13} /></button>
          </div>
         ))}
         {offered.length > 0 && (
@@ -666,19 +666,19 @@ export default function UseCaseComposeScreen() {
      const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
      return (
       <Field key={f} name={f} {...fieldProps(f)}>
-       <div className="grid gap-1">
+       <div className="grid gap-1.5">
         {spec.metricIds.map((m) => {
          const sug = byId[m]; const kpi = known[m];
          return (
-          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
+          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
            <div className="min-w-0">
-            <span className="text-xs font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
-            <span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
+            <span className="text-sm font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
+            <span className="ml-1.5 font-mono text-[11px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
             {sug?.why && <p className="truncate text-[11px] text-text-muted">chosen because you said: {sug.why}</p>}
            </div>
            <div className="flex items-center gap-1.5">
-            {sug && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${sug.feasibility === "ready" ? "bg-status-success-light text-status-success" : "bg-status-warning-light text-status-warning"}`}>{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</span>}
-            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+            {sug && <Badge variant={sug.feasibility === "ready" ? "success" : "warning"} className="shrink-0 whitespace-nowrap">{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</Badge>}
+            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="rounded p-1.5 text-text-muted transition hover:bg-status-critical-light hover:text-status-critical"><X size={13} /></button>
            </div>
           </div>
          );
@@ -1081,16 +1081,16 @@ export default function UseCaseComposeScreen() {
   <UseCaseBuilderStepFrame current={2} asideOpen={assistantOpen}>
    {/* ── The form ─────────────────────────────────────────────────────── */}
    <section className="space-y-3">
-    <div className="flex flex-wrap items-start justify-between gap-3 pb-1">
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 pb-2">
      <div>
       <h1 className={builderStepH1}>Define it</h1>
       <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-secondary">
-       <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-primary"><CategoryIcon size={12} className="text-primary" /> {displayName(spec)}</span>
-       <button type="button" onClick={changeCategory} className="text-xs font-semibold text-text-muted hover:text-primary">Change</button>
+       <Badge className="gap-1.5 font-semibold"><CategoryIcon size={12} className="text-primary" aria-hidden /> {displayName(spec)}</Badge>
+       <Button type="button" variant="ghost" size="sm" onClick={changeCategory} className="px-1.5 py-0 underline-offset-2 hover:underline">Change</Button>
       </p>
      </div>
      <div className="flex items-center gap-2">
-      <Badge variant={state === "ready" ? "success" : state === "blocked_on_data" ? "critical" : "warning"} className="px-2.5 py-1 font-semibold">
+      <Badge variant={state === "ready" ? "success" : state === "blocked_on_data" ? "critical" : "warning"} className="gap-1.5 font-semibold">
        {state === "ready" ? <CheckCircle2 size={13} aria-hidden /> : state === "blocked_on_data" ? <AlertTriangle size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
        {state === "ready" ? "Complete" : state === "blocked_on_data" ? "Blocked on data" : `${stillNeeded} still needed`}
       </Badge>
