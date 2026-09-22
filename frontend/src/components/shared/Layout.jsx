@@ -25,11 +25,11 @@ export default function Layout() {
             overlay a page renders (side panels, backdrops) beneath the footer that follows it
             in DOM order -- the footer's border and padding then sit over an overlay's bottom
             edge and swallow clicks there. The wrapper's `isolate` is the stacking boundary. */}
-        {/* The page keeps its own tint all the way down. Fading to white meant that below the
-            fold a white card sat on a white page, leaving a 1px #e9e9eb border as the only
-            thing separating them -- every screen read flat there. Both stops are tokens, so
-            dark mode follows without an override. */}
-        <main className="relative flex min-h-0 w-full flex-1 flex-col bg-gradient-to-b from-surface-page-top to-surface-page text-text-primary antialiased">
+        {/* Tinted at the top, white by 40% down -- sampled straight off the reference, which
+            runs #f1f4ff to #ffffff. White below the fold only works because surfaces carry a
+            shadow; when they did not, this same gradient was why every screen read flat there.
+            Dark mode stops on the page token instead of the card-coloured `surface`. */}
+        <main className="relative flex min-h-0 w-full flex-1 flex-col bg-gradient-to-b from-surface-page-top via-surface via-40% to-surface dark:via-surface-page dark:to-surface-page text-text-primary antialiased">
           <Outlet />
         </main>
         {!hideFooter && (
