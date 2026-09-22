@@ -160,6 +160,13 @@ def render_at_risk_message(
         ],
         "alerts": {"count": len(alerts), "reps": len(by_rep), "by_rep": by_rep},
         "tracked_so_far": _tidy((outcomes or {}).get("precision") or {}),
+        "this_weeks_ten": {
+            "count": len((risk.get("focus") or {}).get("quotes") or []),
+            "days": (risk.get("focus") or {}).get("days"),
+            "value_text": _money_words((risk.get("focus") or {}).get("value")),
+            "at_risk_text": _money_words((risk.get("focus") or {}).get("at_risk")),
+            "factor_counts": (risk.get("focus") or {}).get("factor_counts") or {},
+        },
         "kpis": [
             {
                 "name": k.get("name"),

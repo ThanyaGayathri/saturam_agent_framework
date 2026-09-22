@@ -40,6 +40,51 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
  );
 }
 
+const FACTOR = {
+ "high value": ["High value", "bg-primary-light text-primary"],
+ "low-hanging": ["Low-hanging", "bg-status-success-light text-status-success"],
+ "closing soon": ["Closing soon", "bg-status-warning-light text-status-warning"],
+ "key account": ["Key account", "bg-status-info-light text-status-info"],
+ "known lever": ["Known lever", "bg-surface-secondary text-text-secondary"],
+};
+
+/** This week's ten (K26): the quotes to attack in the next days, chosen by a blend of value,
+ *  winnability, urgency, the account's worth and whether the lever is known -- and what
+ *  they are worth if the plays land. The full list follows. */
+function ThisWeeksTen({ risk, recommendations }) {
+ const focus = risk?.focus;
+ const quotes = focus?.quotes || [];
+ if (!quotes.length) return null;
+ const byId = Object.fromEntries((recommendations?.recommendations || []).map((r) => [String(r.subject_id), r]));
+ const counts = Object.entries(focus.factor_counts || {}).filter(([, n]) => n);
+ return (
+  <div className="mt-3 rounded-xl border-2 border-primary/30 bg-primary-light/20 px-4 py-3">
+   <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">This week's ten</p>
+   <p className="mt-0.5 text-base font-bold text-text-primary">Attack these {quotes.length} in the next {focus.days} days: {money(focus.value)} of quotes, <span className="text-status-critical">{money(focus.at_risk)}</span> of it otherwise lost</p>
+   <p className="text-[11px] text-text-muted">Chosen by a blend of value, how winnable each still is, how soon its window closes, what the account is worth and whether the lever is known{focus.closest_days != null ? ` — the first window closes ${focus.closest_days === 0 ? "today" : `in ${focus.closest_days} day${focus.closest_days === 1 ? "" : "s"}`}` : ""}.</p>
+   <div className="mt-1.5 flex flex-wrap gap-1.5">{counts.map(([f, n]) => <span key={f} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${FACTOR[f]?.[1] || ""}`}>{FACTOR[f]?.[0] || f} · {n}</span>)}</div>
+   <div className="mt-2 grid gap-1.5">
+    {quotes.map((q, i) => { const r = byId[String(q.quote_id)] || {}; const ctx = r.context || {}; const a = r.action || {}; return (
+     <div key={q.quote_id} className="grid grid-cols-[1.5rem_minmax(0,1.3fr)_auto_minmax(0,1.2fr)] items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+      <span className="pt-0.5 tabular-nums text-text-muted">{i + 1}</span>
+      <div className="min-w-0">
+       <p className="truncate font-semibold text-text-primary">{r.subject_label || `Quote ${q.quote_id}`}</p>
+       <p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {q.days_left === 0 ? "window closes today" : `${q.days_left} day${q.days_left === 1 ? "" : "s"} left`}</p>
+       <p className="mt-0.5 flex flex-wrap gap-1">{(q.factors || []).map((f) => <span key={f} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FACTOR[f]?.[1] || ""}`}>{FACTOR[f]?.[0] || f}</span>)}</p>
+      </div>
+      <div className="text-right tabular-nums">
+       <p className="font-semibold text-text-primary">{money(q.value)}</p>
+       <p className={q.level === "high" ? "text-status-critical" : "text-status-warning"}>{Math.round((q.risk || 0) * 100)}% risk</p>
+       <p className="text-[11px] text-text-muted">{money(q.value_at_risk)} at risk</p>
+      </div>
+      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-[11px] text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+     </div>
+    ); })}
+   </div>
+  </div>
+ );
+}
+
 /** The whole ranked list, as the report shows it: every recommendation the run made, with
  *  the play and why; the plays tallied above it. */
 const matches = (r, q) => {
@@ -51,7 +96,7 @@ const matches = (r, q) => {
 
 function NextBestActions({ recommendations }) {
  const all = recommendations?.recommendations || [];
- const [open, setOpen] = useState(true);
+ const [open, setOpen] = useState(false);
  const [query, setQuery] = useState("");
  if (!all.length) return null;
  const recs = all.filter((r) => matches(r, query));
@@ -193,6 +238,7 @@ export default function UseCaseLatestReport({ title }) {
    </div>
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
+   {risk && <ThisWeeksTen risk={risk} recommendations={report.recommendations} />}
    {risk && <NextBestActions recommendations={report.recommendations} />}
    {risk && <ReportDrawer report={report} name={useCase.title} runHref={`/use-cases/platform/${encodeURIComponent(useCase.id)}`} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>

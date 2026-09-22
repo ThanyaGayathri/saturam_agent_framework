@@ -48,6 +48,7 @@ from egpt_retail.predict.model import (
 from egpt_retail.predict.rfm import importance_of, rfm_segments
 
 __all__ = [
+    "focus_of",
     "risk_of",
     "risk_model_readiness",
     "score_risk",
@@ -431,6 +432,7 @@ async def score_risk(step_input: StepInput) -> StepOutput:
             if top_n
             else [s for s in subjects if not s["stalled"]],
             "subjects_total": len(subjects),
+            "focus": focus_of([s for s in subjects if not s["stalled"]]),
         }
 
     try:
@@ -470,6 +472,93 @@ async def score_risk(step_input: StepInput) -> StepOutput:
         },
         success=True,
     )
+
+
+#: The week's ten (K26): how many the focus list carries, and the days a rep gets.
+FOCUS_SIZE = 10
+FOCUS_DAYS = 7
+
+
+def focus_of(
+    in_range: Sequence[Mapping[str, Any]], *, size: int = FOCUS_SIZE
+) -> Dict[str, Any]:
+    """The ten quotes to attack this week, from the at-risk ones still inside their
+    window: a blend of what each is worth, how winnable it still is, how soon its window
+    closes, what the account is worth, and whether the lever is known. Each carries the
+    factors that put it there in words, and the list carries what the ten are worth --
+    quoted, at risk of being lost, and the days to act."""
+    pool = [s for s in in_range if s.get("level") in ("high", "medium")]
+    if not pool:
+        return {
+            "quotes": [],
+            "days": FOCUS_DAYS,
+            "value": 0.0,
+            "at_risk": 0.0,
+            "closest_days": None,
+        }
+    values = sorted(float(s.get("value") or 0) for s in pool)
+    top_value = values[int(len(values) * 0.75)] if len(values) > 3 else values[-1]
+    max_value = values[-1] or 1.0
+    scored = []
+    for s in pool:
+        value = float(s.get("value") or 0)
+        p_convert = float(s.get("p_convert") or 0)
+        usual = float(s.get("usual_days") or 28) or 28
+        days_left = max(0, int(round(usual - float(s.get("age_days") or 0))))
+        importance = float((s.get("account") or {}).get("importance") or 1.0)
+        known_lever = bool(s.get("last_lost_reason"))
+        urgency = 1.0 - min(days_left, usual) / usual
+        score = (
+            0.35 * (value / max_value)
+            + 0.25 * p_convert
+            + 0.15 * urgency
+            + 0.15 * (importance - 0.8) / 0.7
+            + 0.10 * (1.0 if known_lever else 0.0)
+        )
+        factors = []
+        if value >= top_value:
+            factors.append("high value")
+        if s.get("level") == "medium" and days_left >= 3:
+            factors.append("low-hanging")
+        if days_left <= 5:
+            factors.append("closing soon")
+        if importance >= 1.4:
+            factors.append("key account")
+        if known_lever:
+            factors.append("known lever")
+        scored.append((score, days_left, factors, s))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    chosen = scored[:size]
+    quotes: List[Dict[str, Any]] = [
+        {
+            "quote_id": s.get("quote_id"),
+            "score": round(score, 3),
+            "days_left": days_left,
+            "factors": factors,
+            "value": float(s.get("value") or 0),
+            "risk": float(s.get("risk") or 0),
+            "value_at_risk": float(s.get("value_at_risk") or 0),
+            "level": s.get("level"),
+        }
+        for score, days_left, factors, s in chosen
+    ]
+    return {
+        "quotes": quotes,
+        "days": FOCUS_DAYS,
+        "value": round(sum(float(q["value"]) for q in quotes), 2),
+        "at_risk": round(sum(float(q["value_at_risk"]) for q in quotes), 2),
+        "closest_days": min(int(q["days_left"]) for q in quotes),
+        "factor_counts": {
+            f: sum(1 for q in quotes if f in list(q["factors"]))
+            for f in (
+                "high value",
+                "low-hanging",
+                "closing soon",
+                "key account",
+                "known lever",
+            )
+        },
+    }
 
 
 def risk_of(step_input: StepInput) -> Optional[Dict[str, Any]]:
