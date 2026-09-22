@@ -55,7 +55,14 @@ _HISTORY = """
   COALESCE(SUM(CASE WHEN q.pipeline_stage = 'Closed Won' THEN q.deal_value_usd ELSE 0 END) OVER w, 0) AS prior_won_value,
   LAG(q.quote_date) OVER (PARTITION BY q.customer_id ORDER BY q.quote_date, q.quote_id) AS prev_quote_date,
   (SELECT l.lost_reason FROM {table} l WHERE l.customer_id = q.customer_id AND l.pipeline_stage = 'Closed Lost'
-     AND l.closed_date < q.quote_date ORDER BY l.closed_date DESC LIMIT 1) AS last_lost_reason
+     AND l.closed_date < q.quote_date ORDER BY l.closed_date DESC LIMIT 1) AS last_lost_reason,
+  (SELECT l.quote_id FROM {table} l WHERE l.customer_id = q.customer_id AND l.pipeline_stage = 'Closed Lost'
+     AND l.closed_date < q.quote_date ORDER BY l.closed_date DESC LIMIT 1) AS last_lost_quote_id,
+  (SELECT l.closed_date FROM {table} l WHERE l.customer_id = q.customer_id AND l.pipeline_stage = 'Closed Lost'
+     AND l.closed_date < q.quote_date ORDER BY l.closed_date DESC LIMIT 1) AS last_lost_date,
+  (SELECT l.pim_category FROM {table} l WHERE l.customer_id = q.customer_id AND l.pipeline_stage = 'Closed Lost'
+     AND l.closed_date < q.quote_date ORDER BY l.closed_date DESC LIMIT 1) AS last_lost_category,
+  COALESCE(SUM(CASE WHEN q.pipeline_stage = 'Closed Lost' THEN 1 ELSE 0 END) OVER w, 0) AS prior_lost
 """
 
 _BASE = """
@@ -82,7 +89,8 @@ SELECT s.quote_id, s.customer_id, s.customer_name, s.quote_date, s.pipeline_stag
   s.prior_quotes, s.prior_won, s.prior_won_value,
   CASE WHEN s.prior_quotes > 0 THEN CAST(s.prior_won AS float) / s.prior_quotes ELSE 0 END AS prior_win_rate,
   COALESCE(s.quote_date - s.prev_quote_date, 0) AS days_since_prev_quote,
-  s.last_lost_reason, u.usual_days,
+  s.last_lost_reason, s.last_lost_quote_id, s.last_lost_date, s.last_lost_category,
+  s.prior_lost, u.usual_days,
   {age_expr} AS age_days,
   CASE WHEN u.usual_days > 0 THEN ({age_expr}) / u.usual_days ELSE 0 END AS age_ratio,
   s.days_to_close, s.closed_date

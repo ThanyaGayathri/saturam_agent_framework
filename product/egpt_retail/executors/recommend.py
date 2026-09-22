@@ -120,6 +120,7 @@ def records_for(
                 "p_convert": subject.get("p_convert"),
                 "priority": subject.get("priority"),
                 "last_lost_reason": subject.get("last_lost_reason"),
+                "lost_before": subject.get("lost_before"),
                 "account": dict(account),
                 "as_of": as_of.isoformat(),
             },

@@ -371,6 +371,20 @@ async def score_risk(step_input: StepInput) -> StepOutput:
                     ),
                     "drivers": _drivers(fitted, row, contributions[i], typical),
                     "last_lost_reason": row.get("last_lost_reason"),
+                    # Why we lost before, specifically: the reason, the quote and when.
+                    "lost_before": {
+                        "reason": row.get("last_lost_reason"),
+                        "quote_id": row.get("last_lost_quote_id"),
+                        "date": str(row.get("last_lost_date"))
+                        if row.get("last_lost_date")
+                        else None,
+                        "category": row.get("last_lost_category"),
+                        "lost": int(row.get("prior_lost") or 0),
+                        "won": int(row.get("prior_won") or 0),
+                        "quotes": int(row.get("prior_quotes") or 0),
+                    }
+                    if row.get("last_lost_reason")
+                    else None,
                     "account": {
                         "recency_days": int(account.get("recency_days", 0)),
                         "frequency": int(account.get("frequency", 0)),

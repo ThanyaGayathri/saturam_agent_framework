@@ -1414,6 +1414,59 @@ EMAIL_ROWS = 20
 EMAIL_LIMIT_BYTES = 96 * 1024
 
 
+#: A lost reason in plain words, whatever the source spells (the data shuffles word order).
+_LOSS_WORDS = (
+    (("competitor",), "lost to a competitor"),
+    (("budget", "constraints"), "lost on budget"),
+    (("response",), "went quiet -- no response"),
+    (("specification", "alternative"), "lost to an alternative specification"),
+    (("decision", "delayed"), "the decision was delayed"),
+    (("price", "high"), "lost on price"),
+)
+
+
+def loss_words(reason: Any) -> str:
+    words = {w.strip().lower() for w in str(reason or "").replace("/", " ").split()}
+    for keys, text in _LOSS_WORDS:
+        if any(k in words for k in keys):
+            return text
+    return f"lost: {reason}" if reason else ""
+
+
+def _why_html(record: Mapping[str, Any], *, compact: bool = False) -> str:
+    """Why this quote is at risk, specifically: the model's drivers in words, and what we
+    lost on this account before -- the reason, the quote, when, and the record."""
+    e = html.escape
+    context = record.get("context") or {}
+    drivers = [
+        str(d.get("text") or "") for d in (record.get("drivers") or []) if d.get("text")
+    ]
+    lost = context.get("lost_before") or {}
+    parts = []
+    if drivers:
+        shown = "; ".join(drivers[: 2 if compact else 3])
+        parts.append(
+            f'<div style="font:12px {_FONT};color:#374151;margin-top:3px"><span style="color:#6b7280;font-weight:600">Why at risk:</span> {e(shown)}</div>'
+        )
+    if lost.get("reason"):
+        when = str(lost.get("date") or "")[:10]
+        where = (
+            f" ({lost.get('category') or ''} quote {lost.get('quote_id')}{', ' + when if when else ''})"
+            if lost.get("quote_id")
+            else ""
+        )
+        record_line = (
+            f" · this account: {lost.get('won', 0)} won, {lost.get('lost', 0)} lost of {lost.get('quotes', 0)} earlier quotes"
+            if lost.get("quotes")
+            else ""
+        )
+        parts.append(
+            f'<div style="font:12px {_FONT};color:#9f1239;margin-top:2px"><span style="font-weight:600">Lost before:</span> {e(loss_words(lost.get("reason")))}{e(where)}'
+            f'<span style="color:#6b7280">{e(record_line)}</span></div>'
+        )
+    return "".join(parts)
+
+
 _FACTOR_WORDS = {
     "high value": ("High value", "#4c1d95", "#ede9fe"),
     "low-hanging": ("Low-hanging", "#15803d", "#dcfce7"),
@@ -1477,7 +1530,9 @@ def _focus_html(
             f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
             f'<div style="font-weight:600;color:#4c1d95">{e(str(action.get("title") or ""))}</div>'
             f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(action.get("because") or ""))}</div>'
-            f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:2px">{e(str(action.get("owner") or record.get("owner") or ""))}{e(sla)}</div></td>'
+            f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:2px">{e(str(action.get("owner") or record.get("owner") or ""))}{e(sla)}</div>'
+            + _why_html(record, compact=True)
+            + "</td>"
             "</tr>"
         )
     counts = focus.get("factor_counts") or {}
@@ -1574,12 +1629,6 @@ def _risk_html(
             account = context.get("account") or {}
             action = record.get("action") or {}
             because = str(action.get("because") or "")
-            # The play's reason and a driver can be the same fact; say it once.
-            drivers = "; ".join(
-                str(d.get("text") or "")
-                for d in (record.get("drivers") or [])
-                if str(d.get("text") or "") not in because
-            )[:160]
             stalled = context.get("stalled")
             pct = f"{float(record.get('risk_score') or 0) * 100:.0f}%"
             hours = int(action.get("sla_hours") or 0)
@@ -1618,8 +1667,9 @@ def _risk_html(
                 f"<td{a('r')}><span{a('pl ' + level[:2])}>{e(level)}</span><div{a('t')}>{e(pct)}</div><div{a('m')}>{e(_money(record.get('value_at_stake')))}</div></td>"
                 f"<td{a('td') if inline else ''}><div{a('p')}>{e(str(action.get('title') or ''))}</div>"
                 f"<div{a('w')}>{e(because)}</div>"
-                f"<div{a('m')}>{e(drivers)}</div>"
-                f"<div{a('o')}>{e(str(action.get('owner') or ''))}{e(sla)}</div></td></tr>"
+                f"<div{a('o')}>{e(str(action.get('owner') or ''))}{e(sla)}</div>"
+                + _why_html(record)
+                + "</td></tr>"
             )
         plays = recommendation_result.get("plays") or {}
         chips = "".join(

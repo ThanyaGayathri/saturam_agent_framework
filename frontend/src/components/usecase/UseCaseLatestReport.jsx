@@ -40,6 +40,36 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
  );
 }
 
+const LOSS_WORDS = [
+ [["competitor"], "lost to a competitor"],
+ [["budget", "constraints"], "lost on budget"],
+ [["response"], "went quiet — no response"],
+ [["specification", "alternative"], "lost to an alternative specification"],
+ [["decision", "delayed"], "the decision was delayed"],
+ [["price", "high"], "lost on price"],
+];
+const lossWords = (reason) => {
+ const words = new Set(String(reason || "").toLowerCase().replace(/\//g, " ").split(/\s+/));
+ const hit = LOSS_WORDS.find(([keys]) => keys.some((k) => words.has(k)));
+ return hit ? hit[1] : reason ? `lost: ${reason}` : "";
+};
+
+/** Why this quote is at risk, specifically: the model's drivers in words, and what we lost
+ *  on this account before -- the reason, the quote, when, and the record. */
+function WhyAtRisk({ record, compact = false }) {
+ const drivers = (record?.drivers || []).map((d) => d.text).filter(Boolean).slice(0, compact ? 2 : 3);
+ const lost = record?.context?.lost_before;
+ if (!drivers.length && !lost?.reason) return null;
+ return (
+  <div className="mt-1 space-y-0.5">
+   {drivers.length > 0 && <p className="text-[11px] text-text-secondary"><span className="font-semibold text-text-muted">Why at risk:</span> {drivers.join("; ")}</p>}
+   {lost?.reason && (
+    <p className="text-[11px] text-status-critical"><span className="font-semibold">Lost before:</span> {lossWords(lost.reason)}{lost.quote_id ? ` (${lost.category || ""} quote ${lost.quote_id}${lost.date ? `, ${String(lost.date).slice(0, 10)}` : ""})` : ""}{lost.quotes ? <span className="text-text-muted"> · this account: {lost.won || 0} won, {lost.lost || 0} lost of {lost.quotes} earlier quotes</span> : null}</p>
+   )}
+  </div>
+ );
+}
+
 const FACTOR = {
  "high value": ["High value", "bg-primary-light text-primary"],
  "low-hanging": ["Low-hanging", "bg-status-success-light text-status-success"],
@@ -77,7 +107,7 @@ function ThisWeeksTen({ risk, recommendations }) {
        <p className={q.level === "high" ? "text-status-critical" : "text-status-warning"}>{Math.round((q.risk || 0) * 100)}% risk</p>
        <p className="text-[11px] text-text-muted">{money(q.value_at_risk)} at risk</p>
       </div>
-      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] font-semibold text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] font-semibold text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p><WhyAtRisk record={r} compact /></div>
      </div>
     ); })}
    </div>
@@ -120,7 +150,7 @@ function NextBestActions({ recommendations }) {
        <span className="pt-0.5 tabular-nums text-text-muted">{all.indexOf(r) + 1}</span>
        <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="truncate text-[11px] text-text-muted">RFM {acct.segment || "-"}{acct.at_risk ? " · account at risk of churn" : ""}{r.owner ? ` · rep ${r.owner}` : ""}</p></div>
        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[r.risk_level] || ""}`}>{r.risk_level} · {Math.round((r.risk_score || 0) * 100)}%</span>
-       <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+       <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p><WhyAtRisk record={r} /></div>
       </div>
      ); })}
     </div>
