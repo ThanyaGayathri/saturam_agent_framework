@@ -34,7 +34,7 @@ import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings"
 import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
-import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderStepBackButton, builderStepEyebrow, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
  *  approval of the old one says nothing about the new one. */
@@ -96,9 +96,9 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
  // An unfilled field is marked by its border and its "needed" label, not by a filled panel:
  // five amber blocks down the page read as five errors rather than as work still to do.
  return (
-  <div className={`rounded-lg border bg-surface px-3 py-2.5 ${gap ? "border-status-warning-border" : "border-border"}`}>
+  <div className={`rounded-lg border bg-surface px-3 py-2.5 shadow-sm ${gap ? "border-status-warning-border" : "border-border"}`}>
    <div className="flex items-center justify-between gap-2">
-    <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
+    <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
      {meta.label}
      {PROPOSED_CONTRACT_FIELDS.has(name) && <span title="Not in the API contract yet (open item R-15)." className="rounded bg-surface-secondary px-1 py-px text-[9px] normal-case tracking-normal text-text-muted">proposed</span>}
     </span>
@@ -1050,13 +1050,13 @@ export default function UseCaseComposeScreen() {
      )}
     </div>
 
-    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface p-3">
-     <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
+    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface-secondary/60 p-3.5">
+     <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
      <p className="mt-1 text-sm text-text-primary">{describeShape(spec)}</p>
      {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? ", an admin, since nobody approves each change" : ""}.</p>}
     </div>}
 
-    <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
      <Field name="goal" gap={gapFor("goal")} origin={originOf("goal")} hint="What this exists to do, in your words. Free text; it drives nothing." onAsk={() => openAssistant("goal")}>
       <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} min-h-[5.25rem] resize-y`} />
      </Field>
@@ -1082,7 +1082,7 @@ export default function UseCaseComposeScreen() {
      </div>
     )}
     {category.templates && spec.template && (
-     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-secondary/60 px-4 py-2 text-xs">
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your description as</span>
       <span className="font-semibold text-text-primary">{category.templates.find((t) => t.id === spec.template)?.label.toLowerCase()}</span>
@@ -1094,7 +1094,7 @@ export default function UseCaseComposeScreen() {
     {/* The kind is read from the words, never picked (K26): the goal decides whether this
         reports, diagnoses, finds who is at risk, or alerts; change the goal to change it. */}
     {category.trigger && (() => { const t = category.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || category.trigger[0]; return (
-     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-secondary/60 px-4 py-2 text-xs">
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your goal as</span>
       <span className="font-semibold text-text-primary">{t.label.replace(/^\w/, (c) => c.toLowerCase())}</span>
@@ -1124,7 +1124,11 @@ export default function UseCaseComposeScreen() {
      </div>
     ))}
 
-    <div className={builderStepFooter}>
+    {/* This form runs well past a screen, so its two actions travel with you rather than
+        waiting at the bottom. Sticky keeps it in flow, so nothing is hidden behind it at the
+        end of the page; it floats as a bar only while there is more form below. Steps 3-6 are
+        short enough to keep the plain footer, which is why this one is written out. */}
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface/95 px-4 py-3 shadow-sm backdrop-blur">
      <button type="button" onClick={() => navigate("/use-cases/gallery")} className={`inline-flex items-center gap-1.5 ${builderStepBackButton}`}>
       <Save size={14} /> Save as draft
       {dataGaps.length > 0 && <span className="rounded-full bg-status-critical-light px-1.5 py-0.5 text-[10px] font-semibold text-status-critical">blocked on data</span>}
