@@ -729,6 +729,104 @@ HANDLERS: Dict[str, Callable[[Engine, Mapping[str, Any], str], Dict[str, Any]]] 
 }
 
 
+def _trace(qid: str, run_result: Mapping[str, Any], as_of: str) -> List[str]:
+    """What the answer did, in order -- shown while it 'computes', and true."""
+    summary = (run_result.get("risk") or {}).get("summary") or {}
+    n_open = summary.get("open_quotes", 0)
+    n_range = summary.get("within_range", 0)
+    n_risk = summary.get("at_risk_within_range", 0)
+    reads = f"Reading the quote fact (silver.dc_rfq_quotes) as of {as_of}"
+    run = (
+        f"Loading the latest run: {n_open:,} open quotes scored, {n_range} in their "
+        f"window, {n_risk} at risk"
+    )
+    by_qid = {
+        "at_risk_by_brand": [
+            reads,
+            run,
+            "Grouping the at-risk quotes by brand and summing value × risk",
+            "Ranking brands by value at risk",
+        ],
+        "at_risk_by_category": [
+            reads,
+            run,
+            "Grouping the at-risk quotes by product category",
+            "Ranking categories by value at risk",
+        ],
+        "at_risk_by_territory": [
+            reads,
+            run,
+            "Grouping the at-risk quotes by territory",
+            "Ranking territories by value at risk",
+        ],
+        "at_risk_by_rep": [
+            reads,
+            run,
+            "Grouping the at-risk quotes by the rep who owns them",
+            "Ranking reps by value at risk",
+        ],
+        "lost_reasons": [
+            reads,
+            "Selecting closed-lost quotes in the trailing 180 days",
+            "Counting lost quotes and value by reason",
+            "Finding the top reason per category",
+            "Mapping each reason to its play in the catalogue",
+        ],
+        "conversion_by_source": [
+            reads,
+            "Computing closed-won rate and days-to-win per quote source",
+            run,
+            "Attaching today's value at risk per source",
+        ],
+        "stalled_backlog": [
+            reads,
+            "Computing each category's usual time to close (90th percentile)",
+            "Selecting open quotes past their window, by territory",
+            run,
+        ],
+        "top_accounts": [
+            run,
+            "Reading the recommendations and grouping them by account",
+            "Summing value at stake and picking each account's play",
+            "Ranking accounts by what is at stake",
+        ],
+        "usual_time": [
+            reads,
+            "Selecting closed quotes with a recorded days-to-close",
+            "Computing the median and the 90th percentile per category",
+        ],
+        "this_week": [
+            run,
+            "Reading this week's ten and the plays",
+            "Totalling what the ten are worth and what is otherwise lost",
+        ],
+    }
+    return by_qid.get(qid, [reads, run])
+
+
+def _narrative(answer: Mapping[str, Any]) -> str:
+    """The answer in markdown, from its own blocks: the headline, then the key numbers as
+    a list -- what the reader sees first, before the charts."""
+    lines: List[str] = []
+    for b in answer.get("blocks") or []:
+        if b.get("type") == "insight" and b.get("headline"):
+            lines.append(f"**{b['headline']}**")
+            lines.append("")
+    for b in answer.get("blocks") or []:
+        if b.get("type") == "findings":
+            for item in (b.get("items") or [])[:4]:
+                desc = f" — {item['desc']}" if item.get("desc") else ""
+                lines.append(f"- **{item.get('title')}**: {item.get('value')}{desc}")
+            lines.append("")
+        if b.get("type") == "recommendation":
+            lines.append(f"*{b.get('title') or 'Next'}:*")
+            for item in (b.get("items") or [])[:3]:
+                text_ = item.get("text") if isinstance(item, Mapping) else str(item)
+                lines.append(f"- {text_}")
+            lines.append("")
+    return "\n".join(lines).strip()
+
+
 def ask(
     engine: Engine,
     question: str,
@@ -755,6 +853,8 @@ def ask(
         }
     answer = HANDLERS[qid](engine, run_result, day)
     answer["matched"] = qid
+    answer["trace"] = _trace(qid, run_result, day)
+    answer["narrative"] = _narrative(answer)
     answer["variant"] = "answer-block"
     answer["dataGrounded"] = True
     answer["source"] = "at-risk-pipeline"
