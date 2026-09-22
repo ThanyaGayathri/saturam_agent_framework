@@ -294,7 +294,7 @@ async def ask_use_case(
     interface's answer-block payload. Not in the contract on purpose -- a demo, not a
     product endpoint."""
     from egpt_retail.app.db import build_warehouse_engine
-    from egpt_retail.usecases.ask import QUESTIONS, ask
+    from egpt_retail.usecases.ask import QUESTIONS, ask, kpi_match
 
     if await service.store.aget(use_case_id) is None:
         raise _not_found(use_case_id)
@@ -309,14 +309,6 @@ async def ask_use_case(
         ),
         None,
     )
-    if last is None:
-        return {
-            "matched": None,
-            "variant": "answer-block",
-            "intro": "Run the use case once first; the questions read its latest run.",
-            "blocks": [],
-            "followUps": [q["label"] for q in QUESTIONS[:4]],
-        }
     settings = RetailSettings()
 
     # The registry is read so a question that names a KPI is answered from its own
@@ -340,9 +332,20 @@ async def ask_use_case(
             ]
         finally:
             connection.close()
+        # A question that names a KPI is answered from the registry and gold alone, so it
+        # holds on a use case that has never run; the ten read the run and need one.
+        result = last["result"] if last is not None else {}
+        if last is None and kpi_match(body.question, registry)[0] is None:
+            return {
+                "matched": None,
+                "variant": "answer-block",
+                "intro": "Run the use case once first; these questions read its latest run.",
+                "blocks": [],
+                "followUps": [q["label"] for q in QUESTIONS[:4]],
+            }
         engine = build_warehouse_engine(settings)
         try:
-            return ask(engine, body.question, last["result"], registry=registry)
+            return ask(engine, body.question, result, registry=registry)
         finally:
             engine.dispose()
 
