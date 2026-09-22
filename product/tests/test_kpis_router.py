@@ -1571,13 +1571,20 @@ def _fake_semantic_reader(settings):
 
 class _FakeStore:
     def __init__(
-        self, kpis, *, omit_from_feasibility=frozenset(), dashboard_names=None
+        self,
+        kpis,
+        *,
+        omit_from_feasibility=frozenset(),
+        dashboard_names=None,
+        dashboards=None,
     ):
         self._kpis = list(kpis)
         self._omit = frozenset(omit_from_feasibility)
         self._dashboard_names = dict(dashboard_names or {})
+        self._dashboards = dict(dashboards or {})
         self.feasibility_calls: list = []
         self.dashboard_names_calls: list = []
+        self.dashboards_calls: list = []
 
     def list(self, *, business_area=None):
         if business_area is None:
@@ -1603,6 +1610,13 @@ class _FakeStore:
         return {
             i: self._dashboard_names[i] for i in wanted if i in self._dashboard_names
         }
+
+    def dashboards_by_kpi(self, identifiers, caller):
+        wanted = (
+            [k.identifier for k in self._kpis] if identifiers is None else identifiers
+        )
+        self.dashboards_calls.append((list(wanted), caller))
+        return {i: self._dashboards[i] for i in wanted if i in self._dashboards}
 
 
 @pytest.fixture(autouse=True)
@@ -1687,6 +1701,64 @@ def test_get_kpi_dashboard_names_is_empty_when_nothing_references_it():
         get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
     )
     assert result.dashboard_names == []
+
+
+# ---------------------------------------------------------------------------
+# `Kpi.dashboards` -- the caller-visible subset of `dashboard_names`, carrying the id the
+# "Maps to" chip links to. Populated from `store.dashboards_by_kpi`, scoped to the caller
+# resolved by `_caller_id` (the same identity `delete_if_unreferenced`'s 409 message narrows
+# by), independently of `dashboard_names` itself.
+# ---------------------------------------------------------------------------
+
+
+def test_get_kpi_includes_dashboards_from_the_bulk_lookup():
+    store = _FakeStore(
+        [_kpi(identifier="a")],
+        dashboard_names={"a": ("Q3 Sales",)},
+        dashboards={"a": (("dash-1", "Q3 Sales"),)},
+    )
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
+    assert [(d.id, d.name) for d in result.dashboards] == [("dash-1", "Q3 Sales")]
+    assert store.dashboards_calls == [(["a"], "local")]
+
+
+def test_get_kpi_dashboards_is_empty_when_nothing_is_visible():
+    # A dashboard can be in `dashboard_names` (referenced by it, anywhere) without being in
+    # `dashboards` (visible to this caller) -- the whole point of the split.
+    store = _FakeStore(
+        [_kpi(identifier="a")], dashboard_names={"a": ("Someone else's dashboard",)}
+    )
+    result = asyncio.run(
+        get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    )
+    assert result.dashboard_names == ["Someone else's dashboard"]
+    assert result.dashboards == []
+
+
+def test_list_kpis_computes_dashboards_with_one_bulk_call_not_one_per_row():
+    store = _FakeStore(
+        [
+            _kpi(identifier="a", business_area="sales"),
+            _kpi(identifier="b", business_area="sales"),
+        ],
+        dashboards={
+            "a": (("dash-1", "Exec Overview"), ("dash-2", "Q3 Sales")),
+            "b": (),
+        },
+    )
+    result = list_kpis(
+        _FakeRequest(authorization_enabled=False),
+        business_area="sales",
+        store=store,
+    )
+    assert [(d.id, d.name) for d in result[0].dashboards] == [
+        ("dash-1", "Exec Overview"),
+        ("dash-2", "Q3 Sales"),
+    ]
+    assert result[1].dashboards == []
+    assert store.dashboards_calls == [(["a", "b"], "local")]
 
 
 # ---------------------------------------------------------------------------

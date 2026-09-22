@@ -815,8 +815,13 @@ export default function KpiDiscoveryPage() {
    feasibility: k.feasibility,
    resultShape: k.result_shape,
    // Dashboards with a tile built from this KPI -- the hierarchy table's "Maps to" column.
-   // Always empty for a suggestion, which has no registry identifier yet.
+   // Always empty for a suggestion, which has no registry identifier yet. `dashboardNames`
+   // is every referencing dashboard regardless of visibility (contract 1.0.0); `dashboards`
+   // (contract 1.16.0) is the subset this caller may actually open, carrying the id "Maps
+   // to" links to. A name in the first but not the second belongs to someone else and stays
+   // a plain, non-clickable label -- `MapsToCell` does the matching.
    dashboardNames: k.dashboard_names || [],
+   dashboards: k.dashboards || [],
    // Null for a hand-authored KPI or one adopted before the registry kept them; the panel
    // renders the section only when at least one is present.
    rationale: k.rationale || "",
@@ -983,6 +988,7 @@ export default function KpiDiscoveryPage() {
     togglingActiveIds={togglingActiveIds}
     profileId={profileId}
     onOpenUseCase={(cid) => navigate(useCaseActivationPath(cid))}
+    onOpenDashboard={(id) => navigate(`/kpis/dashboards/${id}`)}
    />
 
    {/* The agent's own account of why it proposed nothing, in the schema's refusal channel. An

@@ -267,6 +267,15 @@ class DashboardFilterValues(BaseModel):
     values: list[str]
 
 
+class DashboardRef(BaseModel):
+    """
+    A dashboard by id and name, for a UI that links to it rather than just naming it. See `Kpi.dashboards`.
+    """
+
+    id: str
+    name: str
+
+
 class DashboardSuggestionRunRequest(BaseModel):
     """
     What to run. `purpose` is the caller's own words for what the dashboard should help them
@@ -3196,7 +3205,12 @@ class Kpi(BaseModel):
     process_ids: list[str] | None = None
     dashboard_names: list[str] | None = Field(
         [],
-        description="Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet.",
+        description="Names of the dashboards with a tile naming this KPI, sorted. Computed on read from the dashboard table, never stored on the KPI itself -- the same reference check `DELETE /kpis/{kpi_id}` already runs to refuse deleting a KPI still in use, generalized into a read path. Empty when nothing references it yet. Unlike `dashboards` below, this reaches across every owner and visibility, so a name can appear here for a dashboard the caller cannot open.",
+    )
+    dashboards: list[DashboardRef] | None = Field(
+        [],
+        description='The subset of `dashboard_names` the caller may actually open -- `owner` or `visibility` in `(team, everyone)`, same as `GET /dashboards`. What the "Maps to" chips link to (`/kpis/dashboards/{id}`); a dashboard present in `dashboard_names` but absent here belongs to someone else and stays a plain label, since `GET /dashboards/{id}` would 404 it anyway.',
+        validate_default=True,
     )
     source_table_status: list[SourceTableStatus] | None = Field(
         [],
