@@ -4,6 +4,7 @@ import { AlertTriangle, Check, ChevronRight, Copy, Pencil, Plus, Trash2, X, Exte
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
+import { useCaseActivationPath } from "../../domain/automation-registry";
 import KpiTrend from "./KpiTrend";
 import { Tabs } from "../ui";
 import { formatShortDateTime } from "../../lib/format-date";
@@ -1029,7 +1030,7 @@ export default function KpiDetailPanel({
  useCases.map((uc) => (
  <li key={uc.id}>
  <Link
- to={`/use-cases/gallery?highlight=${encodeURIComponent(uc.id)}`}
+ to={useCaseActivationPath(uc.id)}
  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-secondary px-3 py-2 text-sm text-primary hover:bg-primary-light dark:bg-primary/20"
  onClick={onClose}
  >
