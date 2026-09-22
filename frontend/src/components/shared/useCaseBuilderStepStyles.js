@@ -12,6 +12,7 @@ import { catalogEyebrow, catalogH1, catalogSubtitle } from "./useCaseCatalogPage
 /** One column for every step. Prose inside a step stays capped at `max-w-2xl`. */
 export const builderStepShell = "mx-auto w-full max-w-4xl space-y-5 px-6 py-6";
 
+/** Kept for a step that wants a caption above its title; the six steps use the stepper. */
 export const builderStepEyebrow = catalogEyebrow;
 export const builderStepH1 = catalogH1;
 export const builderStepSubtitle = catalogSubtitle;

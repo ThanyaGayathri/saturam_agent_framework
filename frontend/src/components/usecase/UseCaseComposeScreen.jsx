@@ -34,7 +34,8 @@ import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings"
 import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
-import { builderStepBackButton, builderStepEyebrow, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderStepBackButton, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
  *  approval of the old one says nothing about the new one. */
@@ -163,7 +164,7 @@ function CategoryPicker({ onChoose }) {
  return (
   <div className={builderStepShell}>
    <div>
-    <p className={builderStepEyebrow}>Step 1 of 6</p>
+    <div className="mb-4"><UseCaseBuilderStepper current={1} /></div>
     <h1 className={builderStepH1}>What kind of use case is this?</h1>
     <p className={builderStepSubtitle}>The kind decides the form you fill, the workflow that is generated, the readiness checks, and who may switch it on.</p>
    </div>
@@ -998,12 +999,13 @@ export default function UseCaseComposeScreen() {
  const stillNeeded = blocking.length;
 
  return (
-  <div className={`mx-auto w-full px-6 py-6 ${assistantOpen ? "grid max-w-[1400px] gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" : "max-w-4xl"}`}>
+  <div className={assistantOpen ? "mx-auto grid w-full max-w-[1400px] gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_400px]" : builderStepShell}>
    {/* ── The form ─────────────────────────────────────────────────────── */}
    <section className="space-y-3">
-    <div className="flex flex-wrap items-start justify-between gap-3 pb-2">
+    {/* The rail spans the column; it is about the whole flow, not about this title. */}
+    <UseCaseBuilderStepper current={2} />
+    <div className="flex flex-wrap items-start justify-between gap-3 pb-1">
      <div>
-      <p className={builderStepEyebrow}>Step 2 of 6</p>
       <h1 className={builderStepH1}>Define it</h1>
       <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-secondary">
        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-primary"><CategoryIcon size={12} className="text-primary" /> {displayName(spec)}</span>

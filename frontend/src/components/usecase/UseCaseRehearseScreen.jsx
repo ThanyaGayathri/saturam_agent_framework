@@ -11,7 +11,8 @@ import PlatformRunPanel from "./PlatformRunPanel";
 import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
-import { builderCardHeading, builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
 
 /**
  * Step 5 of 6: rehearse.
@@ -143,7 +144,7 @@ export default function UseCaseRehearseScreen() {
  return (
   <div className={builderStepShell}>
    <div>
-    <p className={builderStepEyebrow}>Step 5 of 6</p>
+    <div className="mb-4"><UseCaseBuilderStepper current={5} /></div>
     <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
