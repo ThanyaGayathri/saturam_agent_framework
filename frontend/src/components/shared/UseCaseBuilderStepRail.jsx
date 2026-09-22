@@ -108,11 +108,15 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
     // left edge instead of being pushed inward by a centred column.
     <div className="flex w-full items-start gap-6 p-4 sm:p-6 md:gap-8 md:p-8">
       <UseCaseBuilderStepRail current={current} />
-      {/* The step's work sits on its own white sheet, the way the rail sits on its grey panel.
-          Two surfaces on a tinted page, each held by its own fill rather than an outline: it is
-          what tells you the rail is navigation and the sheet is the thing you are filling in. */}
-      <div className="min-w-0 flex-1 space-y-5 rounded-2xl bg-surface px-6 py-8 shadow-sm sm:px-8 md:px-10">
-        {children}
+      {/* The step's work sits on its own sheet, the way the rail sits on its grey panel. Two
+          surfaces on a tinted page, each held by its own fill rather than an outline: it is
+          what tells you the rail is navigation and the sheet is the thing you are filling in.
+          The wash runs the rail's colour across the top and clears by a third of the way down,
+          so the sheet starts in the page's palette and ends on its shadow. */}
+      <div className="min-w-0 flex-1 rounded-2xl bg-gradient-to-b from-builder-rail via-surface via-30% to-surface px-6 py-8 shadow-md dark:from-surface-secondary/60 sm:px-8 md:px-10">
+        {/* The work keeps a reading column and lets the sheet carry the air around it, rather
+            than running the full width of a sheet that grows with the window. */}
+        <div className="mx-auto w-full max-w-3xl space-y-5">{children}</div>
       </div>
     </div>
   );
