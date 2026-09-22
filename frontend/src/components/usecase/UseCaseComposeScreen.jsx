@@ -129,7 +129,7 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
  // An unfilled field is marked by its border and its "needed" label, not by a filled panel:
  // five amber blocks down the page read as five errors rather than as work still to do.
  return (
-  <div className={`rounded-lg border bg-surface px-3 py-2.5 shadow-sm ${gap ? "border-status-warning-border" : "border-border"}`}>
+  <div className={`rounded-lg border bg-surface px-3 py-2.5 ${gap ? "border-status-warning-border" : "border-border"}`}>
    <div className="flex items-center justify-between gap-2">
     <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
      {meta.label}

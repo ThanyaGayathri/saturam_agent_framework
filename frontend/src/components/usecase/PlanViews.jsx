@@ -30,7 +30,7 @@ export default function PlanViews({ spec, generatedNote = true }) {
        composes the flow at design time -- the shape is the template, the spec fills its slots.
        At run time each step is taken by an executor, a model, or a person. */}
    {generatedNote && (
-    <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 shadow-sm sm:grid-cols-[auto_1fr]">
+    <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 sm:grid-cols-[auto_1fr]">
      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-light text-primary"><Bot size={16} /></span>
      <div className="min-w-0 text-sm">
       <p className="font-semibold text-text-primary">Workflow generated from the specification</p>

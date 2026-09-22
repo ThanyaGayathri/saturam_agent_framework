@@ -64,7 +64,7 @@ function proposalFor(writeback, i, s) {
 
 function Section({ title, children }) {
  return (
-  <section className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+  <section className="rounded-xl border border-border bg-surface p-4">
    <h2 className={builderCardHeading}>{title}</h2>
    <div className="mt-2">{children}</div>
   </section>

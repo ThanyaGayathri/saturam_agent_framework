@@ -50,7 +50,7 @@ function autonomyOf(spec) {
 
 function Card({ Icon, title, children, aside }) {
  return (
-  <section className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+  <section className="rounded-xl border border-border bg-surface p-4">
    <div className="flex items-start justify-between gap-3">
     <h2 className={`flex items-center gap-2 ${builderCardHeading}`}><Icon size={15} className="text-text-secondary" />{title}</h2>
     {aside}

@@ -334,7 +334,7 @@ export default function UseCasePreflightScreen() {
      return (
       <div key={c.id} className="readiness-check">
        {firstOfGroup && <p className={builderGroupLabel}>{groupLabel}</p>}
-       <div className={`rounded-xl border px-4 py-3 shadow-sm ${meta.bg}`}>
+       <div className={`rounded-xl border px-4 py-3 ${meta.bg}`}>
        <div className="flex flex-wrap items-start gap-2.5">
         <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${c.level === "pass" ? "bg-status-success-light" : c.level === "warn" ? "bg-status-warning-light" : "bg-status-critical-light"}`}><Icon size={13} className={meta.cls} /></span>
         <div className="min-w-0 flex-1">
