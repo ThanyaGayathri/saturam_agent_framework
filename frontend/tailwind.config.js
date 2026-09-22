@@ -108,6 +108,13 @@ export default {
           "card-hover": "#eceef5",
           border: "#e4e6ed",
         },
+        // Use case builder chrome: the cool grey-lavender rail panel and the border shared by
+        // the rail and the sheet beside it, so the two read as one pair. Fixed values like
+        // `gallery` above -- dark mode is handled by `dark:` utilities at the call site.
+        builder: {
+          rail: "#e9ebf4",
+          border: "#dcdfeb",
+        },
       },
       borderRadius: {
         sm: "4px",

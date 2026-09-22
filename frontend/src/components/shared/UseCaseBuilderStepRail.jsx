@@ -4,9 +4,10 @@ import { Check, ChevronRight } from "lucide-react";
  * Where you are in the six steps, as a rail beside the work.
  *
  * The visual language is `UCBuilderLayout`'s, which the legacy builder routes already use:
- * a lavender panel, a numbered circle per step, the current one lifted onto a white card
- * with a ring and a chevron, finished ones ticked. Same tokens, so the two builders look
- * like one product. The connector line between markers is the one addition.
+ * a panel, a numbered circle per step, the current one lifted onto a white card with a
+ * chevron, finished ones ticked. The connector line between markers is the one addition,
+ * and the panel and border take the builder colours so the rail and the sheet beside it
+ * read as a pair.
  *
  * A rail has room the horizontal bar did not, so the steps carry their screens' own titles
  * rather than abbreviations invented for a narrow slot.
@@ -32,7 +33,7 @@ export function UseCaseBuilderStepRail({ current }) {
     // than that and the rail slides underneath it on the way down.
     <nav
       aria-label={`Step ${current} of ${STEPS.length}`}
-      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl border border-border-light bg-primary-light/70 px-4 py-6 shadow-sm backdrop-blur-md dark:border-border dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
+      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl border border-builder-border bg-builder-rail px-4 py-6 dark:border-border dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
     >
       <ol className="space-y-0.5">
         {STEPS.map((label, i) => {
@@ -46,12 +47,12 @@ export function UseCaseBuilderStepRail({ current }) {
               {!last && (
                 <span
                   aria-hidden
-                  className="absolute left-[24px] top-[38px] bottom-[-2px] w-px bg-border-light dark:bg-border"
+                  className="absolute left-[24px] top-[38px] bottom-[-2px] w-px bg-builder-border dark:bg-border"
                 />
               )}
               <div
                 className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                  here ? "bg-surface shadow-sm ring-1 ring-border dark:ring-border-light" : ""
+                  here ? "border border-builder-border bg-surface shadow-sm dark:border-border-light" : ""
                 }`}
               >
                 <span
@@ -108,11 +109,10 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
     // left edge instead of being pushed inward by a centred column.
     <div className="flex w-full items-start gap-6 p-4 sm:p-6 md:gap-8 md:p-8">
       <UseCaseBuilderStepRail current={current} />
-      {/* The step's work sits on its own sheet, the way the rail sits on its lavender panel.
-          Two surfaces, one page: it is what tells you the rail is navigation and the sheet is
-          the thing you are filling in. The wash at the top of the sheet carries the page's
-          tint into it so the two surfaces belong to the same page. */}
-      <div className="min-w-0 flex-1 space-y-5 rounded-2xl border border-border-light bg-gradient-to-b from-primary-light/30 via-surface to-surface px-6 py-8 shadow-sm dark:border-border dark:from-surface-secondary/40 sm:px-8 md:px-10">
+      {/* The step's work sits on its own white sheet, the way the rail sits on its grey panel,
+          both bordered in the same colour. Two surfaces on a tinted page: it is what tells you
+          the rail is navigation and the sheet is the thing you are filling in. */}
+      <div className="min-w-0 flex-1 space-y-5 rounded-2xl border border-builder-border bg-surface px-6 py-8 dark:border-border sm:px-8 md:px-10">
         {children}
       </div>
     </div>
