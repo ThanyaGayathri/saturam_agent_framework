@@ -86,11 +86,15 @@ export default function PeriodFilterChip({ chatFilters }) {
           {currentLabel()}
           {chatFilters.period === "custom" ? <ChevronDown size={10} /> : null}
         </button>
+        {/* The select is the control, but its selected option repeats the label above, so it
+            is collapsed to a chevron and the native menu is opened through it. */}
+        <span className="relative ml-0.5 inline-flex h-4 w-4 items-center justify-center">
+          <ChevronDown size={12} className="pointer-events-none text-text-muted" aria-hidden />
         <select
           value={chatFilters.period}
           onChange={handleSelect}
           aria-label="Time period for answers"
-          className="ml-1 max-w-[11rem] border-0 bg-transparent py-0.5 text-[10px] text-text-muted focus:outline-none"
+          className="absolute inset-0 cursor-pointer opacity-0"
           title="Pick a date range"
         >
           {chatFilters.periods.map((p) => (
@@ -99,6 +103,7 @@ export default function PeriodFilterChip({ chatFilters }) {
             </option>
           ))}
         </select>
+        </span>
       </div>
 
       {open ? (

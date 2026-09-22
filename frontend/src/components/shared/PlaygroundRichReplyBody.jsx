@@ -43,9 +43,11 @@ export default function PlaygroundRichReplyBody({ topic, panel: panelOverride, o
             className="p-4 dark:border-border dark:bg-surface-secondary dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]"
           >
             <p className="text-xs font-medium text-text-muted">{f.title}</p>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-xl font-semibold text-text-primary">{f.value}</span>
-              <span className="text-xs font-medium text-status-critical">{f.change}</span>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="min-w-0 text-lg font-semibold leading-snug text-text-primary">{f.value}</span>
+              <span className="shrink-0 whitespace-nowrap text-xs font-medium text-status-critical">
+                {f.change}
+              </span>
             </div>
             <p className="mt-2 text-xs text-text-secondary">{f.desc}</p>
           </Card>

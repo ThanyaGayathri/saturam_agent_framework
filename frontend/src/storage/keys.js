@@ -16,6 +16,8 @@ export const STORAGE_KEYS = {
   BUSINESS_AREAS: "retailgpt:business-areas:v1",
   /** Which databases and connectors are switched on, and which database is picked. */
   SOURCE_PREFS: "retailgpt:source-prefs:v1",
+  /** Playground chat history: one row per conversation, plus the active one. */
+  CHAT_CONVERSATIONS: "retailgpt:chat-conversations:v1",
 };
 
 /** Scoped copies per demo customer profile (`default` keeps legacy unprefixed keys). */
@@ -32,6 +34,7 @@ export function storageKeysForProfile(profileId) {
     KPI_SOURCES: `retailgpt:kpi-sources:v1${suffix}`,
     BUSINESS_AREAS: `retailgpt:business-areas:v1${suffix}`,
     SOURCE_PREFS: `retailgpt:source-prefs:v1${suffix}`,
+    CHAT_CONVERSATIONS: `retailgpt:chat-conversations:v1${suffix}`,
   };
 }
 

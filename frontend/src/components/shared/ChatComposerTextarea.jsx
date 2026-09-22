@@ -42,6 +42,9 @@ const ChatComposerTextarea = forwardRef(function ChatComposerTextarea({
     onSend?.();
   };
 
+  // The box is sized by the inline height the effect above sets. It must not be a flex item
+  // that grows or shrinks: in a column composer `flex-1` means `flex-basis: 0%`, which wins
+  // over that height and pins the field to one line however much is typed.
   return (
     <textarea
       ref={(el) => {
@@ -55,7 +58,7 @@ const ChatComposerTextarea = forwardRef(function ChatComposerTextarea({
       value={displayValue}
       onChange={(e) => onChange?.(e.target.value)}
       onKeyDown={handleKeyDown}
-      className="w-full flex-1 resize-none self-end overflow-y-auto bg-transparent py-1 text-base leading-6 text-[color:var(--app-text-primary)] placeholder:text-text-muted outline-none"
+      className="block w-full shrink-0 resize-none overflow-y-auto bg-transparent py-1 text-base leading-6 text-[color:var(--app-text-primary)] placeholder:text-text-muted outline-none"
     />
   );
 });

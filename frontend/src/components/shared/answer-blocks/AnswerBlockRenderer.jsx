@@ -9,7 +9,8 @@
 // Renders nothing if the message is not an answer-block message  -  safe to
 // mount alongside legacy rendering.
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useTypewriter } from "../../../hooks/useTypewriter";
 import { getBlockComponent } from "../../../domain/answer-blocks/registry";
 import { isAnswerBlockMeta, BLOCK_TYPES } from "../../../domain/answer-blocks/schema";
 import { CHAT_MODES } from "../../../storage/chat-mode";
@@ -46,7 +47,7 @@ function makeAutoCitation(lineage) {
   };
 }
 
-export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = false, onFollowUpSelect, onAction, onPinToggle }) {
+export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = false, onFollowUpSelect, onAction, onPinToggle, animate = false, onRevealTick, onRevealComplete }) {
   const blocksToRender = useMemo(() => {
     if (!isAnswerBlockMeta(meta)) return [];
     let list = meta.blocks || [];
@@ -61,16 +62,39 @@ export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = fa
     return list;
   }, [meta, chatMode]);
 
+  // The sentence that introduces the answer types out; the blocks wait for it to finish.
+  const reportDone = useCallback(() => {
+    if (animate) onRevealComplete?.();
+  }, [animate, onRevealComplete]);
+  const { shown: introText, done: introDone } = useTypewriter(meta?.intro || "", {
+    enabled: animate,
+    onDone: reportDone,
+  });
+  const showBlocks = !animate || introDone;
+  useEffect(() => {
+    if (animate) onRevealTick?.();
+  }, [introText, showBlocks, animate, onRevealTick]);
+
   if (!isAnswerBlockMeta(meta)) return null;
 
   return (
     <div className="space-y-3">
       {meta.intro ? (
         <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-text-primary">
-          {meta.intro}
+          {introText}
+          {animate && !introDone ? (
+            <span
+              className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[2px] animate-pulse bg-primary align-baseline"
+              aria-hidden
+            />
+          ) : null}
         </p>
       ) : null}
 
+      {/* The blocks wait for the sentence that introduces them. Charts and tables reflowing
+          under a half-written line reads as a page still loading, not as an answer arriving. */}
+      {showBlocks ? (
+        <>
       {meta.reasoning ? <ReasoningPanel reasoning={meta.reasoning} /> : null}
 
       {blocksToRender.map((block) => {
@@ -94,6 +118,8 @@ export default function AnswerBlockRenderer({ meta, chatMode, hideFollowUps = fa
 
       {!hideFollowUps && meta.followUps?.length ? (
         <FollowUpChips prompts={meta.followUps} onSelect={onFollowUpSelect} />
+      ) : null}
+        </>
       ) : null}
     </div>
   );
