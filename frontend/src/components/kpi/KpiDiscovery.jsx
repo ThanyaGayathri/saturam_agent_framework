@@ -1081,7 +1081,6 @@ export default function KpiDiscovery({
        value={businessAreaFilter}
        onChange={(e) => { setBusinessAreaFilter(e.target.value); setSubjectAreaFilter(""); }}
       />
-      <Select label={null} options={subjectAreaOptions} value={subjectAreaFilter} onChange={(e) => setSubjectAreaFilter(e.target.value)} />
       <Select label={null} options={STATUS_FILTERS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
       <Select label={null} options={VERDICT_FILTERS} value={verdictFilter} onChange={(e) => setVerdictFilter(e.target.value)} />
      </div>
