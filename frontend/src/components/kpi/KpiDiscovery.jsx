@@ -136,7 +136,10 @@ export function notSelectableReasonFor(row, bucket) {
  return NOT_SELECTABLE_REASONS.blocked;
 }
 
-const CONFIDENCE = {
+/** A suggestion's `confidence` badge -- shared with `AddKpiAiStep.jsx`, which shows the same
+ * three badges over the AI-assisted "Add KPI" drafts before one is chosen and handed to
+ * `AddKpiManualStep`'s form. */
+export const CONFIDENCE = {
  high: { label: "High confidence", cls: "bg-status-success-light text-status-success" },
  medium: { label: "Medium confidence", cls: "bg-status-warning-light text-status-warning" },
  low: { label: "Low confidence", cls: "bg-surface-tertiary text-text-secondary" },

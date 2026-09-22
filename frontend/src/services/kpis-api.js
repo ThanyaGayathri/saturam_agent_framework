@@ -23,18 +23,37 @@ export function fetchKpi(identifier, { signal } = {}) {
   return apiGet(`/kpis/${encodeURIComponent(identifier)}`, { signal });
 }
 
-/** `POST /kpis/suggestions` - start a suggestion run for one connected source and get it back
- * `queued` (a `KpiSuggestionRun`). Nothing in the app *starts* a run any more except this: KPIs
- * the data supports are proposed for a source automatically when its harvest ends (the
- * `suggest-kpis` step of the `harvest-source` workflow), so this is only how a run that failed
- * after a harvest is started again, for the same source (contract 1.2.9). `sourceId` names it;
- * `404` for an unknown source, `409` while its harvest has not finished. Read the result with
- * `fetchCurrentKpiSuggestions`, which names the new run as `generating` and returns the suggestions
- * when it lands. (The request also accepts `business_areas` and `ask`; nothing here sends them.) */
-export function startKpiSuggestionRun({ sourceId, signal } = {}) {
+/** `POST /kpis/suggestions` - start a suggestion run and get it back `queued` (a
+ * `KpiSuggestionRun`). Two callers:
+ *
+ *  - A retry for one connected source (`sourceId` alone): KPIs the data supports are proposed
+ *    for a source automatically when its harvest ends (the `suggest-kpis` step of the
+ *    `harvest-source` workflow), so this is only how a run that failed after a harvest is
+ *    started again, for the same source (contract 1.2.9). `404` for an unknown source, `409`
+ *    while its harvest has not finished. Read the result with `fetchCurrentKpiSuggestions`,
+ *    which names the new run as `generating` and returns the suggestions when it lands.
+ *  - "Add KPI" -> AI-assisted (`ask` alone, no `sourceId`): reads the deployment's own
+ *    warehouse, not a connected source, and is not part of the standing "current suggestions"
+ *    list -- read this one run back with `fetchKpiSuggestionRun`, by `id`, until it lands.
+ *    `ask` is what the customer typed, a steer never a filter (contract 1.2.3): still every
+ *    metric the data supports, not only what was asked for.
+ *
+ * `businessAreas` narrows neither call as a filter, only as a priority. */
+export function startKpiSuggestionRun({ sourceId, ask, businessAreas, signal } = {}) {
   const body = {};
   if (typeof sourceId === "string" && sourceId) body.source_id = sourceId;
+  if (typeof ask === "string" && ask.trim()) body.ask = ask.trim();
+  if (Array.isArray(businessAreas) && businessAreas.length) body.business_areas = businessAreas;
   return apiJson("/kpis/suggestions", "POST", body, { signal });
+}
+
+/** `GET /kpis/suggestions/{run_id}` - one run, for polling by id (contract 1.2.9/#254). Used by
+ * "Add KPI" -> AI-assisted, which starts a run with no `source_id` and so never appears in
+ * `fetchCurrentKpiSuggestions`'s standing list -- this is the only way back to it. `404` once
+ * the run predates this deployment's retention, though a `queued`/`running`/`succeeded`/`failed`
+ * `KpiSuggestionRun` otherwise, same shape `startKpiSuggestionRun` returns `queued`. */
+export function fetchKpiSuggestionRun(runId, { signal } = {}) {
+  return apiGet(`/kpis/suggestions/${encodeURIComponent(runId)}`, { signal });
 }
 
 /** `GET /kpis/suggestions/current` - the suggestions to show now, kept between visits (contract
