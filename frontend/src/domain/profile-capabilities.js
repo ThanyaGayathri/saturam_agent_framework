@@ -19,7 +19,8 @@ import {
 
 /** Routes that belong to the retail automation demo (default + GFI). */
 export const RETAIL_ONLY_ROUTE_PREFIXES = [
-  "/use-cases",
+  // "/use-cases" removed — the use-case platform (builder, gallery, runs, dashboards) is the
+  // same product for every customer; Middleby's own analytics use cases are built there.
   // "/kpis" removed — Middleby now shares the same KPI hub at /kpis/*.
   "/processes",
   "/monitor",
@@ -91,10 +92,13 @@ export const PROFILE_NAV_ITEMS = {
     { label: "Configure", path: "/configure/internal-sources", activePrefix: "/configure" },
     { label: "KPIs", path: "/kpis", activePrefix: "/kpis" },
     {
+      // The use-case platform, as for every profile: the at-risk pipeline and the
+      // diagnostic are built, rehearsed and run here. The prototype's Insight Sessions
+      // catalog stays reachable at /analytics, not from the nav.
       label: "Use Cases",
-      path: "/analytics",
-      activePrefix: "/analytics",
-      activeAlsoPrefixes: ["/playground/insight"],
+      path: "/use-cases",
+      activePrefix: "/use-cases",
+      activeAlsoPrefixes: ["/analytics", "/playground/insight"],
       activeExcludePrefixes: [
         "/analytics/performance",
         "/analytics/monitor",
