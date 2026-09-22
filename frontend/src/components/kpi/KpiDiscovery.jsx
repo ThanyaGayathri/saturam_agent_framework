@@ -193,8 +193,19 @@ const VERDICT_META = {
  },
 };
 
-function PoweredByCell({ kpiName, profileId, onOpen }) {
- const entries = useMemo(() => getCatalogEntriesForKpiName(kpiName, profileId), [kpiName, profileId]);
+// `realEntries` are use cases actually stored on the platform (`linked_kpi_ids`, K16) --
+// navigable to their own page. `catalogEntries` are the frontend-only demo catalog
+// (`kpi-usecase-links.js`), unchanged so existing demo profiles keep working. Real entries
+// list first; `kind` tells `onOpen` which page to send the click to.
+function PoweredByCell({ kpiName, realEntries, profileId, onOpen }) {
+ const catalogEntries = useMemo(() => getCatalogEntriesForKpiName(kpiName, profileId), [kpiName, profileId]);
+ const entries = useMemo(
+  () => [
+   ...(realEntries || []).map((e) => ({ ...e, kind: "real" })),
+   ...catalogEntries.map((e) => ({ ...e, kind: "catalog" })),
+  ],
+  [realEntries, catalogEntries]
+ );
  const [expanded, setExpanded] = useState(false);
  if (!entries.length) return <span className="text-[13px] text-text-muted">-</span>;
  const MAX_VISIBLE = 2;
@@ -204,9 +215,9 @@ function PoweredByCell({ kpiName, profileId, onOpen }) {
   <div className="flex min-w-0 flex-wrap items-center gap-1">
    {visible.map((e) => (
     <button
-     key={e.id}
+     key={`${e.kind}:${e.id}`}
      type="button"
-     onClick={(ev) => { ev.stopPropagation(); onOpen(e.id); }}
+     onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
      title={`Open ${e.title}`}
      className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-[#a9f0d1] bg-[#ecfdf3] px-1.5 py-0.5 text-[12px] font-medium text-[#067647] transition hover:border-[#067647] hover:bg-[#d1fadf] dark:border-[#067647]/35 dark:bg-[#067647]/10 dark:text-[#6ce9a6]"
     >
@@ -521,7 +532,12 @@ function KpiTable({
            <MapsToCell dashboardNames={r.kpi.dashboardNames} />
           </td>
           <td className="min-w-0 align-middle px-3 py-3 text-[13px]">
-           <PoweredByCell kpiName={r.kpi.name} profileId={profileId} onOpen={onOpenUseCase} />
+           <PoweredByCell
+            kpiName={r.kpi.name}
+            realEntries={r.kpi.linkedUseCases}
+            profileId={profileId}
+            onOpen={onOpenUseCase}
+           />
           </td>
           <td className="w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] align-middle px-2 py-3">
            <div className="flex w-full flex-col items-center justify-center gap-1 [&_button]:shrink-0">
