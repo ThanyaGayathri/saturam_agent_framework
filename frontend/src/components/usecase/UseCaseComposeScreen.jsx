@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
  AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, FileText, Gauge, HelpCircle, Info, Lock,
@@ -34,7 +34,7 @@ import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings"
 import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
-import { builderStepBackButton, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import { builderGroupLabel, builderStepBackButton, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
@@ -86,6 +86,38 @@ const ORIGIN_LABEL = {
 const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none";
 const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
+
+/**
+ * Which part of the form a field belongs to.
+ *
+ * The form was a flat stack of up to a dozen identical boxes, so nothing told you that four of
+ * them describe the data and two describe who hears about it. The shapes' field orders are
+ * already grouped this way -- `inform` runs metrics, dimensions, comparison, then recipient and
+ * schedule -- so this only names what the order already does. A label is emitted when the group
+ * changes, never inserted out of order, and a field with no group listed here still renders in
+ * place, under whichever label came last.
+ */
+const FIELD_GROUP = {
+ candidates: 0, metrics: 0, metric: 0, dimensions: 0, comparison: 0, churnWindow: 0,
+ sensitivity: 0, evidenceColumns: 0, objective: 0, mailbox: 0, pollInterval: 0,
+ messageFilter: 0, documentType: 0, extractionTemplate: 0, exampleDocument: 0,
+ masterData: 0, matchThresholds: 0,
+
+ outcome: 1, outputs: 1, mode: 1, operator: 1, threshold: 1, scope: 1, severity: 1,
+ guardrails: 1, recordGuardrails: 1, approver: 1, writeTarget: 1, timeoutBehaviour: 1,
+ perRunCap: 1, rollback: 1, targetObjects: 1, createdAs: 1,
+ // Both belong to the document flow's handling of a message it could not complete, and both
+ // sit inside its limits run in the form's order. Calling them delivery would split that
+ // section in two and print its label twice.
+ exceptionsTo: 1, acknowledge: 1,
+
+ recipient: 2, schedule: 2, owner: 2,
+};
+
+const FIELD_GROUP_LABEL = ["What it looks at", "What it does, and its limits", "Who sees it, and when"];
+
+/** Sections earn their space on a form long enough to have them; a short one stays a list. */
+const GROUPING_THRESHOLD = 4;
 
 /** The registry KPIs that give the at-risk kind its context (K26), offered in this order. */
 const AT_RISK_KPI_IDS = ["rfq__stalled_quotes", "rfq__stalled_pipeline_value", "rfq__quote_conversion_within_usual", "rfq__customer_churn_rate_60d", "rfq__at_risk_accounts", "rfq__rfm_segments", "rfq__stalled_quotes_by_territory", "rfq__at_risk_accounts_by_segment", "rfq__sales_cycle_length_by_category"];
@@ -998,6 +1030,25 @@ export default function UseCaseComposeScreen() {
 
  const stillNeeded = blocking.length;
 
+ // Walk the fields in the order the shape defines and note where a section starts. The order is
+ // never rearranged: a label is only emitted when the group changes, so every field stays where
+ // the form put it.
+ const shownFields = fields.filter((f) => f !== "schedule");
+ const grouped = shownFields.length >= GROUPING_THRESHOLD;
+ const groupBefore = {};
+ const openedGroups = new Set();
+ if (grouped) {
+  let last = null;
+  for (const f of shownFields) {
+   const g = FIELD_GROUP[f];
+   if (g !== undefined && g !== last) {
+    groupBefore[f] = g;
+    openedGroups.add(g);
+    last = g;
+   }
+  }
+ }
+
  return (
   <div className={assistantOpen ? "mx-auto grid w-full max-w-[1400px] gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_400px]" : builderStepShell}>
    {/* ── The form ─────────────────────────────────────────────────────── */}
@@ -1104,14 +1155,23 @@ export default function UseCaseComposeScreen() {
      </div>
     ); })()}
 
-    {fields.filter((f) => f !== "schedule").map(renderField)}
+    {shownFields.map((f) => (
+     groupBefore[f] !== undefined
+      ? <Fragment key={`grp-${f}`}><p className={builderGroupLabel}>{FIELD_GROUP_LABEL[groupBefore[f]]}</p>{renderField(f)}</Fragment>
+      : renderField(f)
+    ))}
 
-    {!(category.templates && !spec.template) && <div className="grid gap-3 sm:grid-cols-2">
-     <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
-      <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
-     </Field>
-     {!fields.includes("pollInterval") && renderField("schedule")}
-    </div>}
+    {/* Owner and the schedule close the "who sees it, and when" group. When no field above
+        opened it -- a shape with no recipient -- the label belongs here instead. */}
+    {!(category.templates && !spec.template) && <>
+     {grouped && !openedGroups.has(2) && <p className={builderGroupLabel}>{FIELD_GROUP_LABEL[2]}</p>}
+     <div className="grid items-start gap-3 sm:grid-cols-2">
+      <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
+       <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
+      </Field>
+      {!fields.includes("pollInterval") && renderField("schedule")}
+     </div>
+    </>}
 
     {dataGaps.map((g) => (
      <div key={g.id} className="flex flex-wrap items-start gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-2.5">
