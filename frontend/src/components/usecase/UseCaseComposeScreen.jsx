@@ -34,6 +34,7 @@ import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings"
 import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
+import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
  *  approval of the old one says nothing about the new one. */
@@ -92,8 +93,10 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
  const meta = fieldMetaFor(name, { template });
  const o = origin && ORIGIN_LABEL[origin];
  const pref = suggestion?.options?.find((x) => x.label === suggestion.preferred);
+ // An unfilled field is marked by its border and its "needed" label, not by a filled panel:
+ // five amber blocks down the page read as five errors rather than as work still to do.
  return (
-  <div className={`rounded-lg border px-3 py-2.5 ${gap ? "border-status-warning-border bg-status-warning-light/30" : "border-border bg-surface"}`}>
+  <div className={`rounded-lg border bg-surface px-3 py-2.5 ${gap ? "border-status-warning-border" : "border-border"}`}>
    <div className="flex items-center justify-between gap-2">
     <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
      {meta.label}
@@ -158,36 +161,53 @@ function Reply({ parts }) {
 /** Step 1: the kind of use case. Analytics Automation asks its trigger in place. */
 function CategoryPicker({ onChoose }) {
  return (
-  <div className="mx-auto w-full max-w-5xl space-y-5 px-6 py-6">
+  <div className={builderStepShell}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 1 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">What kind of use case is this?</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">The kind decides the form you fill, the workflow that is generated, the readiness checks, and who may switch it on.</p>
+    <p className={builderStepEyebrow}>Step 1 of 6</p>
+    <h1 className={builderStepH1}>What kind of use case is this?</h1>
+    <p className={builderStepSubtitle}>The kind decides the form you fill, the workflow that is generated, the readiness checks, and who may switch it on.</p>
    </div>
-   <div className="grid gap-3 md:grid-cols-2">
+   <div className="grid gap-4 md:grid-cols-2">
     {CATEGORY_LIST.map((c) => {
      const Icon = CATEGORY_ICON[c.id];
      const fields = [...new Set(c.shapes.flatMap((sh) => fieldsFor({ shape: sh, category: c.id })))];
      return (
-      <div key={c.id} className="flex flex-col rounded-2xl border border-border bg-surface p-4 text-left hover:border-primary">
-       <button type="button" onClick={() => onChoose(c.id, c.shapes[0])} className="text-left">
-        <div className="flex items-center gap-2">
-         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light text-primary"><Icon size={16} /></span>
-         <span className="text-base font-bold text-text-primary">{c.label}</span>
-         <span className="text-sm text-text-secondary">· {c.plain}</span>
+      <div key={c.id} className="group flex flex-col rounded-2xl border border-border bg-surface p-5 text-left transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/40">
+       {/* The button fills the card so the whole body is a target, and so "Choose" lands on
+           the same line in every card of a row however long the blurb runs. */}
+       <button type="button" onClick={() => onChoose(c.id, c.shapes[0])} className="flex flex-1 flex-col text-left focus-visible:outline-none">
+        <div className="flex-1">
+        <div className="flex items-start gap-2.5">
+         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary"><Icon size={16} /></span>
+         {/* Name and plain-language gloss wrap as whole phrases, never mid-name. */}
+         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-base font-bold leading-snug text-text-primary">{c.label}</span>
+          <span className="text-sm leading-snug text-text-secondary">· {c.plain}</span>
+         </span>
         </div>
-        <p className="mt-2 text-sm text-text-secondary">{c.blurb}</p>
-        <p className="mt-2 text-xs text-text-secondary">
+        <p className="mt-3 text-sm leading-relaxed text-text-secondary">{c.blurb}</p>
+        <p className="mt-2.5 text-xs leading-relaxed text-text-secondary">
          <span className="font-semibold text-text-primary">For example</span> · {c.examples.map((e) => e.title).join(" · ")}
         </p>
-        <div className="mt-3 flex flex-wrap gap-1">
+        <div className="mt-3 flex flex-wrap gap-1.5">
          {c.templates
-          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
-          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
+          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
+          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
         </div>
-        <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? ", an admin" : ""}.` : ""}</p>
+        </div>
+        {/* What it does to your systems is the consequential line, so it sits below a rule
+            rather than reading as one more grey sentence in the stack. The slack in a card
+            shorter than its neighbour goes above this rule, so the rule stays a fixed
+            distance from Choose in every card of a row. */}
+        <p className="mt-4 border-t border-border-light pt-3 text-xs leading-relaxed text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? ", an admin" : ""}.` : ""}</p>
        </button>
-       <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary">Choose <ArrowRight size={12} /></span>
+       {/* The pill fills whenever the pointer is anywhere on the card, which is what says the
+           whole card is the target rather than these two words. */}
+       <div className="mt-auto pt-4">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-light/60 px-3 py-1 text-xs font-semibold text-primary transition group-hover:border-primary group-hover:bg-primary group-hover:text-white">
+         Choose <ArrowRight size={12} className="transition group-hover:translate-x-0.5" />
+        </span>
+       </div>
       </div>
      );
     })}
@@ -981,10 +1001,10 @@ export default function UseCaseComposeScreen() {
   <div className={`mx-auto w-full px-6 py-6 ${assistantOpen ? "grid max-w-[1400px] gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" : "max-w-4xl"}`}>
    {/* ── The form ─────────────────────────────────────────────────────── */}
    <section className="space-y-3">
-    <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="flex flex-wrap items-start justify-between gap-3 pb-2">
      <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 2 of 6</p>
-      <h1 className="text-2xl font-bold text-text-primary">Define it</h1>
+      <p className={builderStepEyebrow}>Step 2 of 6</p>
+      <h1 className={builderStepH1}>Define it</h1>
       <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-secondary">
        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-primary"><CategoryIcon size={12} className="text-primary" /> {displayName(spec)}</span>
        <button type="button" onClick={changeCategory} className="text-xs font-semibold text-text-muted hover:text-primary">Change</button>
@@ -1038,7 +1058,7 @@ export default function UseCaseComposeScreen() {
 
     <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
      <Field name="goal" gap={gapFor("goal")} origin={originOf("goal")} hint="What this exists to do, in your words. Free text; it drives nothing." onAsk={() => openAssistant("goal")}>
-      <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} resize-none`} />
+      <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} min-h-[5.25rem] resize-y`} />
      </Field>
      <Field name="title" origin={spec.origin?.title === ORIGIN.authored ? ORIGIN.authored : spec.title ? "proposed" : null} hint="How it appears in the catalogue. Proposed from the KPIs; overwrite it any time.">
       <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is enough to name it" className={input} />
@@ -1104,8 +1124,8 @@ export default function UseCaseComposeScreen() {
      </div>
     ))}
 
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-     <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
+    <div className={builderStepFooter}>
+     <button type="button" onClick={() => navigate("/use-cases/gallery")} className={`inline-flex items-center gap-1.5 ${builderStepBackButton}`}>
       <Save size={14} /> Save as draft
       {dataGaps.length > 0 && <span className="rounded-full bg-status-critical-light px-1.5 py-0.5 text-[10px] font-semibold text-status-critical">blocked on data</span>}
      </button>

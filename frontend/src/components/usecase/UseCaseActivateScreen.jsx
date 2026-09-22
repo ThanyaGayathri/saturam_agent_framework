@@ -14,6 +14,7 @@ import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { activateOnPlatform } from "../../services/use-case-platform";
 import PlatformRunPanel, { explain } from "./PlatformRunPanel";
+import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 6 of 6: activation.
@@ -115,14 +116,14 @@ export default function UseCaseActivateScreen() {
  if (done) {
   const first = SCHEDULES.find((x) => x.value === spec.schedule)?.label || "on schedule";
   return (
-   <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+   <div className={builderStepShell}>
     <div>
-     <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 6 of 6</p>
-     <h1 className="flex items-center gap-2 text-2xl font-bold text-text-primary">
+     <p className={builderStepEyebrow}>Step 6 of 6</p>
+     <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-status-success-light text-status-success"><Check size={18} /></span>
       {done.status === "active" ? `Active in ${done.environment}` : `Submitted to ${done.to}`}
      </h1>
-     <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+     <p className={builderStepSubtitle}>
       {done.status === "active"
        ? <><strong className="text-text-primary">{title}</strong> is live in {done.environment}. The frozen version runs; a change to the spec is a new version.</>
        : <><strong className="text-text-primary">{title}</strong> is frozen and waiting for {done.to} to activate it. Nothing runs until they do; they see the same workflow, simulation and cost you saw.</>}
@@ -149,8 +150,8 @@ export default function UseCaseActivateScreen() {
       buttonLabel={done.environment === "production" ? "Run now" : "Run now in the sandbox"}
      />
     )}
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-     <button type="button" onClick={() => set("activation", null)} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Undo</button>
+    <div className={builderStepFooter}>
+     <button type="button" onClick={() => set("activation", null)} className={builderStepBackButton}>Undo</button>
      <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">Go to use cases</button>
     </div>
    </div>
@@ -158,11 +159,11 @@ export default function UseCaseActivateScreen() {
  }
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <div className={builderStepShell}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 6 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">Go live</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">How <strong className="text-text-primary">{title}</strong> behaves once it is live.</p>
+    <p className={builderStepEyebrow}>Step 6 of 6</p>
+    <h1 className={builderStepH1}>Go live</h1>
+    <p className={builderStepSubtitle}>How <strong className="text-text-primary">{title}</strong> behaves once it is live.</p>
     {/* The three governance words, together, once, with what each means for this use case. */}
     <div className="mt-3 grid gap-2 sm:grid-cols-3">
      {[
@@ -295,8 +296,8 @@ export default function UseCaseActivateScreen() {
     </div>
    )}
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/rehearse")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Back to the simulation</button>
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/rehearse")} className={builderStepBackButton}>Back to the simulation</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!spec.planApprovedAt ? "Approve the workflow first." : "Set an owner first."}</span>}
      <button type="button" disabled={blocked || activating} onClick={activate} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">

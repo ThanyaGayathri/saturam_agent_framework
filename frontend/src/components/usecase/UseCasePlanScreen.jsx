@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import PlanViews from "./PlanViews";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
+import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 4 of 6: the plan.
@@ -34,19 +35,19 @@ export default function UseCasePlanScreen() {
  };
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <div className={builderStepShell}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 4 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">How it will run</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+    <p className={builderStepEyebrow}>Step 4 of 6</p>
+    <h1 className={builderStepH1}>How it will run</h1>
+    <p className={builderStepSubtitle}>
      Every step <strong className="text-text-primary">{title}</strong> takes on each run, and who takes it. Derived from the spec, if a step is wrong, change the spec and this follows.
     </p>
    </div>
 
    <PlanViews spec={spec} />
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className={builderStepBackButton}>
      A step is wrong, back to the specification
     </button>
     <div className="flex items-center gap-3">

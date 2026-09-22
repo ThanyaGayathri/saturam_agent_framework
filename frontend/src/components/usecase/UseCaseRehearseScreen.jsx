@@ -11,6 +11,7 @@ import PlatformRunPanel from "./PlatformRunPanel";
 import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
+import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 5 of 6: rehearse.
@@ -140,13 +141,13 @@ export default function UseCaseRehearseScreen() {
  const title = spec.title?.trim() || spec.goal?.trim() || "Untitled use case";
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <div className={builderStepShell}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 5 of 6</p>
-    <h1 className="flex items-center gap-2 text-2xl font-bold text-text-primary">
+    <p className={builderStepEyebrow}>Step 5 of 6</p>
+    <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+    <p className={builderStepSubtitle}>
      <strong className="text-text-primary">{title}</strong>, run {doc ? "over the sample set" : "against the last 90 days"} with every side effect switched off. This is what it
      <strong className="text-text-primary"> would have</strong> done.
     </p>
@@ -302,8 +303,8 @@ export default function UseCaseRehearseScreen() {
     </span>
    </section>
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className={builderStepBackButton}>
      That's not right: back to the plan
     </button>
     <button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">

@@ -14,6 +14,7 @@ import { syncUseCaseToPlatform } from "../../services/use-case-platform";
 import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
+import { builderStepBackButton, builderStepEyebrow, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
 
 /**
  * Step 3 of 6: preflight.
@@ -281,11 +282,11 @@ export default function UseCasePreflightScreen() {
  const blocked = !done || fails.length > 0 || unacked.length > 0;
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <div className={builderStepShell}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 3 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">Readiness check</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+    <p className={builderStepEyebrow}>Step 3 of 6</p>
+    <h1 className={builderStepH1}>Readiness check</h1>
+    <p className={builderStepSubtitle}>
      Checked before this goes any further. <strong className="text-text-primary">{displayName(spec)}</strong> · level {level.level} - {checks.length} checks apply. Failures must be fixed; warnings must be acknowledged.
     </p>
    </div>
@@ -352,8 +353,8 @@ export default function UseCasePreflightScreen() {
     })}
    </div>
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Back to the specification</button>
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className={builderStepBackButton}>Back to the specification</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!done ? "checking…" : fails.length > 0 ? `${fails.length} to fix` : `${unacked.length} to acknowledge`}</span>}
      <button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
