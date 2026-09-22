@@ -4,7 +4,7 @@
 // shares. The "New database Connection" slide-over that used to live here went with them: it
 // was a form whose Confirm button only closed it, so "Add New Database" now opens the real
 // Configure form instead of a look-alike.
-import { Paperclip } from "lucide-react";
+import { Paperclip, Square } from "lucide-react";
 import { MicButton } from "./MicButton";
 import { PaperPlaneSendIcon } from "../icons/PaperPlaneSendIcon";
 import ComposerSourceMenus from "./ComposerSourceMenus";
@@ -17,6 +17,9 @@ export default function PlaygroundHubComposerOptions({
   sendButtonTitle = "Send",
   /** "up" when the composer sits at the bottom of the screen, as it does in chat. */
   menuDirection = "down",
+  /** While a reply is in flight the send control becomes a stop control, as in any chat app. */
+  busy = false,
+  onStop,
 }) {
   return (
     <div className={`flex items-center justify-between ${actionsRowClassName}`}>
@@ -46,15 +49,27 @@ export default function PlaygroundHubComposerOptions({
           listening={dictation.listening}
           onToggle={dictation.toggle}
         />
-        <button
-          type="button"
-          onClick={onSend}
-          className="rounded p-1.5 text-text-muted transition hover:bg-surface-secondary hover:text-primary"
-          title={sendButtonTitle}
-          aria-label={sendButtonTitle}
-        >
-          <PaperPlaneSendIcon size={18} />
-        </button>
+        {busy && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="rounded p-1.5 text-primary transition hover:bg-surface-secondary"
+            title="Stop generating"
+            aria-label="Stop generating"
+          >
+            <Square size={16} strokeWidth={2.5} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSend}
+            className="rounded p-1.5 text-text-muted transition hover:bg-surface-secondary hover:text-primary"
+            title={sendButtonTitle}
+            aria-label={sendButtonTitle}
+          >
+            <PaperPlaneSendIcon size={18} />
+          </button>
+        )}
       </div>
     </div>
   );

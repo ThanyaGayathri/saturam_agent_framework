@@ -36,7 +36,7 @@ function panelPosition(direction) {
 function ScrollFadeList({ children }) {
   return (
     <div className="relative">
-      <div className="max-h-[320px] space-y-0.5 overflow-y-auto pr-0.5">{children}</div>
+      <div className="max-h-[264px] space-y-0.5 overflow-y-auto pr-0.5">{children}</div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[var(--app-surface-default)] to-transparent" />
     </div>
   );
@@ -47,12 +47,12 @@ function MenuFooterLink({ label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-lg px-2 py-2.5 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
+      className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-semibold text-text-primary transition hover:bg-surface-secondary"
     >
       {/* The icon sits in a tile the same width as a row's logo, so the label starts on the
           same vertical line as the source names above it. */}
       <span className="flex min-w-0 items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center">
           <Plus size={16} className="text-text-muted" />
         </span>
         <span className="truncate">{label}</span>
@@ -148,7 +148,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
 
         {open === "db" && (
           <div
-            className={`absolute left-0 z-50 w-[320px] rounded-xl border border-border bg-surface p-3 shadow-xl ${panelPosition(direction)}`}
+            className={`absolute left-0 z-50 w-[320px] rounded-xl border border-border bg-surface p-2 shadow-xl ${panelPosition(direction)}`}
             role="menu"
           >
             <div className="mb-2 flex items-baseline justify-between px-1">
@@ -172,7 +172,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
                     // like a Connectors row.
                     <div
                       key={db.id}
-                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 transition hover:bg-surface-secondary ${
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition hover:bg-surface-secondary ${
                         failed ? "opacity-70" : ""
                       }`}
                     >
@@ -207,14 +207,14 @@ export default function ComposerSourceMenus({ direction = "down" }) {
                 {unconfiguredRows.length ? (
                   <>
                     {databases.length ? (
-                      <p className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                      <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
                         Not connected yet
                       </p>
                     ) : null}
                     {unconfiguredRows.map(({ source: db, label }) => (
                       <div
                         key={db.id}
-                        className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 transition hover:bg-surface-secondary"
+                        className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition hover:bg-surface-secondary"
                       >
                         <span className="flex min-w-0 items-center gap-3">
                           <SourceLogoTile sourceType={db.sourceType} name={label} />
@@ -237,7 +237,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
               </ScrollFadeList>
             )}
 
-            <div className="my-2 h-px bg-border" />
+            <div className="my-1.5 h-px bg-border" />
             <MenuFooterLink
               label="Add New Database"
               onClick={() => {
@@ -270,7 +270,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
 
         {open === "connectors" && (
           <div
-            className={`absolute left-0 z-50 w-[320px] rounded-xl border border-border bg-surface p-3 shadow-xl ${panelPosition(direction)}`}
+            className={`absolute left-0 z-50 w-[320px] rounded-xl border border-border bg-surface p-2 shadow-xl ${panelPosition(direction)}`}
             role="menu"
           >
             <div className="mb-2 flex items-baseline justify-between px-1">
@@ -285,7 +285,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
                 return (
                   <div
                     key={c.id}
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 transition hover:bg-surface-secondary"
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition hover:bg-surface-secondary"
                   >
                     <span className="flex min-w-0 items-center gap-3">
                       <SourceLogoTile src={c.img} name={c.name} />
@@ -305,7 +305,7 @@ export default function ComposerSourceMenus({ direction = "down" }) {
                 );
               })}
             </ScrollFadeList>
-            <div className="my-2 h-px bg-border" />
+            <div className="my-1.5 h-px bg-border" />
             <MenuFooterLink
               label="Manage Connectors"
               onClick={() => {
