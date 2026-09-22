@@ -11,8 +11,8 @@ import PlatformRunPanel from "./PlatformRunPanel";
 import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
-import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
-import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
+import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
 
 /**
  * Step 5 of 6: rehearse.
@@ -142,9 +142,8 @@ export default function UseCaseRehearseScreen() {
  const title = spec.title?.trim() || spec.goal?.trim() || "Untitled use case";
 
  return (
-  <div className={builderStepShell}>
+  <UseCaseBuilderStepFrame current={5}>
    <div>
-    <div className="mb-4"><UseCaseBuilderStepper current={5} /></div>
     <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
@@ -312,6 +311,6 @@ export default function UseCaseRehearseScreen() {
      Looks right: continue <ArrowRight size={15} />
     </button>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }

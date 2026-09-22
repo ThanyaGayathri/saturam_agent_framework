@@ -14,8 +14,8 @@ import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { activateOnPlatform } from "../../services/use-case-platform";
 import PlatformRunPanel, { explain } from "./PlatformRunPanel";
-import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
-import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
+import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
 
 /**
  * Step 6 of 6: activation.
@@ -117,9 +117,8 @@ export default function UseCaseActivateScreen() {
  if (done) {
   const first = SCHEDULES.find((x) => x.value === spec.schedule)?.label || "on schedule";
   return (
-   <div className={builderStepShell}>
+   <UseCaseBuilderStepFrame current={6}>
     <div>
-     <div className="mb-4"><UseCaseBuilderStepper current={6} /></div>
      <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-status-success-light text-status-success"><Check size={18} /></span>
       {done.status === "active" ? `Active in ${done.environment}` : `Submitted to ${done.to}`}
@@ -155,14 +154,13 @@ export default function UseCaseActivateScreen() {
      <button type="button" onClick={() => set("activation", null)} className={builderStepBackButton}>Undo</button>
      <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">Go to use cases</button>
     </div>
-   </div>
+   </UseCaseBuilderStepFrame>
   );
  }
 
  return (
-  <div className={builderStepShell}>
+  <UseCaseBuilderStepFrame current={6}>
    <div>
-    <div className="mb-4"><UseCaseBuilderStepper current={6} /></div>
     <h1 className={builderStepH1}>Go live</h1>
     <p className={builderStepSubtitle}>How <strong className="text-text-primary">{title}</strong> behaves once it is live.</p>
     {/* The three governance words, together, once, with what each means for this use case. */}
@@ -306,6 +304,6 @@ export default function UseCaseActivateScreen() {
      </button>
     </div>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }

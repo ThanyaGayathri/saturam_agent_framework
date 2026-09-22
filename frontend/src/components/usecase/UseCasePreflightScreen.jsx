@@ -14,8 +14,8 @@ import { syncUseCaseToPlatform } from "../../services/use-case-platform";
 import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
-import { builderGroupLabel, builderStepBackButton, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
-import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
+import { builderGroupLabel, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
 
 /**
  * Step 3 of 6: preflight.
@@ -283,9 +283,8 @@ export default function UseCasePreflightScreen() {
  const blocked = !done || fails.length > 0 || unacked.length > 0;
 
  return (
-  <div className={builderStepShell}>
+  <UseCaseBuilderStepFrame current={3}>
    <div>
-    <div className="mb-4"><UseCaseBuilderStepper current={3} /></div>
     <h1 className={builderStepH1}>Readiness check</h1>
     <p className={builderStepSubtitle}>
      Checked before this goes any further. <strong className="text-text-primary">{displayName(spec)}</strong> · level {level.level} - {checks.length} checks apply. Failures must be fixed; warnings must be acknowledged.
@@ -363,6 +362,6 @@ export default function UseCasePreflightScreen() {
      </button>
     </div>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }

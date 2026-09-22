@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import PlanViews from "./PlanViews";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
-import { builderStepBackButton, builderStepFooter, builderStepH1, builderStepShell, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
-import UseCaseBuilderStepper from "../shared/UseCaseBuilderStepper";
+import { builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
 
 /**
  * Step 4 of 6: the plan.
@@ -36,9 +36,8 @@ export default function UseCasePlanScreen() {
  };
 
  return (
-  <div className={builderStepShell}>
+  <UseCaseBuilderStepFrame current={4}>
    <div>
-    <div className="mb-4"><UseCaseBuilderStepper current={4} /></div>
     <h1 className={builderStepH1}>How it will run</h1>
     <p className={builderStepSubtitle}>
      Every step <strong className="text-text-primary">{title}</strong> takes on each run, and who takes it. Derived from the spec, if a step is wrong, change the spec and this follows.
@@ -58,6 +57,6 @@ export default function UseCasePlanScreen() {
      </button>
     </div>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }
