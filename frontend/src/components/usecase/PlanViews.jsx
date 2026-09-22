@@ -4,6 +4,7 @@ import { planFor } from "../../domain/use-case-plan";
 import PlanPipeline from "./PlanPipeline";
 import PlanOrchestration from "./PlanOrchestration";
 import { displayName } from "../../domain/use-case-autonomy";
+import Tabs from "../ui/Tabs";
 
 /**
  * The plan as a person reads it: who made it, who runs each step, and the two views of the
@@ -41,6 +42,10 @@ export default function PlanViews({ spec, generatedNote = true }) {
     </div>
    )}
 
+   {/* The run-time counts and the sentence qualifying them are one thought, so they sit in
+       one panel. Loose on the page they read as two orphan lines between the card above and
+       the tabs below, belonging to neither. */}
+   <div className="space-y-2 rounded-xl border border-border bg-surface-secondary/60 px-3.5 py-3">
    <div className="flex flex-wrap items-center gap-2 text-xs">
     <span className="text-text-muted">At run time:</span>
     {["system", "model", "person"].map((w) => (
@@ -58,17 +63,13 @@ export default function PlanViews({ spec, generatedNote = true }) {
      }[plan.shape.id]}
     </span>
    </div>
-   <p className="text-xs text-text-muted">
+   <p className="text-xs leading-relaxed text-text-muted">
     {spec.template === "document_to_record" ? `Runs once per document found; ${plan.stages.filter((s) => s.guardsWrite).length} steps that a change may not run without.` : `${plan.stages.filter((s) => s.satisfiedBy).length} of the ${plan.stages.length} steps already covered by the nightly KPI computation, ${plan.stages.filter((s) => s.guardsWrite).length} that a change may not run without.`} Every decision point is an automated step; an AI step, where there is one, explains or recommends and never decides.
    </p>
-
-   <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-    {["flow", "orchestration"].map((v) => (
-     <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>
-      {v === "flow" ? "Pipeline" : "Orchestration"}
-     </button>
-    ))}
    </div>
+
+   {/* The app's own tab control, not a pill toggle invented here. */}
+   <Tabs size="sm" activeTab={view} onChange={setView} tabs={[{ value: "flow", label: "Pipeline" }, { value: "orchestration", label: "Orchestration" }]} />
 
    {view === "flow" && <PlanPipeline steps={plan.steps} />}
    {view === "orchestration" && <PlanOrchestration steps={plan.steps} exceptionsTo={spec.exceptionsTo || spec.notify} />}

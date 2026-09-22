@@ -11,6 +11,9 @@ import PlatformRunPanel from "./PlatformRunPanel";
 import { isAnalyticsInform } from "../../domain/use-case-analytics";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
+import { builderCardHeading, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 5 of 6: rehearse.
@@ -63,7 +66,7 @@ function proposalFor(writeback, i, s) {
 function Section({ title, children }) {
  return (
   <section className="rounded-xl border border-border bg-surface p-4">
-   <h2 className="text-sm font-bold text-text-primary">{title}</h2>
+   <h2 className={builderCardHeading}>{title}</h2>
    <div className="mt-2">{children}</div>
   </section>
  );
@@ -140,13 +143,12 @@ export default function UseCaseRehearseScreen() {
  const title = spec.title?.trim() || spec.goal?.trim() || "Untitled use case";
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <UseCaseBuilderStepFrame current={5}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 5 of 6</p>
-    <h1 className="flex items-center gap-2 text-2xl font-bold text-text-primary">
+    <h1 className={`flex items-center gap-2 ${builderStepH1}`}>
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+    <p className={builderStepSubtitle}>
      <strong className="text-text-primary">{title}</strong>, run {doc ? "over the sample set" : "against the last 90 days"} with every side effect switched off. This is what it
      <strong className="text-text-primary"> would have</strong> done.
     </p>
@@ -302,14 +304,14 @@ export default function UseCaseRehearseScreen() {
     </span>
    </section>
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/plan")} className={builderStepBackButton}>
      That's not right: back to the plan
     </button>
-    <button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
+    <Button type="button" onClick={() => navigate("/use-cases/builder/activate")} className="gap-1.5">
      Looks right: continue <ArrowRight size={15} />
-    </button>
+    </Button>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }

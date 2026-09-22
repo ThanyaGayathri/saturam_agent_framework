@@ -316,3 +316,6 @@ EGPT-specific checks to always verify:
 - No agent creation inside loops (agents should be reused)
 - CLAUDE.md coding patterns are followed
 - No f-strings for print lines where there are no variables
+
+## UI/UX polish rules
+For all UI/UX work, follow @.claude/UI-POLISH-RULES.md

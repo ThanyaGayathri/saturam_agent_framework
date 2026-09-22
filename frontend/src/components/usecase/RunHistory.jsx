@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Clock, ExternalLink, FlaskConical, Play, Ref
 import { RunResultView } from "./PlatformRunPanel";
 import { money, runStats } from "../../domain/use-case-platform";
 import { relativeTimeFromNow as _rel } from "../../domain/alerts-view";
+import EmptyState from "../ui/EmptyState";
 
 const rel = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
 const STATUS = { succeeded: "bg-status-success-light text-status-success", failed: "bg-status-critical-light text-status-critical", blocked: "bg-status-warning-light text-status-warning", running: "bg-status-info-light text-status-info", queued: "bg-surface-secondary text-text-secondary", cancelled: "bg-surface-secondary text-text-muted" };
@@ -107,7 +108,7 @@ export default function RunHistory({ runs, onRefresh, refreshing = false, refres
     })}
    </ul>
    {idleCount > 0 && <button type="button" onClick={() => setShowIdle((v) => !v)} className="mt-2 text-xs font-semibold text-text-muted hover:text-primary">{showIdle ? "Hide" : "Show"} {idleCount} quiet poll{idleCount === 1 ? "" : "s"} that found nothing new</button>}
-   {runs.length === 0 && <p className="mt-2 text-sm text-text-muted">No runs yet.</p>}
+   {runs.length === 0 && <EmptyState icon={<Clock size={20} aria-hidden className="text-text-muted" />} title="No runs yet." />}
   </section>
  );
 }

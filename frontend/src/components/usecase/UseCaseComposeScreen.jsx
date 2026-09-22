@@ -1,8 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
- AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, FileText, Gauge, HelpCircle, Info, Lock,
- MessageSquare, Plus, Save, Send, Sparkles, Upload, Wand2, Workflow, X,
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  FileText,
+  Gauge,
+  HelpCircle,
+  Info,
+  ListChecks,
+  Lock,
+  MessageSquare,
+  Plus,
+  Save,
+  Send,
+  Sparkles,
+  Upload,
+  Wand2,
+  Workflow,
+  X,
 } from "lucide-react";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useUseCaseCatalog } from "../../hooks/useUseCaseCatalog";
@@ -34,6 +56,10 @@ import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings"
 import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
+import { builderGroupLabel, builderStepBackButton, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
+import Badge from "../ui/Badge";
 
 /** Any edit to the spec invalidates an approved plan: the plan is derived from the spec, so an
  *  approval of the old one says nothing about the new one. */
@@ -81,9 +107,44 @@ const ORIGIN_LABEL = {
  proposed: { text: "proposed", cls: "text-text-muted" },
 };
 
-const input = "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none";
-const select = "rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:border-primary focus:outline-none";
+const input = "w-full rounded-lg border border-border-light bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none transition focus:border-primary focus:ring-1 focus:ring-primary";
+const select = "rounded-lg border border-border-light bg-surface px-3 py-2 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-1 focus:ring-primary";
 const chip = (on) => `rounded-full border px-2.5 py-1 text-xs font-semibold ${on ? "border-primary bg-primary text-white" : "border-border-light bg-surface text-text-secondary hover:border-primary hover:text-primary"}`;
+
+/**
+ * Which part of the form a field belongs to.
+ *
+ * The form was a flat stack of up to a dozen identical boxes, so nothing told you that four of
+ * them describe the data and two describe who hears about it. The shapes' field orders are
+ * already grouped this way -- `inform` runs metrics, dimensions, comparison, then recipient and
+ * schedule -- so this only names what the order already does. A label is emitted when the group
+ * changes, never inserted out of order, and a field with no group listed here still renders in
+ * place, under whichever label came last.
+ */
+const FIELD_GROUP = {
+ candidates: 0, metrics: 0, metric: 0, dimensions: 0, comparison: 0, churnWindow: 0,
+ sensitivity: 0, evidenceColumns: 0, objective: 0, mailbox: 0, pollInterval: 0,
+ messageFilter: 0, documentType: 0, extractionTemplate: 0, exampleDocument: 0,
+ masterData: 0, matchThresholds: 0,
+
+ outcome: 1, outputs: 1, mode: 1, operator: 1, threshold: 1, scope: 1, severity: 1,
+ guardrails: 1, recordGuardrails: 1, approver: 1, writeTarget: 1, timeoutBehaviour: 1,
+ perRunCap: 1, rollback: 1, targetObjects: 1, createdAs: 1,
+ // Both belong to the document flow's handling of a message it could not complete, and both
+ // sit inside its limits run in the form's order. Calling them delivery would split that
+ // section in two and print its label twice.
+ exceptionsTo: 1, acknowledge: 1,
+
+ recipient: 2, schedule: 2, owner: 2,
+};
+
+const FIELD_GROUP_LABEL = ["What it looks at", "What it does, and its limits", "Who sees it, and when"];
+
+/** One icon per section: what it reads, what it is allowed to do, who hears about it. */
+const FIELD_GROUP_ICON = [Database, ListChecks, Send];
+
+/** Sections earn their space on a form long enough to have them; a short one stays a list. */
+const GROUPING_THRESHOLD = 4;
 
 /** The registry KPIs that give the at-risk kind its context (K26), offered in this order. */
 const AT_RISK_KPI_IDS = ["rfq__stalled_quotes", "rfq__stalled_pipeline_value", "rfq__quote_conversion_within_usual", "rfq__customer_churn_rate_60d", "rfq__at_risk_accounts", "rfq__rfm_segments", "rfq__stalled_quotes_by_territory", "rfq__at_risk_accounts_by_segment", "rfq__sales_cycle_length_by_category"];
@@ -92,14 +153,18 @@ function Field({ name, children, gap, origin, hint, suggestion, onAsk, onUse, te
  const meta = fieldMetaFor(name, { template });
  const o = origin && ORIGIN_LABEL[origin];
  const pref = suggestion?.options?.find((x) => x.label === suggestion.preferred);
+ // An unfilled field is marked by its border and its "needed" label, not by a filled panel:
+ // five amber blocks down the page read as five errors rather than as work still to do.
  return (
-  <div className={`rounded-lg border px-3 py-2.5 ${gap ? "border-status-warning-border bg-status-warning-light/30" : "border-border bg-surface"}`}>
+  <div className={`rounded-xl border bg-surface px-3.5 py-3 transition ${gap ? "border-status-warning-border" : "border-border"}`}>
    <div className="flex items-center justify-between gap-2">
-    <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
+    <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted" title={hint || meta.hint}>
      {meta.label}
      {PROPOSED_CONTRACT_FIELDS.has(name) && <span title="Not in the API contract yet (open item R-15)." className="rounded bg-surface-secondary px-1 py-px text-[9px] normal-case tracking-normal text-text-muted">proposed</span>}
     </span>
-    {gap ? <span className="text-[11px] font-semibold text-status-warning">needed</span> : o ? <span className={`text-[11px] ${o.cls}`}>{o.text}</span> : null}
+    {gap
+     ? <Badge variant="warning" className="shrink-0 font-semibold"><AlertCircle size={11} aria-hidden />needed</Badge>
+     : o ? <Badge className={`shrink-0 ${o.cls}`}>{o.text}</Badge> : null}
    </div>
    <div className="mt-1.5">{children}</div>
    {/* The platform's suggestion sits on the field itself, so a person with clarity clicks once
@@ -158,41 +223,57 @@ function Reply({ parts }) {
 /** Step 1: the kind of use case. Analytics Automation asks its trigger in place. */
 function CategoryPicker({ onChoose }) {
  return (
-  <div className="mx-auto w-full max-w-5xl space-y-5 px-6 py-6">
+  <UseCaseBuilderStepFrame current={1}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 1 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">What kind of use case is this?</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">The kind decides the form you fill, the workflow that is generated, the readiness checks, and who may switch it on.</p>
+    <h1 className={builderStepH1}>What kind of use case is this?</h1>
+    <p className={builderStepSubtitle}>The kind decides the form you fill, the workflow that is generated, the readiness checks, and who may switch it on.</p>
    </div>
-   <div className="grid gap-3 md:grid-cols-2">
+   <div className="grid gap-4 md:grid-cols-2">
     {CATEGORY_LIST.map((c) => {
      const Icon = CATEGORY_ICON[c.id];
      const fields = [...new Set(c.shapes.flatMap((sh) => fieldsFor({ shape: sh, category: c.id })))];
      return (
-      <div key={c.id} className="flex flex-col rounded-2xl border border-border bg-surface p-4 text-left hover:border-primary">
-       <button type="button" onClick={() => onChoose(c.id, c.shapes[0])} className="text-left">
-        <div className="flex items-center gap-2">
-         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light text-primary"><Icon size={16} /></span>
-         <span className="text-base font-bold text-text-primary">{c.label}</span>
-         <span className="text-sm text-text-secondary">· {c.plain}</span>
+      <div key={c.id} className="group flex flex-col rounded-2xl border border-border bg-surface p-5 text-left transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/40">
+       {/* The button fills the card so the whole body is a target, and so "Choose" lands on
+           the same line in every card of a row however long the blurb runs. */}
+       <button type="button" onClick={() => onChoose(c.id, c.shapes[0])} className="flex flex-1 flex-col text-left focus-visible:outline-none">
+        <div className="flex-1">
+        <div className="flex items-start gap-2.5">
+         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary"><Icon size={16} /></span>
+         {/* Name and plain-language gloss wrap as whole phrases, never mid-name. */}
+         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-base font-bold leading-snug text-text-primary">{c.label}</span>
+          <span className="text-sm leading-snug text-text-secondary">· {c.plain}</span>
+         </span>
         </div>
-        <p className="mt-2 text-sm text-text-secondary">{c.blurb}</p>
-        <p className="mt-2 text-xs text-text-secondary">
+        <p className="mt-3 text-sm leading-relaxed text-text-secondary">{c.blurb}</p>
+        <p className="mt-2.5 text-xs leading-relaxed text-text-secondary">
          <span className="font-semibold text-text-primary">For example</span> · {c.examples.map((e) => e.title).join(" · ")}
         </p>
-        <div className="mt-3 flex flex-wrap gap-1">
+        <div className="mt-3 flex flex-wrap gap-1.5">
          {c.templates
-          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
-          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
+          ? c.templates.map((t) => <Badge key={t.id}>{t.label}</Badge>)
+          : fields.filter((f) => f !== "schedule").map((f) => <Badge key={f}>{FIELD_META[f].label}</Badge>)}
         </div>
-        <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? ", an admin" : ""}.` : ""}</p>
+        </div>
+        {/* What it does to your systems is the consequential line, so it sits below a rule
+            rather than reading as one more grey sentence in the stack. The slack in a card
+            shorter than its neighbour goes above this rule, so the rule stays a fixed
+            distance from Choose in every card of a row. */}
+        <p className="mt-4 border-t border-border-light pt-3 text-xs leading-relaxed text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? ", an admin" : ""}.` : ""}</p>
        </button>
-       <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary">Choose <ArrowRight size={12} /></span>
+       {/* The pill fills whenever the pointer is anywhere on the card, which is what says the
+           whole card is the target rather than these two words. */}
+       <div className="mt-auto pt-4">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-light/60 px-3 py-1 text-xs font-semibold text-primary transition group-hover:border-primary group-hover:bg-primary group-hover:text-white">
+         Choose <ArrowRight size={12} className="transition group-hover:translate-x-0.5" />
+        </span>
+       </div>
       </div>
      );
     })}
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }
 
@@ -560,9 +641,9 @@ export default function UseCaseComposeScreen() {
       <Field key={f} name={f} {...fieldProps(f)}>
        <div className="grid gap-1">
         {spec.metricIds.map((m) => (
-         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
-          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}</span></div>
-          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+         <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
+          <div className="flex min-w-0 flex-wrap items-center gap-y-1"><span className="text-sm font-semibold text-text-primary">{known[m]?.name || m}</span><Badge className="ml-2 font-mono font-normal tracking-tight">{m}</Badge></div>
+          <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="rounded p-1.5 text-text-muted transition hover:bg-status-critical-light hover:text-status-critical"><X size={13} /></button>
          </div>
         ))}
         {offered.length > 0 && (
@@ -585,19 +666,19 @@ export default function UseCaseComposeScreen() {
      const known = Object.fromEntries(platformKpis.map((k) => [k.identifier, k]));
      return (
       <Field key={f} name={f} {...fieldProps(f)}>
-       <div className="grid gap-1">
+       <div className="grid gap-1.5">
         {spec.metricIds.map((m) => {
          const sug = byId[m]; const kpi = known[m];
          return (
-          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-1">
-           <div className="min-w-0">
-            <span className="text-xs font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
-            <span className="ml-1.5 font-mono text-[10px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
+          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
+           <div className="flex min-w-0 flex-wrap items-center gap-y-1">
+            <span className="text-sm font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
+            <Badge className="ml-2 font-mono font-normal tracking-tight">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</Badge>
             {sug?.why && <p className="truncate text-[11px] text-text-muted">chosen because you said: {sug.why}</p>}
            </div>
            <div className="flex items-center gap-1.5">
-            {sug && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${sug.feasibility === "ready" ? "bg-status-success-light text-status-success" : "bg-status-warning-light text-status-warning"}`}>{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</span>}
-            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="text-text-muted hover:text-text-primary"><X size={11} /></button>
+            {sug && <Badge variant={sug.feasibility === "ready" ? "success" : "warning"} className="shrink-0 whitespace-nowrap">{sug.feasibility === "ready" ? "in gold" : "computed on first run"}</Badge>}
+            <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="rounded p-1.5 text-text-muted transition hover:bg-status-critical-light hover:text-status-critical"><X size={13} /></button>
            </div>
           </div>
          );
@@ -977,23 +1058,42 @@ export default function UseCaseComposeScreen() {
 
  const stillNeeded = blocking.length;
 
+ // Walk the fields in the order the shape defines and note where a section starts. The order is
+ // never rearranged: a label is only emitted when the group changes, so every field stays where
+ // the form put it.
+ const shownFields = fields.filter((f) => f !== "schedule");
+ const grouped = shownFields.length >= GROUPING_THRESHOLD;
+ const groupBefore = {};
+ const openedGroups = new Set();
+ if (grouped) {
+  let last = null;
+  for (const f of shownFields) {
+   const g = FIELD_GROUP[f];
+   if (g !== undefined && g !== last) {
+    groupBefore[f] = g;
+    openedGroups.add(g);
+    last = g;
+   }
+  }
+ }
+
  return (
-  <div className={`mx-auto w-full px-6 py-6 ${assistantOpen ? "grid max-w-[1400px] gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" : "max-w-4xl"}`}>
+  <UseCaseBuilderStepFrame current={2} asideOpen={assistantOpen}>
    {/* ── The form ─────────────────────────────────────────────────────── */}
    <section className="space-y-3">
-    <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 pb-2">
      <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 2 of 6</p>
-      <h1 className="text-2xl font-bold text-text-primary">Define it</h1>
+      <h1 className={builderStepH1}>Define it</h1>
       <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-secondary">
-       <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-primary"><CategoryIcon size={12} className="text-primary" /> {displayName(spec)}</span>
-       <button type="button" onClick={changeCategory} className="text-xs font-semibold text-text-muted hover:text-primary">Change</button>
+       <Badge className="gap-1.5 font-semibold"><CategoryIcon size={12} className="text-primary" aria-hidden /> {displayName(spec)}</Badge>
+       <Button type="button" variant="ghost" size="sm" onClick={changeCategory} className="px-1.5 py-0 underline-offset-2 hover:underline">Change</Button>
       </p>
      </div>
      <div className="flex items-center gap-2">
-      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${state === "ready" ? "bg-status-success-light text-status-success" : state === "blocked_on_data" ? "bg-status-critical-light text-status-critical" : "bg-status-warning-light text-status-warning"}`}>
+      <Badge variant={state === "ready" ? "success" : state === "blocked_on_data" ? "critical" : "warning"} className="gap-1.5 font-semibold">
+       {state === "ready" ? <CheckCircle2 size={13} aria-hidden /> : state === "blocked_on_data" ? <AlertTriangle size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
        {state === "ready" ? "Complete" : state === "blocked_on_data" ? "Blocked on data" : `${stillNeeded} still needed`}
-      </span>
+      </Badge>
       {!assistantOpen && (
        <button type="button" onClick={() => openAssistant()} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary-light px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary hover:text-white">
         <MessageSquare size={13} /> Ask the assistant
@@ -1012,7 +1112,7 @@ export default function UseCaseComposeScreen() {
       <div className="space-y-2 px-3.5 pb-3">
        <textarea rows={2} value={oneGoText} onChange={(e) => setOneGoText(e.target.value)} placeholder={example ? `e.g. ${example.prompt}` : "Say what you want, as you would to a colleague."} className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
        <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</button>
+        <Button size="sm" type="button" disabled={!oneGoText.trim() || suggesting} onClick={fillFromDescription} className="disabled:opacity-40">{suggesting ? "Asking what the data supports…" : "Fill the form from this"}</Button>
         {examples.map((ex) => <button key={ex.title} type="button" onClick={() => setOneGoText(ex.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {ex.title} example</button>)}
         <span className="text-[11px] text-text-muted">Whatever it recognises is filled in; the rest stays for you or the assistant.</span>
        </div>
@@ -1030,15 +1130,15 @@ export default function UseCaseComposeScreen() {
      )}
     </div>
 
-    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface p-3">
-     <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
+    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface-secondary/60 p-3.5">
+     <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
      <p className="mt-1 text-sm text-text-primary">{describeShape(spec)}</p>
      {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? ", an admin, since nobody approves each change" : ""}.</p>}
     </div>}
 
-    <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
      <Field name="goal" gap={gapFor("goal")} origin={originOf("goal")} hint="What this exists to do, in your words. Free text; it drives nothing." onAsk={() => openAssistant("goal")}>
-      <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} resize-none`} />
+      <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} min-h-[5.25rem] resize-y`} />
      </Field>
      <Field name="title" origin={spec.origin?.title === ORIGIN.authored ? ORIGIN.authored : spec.title ? "proposed" : null} hint="How it appears in the catalogue. Proposed from the KPIs; overwrite it any time.">
       <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is enough to name it" className={input} />
@@ -1062,7 +1162,7 @@ export default function UseCaseComposeScreen() {
      </div>
     )}
     {category.templates && spec.template && (
-     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-secondary/60 px-4 py-2 text-xs">
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your description as</span>
       <span className="font-semibold text-text-primary">{category.templates.find((t) => t.id === spec.template)?.label.toLowerCase()}</span>
@@ -1074,7 +1174,7 @@ export default function UseCaseComposeScreen() {
     {/* The kind is read from the words, never picked (K26): the goal decides whether this
         reports, diagnoses, finds who is at risk, or alerts; change the goal to change it. */}
     {category.trigger && (() => { const t = category.trigger.find((x) => x.shape === spec.shape && (x.template || null) === (spec.template || null)) || category.trigger[0]; return (
-     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-secondary/60 px-4 py-2 text-xs">
       <Sparkles size={12} className="text-primary" />
       <span className="text-text-secondary">Read from your goal as</span>
       <span className="font-semibold text-text-primary">{t.label.replace(/^\w/, (c) => c.toLowerCase())}</span>
@@ -1082,14 +1182,23 @@ export default function UseCaseComposeScreen() {
      </div>
     ); })()}
 
-    {fields.filter((f) => f !== "schedule").map(renderField)}
+    {shownFields.map((f) => (
+     groupBefore[f] !== undefined
+      ? <Fragment key={`grp-${f}`}><p className={`flex items-center gap-1.5 ${builderGroupLabel}`}>{(() => { const GroupIcon = FIELD_GROUP_ICON[groupBefore[f]]; return <GroupIcon size={13} aria-hidden />; })()}{FIELD_GROUP_LABEL[groupBefore[f]]}</p>{renderField(f)}</Fragment>
+      : renderField(f)
+    ))}
 
-    {!(category.templates && !spec.template) && <div className="grid gap-3 sm:grid-cols-2">
-     <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
-      <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
-     </Field>
-     {!fields.includes("pollInterval") && renderField("schedule")}
-    </div>}
+    {/* Owner and the schedule close the "who sees it, and when" group. When no field above
+        opened it -- a shape with no recipient -- the label belongs here instead. */}
+    {!(category.templates && !spec.template) && <>
+     {grouped && !openedGroups.has(2) && <p className={`flex items-center gap-1.5 ${builderGroupLabel}`}><Send size={13} aria-hidden />{FIELD_GROUP_LABEL[2]}</p>}
+     <div className="grid items-start gap-3 sm:grid-cols-2">
+      <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
+       <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
+      </Field>
+      {!fields.includes("pollInterval") && renderField("schedule")}
+     </div>
+    </>}
 
     {dataGaps.map((g) => (
      <div key={g.id} className="flex flex-wrap items-start gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-2.5">
@@ -1104,14 +1213,18 @@ export default function UseCaseComposeScreen() {
      </div>
     ))}
 
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-     <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
+    {/* This form runs well past a screen, so its two actions travel with you rather than
+        waiting at the bottom. Sticky keeps it in flow, so nothing is hidden behind it at the
+        end of the page; it floats as a bar only while there is more form below. Steps 3-6 are
+        short enough to keep the plain footer, which is why this one is written out. */}
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface/95 px-4 py-3 shadow-sm backdrop-blur">
+     <button type="button" onClick={() => navigate("/use-cases/gallery")} className={`inline-flex items-center gap-1.5 ${builderStepBackButton}`}>
       <Save size={14} /> Save as draft
       {dataGaps.length > 0 && <span className="rounded-full bg-status-critical-light px-1.5 py-0.5 text-[10px] font-semibold text-status-critical">blocked on data</span>}
      </button>
-     <button type="button" disabled={blocking.length > 0} onClick={() => navigate("/use-cases/builder/preflight")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+     <Button type="button" disabled={blocking.length > 0} onClick={() => navigate("/use-cases/builder/preflight")} className="gap-1.5 disabled:cursor-not-allowed disabled:opacity-40">
       <Lock size={14} /> Save & validate <ArrowRight size={14} />
-     </button>
+     </Button>
     </div>
    </section>
 
@@ -1151,10 +1264,10 @@ export default function UseCaseComposeScreen() {
      </div>
      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border bg-surface p-3">
       <textarea rows={2} value={draftText} onChange={(e) => setDraftText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Answer, or say it in your words…" className="min-h-[44px] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-      <button type="submit" disabled={!draftText.trim()} className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-40" aria-label="Send"><Send size={16} /></button>
+      <Button size="icon" type="submit" disabled={!draftText.trim()} className="h-10 w-10 disabled:opacity-40" aria-label="Send"><Send size={16} /></Button>
      </form>
     </aside>
    )}
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }
