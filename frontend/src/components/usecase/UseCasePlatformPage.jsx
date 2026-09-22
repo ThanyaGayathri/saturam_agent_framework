@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ExternalLink, Loader2, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import PlatformRunPanel from "./PlatformRunPanel";
 import RunHistory from "./RunHistory";
 import PlanViews from "./PlanViews";
@@ -95,11 +95,16 @@ export default function UseCasePlatformPage() {
   const live = runs.filter((r) => r.mode === "live");
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-5 px-6 py-6">
+    <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
       <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-text-primary"><ArrowLeft size={12} /> User built use cases</button>
-      {error && <p className="rounded-lg border border-status-critical-border bg-status-critical-light px-3 py-2 text-sm text-status-critical">{error}</p>}
-      {!useCase ? <p className="text-sm text-text-muted">Reading the platform…</p> : (
-        <>
+      {error && <p className="flex items-center gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-3 text-sm text-status-critical"><AlertTriangle size={16} aria-hidden className="shrink-0" />{error}</p>}
+      {!useCase ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface py-20">
+          <Loader2 size={22} aria-hidden className="animate-spin text-text-muted" />
+          <p className="text-sm text-text-muted">Reading the platform…</p>
+        </div>
+      ) : (
+        <div className="space-y-5 rounded-2xl border border-border bg-surface px-6 py-8 sm:px-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -145,7 +150,7 @@ export default function UseCasePlatformPage() {
 
           {tab === "runs" && <RunHistory runs={runs} onRefresh={load} refreshing={refreshing} refreshedAt={refreshedAt} createdAs="draft" />}
           {tab === "runs" && <p className="text-xs leading-relaxed text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : (useCase.tags || []).includes("analytics_automation") ? "Each run reads today's gold (and the baseline date's when a comparison is chosen); the report and its numbers are kept on the run." : ""}</p>}
-        </>
+        </div>
       )}
     </div>
   );

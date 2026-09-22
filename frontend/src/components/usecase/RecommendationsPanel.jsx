@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, RefreshCw, X, Undo2 } from "lucide-react";
+import { Check, Inbox, RefreshCw, Search, Undo2, X } from "lucide-react";
 import { listRecommendations, setRecommendationStatus } from "../../services/use-cases-api";
+import EmptyState from "../ui/EmptyState";
 
 /**
  * The hand-off from an at-risk use case to Decision Intelligence (K26): the Recommendation
@@ -57,7 +58,7 @@ export default function RecommendationsPanel({ useCaseId, by = "", compact = fal
      ))}
     </div>
     <div className="flex items-center gap-2">
-     <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account, rep, territory…" aria-label="Find in the list" className="w-[240px] rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none" />
+     <span className="relative inline-block"><Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account, rep, territory…" aria-label="Find in the list" className="w-[260px] rounded-lg border border-border-light bg-surface py-2 pl-9 pr-3 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-primary focus:ring-1 focus:ring-primary" /></span>
      <button type="button" onClick={load} className="inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh</button>
     </div>
    </div>
@@ -70,7 +71,7 @@ export default function RecommendationsPanel({ useCaseId, by = "", compact = fal
    )}
 
    {error && <p className="rounded-lg bg-status-critical-light px-3 py-2 text-xs text-status-critical">{error}</p>}
-   {!loading && !error && items.length === 0 && <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-text-muted">{status === "open" ? "No open recommendations. A live run writes them; a rehearsal holds them." : "Nothing here."}</p>}
+   {!loading && !error && items.length === 0 && <div className="rounded-xl border border-dashed border-border"><EmptyState icon={<Inbox size={20} aria-hidden className="text-text-muted" />} title={status === "open" ? "No open recommendations. A live run writes them; a rehearsal holds them." : "Nothing here."} /></div>}
 
    <div className="grid gap-2">
     {items.slice(0, compact ? 8 : 200).map((r) => {
