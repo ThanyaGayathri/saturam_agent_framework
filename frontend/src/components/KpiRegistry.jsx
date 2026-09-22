@@ -386,7 +386,7 @@ export default function KpiRegistry() {
     return profileBusinessAreas.some((b) => b.id === id) ? id : "";
   }, [location.search, profileBusinessAreas]);
 
-  const [subjectOpen, setSubjectOpen] = useState({});
+  const [activeSubjectByBa, setActiveSubjectByBa] = useState({});
   const [businessGroupOpen, setBusinessGroupOpen] = useState({});
   const [businessAreaId, setBusinessAreaId] = useState(initialAreaFromUrl);
   const [subjectArea, setSubjectArea] = useState("");
@@ -416,15 +416,13 @@ export default function KpiRegistry() {
     ];
   }, [BUSINESS_AREAS, businessAreaId, middlebyKpis]);
 
-  const toggleSubject = (key) => {
-    setSubjectOpen((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
+  const selectSubjectTab = (baKey, subject) => {
+    setActiveSubjectByBa((prev) => ({ ...prev, [baKey]: subject }));
   };
 
   const toggleBusinessGroup = (baKey) => {
     setBusinessGroupOpen((prev) => ({ ...prev, [baKey]: !(prev[baKey] ?? false) }));
   };
-
-  const subjectToggleKey = (baKey, subject) => `${baKey}\0${subject}`;
 
   const toggleKpiActive = (categoryIndex, sectionIndex, kpiIndex) => {
     const kpi = data?.categories?.[categoryIndex]?.sections?.[sectionIndex]?.kpis?.[kpiIndex];
@@ -630,21 +628,19 @@ export default function KpiRegistry() {
     };
   }, [kpiData, businessAreaId, subjectArea, search, processLabelById, profileBusinessAreas, forMyRole, roleKpiNames]);
 
-  // On first load, expand the first business area AND all of its subject areas so
-  // the user immediately sees KPI rows without having to drill into two levels.
+  // On first load, expand the first business area and select its first subject-area
+  // tab so the user immediately sees KPI rows without an extra click.
   useEffect(() => {
     if (!hydrated || defaultsAppliedRef.current) return;
     if (groupedByBusinessArea.length === 0) return;
     const firstBa = groupedByBusinessArea[0];
     setBusinessGroupOpen((prev) => ({ ...prev, [firstBa.id]: prev[firstBa.id] ?? true }));
-    setSubjectOpen((prev) => {
-      const next = { ...prev };
-      firstBa.subjects.forEach((s) => {
-        const key = subjectToggleKey(firstBa.id, s.subject);
-        if (next[key] === undefined) next[key] = true;
-      });
-      return next;
-    });
+    if (firstBa.subjects.length) {
+      setActiveSubjectByBa((prev) => ({
+        ...prev,
+        [firstBa.id]: prev[firstBa.id] ?? firstBa.subjects[0].subject,
+      }));
+    }
     defaultsAppliedRef.current = true;
   }, [hydrated, groupedByBusinessArea]);
 
@@ -773,17 +769,43 @@ export default function KpiRegistry() {
 
                       {baOpen ? (
                         <div className="ml-6 w-full min-w-0 space-y-3 border-l-2 border-primary/25 pl-3.5 dark:border-primary/35 sm:pl-4">
-                          {ba.subjects.map((sec) => {
-                            const stKey = subjectToggleKey(ba.id, sec.subject);
-                            const open = subjectOpen[stKey] ?? false;
+                          {ba.subjects.length > 1 ? (
+                            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={`${ba.label} subject areas`}>
+                              {ba.subjects.map((sec) => {
+                                const isActive = (activeSubjectByBa[ba.id] ?? ba.subjects[0].subject) === sec.subject;
+                                return (
+                                  <button
+                                    key={sec.subject}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={isActive}
+                                    onClick={() => selectSubjectTab(ba.id, sec.subject)}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+                                      isActive
+                                        ? "border-primary/40 bg-primary-light text-primary dark:border-primary/45 dark:bg-surface-tertiary"
+                                        : "border-border bg-surface-default text-text-secondary hover:border-primary/30 hover:text-text-primary"
+                                    }`}
+                                  >
+                                    {sec.subject}
+                                    <span className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-tertiary">
+                                      {sec.rows.length}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                          {(() => {
+                            const activeSubject = activeSubjectByBa[ba.id] ?? ba.subjects[0].subject;
+                            const sec = ba.subjects.find((s) => s.subject === activeSubject) || ba.subjects[0];
                             return (
                               <KpiTable
-                                key={stKey}
+                                key={sec.subject}
                                 title={sec.subject}
                                 countLabel={`${sec.rows.length} KPIs`}
                                 rows={sec.rows}
-                                isOpen={open}
-                                onToggleOpen={() => toggleSubject(stKey)}
+                                isOpen
+                                onToggleOpen={() => {}}
                                 onToggleKpi={toggleKpiActive}
                                 onEditKpi={editKpi}
                                 onDeleteKpi={deleteKpi}
@@ -793,7 +815,7 @@ export default function KpiRegistry() {
                                 hideMapsTo={middlebyKpis}
                               />
                             );
-                          })}
+                          })()}
                         </div>
                       ) : null}
                     </div>

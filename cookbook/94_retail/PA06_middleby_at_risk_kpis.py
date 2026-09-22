@@ -167,6 +167,23 @@ AT_RISK_KPIS: List[Dict[str, Any]] = [
     },
 ]
 
+#: (business_area, subject_area) per KPI -- the declared hierarchy the KPI screen's picker
+#: shows, replacing the "sales"/"Sales Pipeline" catch-all every identifier used to share.
+SUBJECT_AREA_BY_ID: Dict[str, tuple] = {
+    "rfq__sales_cycle_length_by_category": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__stalled_quotes": ("sales", "Pipeline Health"),
+    "rfq__stalled_quotes_by_territory": ("sales", "Pipeline Health"),
+    "rfq__stalled_pipeline_value": ("sales", "Pipeline Health"),
+    "rfq__quote_conversion_within_usual": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__customer_churn_rate_60d": ("customer", "Account Health & Retention"),
+    "rfq__at_risk_accounts": ("customer", "Account Health & Retention"),
+    "rfq__at_risk_accounts_by_segment": ("customer", "Account Health & Retention"),
+    "rfq__rfm_segments": ("customer", "Account Health & Retention"),
+    "rfq__avg_account_recency": ("customer", "Account Health & Retention"),
+    "rfq__avg_account_frequency_180d": ("customer", "Account Health & Retention"),
+    "rfq__avg_account_monetary_180d": ("customer", "Account Health & Retention"),
+}
+
 
 def _call(api: str, method: str, path: str, body: Any = None) -> Any:
     data = json.dumps(body).encode() if body is not None else None
@@ -183,12 +200,13 @@ def _call(api: str, method: str, path: str, body: Any = None) -> Any:
 def register(api: str) -> List[str]:
     created: List[str] = []
     for kpi in AT_RISK_KPIS:
+        business_area, subject_area = SUBJECT_AREA_BY_ID[kpi["identifier"]]
         body = {
             "identifier": kpi["identifier"],
             "name": kpi["name"],
             "description": kpi["description"],
-            "business_area": "sales",
-            "subject_area": "Sales Pipeline",
+            "business_area": business_area,
+            "subject_area": subject_area,
             "concept": "Quote",
             "grain": kpi["grain"],
             "result_shape": "scalar",

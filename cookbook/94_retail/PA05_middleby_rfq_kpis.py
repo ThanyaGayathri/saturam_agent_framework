@@ -181,6 +181,27 @@ RFQ_KPIS: List[Dict[str, Any]] = [
     },
 ]
 
+#: (business_area, subject_area) per KPI -- the declared hierarchy the KPI screen's picker
+#: shows, replacing the "sales"/"Sales Pipeline" catch-all every identifier used to share.
+SUBJECT_AREA_BY_ID: Dict[str, tuple] = {
+    "rfq__quotes_generated": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_week": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_brand": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_pim_category": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_territory": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_state": ("sales", "Quote Volume & Mix"),
+    "rfq__quotes_by_customer_segment": ("sales", "Quote Volume & Mix"),
+    "rfq__closed_won_rate": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__closed_won_rate_by_brand": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__lost_reason_breakdown": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__lost_reason_share": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__average_days_to_close": ("sales", "Win/Loss & Cycle Time"),
+    "rfq__open_pipeline_by_stage": ("sales", "Pipeline Health"),
+    "rfq__open_pipeline_value": ("sales", "Pipeline Health"),
+    "rfq__live_chat_buy_inquiries": ("sales", "Digital-to-Quote Funnel"),
+    "rfq__chat_to_quote_rate": ("sales", "Digital-to-Quote Funnel"),
+}
+
 
 def _call(api: str, method: str, path: str, body: Any = None) -> Any:
     data = json.dumps(body).encode() if body is not None else None
@@ -197,12 +218,13 @@ def _call(api: str, method: str, path: str, body: Any = None) -> Any:
 def register(api: str) -> List[str]:
     created: List[str] = []
     for kpi in RFQ_KPIS:
+        business_area, subject_area = SUBJECT_AREA_BY_ID[kpi["identifier"]]
         body = {
             "identifier": kpi["identifier"],
             "name": kpi["name"],
             "description": kpi["description"],
-            "business_area": "sales",
-            "subject_area": "Sales Pipeline",
+            "business_area": business_area,
+            "subject_area": subject_area,
             "concept": kpi.get("concept", "Quote"),
             "grain": kpi["grain"],
             "result_shape": "scalar",
