@@ -237,26 +237,49 @@ function PoweredByCell({ kpiName, profileId, onOpen }) {
  );
 }
 
-/** Dashboards this KPI has a tile on -- `dashboard_names` from `GET /kpis`. Always empty for a
- * suggestion, since it has no registry identifier for a dashboard tile to reference yet. */
-function MapsToCell({ dashboardNames }) {
+/** Dashboards this KPI has a tile on -- `dashboard_names` from `GET /kpis`, every referencing
+ * dashboard regardless of visibility. Always empty for a suggestion, since it has no registry
+ * identifier for a dashboard tile to reference yet.
+ *
+ * `dashboards` (contract 1.16.0) is the narrower, caller-visible subset carrying each
+ * dashboard's id -- a chip whose name matches one opens it (`onOpen`); a name with no match
+ * belongs to a dashboard this caller cannot open (`GET /dashboards/{id}` would 404 it), so it
+ * stays a plain, non-clickable label instead of a dead link. Matched by name, the only thing
+ * the two lists share -- two distinct dashboards with the same name is a real but rare
+ * possibility this cannot tell apart. */
+function MapsToCell({ dashboardNames, dashboards, onOpen }) {
  const names = Array.isArray(dashboardNames) ? dashboardNames : [];
  if (names.length === 0) return <span className="text-[13px] text-text-muted">-</span>;
+ const idByName = new Map((Array.isArray(dashboards) ? dashboards : []).map((d) => [d.name, d.id]));
  const MAX_VISIBLE = 2;
  const visible = names.slice(0, MAX_VISIBLE);
  const extra = names.length - visible.length;
  return (
   <div className="flex min-w-0 flex-wrap items-center gap-1">
-   {visible.map((name) => (
-    <span
-     key={name}
-     className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-primary/25 bg-primary-light/50 px-1.5 py-0.5 text-[12px] font-medium text-primary dark:border-primary/35 dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25"
-     title={name}
-    >
-     <LayoutGrid className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
-     <span className="truncate">{name}</span>
-    </span>
-   ))}
+   {visible.map((name) => {
+    const id = idByName.get(name);
+    return id && onOpen ? (
+     <button
+      key={name}
+      type="button"
+      onClick={(ev) => { ev.stopPropagation(); onOpen(id); }}
+      title={`Open ${name}`}
+      className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-primary/25 bg-primary-light/50 px-1.5 py-0.5 text-[12px] font-medium text-primary transition hover:border-primary hover:bg-primary-light dark:border-primary/35 dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25"
+     >
+      <LayoutGrid className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+      <span className="truncate">{name}</span>
+     </button>
+    ) : (
+     <span
+      key={name}
+      className="inline-flex max-w-full min-w-0 items-center gap-1 truncate rounded-md border border-primary/25 bg-primary-light/50 px-1.5 py-0.5 text-[12px] font-medium text-primary dark:border-primary/35 dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25"
+      title={name}
+     >
+      <LayoutGrid className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+      <span className="truncate">{name}</span>
+     </span>
+    );
+   })}
    {extra > 0 ? (
     <span
      className="inline-flex items-center rounded-md border border-border bg-surface-secondary px-1.5 py-0.5 text-[12px] font-medium text-text-secondary"
@@ -293,6 +316,7 @@ function KpiTable({
  togglingActiveIds,
  profileId,
  onOpenUseCase,
+ onOpenDashboard,
 }) {
  // Which row's "remove from my metrics" is armed, by row key -- local to this Subject Area's
  // own table, the same scope `KpiDetailPanel.jsx`'s own `confirmingRemove` uses for the panel.
@@ -518,7 +542,7 @@ function KpiTable({
            </span>
           </td>
           <td className="min-w-0 align-middle px-3 py-3 text-[13px]">
-           <MapsToCell dashboardNames={r.kpi.dashboardNames} />
+           <MapsToCell dashboardNames={r.kpi.dashboardNames} dashboards={r.kpi.dashboards} onOpen={onOpenDashboard} />
           </td>
           <td className="min-w-0 align-middle px-3 py-3 text-[13px]">
            <PoweredByCell kpiName={r.kpi.name} profileId={profileId} onOpen={onOpenUseCase} />
@@ -721,6 +745,7 @@ export default function KpiDiscovery({
  togglingActiveIds,
  profileId,
  onOpenUseCase,
+ onOpenDashboard,
 }) {
  const [selected, setSelected] = useState(() => new Set());
  const [search, setSearch] = useState("");
@@ -1033,6 +1058,7 @@ export default function KpiDiscovery({
           togglingActiveIds={togglingActiveIds}
           profileId={profileId}
           onOpenUseCase={onOpenUseCase}
+          onOpenDashboard={onOpenDashboard}
          />
         );
        })}

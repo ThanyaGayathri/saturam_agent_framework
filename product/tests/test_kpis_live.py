@@ -630,8 +630,91 @@ def test_get_kpi_wire_response_includes_dashboard_names(
             get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
         )
         assert wire.dashboard_names == ["livetest_kpi__wire_dashboard"]
+        # Owned by "local", the caller `_FakeRequest(authorization_enabled=False)` resolves
+        # to -- visible, so it is also in the narrower, id-carrying `dashboards` field.
+        assert [d.name for d in wire.dashboards] == ["livetest_kpi__wire_dashboard"]
+        assert wire.dashboards[0].id == dashboard.id
     finally:
         dashboard_store.delete(dashboard.id, "local")
+
+
+# ---------------------------------------------------------------------------
+# `DashboardStore.map_referencing_visible` / `KpiRegistryStore.dashboards_by_kpi` -- the
+# caller-scoped counterpart to `map_referencing`/`dashboard_names_by_kpi` above, behind
+# `GET /kpis`'s `dashboards` field: the "Maps to" chips only link to what the caller could
+# actually open, per contract 1.16.0.
+# ---------------------------------------------------------------------------
+
+
+def test_dashboards_by_kpi_excludes_a_dashboard_the_caller_cannot_see(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    shared = "livetest_kpi__visible_and_hidden"
+    store.save(_definition(identifier=shared))
+
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    created = []
+    try:
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__mine",
+                owner="local",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_mine",
+                        kpi_identifier=shared,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="x",
+                    )
+                ],
+            )
+        )
+        created.append(
+            dashboard_store.create(
+                name="livetest_kpi__someone_elses",
+                owner="someone_else",
+                visibility=Visibility.PRIVATE,
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_theirs",
+                        kpi_identifier=shared,
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="y",
+                    )
+                ],
+            )
+        )
+
+        # Unfiltered: both dashboards reference the KPI, regardless of visibility.
+        names = store.dashboard_names_by_kpi([shared])[shared]
+        assert set(names) == {
+            "livetest_kpi__mine",
+            "livetest_kpi__someone_elses",
+        }
+
+        # Scoped to "local": only the one "local" owns.
+        mine_id = next(d.id for d in created if d.name == "livetest_kpi__mine")
+        visible = store.dashboards_by_kpi([shared], "local")[shared]
+        assert visible == ((mine_id, "livetest_kpi__mine"),)
+
+        # Async variant agrees.
+        async_visible = asyncio.run(store.adashboards_by_kpi([shared], "local"))
+        assert async_visible[shared] == ((mine_id, "livetest_kpi__mine"),)
+    finally:
+        for dashboard in created:
+            dashboard_store.delete(dashboard.id, dashboard.owner)
 
 
 # ---------------------------------------------------------------------------

@@ -127,8 +127,8 @@ from egpt_retail.kpi.series import DEFAULT_SERIES_DAYS, read_kpi_series
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
 from egpt_retail.suggestions.context import normalise_request
-from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
 from egpt_retail.suggestions.dismissals import SuggestionDismissalStore
+from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
 from egpt_retail.suggestions.runs import (
     CurrentRuns,
     SuggestionRunPhase,
@@ -372,6 +372,7 @@ def _kpi_out(
     *,
     include_sql: bool,
     dashboard_names: Sequence[str] = (),
+    dashboards: Sequence[Tuple[str, str]] = (),
     load_status: Sequence[Mapping[str, Any]] = (),
     semantic_details: Sequence[Mapping[str, Any]] = (),
 ) -> wire.Kpi:
@@ -427,6 +428,9 @@ def _kpi_out(
         dataset_ids=list(kpi.dataset_ids) or None,
         process_ids=list(kpi.process_ids) or None,
         dashboard_names=list(dashboard_names),
+        dashboards=[
+            wire.DashboardRef(id=d_id, name=d_name) for d_id, d_name in dashboards
+        ],
         source_table_status=[
             wire.SourceTableStatus.model_validate(row)
             for row in _merged_source_table_status(
@@ -664,11 +668,15 @@ def _respond_with_kpi(
     dashboard_names = store.dashboard_names_by_kpi([definition.identifier]).get(
         definition.identifier, ()
     )
+    dashboards = store.dashboards_by_kpi(
+        [definition.identifier], _caller_id(request)
+    ).get(definition.identifier, ())
     return _kpi_out(
         definition,
         _feasibility_out(feasibility, snapshot_version),
         include_sql=_may_read_sql(request),
         dashboard_names=dashboard_names,
+        dashboards=dashboards,
         load_status=load_status,
         semantic_details=semantic_details,
     )
@@ -697,6 +705,9 @@ def list_kpis(
     dashboard_names_map = store.dashboard_names_by_kpi(
         [d.identifier for d in definitions]
     )
+    dashboards_map = store.dashboards_by_kpi(
+        [d.identifier for d in definitions], _caller_id(request)
+    )
     include_sql = _may_read_sql(request)
     kpis = []
     for definition in definitions:
@@ -715,6 +726,7 @@ def list_kpis(
                 _feasibility_out(verdict, snapshot_version),
                 include_sql=include_sql,
                 dashboard_names=dashboard_names_map.get(definition.identifier, ()),
+                dashboards=dashboards_map.get(definition.identifier, ()),
             )
         )
     return [k for k in kpis if _matches_filters(k, subject_area, active, feasibility)]
