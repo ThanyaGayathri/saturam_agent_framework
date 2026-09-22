@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, ExternalLink, Loader2, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ExternalLink, Loader2, MessageSquare, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import PlatformRunPanel from "./PlatformRunPanel";
 import RunHistory from "./RunHistory";
 import PlanViews from "./PlanViews";
+import UseCaseAskDrawer from "./UseCaseAskDrawer";
 import { STATUS_PILL } from "../UseCaseGallery";
 import { cadenceLabel, specFromPlatform } from "../../domain/use-case-platform";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -51,6 +52,7 @@ export default function UseCasePlatformPage() {
   // "How it runs": the plan derived from the spec the platform holds -- the same views the
   // person approved in the builder, without reopening the builder or touching the draft.
   const [tab, setTab] = useState("runs");
+  const [askOpen, setAskOpen] = useState(false);
   // An Analytics Automation composes a dashboard at activation, named after the use case
   // (K23). Found by that name under KPIs -> Dashboards; the page links to it.
   const [dashboard, setDashboard] = useState(null);
@@ -115,6 +117,7 @@ export default function UseCasePlatformPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {dashboard && <button type="button" onClick={() => navigate(`/kpis/dashboards/${dashboard.id}`)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-light/80"><ExternalLink size={14} /> Dashboard</button>}
+              {atRisk && <button type="button" onClick={() => setAskOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-light/80"><MessageSquare size={14} /> Ask</button>}
               <button type="button" onClick={edit} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary"><Pencil size={14} /> Edit</button>
               {useCase.status === "activated"
                 ? <button type="button" disabled={busy} onClick={pause} className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-status-warning-light px-3 py-2 text-sm font-semibold text-status-warning disabled:opacity-60"><Pause size={14} /> Pause</button>
@@ -145,6 +148,7 @@ export default function UseCasePlatformPage() {
           {tab === "runs" && <p className="text-xs leading-relaxed text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : (useCase.tags || []).includes("analytics_automation") ? "Each run reads today's gold (and the baseline date's when a comparison is chosen); the report and its numbers are kept on the run." : ""}</p>}
         </div>
       )}
+      {atRisk && <UseCaseAskDrawer useCaseId={id} title={useCase?.title || ""} open={askOpen} onClose={() => setAskOpen(false)} />}
     </div>
   );
 }
