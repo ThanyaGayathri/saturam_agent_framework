@@ -642,7 +642,7 @@ export default function UseCaseComposeScreen() {
        <div className="grid gap-1">
         {spec.metricIds.map((m) => (
          <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
-          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{known[m]?.name || m}</span><span className="ml-1.5 font-mono text-[11px] text-text-muted">{m}</span></div>
+          <div className="flex min-w-0 flex-wrap items-center gap-y-1"><span className="text-sm font-semibold text-text-primary">{known[m]?.name || m}</span><Badge className="ml-2 font-mono font-normal tracking-tight">{m}</Badge></div>
           <button type="button" aria-label={`Remove ${m}`} onClick={() => setField(f, spec.metricIds.filter((x) => x !== m))} className="rounded p-1.5 text-text-muted transition hover:bg-status-critical-light hover:text-status-critical"><X size={13} /></button>
          </div>
         ))}
@@ -671,9 +671,9 @@ export default function UseCaseComposeScreen() {
          const sug = byId[m]; const kpi = known[m];
          return (
           <div key={m} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition hover:border-border-light hover:bg-surface-secondary/50">
-           <div className="min-w-0">
+           <div className="flex min-w-0 flex-wrap items-center gap-y-1">
             <span className="text-sm font-semibold text-text-primary">{kpi?.name || sug?.name || m}</span>
-            <span className="ml-1.5 font-mono text-[11px] text-text-muted">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</span>
+            <Badge className="ml-2 font-mono font-normal tracking-tight">{m}{sug?.grain && sug.grain !== "overall" ? ` · by ${sug.grain.replace(/_/g, " ")}` : ""}</Badge>
             {sug?.why && <p className="truncate text-[11px] text-text-muted">chosen because you said: {sug.why}</p>}
            </div>
            <div className="flex items-center gap-1.5">
