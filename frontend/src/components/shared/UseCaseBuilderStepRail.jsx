@@ -30,9 +30,18 @@ export function UseCaseBuilderStepRail({ current }) {
   return (
     // Sticky below the app header, which is 72px and sticks at top-0 with z-40. Anything less
     // than that and the rail slides underneath it on the way down.
+    //
+    // It fills the viewport rather than its content, so the panel reads as a column beside the
+    // work instead of a card floating at the top of one. Viewport height, not the sheet's: a
+    // panel as tall as a 1500px form could not stay pinned, and staying pinned is the point.
+    //
+    // The 180px is the 88px it sticks at, plus the frame's 32px bottom padding, plus the 57px
+    // footer. A sticky box cannot leave its container, so at the very bottom of the page a
+    // taller rail gets pushed up -- at 100vh-112px it ended 44px under the header. This is the
+    // tallest it can be and still hold its position through the last pixel of scroll.
     <nav
       aria-label={`Step ${current} of ${STEPS.length}`}
-      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl bg-builder-rail px-4 py-6 dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
+      className="sticky top-[88px] hidden h-[calc(100vh-180px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl bg-builder-rail px-4 py-6 dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
     >
       <ol className="space-y-0.5">
         {STEPS.map((label, i) => {
@@ -115,7 +124,7 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
           that is how the reference does it, sampled: its sheet is #ffffff at every height, and
           a scan across its left edge low down goes rail #e9ecf4 straight to #ffffff with no
           shadow and no border. The sheet's edge only reads where the page is still tinted. */}
-      <div className="min-w-0 flex-1 rounded-2xl bg-surface px-6 py-8 sm:px-8 md:px-10">
+      <div className="min-w-0 flex-1 rounded-2xl border border-border bg-surface px-6 py-8 dark:border-border sm:px-8 md:px-10">
         {/* The work keeps a reading column and lets the sheet carry the air around it, rather
             than running the full width of a sheet that grows with the window. */}
         <div className="mx-auto w-full max-w-3xl space-y-5">{children}</div>
