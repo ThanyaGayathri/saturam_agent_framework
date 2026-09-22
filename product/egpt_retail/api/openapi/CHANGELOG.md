@@ -775,3 +775,18 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   today (`UseCaseExecutionHealth` has no live instantiation site yet -- `/monitoring/execution-health`
   isn't wired into a router until P5), fixed now so the gap isn't rediscovered once it is.
 
+
+## 1.16.0 — 2026-09-22 — `Kpi.dashboards`: caller-visible dashboard refs for "Maps to" (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.
+
+- **`Kpi.dashboards`** (array of `DashboardRef` — `{id, name}`, default `[]`). The KPI
+  discovery screen's "Maps to" chips (`dashboard_names`) were plain labels; making them
+  link to `/kpis/dashboards/{id}` needs the id `dashboard_names` never carried.
+  `dashboard_names` itself is unchanged -- it deliberately reaches across every owner and
+  visibility for the delete-guard's "does anything still need this KPI" -- so a new,
+  narrower field carries the id, scoped to what the caller may actually open (`owner` or
+  `visibility IN ('team', 'everyone')`, the same filter `GET /dashboards` uses). A dashboard
+  in `dashboard_names` but absent from `dashboards` belongs to someone else; the caller
+  still sees its name (existing behavior, unchanged) but it is not linkable, since
+  `GET /dashboards/{id}` already 404s a dashboard `visible_to()` refuses.

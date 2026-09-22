@@ -647,3 +647,50 @@ class DashboardStore:
     ) -> Mapping[str, Tuple[str, ...]]:
         """Async variant."""
         return await asyncio.to_thread(self.map_referencing, kpi_identifiers)
+
+    def map_referencing_visible(
+        self, kpi_identifiers: Optional[Sequence[str]], caller: str
+    ) -> Mapping[str, Tuple[Tuple[str, str], ...]]:
+        """Like :meth:`map_referencing`, but ``(id, name)`` pairs and scoped to what
+        ``caller`` may open -- for a UI that links straight to the dashboard, not just names
+        it.  Unlike ``map_referencing``, which intentionally reaches across every owner and
+        visibility (the delete-guard's "does *anything* still need this KPI"), a link the
+        caller cannot follow is dead weight: ``GET /dashboards/{id}`` already 404s on
+        ``visible_to()`` failure, so a dashboard outside that set could never actually open --
+        this just avoids advertising it as a link in the first place. Same ``owner OR
+        visibility IN ('team', 'everyone')`` filter :meth:`list_visible_to` uses.
+        """
+        # A CTE dedupes (kpi_identifier, dashboard) pairs first -- a dashboard with more than
+        # one tile naming the same KPI would otherwise repeat once per tile -- then the outer
+        # query aggregates ids and names as two parallel arrays, both ordered by name, so
+        # zipping them back together in Python needs no composite-type parsing.
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""WITH matched AS (
+                        SELECT DISTINCT tile ->> 'kpi_identifier' AS kpi_identifier,
+                               d.id AS dashboard_id, d.name AS dashboard_name
+                        FROM {self._schema}.dashboard AS d,
+                             jsonb_array_elements(d.tiles) AS tile
+                        WHERE tile ->> 'kpi_identifier' IS NOT NULL
+                        AND (d.owner = %s OR d.visibility IN ('team', 'everyone'))
+                        {"AND tile ->> 'kpi_identifier' = ANY(%s)" if kpi_identifiers is not None else ""}
+                    )
+                    SELECT kpi_identifier,
+                           array_agg(dashboard_id ORDER BY dashboard_name) AS ids,
+                           array_agg(dashboard_name ORDER BY dashboard_name) AS names
+                    FROM matched
+                    GROUP BY kpi_identifier""",
+                (caller, list(kpi_identifiers))
+                if kpi_identifiers is not None
+                else (caller,),
+            )
+            rows = cursor.fetchall()
+        return {row[0]: tuple(zip(row[1], row[2])) for row in rows}
+
+    async def amap_referencing_visible(
+        self, kpi_identifiers: Optional[Sequence[str]], caller: str
+    ) -> Mapping[str, Tuple[Tuple[str, str], ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(
+            self.map_referencing_visible, kpi_identifiers, caller
+        )

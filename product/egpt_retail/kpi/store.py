@@ -745,6 +745,25 @@ class KpiRegistryStore:
         """Async variant."""
         return await asyncio.to_thread(self.dashboard_names_by_kpi, identifiers)
 
+    def dashboards_by_kpi(
+        self, identifiers: Optional[Sequence[str]], caller: str
+    ) -> Mapping[str, Tuple[Tuple[str, str], ...]]:
+        """``(id, name)`` pairs for the dashboards referencing each of ``identifiers`` that
+        ``caller`` may actually open -- for the registry list's ``Kpi.dashboards`` field,
+        which the UI links straight to `/kpis/dashboards/{id}`. Deliberately narrower than
+        :meth:`dashboard_names_by_kpi` (used unfiltered for the delete-guard): a dashboard
+        outside what ``caller`` can see would only ever render a dead link.
+        """
+        return _DashboardStore(self._connection).map_referencing_visible(
+            identifiers, caller
+        )
+
+    async def adashboards_by_kpi(
+        self, identifiers: Optional[Sequence[str]], caller: str
+    ) -> Mapping[str, Tuple[Tuple[str, str], ...]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.dashboards_by_kpi, identifiers, caller)
+
     # --- reading -----------------------------------------------------------------------
 
     def get(self, identifier: str) -> Optional[KpiDefinition]:
