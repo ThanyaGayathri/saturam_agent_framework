@@ -6,8 +6,7 @@ import { Check, ChevronRight } from "lucide-react";
  * The visual language is `UCBuilderLayout`'s, which the legacy builder routes already use:
  * a panel, a numbered circle per step, the current one lifted onto a white card with a
  * chevron, finished ones ticked. The connector line between markers is the one addition,
- * and the panel and border take the builder colours so the rail and the sheet beside it
- * read as a pair.
+ * and the panel takes the builder colour so the rail and the sheet beside it read as a pair.
  *
  * A rail has room the horizontal bar did not, so the steps carry their screens' own titles
  * rather than abbreviations invented for a narrow slot.
@@ -33,7 +32,7 @@ export function UseCaseBuilderStepRail({ current }) {
     // than that and the rail slides underneath it on the way down.
     <nav
       aria-label={`Step ${current} of ${STEPS.length}`}
-      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl border border-builder-border bg-builder-rail px-4 py-6 dark:border-border dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
+      className="sticky top-[88px] hidden max-h-[calc(100vh-112px)] w-[272px] shrink-0 flex-col self-start overflow-y-auto rounded-2xl bg-builder-rail px-4 py-6 dark:bg-surface-secondary/95 lg:flex lg:w-[288px]"
     >
       <ol className="space-y-0.5">
         {STEPS.map((label, i) => {
@@ -109,10 +108,10 @@ export default function UseCaseBuilderStepFrame({ current, asideOpen = false, ch
     // left edge instead of being pushed inward by a centred column.
     <div className="flex w-full items-start gap-6 p-4 sm:p-6 md:gap-8 md:p-8">
       <UseCaseBuilderStepRail current={current} />
-      {/* The step's work sits on its own white sheet, the way the rail sits on its grey panel,
-          both bordered in the same colour. Two surfaces on a tinted page: it is what tells you
-          the rail is navigation and the sheet is the thing you are filling in. */}
-      <div className="min-w-0 flex-1 space-y-5 rounded-2xl border border-builder-border bg-surface px-6 py-8 dark:border-border sm:px-8 md:px-10">
+      {/* The step's work sits on its own white sheet, the way the rail sits on its grey panel.
+          Two surfaces on a tinted page, each held by its own fill rather than an outline: it is
+          what tells you the rail is navigation and the sheet is the thing you are filling in. */}
+      <div className="min-w-0 flex-1 space-y-5 rounded-2xl bg-surface px-6 py-8 shadow-sm sm:px-8 md:px-10">
         {children}
       </div>
     </div>
