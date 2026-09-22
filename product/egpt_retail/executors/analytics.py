@@ -601,6 +601,8 @@ def _figures_in_risk(
         for driver in subject.get("drivers") or []:
             add(driver.get("value"))
             add(driver.get("typical"))
+            add(driver.get("rate"))
+            add(driver.get("base_rate"))
     if recommendation_result:
         for value in (recommendation_result.get("summary") or {}).values():
             add(value)

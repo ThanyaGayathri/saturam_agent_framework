@@ -57,7 +57,9 @@ const lossWords = (reason) => {
 /** Why this quote is at risk, specifically: the model's drivers in words, and what we lost
  *  on this account before -- the reason, the quote, when, and the record. */
 function WhyAtRisk({ record, compact = false }) {
- const drivers = (record?.drivers || []).map((d) => d.text).filter(Boolean).slice(0, compact ? 2 : 3);
+ // The play already says its reason; a driver that repeats it is noise.
+ const because = record?.action?.because || "";
+ const drivers = (record?.drivers || []).map((d) => d.text).filter((t) => t && !because.includes(t)).slice(0, compact ? 2 : 3);
  const lost = record?.context?.lost_before;
  if (!drivers.length && !lost?.reason) return null;
  return (

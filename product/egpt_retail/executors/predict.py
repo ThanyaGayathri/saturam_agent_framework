@@ -64,17 +64,44 @@ DEFAULT_LEVELS = {"high": 0.7, "medium": 0.4}
 ROW_CAP = 20000
 
 #: How each feature reads in a driver, with the value and what is typical.
+#: How a driver reads to a sales person: a fact about this quote or this account, with
+#: the numbers behind it -- never "converts less often" on its own.
 _DRIVER_WORDS: Mapping[str, str] = {
-    "age_days": "open {value:.0f} days against a usual {usual:.0f}",
-    "age_ratio": "open {value:.1f}x the usual time to close ({age:.0f} of {usual:.0f} days)",
-    "deal_value_usd": "quote value ${value:,.0f} (typical ${typical:,.0f})",
-    "quantity": "quantity {value:.0f} (typical {typical:.0f})",
-    "prior_quotes": "{value:.0f} earlier quotes from this account (typical {typical:.1f})",
-    "prior_win_rate": "the account's win rate so far {value:.0%} (typical {typical:.0%})",
-    "days_since_prev_quote": "{value:.0f} days since the account's previous quote (typical {typical:.0f})",
-    "prior_won_value": "${value:,.0f} won from this account before (typical ${typical:,.0f})",
-    "live_chat_buy": "came through a live-chat buy inquiry",
+    "deal_value_usd": "at ${value:,.0f} it is larger than the typical ${typical:,.0f} quote, and bigger quotes close less often",
+    "quantity": "{value:.0f} units, against a typical {typical:.0f}",
+    "live_chat_buy": "it came from a live-chat buy inquiry, not a rep conversation",
 }
+
+
+#: A level's own conversion rate is only worth quoting when enough quotes sit behind it.
+RATE_FLOOR = 30
+#: And only when it is meaningfully worse than the pipeline overall: a two-point gap is
+#: noise to a sales person, and a rate at or above the average is not a risk at all.
+RATE_GAP = 0.04
+
+
+def conversion_rates(
+    training: Sequence[Mapping[str, Any]],
+) -> Tuple[float, Dict[str, Dict[str, Tuple[float, int]]]]:
+    """The share of quotes that converted in time, overall and per level of each
+    categorical -- so a driver can say "Dealer Portal converts 44% against 51% overall"
+    rather than "converts less often"."""
+    labels = [_label(r) for r in training]
+    base = float(np.mean(labels)) if labels else 0.0
+    rates: Dict[str, Dict[str, Tuple[float, int]]] = {}
+    for feature in CATEGORICAL:
+        by_level: Dict[str, List[int]] = {}
+        for row, label in zip(training, labels):
+            level = str(row.get(feature) or "")
+            if not level:
+                continue
+            by_level.setdefault(level, []).append(label)
+        rates[feature] = {
+            level: (float(np.mean(v)), len(v))
+            for level, v in by_level.items()
+            if len(v) >= RATE_FLOOR
+        }
+    return base, rates
 
 
 def _options(step_input: StepInput) -> Mapping[str, Any]:
@@ -172,64 +199,157 @@ def _drivers(
     typical: Mapping[str, float],
     *,
     top: int = 3,
+    base_rate: float = 0.0,
+    rates: Optional[Mapping[str, Mapping[str, Tuple[float, int]]]] = None,
 ) -> List[Dict[str, Any]]:
-    """The columns that pushed this row towards not converting (negative logit of
-    converting), largest first, each in words with the row's value and the typical."""
+    """Why this quote is at risk, in a sales person's terms: what the model weighed most,
+    said as a fact about this quote or this account with its own numbers. A population
+    fact ("quotes from this channel convert less often") is only kept when the rate behind
+    it can be quoted; otherwise it is dropped rather than said vaguely."""
+    rates = rates or {}
+    usual = float(row.get("usual_days") or 0)
+    age = float(row.get("age_days") or 0)
+    left = int(max(usual - age, 0))  # the catalogue words it the same way
     order = np.argsort(contributions)  # most negative = most risk
     out: List[Dict[str, Any]] = []
     seen: set = set()
     for j in order:
         if contributions[j] >= 0 or len(out) >= top:
             continue
+        # Time left is always worth saying; keep a slot for it.
+        if (
+            len(out) == top - 1
+            and "age" not in seen
+            and fitted.columns[j].split("=")[0] not in ("age_days", "age_ratio")
+        ):
+            continue
         column = fitted.columns[j]
         feature, _, level = column.partition("=")
         # Age in days and age as a ratio of the usual are one fact; say it once.
-        family = "age" if feature in ("age_days", "age_ratio") else feature
+        family = (
+            "age"
+            if feature in ("age_days", "age_ratio")
+            else "account_history"
+            if feature in ("prior_win_rate", "prior_quotes", "prior_won_value")
+            else feature
+        )
         if family in seen:
             continue
         seen.add(family)
-        if feature in NUMERIC:
+        entry: Optional[Dict[str, Any]] = None
+        if feature in ("age_days", "age_ratio"):
+            text_ = (
+                f"open {int(age)} days, already past the usual {int(usual)} for this category"
+                if left <= 0
+                else f"only {left} day{'' if left == 1 else 's'} left of the usual {int(usual)}"
+            )
+            entry = {
+                "feature": "age",
+                "value": int(age),
+                "typical": int(usual),
+                "text": text_,
+            }
+        elif feature in ("prior_win_rate", "prior_quotes", "prior_won_value"):
+            quotes = int(float(row.get("prior_quotes") or 0))
+            won = int(float(row.get("prior_won") or 0))
+            if quotes == 0:
+                text_ = (
+                    "this is the account's first quote -- no track record to lean on"
+                )
+            elif won == 0:
+                text_ = f"this account has never bought: 0 won of {quotes} earlier quote{'' if quotes == 1 else 's'}"
+            else:
+                bought = float(row.get("prior_won_value") or 0)
+                text_ = f"this account has won {won} of {quotes} earlier quotes" + (
+                    f", ${bought:,.0f} in all" if bought > 0 else ""
+                )
+            entry = {
+                "feature": "account_history",
+                "value": quotes,
+                "typical": None,
+                "text": text_,
+            }
+        elif feature == "days_since_prev_quote":
+            days = int(float(row.get(feature) or 0))
+            if days <= 0:
+                continue
+            entry = {
+                "feature": feature,
+                "value": days,
+                "typical": None,
+                "text": f"the account had not quoted for {days} days before this one",
+            }
+        elif feature in NUMERIC:
+            words = _DRIVER_WORDS.get(feature)
+            if not words:
+                continue
             value = float(row.get(feature) or 0)
-            words = _DRIVER_WORDS.get(
-                feature, "{feature} {value:.1f} (typical {typical:.1f})"
-            )
-            text_ = words.format(
-                feature=feature.replace("_", " "),
-                value=value,
-                typical=typical.get(feature, 0.0),
-                usual=float(row.get("usual_days") or 0),
-                age=float(row.get("age_days") or 0),
-            )
-            out.append(
-                {
-                    "feature": feature,
-                    "value": round(value, 2),
-                    "typical": round(typical.get(feature, 0.0), 2),
-                    "contribution": round(float(contributions[j]), 3),
-                    "text": text_,
-                }
-            )
+            if feature == "live_chat_buy" and value <= 0:
+                continue
+            entry = {
+                "feature": feature,
+                "value": round(value, 2),
+                "typical": round(typical.get(feature, 0.0), 2),
+                "text": words.format(value=value, typical=typical.get(feature, 0.0)),
+            }
         else:
             shown = level if level and level != "other" else str(row.get(feature) or "")
-            if feature == "last_lost_reason" and not shown:
+            if not shown:
                 continue
-            words = {
-                "last_lost_reason": f"the account's last quote was lost: {shown}",
-                "pim_category": f"{shown} quotes convert less often",
-                "sales_rep_territory": f"{shown} converts less often",
-                "customer_segment": f"{shown} accounts convert less often",
-                "quote_source": f"quotes from {shown} convert less often",
-                "audience_channel": f"the {shown} channel converts less often",
-            }.get(feature, f"{feature.replace('_', ' ')} = {shown}")
-            out.append(
-                {
+            if feature == "last_lost_reason":
+                entry = {
                     "feature": feature,
                     "value": shown,
                     "typical": None,
-                    "contribution": round(float(contributions[j]), 3),
-                    "text": words,
+                    "text": f"the account's last quote was lost: {shown}",
                 }
-            )
+            else:
+                rate, seen_n = (rates.get(feature) or {}).get(shown, (None, 0))
+                if rate is None or not base_rate:
+                    # No quotable rate behind it -- say nothing rather than a platitude.
+                    continue
+                if rate > base_rate - RATE_GAP:
+                    # Not meaningfully worse than the pipeline, or better than it: not a
+                    # reason this quote is at risk, whatever the model's coefficient says.
+                    continue
+                noun = {
+                    "pim_category": f"{shown} quotes",
+                    "sales_rep_territory": f"quotes in {shown}",
+                    "customer_segment": f"{shown} accounts",
+                    "quote_source": f"{shown} quotes",
+                    "audience_channel": f"quotes through {shown}",
+                }.get(feature, f"{shown} quotes")
+                entry = {
+                    "feature": feature,
+                    "value": shown,
+                    "typical": None,
+                    "rate": round(rate * 100, 1),
+                    "base_rate": round(base_rate * 100, 1),
+                    "text": f"{noun} close in time {rate:.0%} of the time against {base_rate:.0%} overall ({seen_n} closed quotes)",
+                }
+        if entry is None:
+            continue
+        entry["contribution"] = round(float(contributions[j]), 3)
+        out.append(entry)
+    if "age" not in seen and usual:
+        out.append(
+            {
+                "feature": "age",
+                "value": int(age),
+                "typical": int(usual),
+                "contribution": 0.0,
+                "text": (
+                    f"open {int(age)} days, already past the usual {int(usual)} for this category"
+                    if left <= 0
+                    else f"only {left} day{'' if left == 1 else 's'} left of the usual {int(usual)}"
+                ),
+            }
+        )
+    # How much time is left is what a rep acts on; say it first, then the rest as the
+    # model ranked them.
+    out.sort(
+        key=lambda d: (d["feature"] != "age", -abs(float(d.get("contribution") or 0)))
+    )
     return out
 
 
@@ -296,6 +416,7 @@ async def score_risk(step_input: StepInput) -> StepOutput:
                 "refused": f"only {len(training)} closed-quote snapshots to learn from; the model needs at least 50"
             }
         fitted, evaluation = train_and_evaluate(training)
+        base_rate, rates = conversion_rates(_clean(training))
         if not scoring:
             return {"refused": "no open quotes to score at this date"}
         probs, contributions = predict_proba(fitted, scoring)
@@ -369,7 +490,14 @@ async def score_risk(step_input: StepInput) -> StepOutput:
                     "value_at_risk": round(
                         risk * float(row.get("deal_value_usd") or 0), 2
                     ),
-                    "drivers": _drivers(fitted, row, contributions[i], typical),
+                    "drivers": _drivers(
+                        fitted,
+                        row,
+                        contributions[i],
+                        typical,
+                        base_rate=base_rate,
+                        rates=rates,
+                    ),
                     "last_lost_reason": row.get("last_lost_reason"),
                     # Why we lost before, specifically: the reason, the quote and when.
                     "lost_before": {
