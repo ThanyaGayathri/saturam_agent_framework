@@ -35,7 +35,14 @@ QUESTIONS: Sequence[Dict[str, Any]] = (
     {
         "id": "at_risk_by_territory",
         "label": "Which territory has the most at stake?",
-        "cues": ("territor", "region"),
+        "cues": (
+            "territor",
+            "region",
+            "geography",
+            "midwest",
+            "northeast",
+            "southeast",
+        ),
     },
     {
         "id": "at_risk_by_rep",
@@ -70,7 +77,14 @@ QUESTIONS: Sequence[Dict[str, Any]] = (
     {
         "id": "this_week",
         "label": "What is at stake this week, and what should we do?",
-        "cues": ("this week", "at stake", "what should", "next", "plays", "summary"),
+        "cues": (
+            "this week",
+            "what should",
+            "what do we do",
+            "plays",
+            "summary",
+            "priorit",
+        ),
     },
 )
 
