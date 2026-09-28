@@ -14,7 +14,7 @@ so moving a file moves the assertion with it. No database, no network.
 from __future__ import annotations
 
 import fnmatch
-import tomllib
+import re
 from pathlib import Path
 from typing import List
 
@@ -28,8 +28,20 @@ _PACKAGE_ROOT = _PRODUCT_ROOT / "egpt_retail"
 
 
 def _package_data_globs() -> List[str]:
-    config = tomllib.loads((_PRODUCT_ROOT / "pyproject.toml").read_text())
-    return list(config["tool"]["setuptools"]["package-data"]["egpt_retail"])
+    """The globs in ``[tool.setuptools.package-data]``, read as text.
+
+    Not parsed with ``tomllib``: that is stdlib only from 3.11 and this package supports 3.10
+    (``requires-python = ">=3.10"``), so a parsed read passes locally and fails the 3.10 CI
+    job. ``test_r4_sql_assets.py`` reads the same section the same way and says the same
+    thing. The section is sliced out first, so a glob mentioned in a comment elsewhere in the
+    file cannot satisfy an assertion here.
+    """
+    body = (_PRODUCT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    start = body.index("[tool.setuptools.package-data]")
+    end = body.index("\n[", start + 1)
+    block = body[start:end]
+    # Only the quoted entries of the list, never a word out of the comments around them.
+    return re.findall(r'"([^"]+)"', block.split("egpt_retail = [", 1)[1])
 
 
 def _is_packaged(path: Path) -> bool:
