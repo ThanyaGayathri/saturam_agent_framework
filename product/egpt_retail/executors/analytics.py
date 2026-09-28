@@ -576,6 +576,15 @@ def _figures_in_risk(
         add(number)
     for level in (risk.get("levels") or {}).values():
         add(level)
+    focus = risk.get("focus") or {}
+    for key in ("value", "at_risk", "days", "closest_days"):
+        add(focus.get(key))
+    add(len(focus.get("quotes") or []))
+    for value in (focus.get("factor_counts") or {}).values():
+        add(value)
+    for q in focus.get("quotes") or []:
+        for key in ("quote_id", "value", "risk", "value_at_risk", "days_left"):
+            add(q.get(key))
     for subject in risk.get("subjects") or []:
         for key in (
             "quote_id",
@@ -592,6 +601,8 @@ def _figures_in_risk(
         for driver in subject.get("drivers") or []:
             add(driver.get("value"))
             add(driver.get("typical"))
+            add(driver.get("rate"))
+            add(driver.get("base_rate"))
     if recommendation_result:
         for value in (recommendation_result.get("summary") or {}).values():
             add(value)
@@ -1306,12 +1317,23 @@ def _risk_text(
         f"  Model: AUC {model.get('auc')} on {model.get('holdout_rows')} held-out rows, "
         f"trained on {model.get('closed_quotes')} closed quotes",
     ]
+    focus = risk.get("focus") or {}
+    if focus.get("quotes"):
+        lines.append(
+            f"  This week's ten: attack {len(focus['quotes'])} quotes in the next {focus.get('days')} days -- "
+            f"{_money(focus.get('value'))} of quotes, {_money(focus.get('at_risk'))} of it otherwise lost"
+        )
+        for q in focus["quotes"]:
+            lines.append(
+                f"    Quote {q.get('quote_id')} | {_money(q.get('value'))} | {float(q.get('risk') or 0) * 100:.0f}% risk | "
+                f"{q.get('days_left')} days left | {', '.join(q.get('factors') or [])}"
+            )
     if recommendation_result:
         plays = recommendation_result.get("plays") or {}
         rs = recommendation_result.get("summary") or {}
         lines.append(
             f"  Recommendations: {rs.get('recommendations')} worth {_money(rs.get('value_at_stake'))}; "
-            f"alerts: {rs.get('alerts')} to {rs.get('owners')} reps"
+            f"{rs.get('alerts')} of them high risk, alerted to {rs.get('owners')} reps"
         )
         for record in recommendation_result.get("recommendations") or []:
             action = record.get("action") or {}
@@ -1394,6 +1416,152 @@ EMAIL_ROWS = 20
 EMAIL_LIMIT_BYTES = 96 * 1024
 
 
+#: A lost reason in plain words, whatever the source spells (the data shuffles word order).
+_LOSS_WORDS = (
+    (("competitor",), "lost to a competitor"),
+    (("budget", "constraints"), "lost on budget"),
+    (("response",), "went quiet -- no response"),
+    (("specification", "alternative"), "lost to an alternative specification"),
+    (("decision", "delayed"), "the decision was delayed"),
+    (("price", "high"), "lost on price"),
+)
+
+
+def loss_words(reason: Any) -> str:
+    words = {w.strip().lower() for w in str(reason or "").replace("/", " ").split()}
+    for keys, text in _LOSS_WORDS:
+        if any(k in words for k in keys):
+            return text
+    return f"lost: {reason}" if reason else ""
+
+
+def _why_html(record: Mapping[str, Any], *, compact: bool = False) -> str:
+    """Why this quote is at risk, specifically: the model's drivers in words, and what we
+    lost on this account before -- the reason, the quote, when, and the record."""
+    e = html.escape
+    context = record.get("context") or {}
+    drivers = [
+        str(d.get("text") or "") for d in (record.get("drivers") or []) if d.get("text")
+    ]
+    lost = context.get("lost_before") or {}
+    parts = []
+    if drivers:
+        shown = "; ".join(drivers[: 2 if compact else 3])
+        parts.append(
+            f'<div style="font:12px {_FONT};color:#374151;margin-top:3px"><span style="color:#6b7280;font-weight:600">Why at risk:</span> {e(shown)}</div>'
+        )
+    if lost.get("reason"):
+        when = str(lost.get("date") or "")[:10]
+        where = (
+            f" ({lost.get('category') or ''} quote {lost.get('quote_id')}{', ' + when if when else ''})"
+            if lost.get("quote_id")
+            else ""
+        )
+        record_line = (
+            f" · this account: {lost.get('won', 0)} won, {lost.get('lost', 0)} lost of {lost.get('quotes', 0)} earlier quotes"
+            if lost.get("quotes")
+            else ""
+        )
+        parts.append(
+            f'<div style="font:12px {_FONT};color:#9f1239;margin-top:2px"><span style="font-weight:600">Lost before:</span> {e(loss_words(lost.get("reason")))}{e(where)}'
+            f'<span style="color:#6b7280">{e(record_line)}</span></div>'
+        )
+    return "".join(parts)
+
+
+_FACTOR_WORDS = {
+    "high value": ("High value", "#4c1d95", "#ede9fe"),
+    "low-hanging": ("Low-hanging", "#15803d", "#dcfce7"),
+    "closing soon": ("Closing soon", "#b45309", "#fef3c7"),
+    "key account": ("Key account", "#0e7490", "#cffafe"),
+    "known lever": ("Known lever", "#374151", "#f3f4f6"),
+}
+
+
+def _focus_html(
+    risk: Mapping[str, Any], recommendation_result: Optional[Mapping[str, Any]]
+) -> str:
+    """The week's ten: the quotes to attack in the next days and what they are worth,
+    each with the factors that put it there and the play. Inline styles throughout --
+    this block travels in the email as it is."""
+    e = html.escape
+    focus = risk.get("focus") or {}
+    quotes = list(focus.get("quotes") or [])
+    if not quotes:
+        return ""
+    by_id = {
+        str(r.get("subject_id")): r
+        for r in (recommendation_result or {}).get("recommendations") or []
+    }
+    rows = ""
+    for rank, q in enumerate(quotes, start=1):
+        record = by_id.get(str(q.get("quote_id"))) or {}
+        context = record.get("context") or {}
+        action = record.get("action") or {}
+        chips = "".join(
+            f'<span style="display:inline-block;margin:2px 4px 0 0;padding:1px 7px;border-radius:999px;font:600 10px {_FONT};color:{_FACTOR_WORDS[f][1]};background:{_FACTOR_WORDS[f][2]}">{e(_FACTOR_WORDS[f][0])}</span>'
+            for f in q.get("factors") or []
+            if f in _FACTOR_WORDS
+        )
+        level = str(q.get("level") or "low")
+        days_left = int(q.get("days_left") or 0)
+        hours = int(action.get("sla_hours") or 0)
+        sla = (
+            f" · within {hours // 24}d"
+            if hours >= 24
+            else (f" · within {hours}h" if hours else "")
+        )
+        label = str(record.get("subject_label") or f"Quote {q.get('quote_id')}")
+        risk_pct = f"{float(q.get('risk') or 0) * 100:.0f}% risk"
+        when = (
+            "window closes today"
+            if days_left == 0
+            else f"{days_left} day{'s' if days_left != 1 else ''} left in the window"
+        )
+        rows += (
+            "<tr>"
+            f'<td style="padding:8px 6px 8px 10px;border-bottom:1px solid #f3f4f6;border-left:3px solid {_LEVEL_COLOUR.get(level, "#e5e7eb")};font:12px {_FONT};color:#9ca3af;vertical-align:top;text-align:right;width:22px">{rank}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
+            f'<div style="font-weight:600">{e(label)}</div>'
+            f'<div style="color:#6b7280;font-size:12px">{e(str(record.get("account_label") or ""))}{" · " + e(str(context.get("territory"))) if context.get("territory") else ""} · {e(when)}</div>'
+            f"<div>{chips}</div></td>"
+            f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top;text-align:right;white-space:nowrap">'
+            f'<div style="font-weight:600">{e(_money(q.get("value")))}</div>'
+            f'<div style="font-size:12px;color:{_LEVEL_COLOUR.get(level, "#6b7280")}">{e(risk_pct)}</div>'
+            f'<div style="font-size:11px;color:#6b7280">{e(_money(q.get("value_at_risk")))} at risk</div></td>'
+            f'<td style="padding:8px;border-bottom:1px solid #f3f4f6;font:13px {_FONT};color:#111827;vertical-align:top">'
+            f'<div style="font-weight:600;color:#4c1d95">{e(str(action.get("title") or ""))}</div>'
+            f'<div style="color:#374151;font-size:12px;margin-top:2px">{e(str(action.get("because") or ""))}</div>'
+            f'<div style="font:600 12px {_FONT};color:#6d28d9;margin-top:2px">{e(str(action.get("owner") or record.get("owner") or ""))}{e(sla)}</div>'
+            + _why_html(record, compact=True)
+            + "</td>"
+            "</tr>"
+        )
+    counts = focus.get("factor_counts") or {}
+    legend = " · ".join(
+        f"{_FACTOR_WORDS[f][0]} {n}"
+        for f, n in counts.items()
+        if n and f in _FACTOR_WORDS
+    )
+    closest = focus.get("closest_days")
+    closes = (
+        "the first window closes today"
+        if closest == 0
+        else f"the first window closes in {closest} day{'s' if closest != 1 else ''}"
+        if closest is not None
+        else ""
+    )
+    return (
+        '<div style="border:2px solid #c4b5fd;border-radius:10px;padding:14px 16px;margin:12px 0;background:#faf5ff">'
+        f'<div style="font:600 11px {_FONT};color:#6d28d9;text-transform:uppercase;letter-spacing:.06em">This week\'s ten</div>'
+        f'<div style="font:700 18px/1.3 {_FONT};color:#111827;margin-top:4px">Attack these {len(quotes)} in the next {focus.get("days")} days: '
+        f"{e(_money(focus.get('value')))} of quotes, {e(_money(focus.get('at_risk')))} of it otherwise lost</div>"
+        f'<div style="font:12px {_FONT};color:#6b7280;margin-top:4px">Chosen by a blend of value, how winnable each still is, how soon its window closes, what the account is worth and whether the lever is known{" — " + e(closes) if closes else ""}. {e(legend)}.</div>'
+        f'<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin-top:10px;background:#fff;border-radius:8px"><tbody>{rows}</tbody></table>'
+        "</div>"
+    )
+
+
 def _risk_html(
     risk: Mapping[str, Any],
     recommendation_result: Optional[Mapping[str, Any]],
@@ -1426,7 +1594,9 @@ def _risk_html(
         + stat(
             "Act now",
             str(summary.get("at_risk_within_range", 0)),
-            f"quotes at risk, still in range · {_money(summary.get('value_at_risk_within_range'))}",
+            f"of {summary.get('within_range', 0)} still inside their window are at risk "
+            f"({summary.get('high_within_range', 0)} high + {summary.get('medium_within_range', 0)} medium) · "
+            f"{_money(summary.get('value_at_risk_within_range'))}",
             "#b91c1c",
         )
         + stat(
@@ -1449,6 +1619,7 @@ def _risk_html(
             f'color:{_LEVEL_COLOUR.get(level, "#374151")};background:{_LEVEL_FILL.get(level, "#f3f4f6")}">{e(level)}</span>'
         )
 
+    focus_block = _focus_html(risk, recommendation_result)
     ranked = ""
     if recommendation_result:
         records = list(recommendation_result.get("recommendations") or [])
@@ -1460,12 +1631,6 @@ def _risk_html(
             account = context.get("account") or {}
             action = record.get("action") or {}
             because = str(action.get("because") or "")
-            # The play's reason and a driver can be the same fact; say it once.
-            drivers = "; ".join(
-                str(d.get("text") or "")
-                for d in (record.get("drivers") or [])
-                if str(d.get("text") or "") not in because
-            )[:160]
             stalled = context.get("stalled")
             pct = f"{float(record.get('risk_score') or 0) * 100:.0f}%"
             hours = int(action.get("sla_hours") or 0)
@@ -1504,8 +1669,9 @@ def _risk_html(
                 f"<td{a('r')}><span{a('pl ' + level[:2])}>{e(level)}</span><div{a('t')}>{e(pct)}</div><div{a('m')}>{e(_money(record.get('value_at_stake')))}</div></td>"
                 f"<td{a('td') if inline else ''}><div{a('p')}>{e(str(action.get('title') or ''))}</div>"
                 f"<div{a('w')}>{e(because)}</div>"
-                f"<div{a('m')}>{e(drivers)}</div>"
-                f"<div{a('o')}>{e(str(action.get('owner') or ''))}{e(sla)}</div></td></tr>"
+                f"<div{a('o')}>{e(str(action.get('owner') or ''))}{e(sla)}</div>"
+                + _why_html(record)
+                + "</td></tr>"
             )
         plays = recommendation_result.get("plays") or {}
         chips = "".join(
@@ -1519,7 +1685,7 @@ def _risk_html(
             + (
                 f'<a href="{e(dashboard_url)}" style="color:#6d28d9;font-weight:600">Open the live dashboard</a> for all {len(records)}, searchable by account, rep or territory.'
                 if dashboard_url
-                else f"All {len(records)} are on the dashboard and the use case's Recommendations tab."
+                else f"All {len(records)} are on the use case's dashboard."
             )
             + "</p>"
             if left > 0
@@ -1546,7 +1712,7 @@ def _risk_html(
         ranked = (
             '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:12px 0;background:#fff">'
             f'<div style="font:600 14px {_FONT};color:#111827">Next best actions'
-            f' <span style="font-weight:500;color:#6b7280">· {rs.get("recommendations")} recommendations worth {e(_money(rs.get("value_at_stake")))}, ranked by what can still be saved</span></div>'
+            f' <span style="font-weight:500;color:#6b7280">· {rs.get("recommendations")} recommendations worth {e(_money(rs.get("value_at_stake")))}, ranked by what can still be saved, weighted by what the account is worth</span></div>'
             f'<div style="margin:8px 0 10px">{chips}</div>'
             # In the app the list scrolls inside the report; an email client ignores the
             # overflow, which is why the email carries a capped list instead.
@@ -1581,7 +1747,7 @@ def _risk_html(
     return (
         '<div style="margin:12px 0 4px">'
         f'<div style="font:600 11px {_FONT};color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin:0 0 4px">Pipeline at risk · as of {e(str(risk.get("as_of")))}</div>'
-        f"{hero}{ranked}{honesty}</div>"
+        f"{hero}{focus_block}{ranked}{honesty}</div>"
     )
 
 

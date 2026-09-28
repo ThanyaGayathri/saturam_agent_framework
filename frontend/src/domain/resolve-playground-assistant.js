@@ -81,6 +81,7 @@ function conversationToTranscriptMessages(rows) {
  * @param {Array<{ role: string, text: string, meta?: object }> | null | undefined} [conversationSnapshot] rows after the latest user message was persisted
  * @returns {Promise<{ text: string, meta?: object }>}
  */
+
 export async function resolvePlaygroundAssistantReplyAsync(
  userText,
  profileId,

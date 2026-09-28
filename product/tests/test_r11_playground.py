@@ -99,10 +99,17 @@ def test_business_area_lookup_declines_a_concept_outside_the_area():
     assert "inventory" in out_of_area["declined"]
 
 
-def test_data_mode_needs_no_scope_id_and_resolves_one_tool():
+def test_data_mode_needs_no_scope_id_and_resolves_both_read_paths():
+    """Gold for KPI values, guarded SQL over silver for everything else (G21).
+
+    Was one tool. `read_gold` answers "what is KPI X" from stamped, governed rows; it cannot
+    answer "why did it move", which is what `build-plan.md` section 08's first bullet means by
+    chat with data. Both, not either: a model recomputing in SQL a number that already exists
+    in gold produces an answer nobody can trace back to a source and a computation time.
+    """
     scope = resolve_mode_scope(PlaygroundMode.DATA, None)
     assert scope.refused is None
-    assert [t.__name__ for t in scope.tools] == ["read_kpi_data"]
+    assert [t.__name__ for t in scope.tools] == ["read_kpi_data", "query_warehouse"]
 
 
 def test_knowledge_mode_needs_no_scope_id_and_resolves_one_tool():

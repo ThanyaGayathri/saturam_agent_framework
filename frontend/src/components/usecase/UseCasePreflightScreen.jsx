@@ -14,6 +14,9 @@ import { syncUseCaseToPlatform } from "../../services/use-case-platform";
 import { loadConfigureWorkspace } from "../../storage/configure-workspace";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
+import { builderGroupLabel, builderStepBackButton, builderStepFooter, builderStepH1, builderStepSubtitle } from "../shared/useCaseBuilderStepStyles";
+import UseCaseBuilderStepFrame from "../shared/UseCaseBuilderStepRail";
+import Button from "../ui/Button";
 
 /**
  * Step 3 of 6: preflight.
@@ -117,7 +120,7 @@ export default function UseCasePreflightScreen() {
     { id: "delivery", title: "Report delivery", level: "warn", detail: "Probing…", fix: null },
     { id: "model", title: "Explanation model", level: "warn", detail: "Probing…", fix: null },
     { id: "coverage", title: "Coverage", level: spec.metricIds.length === 0 ? "fail" : spec.template === "metric_diagnosis" ? (spec.metricIds.length === 1 ? "pass" : "fail") : spec.template === "at_risk" ? "pass" : spec.metricIds.length === 1 ? "warn" : "pass", detail: spec.template === "at_risk" ? `Every open quote is scored; ${spec.metricIds.length} KPI${spec.metricIds.length === 1 ? "" : "s"} give the picture its context; accounts flagged after ${spec.churnWindow || 60} days without a quote; the run ends in ${{ recommend: "recommendations", alert: "alerts", both: "recommendations and alerts" }[spec.outcome || "both"]}.` : spec.template === "metric_diagnosis" ? (spec.metricIds.length === 1 ? `One KPI, ${spec.metricIds[0]}, its change decomposed across ${spec.dimensions.length ? spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ") : "every dimension the fact carries"}.` : "A diagnosis explains one KPI.") : spec.metricIds.length === 0 ? "No KPI chosen." : spec.metricIds.length === 1 ? "One KPI: the report will say what moved, not where." : `${spec.metricIds.length} KPIs${spec.dimensions.length ? ` broken down by ${spec.dimensions.map((d) => d.replace(/_/g, " ")).join(", ")}` : ""}${spec.comparison ? `, compared with ${spec.comparison === "prior_year" ? "the same period last year" : "the period before"}` : ", not compared"}.`, fix: spec.metricIds.length === 0 ? { label: "Choose KPIs", to: spec_ } : null },
-    { id: "outputs", title: "Outputs", level: "pass", detail: `The report every run, and a dashboard composed at activation under KPIs → Dashboards${spec.template === "metric_diagnosis" ? " (the KPI, its trend, where the change sits, and one breakdown per dimension searched)" : spec.template === "at_risk" ? " (the context KPIs and the latest briefing); the recommendations under this use case's Recommendations panel" : ""}.${recipients.length ? ` Emailed to ${recipients.join(", ")}.` : " In-app only: no email address given."}`, fix: null },
+    { id: "outputs", title: "Outputs", level: "pass", detail: `The report every run, and a dashboard composed at activation under KPIs → Dashboards${spec.template === "metric_diagnosis" ? " (the KPI, its trend, where the change sits, and one breakdown per dimension searched)" : spec.template === "at_risk" ? " (the context KPIs, the latest briefing and every recommendation with its play)" : ""}.${recipients.length ? ` Emailed to ${recipients.join(", ")}.` : " In-app only: no email address given."}`, fix: null },
     { id: "grounding", title: "Narrative checked against the numbers", level: "pass", detail: `The AI step writes the narrative from ${spec.template === "metric_diagnosis" ? "the decomposition" : spec.template === "at_risk" ? "the scored list and the plays" : spec.comparison ? "the comparison" : "the numbers"}; a deterministic check rejects it if any figure is not one the numbers carry, and the report then goes out with the numbers alone.`, fix: null },
     { id: "ownership", title: "Ownership", level: spec.owner ? "pass" : "fail", detail: spec.owner ? `${spec.owner} owns this once it is live.` : "Nobody owns this yet.", fix: spec.owner ? null : { label: "Set an owner", to: spec_ } },
    ];
@@ -281,11 +284,10 @@ export default function UseCasePreflightScreen() {
  const blocked = !done || fails.length > 0 || unacked.length > 0;
 
  return (
-  <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+  <UseCaseBuilderStepFrame current={3}>
    <div>
-    <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Step 3 of 6</p>
-    <h1 className="text-2xl font-bold text-text-primary">Readiness check</h1>
-    <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+    <h1 className={builderStepH1}>Readiness check</h1>
+    <p className={builderStepSubtitle}>
      Checked before this goes any further. <strong className="text-text-primary">{displayName(spec)}</strong> · level {level.level} - {checks.length} checks apply. Failures must be fixed; warnings must be acknowledged.
     </p>
    </div>
@@ -320,7 +322,7 @@ export default function UseCasePreflightScreen() {
      if (arriving) {
       return (
        <div key={`${c.id}-arriving`}>
-        {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
+        {firstOfGroup && <p className={builderGroupLabel}>{groupLabel}</p>}
         <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-text-muted">
          <Loader2 size={15} className="animate-spin text-primary" /> {c.probe ? `Connecting: ${c.title.toLowerCase()}, the platform is opening it now…` : `Checking ${c.title.toLowerCase()}…`}
         </div>
@@ -332,7 +334,7 @@ export default function UseCasePreflightScreen() {
      const needsAck = c.level === "warn" && !acked.has(c.id);
      return (
       <div key={c.id} className="readiness-check">
-       {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
+       {firstOfGroup && <p className={builderGroupLabel}>{groupLabel}</p>}
        <div className={`rounded-xl border px-4 py-3 ${meta.bg}`}>
        <div className="flex flex-wrap items-start gap-2.5">
         <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${c.level === "pass" ? "bg-status-success-light" : c.level === "warn" ? "bg-status-warning-light" : "bg-status-critical-light"}`}><Icon size={13} className={meta.cls} /></span>
@@ -352,15 +354,15 @@ export default function UseCasePreflightScreen() {
     })}
    </div>
 
-   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Back to the specification</button>
+   <div className={builderStepFooter}>
+    <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className={builderStepBackButton}>Back to the specification</button>
     <div className="flex items-center gap-3">
      {blocked && <span className="text-xs text-text-muted">{!done ? "checking…" : fails.length > 0 ? `${fails.length} to fix` : `${unacked.length} to acknowledge`}</span>}
-     <button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
+     <Button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="gap-1.5 disabled:cursor-not-allowed disabled:opacity-40">
       <ShieldCheck size={15} /> See how it will run <ArrowRight size={15} />
-     </button>
+     </Button>
     </div>
    </div>
-  </div>
+  </UseCaseBuilderStepFrame>
  );
 }

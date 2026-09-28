@@ -13,7 +13,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -242,7 +242,8 @@ class RecommendationStore:
                     # The report's order: still-in-range first (those a rep can still save), then
                     # by what is at stake weighted by how likely it is lost.
                     "ORDER BY COALESCE(CAST(context->>'stalled' AS boolean), false) ASC, "
-                    "value_at_stake * risk_score DESC, created_at DESC LIMIT :limit"
+                    "COALESCE(CAST(context->>'priority' AS double precision), "
+                    "value_at_stake * risk_score) DESC, created_at DESC LIMIT :limit"
                 ),
                 params,
             ).mappings()
@@ -262,7 +263,9 @@ class RecommendationStore:
             ).all()
         out = {s: 0 for s in STATUSES}
         for status, n in rows:
-            out[str(status)] = int(n)
+            # A Row unpacks as `object` under the SQLAlchemy stubs CI resolves, so the count
+            # is cast rather than left to int()'s overloads.
+            out[str(status)] = int(cast(int, n))
         return out
 
     async def acounts(self, use_case_id: Optional[str] = None) -> Dict[str, int]:

@@ -22,10 +22,10 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
  const rs = recommendations?.summary || {};
  const high = outcomes?.precision?.high;
  const tiles = [
-  { label: "Act now", value: s.at_risk_within_range ?? 0, note: `quotes at risk, still in range · ${money(s.value_at_risk_within_range)}`, tone: "text-status-critical" },
+  { label: "Act now", value: s.at_risk_within_range ?? 0, note: `of ${s.within_range ?? 0} still inside their window are at risk · ${money(s.value_at_risk_within_range)}`, tone: "text-status-critical" },
   { label: "Already stalled", value: s.stalled ?? 0, note: `of ${(s.open_quotes ?? 0).toLocaleString()} open quotes past the usual time to close`, tone: "text-text-primary" },
   { label: "Accounts at risk", value: s.at_risk_accounts ?? 0, note: `of ${(s.accounts_scored ?? 0).toLocaleString()} · no quote in ${risk.churn_days} days`, tone: "text-status-warning" },
-  { label: "Handed to Decision Intelligence", value: `${rs.recommendations ?? 0} + ${rs.alerts ?? 0}`, note: high?.named ? `recommendations + alerts · so far ${high.did_not_convert} of ${high.named} named high risk did not convert` : `recommendations + alerts · ${money(rs.value_at_stake)} at stake`, tone: "text-primary" },
+  { label: "Handed to Decision Intelligence", value: <>{rs.recommendations ?? 0} <span className="text-base font-semibold text-text-secondary">({s.high_within_range ?? rs.alerts ?? 0} high + {s.medium_within_range ?? Math.max(0, (rs.recommendations ?? 0) - (rs.alerts ?? 0))} medium)</span></>, note: `recommendations, one per at-risk quote · the ${rs.alerts ?? 0} high-risk ones also alerted to ${rs.owners ?? 0} reps${high?.named ? ` · so far ${high.did_not_convert} of ${high.named} named high risk did not convert` : ""}`, tone: "text-primary" },
  ];
  return (
   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -36,6 +36,83 @@ function AtRiskTiles({ risk, recommendations, outcomes }) {
      <p className="text-[11px] text-text-muted">{t.note}</p>
     </div>
    ))}
+  </div>
+ );
+}
+
+const LOSS_WORDS = [
+ [["competitor"], "lost to a competitor"],
+ [["budget", "constraints"], "lost on budget"],
+ [["response"], "went quiet — no response"],
+ [["specification", "alternative"], "lost to an alternative specification"],
+ [["decision", "delayed"], "the decision was delayed"],
+ [["price", "high"], "lost on price"],
+];
+const lossWords = (reason) => {
+ const words = new Set(String(reason || "").toLowerCase().replace(/\//g, " ").split(/\s+/));
+ const hit = LOSS_WORDS.find(([keys]) => keys.some((k) => words.has(k)));
+ return hit ? hit[1] : reason ? `lost: ${reason}` : "";
+};
+
+/** Why this quote is at risk, specifically: the model's drivers in words, and what we lost
+ *  on this account before -- the reason, the quote, when, and the record. */
+function WhyAtRisk({ record, compact = false }) {
+ // The play already says its reason; a driver that repeats it is noise.
+ const because = record?.action?.because || "";
+ const drivers = (record?.drivers || []).map((d) => d.text).filter((t) => t && !because.includes(t)).slice(0, compact ? 2 : 3);
+ const lost = record?.context?.lost_before;
+ if (!drivers.length && !lost?.reason) return null;
+ return (
+  <div className="mt-1 space-y-0.5">
+   {drivers.length > 0 && <p className="text-[11px] text-text-secondary"><span className="font-semibold text-text-muted">Why at risk:</span> {drivers.join("; ")}</p>}
+   {lost?.reason && (
+    <p className="text-[11px] text-status-critical"><span className="font-semibold">Lost before:</span> {lossWords(lost.reason)}{lost.quote_id ? ` (${lost.category || ""} quote ${lost.quote_id}${lost.date ? `, ${String(lost.date).slice(0, 10)}` : ""})` : ""}{lost.quotes ? <span className="text-text-muted"> · this account: {lost.won || 0} won, {lost.lost || 0} lost of {lost.quotes} earlier quotes</span> : null}</p>
+   )}
+  </div>
+ );
+}
+
+const FACTOR = {
+ "high value": ["High value", "bg-primary-light text-primary"],
+ "low-hanging": ["Low-hanging", "bg-status-success-light text-status-success"],
+ "closing soon": ["Closing soon", "bg-status-warning-light text-status-warning"],
+ "key account": ["Key account", "bg-status-info-light text-status-info"],
+ "known lever": ["Known lever", "bg-surface-secondary text-text-secondary"],
+};
+
+/** This week's ten (K26): the quotes to attack in the next days, chosen by a blend of value,
+ *  winnability, urgency, the account's worth and whether the lever is known -- and what
+ *  they are worth if the plays land. The full list follows. */
+function ThisWeeksTen({ risk, recommendations }) {
+ const focus = risk?.focus;
+ const quotes = focus?.quotes || [];
+ if (!quotes.length) return null;
+ const byId = Object.fromEntries((recommendations?.recommendations || []).map((r) => [String(r.subject_id), r]));
+ const counts = Object.entries(focus.factor_counts || {}).filter(([, n]) => n);
+ return (
+  <div className="mt-3 rounded-xl border-2 border-primary/30 bg-primary-light/20 px-4 py-3">
+   <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">This week's ten</p>
+   <p className="mt-0.5 text-base font-bold text-text-primary">Attack these {quotes.length} in the next {focus.days} days: {money(focus.value)} of quotes, <span className="text-status-critical">{money(focus.at_risk)}</span> of it otherwise lost</p>
+   <p className="text-[11px] text-text-muted">Chosen by a blend of value, how winnable each still is, how soon its window closes, what the account is worth and whether the lever is known{focus.closest_days != null ? ` — the first window closes ${focus.closest_days === 0 ? "today" : `in ${focus.closest_days} day${focus.closest_days === 1 ? "" : "s"}`}` : ""}.</p>
+   <div className="mt-1.5 flex flex-wrap gap-1.5">{counts.map(([f, n]) => <span key={f} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${FACTOR[f]?.[1] || ""}`}>{FACTOR[f]?.[0] || f} · {n}</span>)}</div>
+   <div className="mt-2 grid gap-1.5">
+    {quotes.map((q, i) => { const r = byId[String(q.quote_id)] || {}; const ctx = r.context || {}; const a = r.action || {}; return (
+     <div key={q.quote_id} className="grid grid-cols-[1.5rem_minmax(0,1.3fr)_auto_minmax(0,1.2fr)] items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+      <span className="pt-0.5 tabular-nums text-text-muted">{i + 1}</span>
+      <div className="min-w-0">
+       <p className="truncate font-semibold text-text-primary">{r.subject_label || `Quote ${q.quote_id}`}</p>
+       <p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {q.days_left === 0 ? "window closes today" : `${q.days_left} day${q.days_left === 1 ? "" : "s"} left`}</p>
+       <p className="mt-0.5 flex flex-wrap gap-1">{(q.factors || []).map((f) => <span key={f} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FACTOR[f]?.[1] || ""}`}>{FACTOR[f]?.[0] || f}</span>)}</p>
+      </div>
+      <div className="text-right tabular-nums">
+       <p className="font-semibold text-text-primary">{money(q.value)}</p>
+       <p className={q.level === "high" ? "text-status-critical" : "text-status-warning"}>{Math.round((q.risk || 0) * 100)}% risk</p>
+       <p className="text-[11px] text-text-muted">{money(q.value_at_risk)} at risk</p>
+      </div>
+      <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] font-semibold text-primary">{a.owner || r.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p><WhyAtRisk record={r} compact /></div>
+     </div>
+    ); })}
+   </div>
   </div>
  );
 }
@@ -51,7 +128,7 @@ const matches = (r, q) => {
 
 function NextBestActions({ recommendations }) {
  const all = recommendations?.recommendations || [];
- const [open, setOpen] = useState(true);
+ const [open, setOpen] = useState(false);
  const [query, setQuery] = useState("");
  if (!all.length) return null;
  const recs = all.filter((r) => matches(r, query));
@@ -60,7 +137,7 @@ function NextBestActions({ recommendations }) {
  return (
   <div className="mt-3">
    <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
-    <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · {all.length} recommendations · {money(value)} at stake · ranked by what can still be saved</span>
+    <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Next best actions · {all.length} recommendations · {money(value)} at stake · ranked by what can still be saved, weighted by what the account is worth</span>
     <span className="ml-auto text-[11px] font-semibold text-primary">{open ? "Hide" : "Show all"}</span>
    </button>
    <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -75,7 +152,7 @@ function NextBestActions({ recommendations }) {
        <span className="pt-0.5 tabular-nums text-text-muted">{all.indexOf(r) + 1}</span>
        <div className="min-w-0"><p className="truncate font-semibold text-text-primary">{r.subject_label}</p><p className="truncate text-text-secondary">{r.account_label}{ctx.territory ? ` · ${ctx.territory}` : ""} · {ctx.age_days} of {ctx.usual_days} days{ctx.stalled ? " · past usual" : ""}</p><p className="truncate text-[11px] text-text-muted">RFM {acct.segment || "-"}{acct.at_risk ? " · account at risk of churn" : ""}{r.owner ? ` · rep ${r.owner}` : ""}</p></div>
        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[r.risk_level] || ""}`}>{r.risk_level} · {Math.round((r.risk_score || 0) * 100)}%</span>
-       <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p></div>
+       <div className="min-w-0"><p className="font-semibold text-text-primary">{a.title}</p><p className="text-text-secondary">{a.because}</p><p className="text-[11px] text-primary">{a.owner}{a.sla_hours ? ` · within ${a.sla_hours >= 24 ? `${Math.round(a.sla_hours / 24)}d` : `${a.sla_hours}h`}` : ""}</p><WhyAtRisk record={r} /></div>
       </div>
      ); })}
     </div>
@@ -193,6 +270,7 @@ export default function UseCaseLatestReport({ title }) {
    </div>
    <p className="mt-1.5 text-sm font-semibold text-text-primary">{report.explanation?.headline || report.headline}</p>
    {d && <div className="mt-3"><DiagnosisInsight diagnosis={d} compact hideHero hideMovers /></div>}
+   {risk && <ThisWeeksTen risk={risk} recommendations={report.recommendations} />}
    {risk && <NextBestActions recommendations={report.recommendations} />}
    {risk && <ReportDrawer report={report} name={useCase.title} runHref={`/use-cases/platform/${encodeURIComponent(useCase.id)}`} />}
    <button type="button" onClick={() => navigate(`/use-cases/platform/${encodeURIComponent(useCase.id)}`)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open the run <ExternalLink size={11} /></button>

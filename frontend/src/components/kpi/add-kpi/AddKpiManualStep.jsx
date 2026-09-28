@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Plus, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, Plus, RefreshCw, Sparkles } from "lucide-react";
 import { fetchSemanticTables } from "../../../services/semantic-tables-api";
+import { SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "../KpiDiscovery";
 import { FIELD_INPUT } from "../ModeCard";
 import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
 
@@ -18,6 +19,16 @@ import { GRAIN_OPTIONS, LEVEL_OPTIONS } from "./grain-options";
  *
  * `saving` is the modal's, not this step's: the modal needs it to refuse a backdrop / X
  * dismiss while the POST is in flight (see `AddKpiModal.jsx`); this step only reports it.
+ *
+ * `prefill` (optional): a `KpiSuggestion` from "Add KPI" -> AI-assisted (`AddKpiAiStep.jsx`),
+ * chosen but not yet saved. Seeds every field below with the agent's draft -- still this same
+ * form, still this same `POST /kpis`, still refused the same way a bad hand-typed formula is;
+ * the only difference is where the first draft came from. `identifier`/`subject_area`/
+ * `rationale`/`business_value`/`formula_explanation`/`column_usage`/`table_usage` have no
+ * input of their own (the draft's are carried straight through on save, unedited, the same
+ * fields `KpiDiscoveryPage.jsx`'s `handleAdopt` already sends for a suggestion adopted as-is)
+ * -- editing the concept/name after a prefill would make a stale `identifier` wrong, so it is
+ * dropped rather than carried when either changes.
  */
 const INPUT = `mt-1 ${FIELD_INPUT}`;
 const LABEL = "block text-xs font-semibold text-text-primary";
@@ -29,19 +40,28 @@ export default function AddKpiManualStep({
  saving = false,
  onSavingChange,
  onCreate,
+ prefill = null,
+ onBack,
 }) {
- const [name, setName] = useState("");
- const [description, setDescription] = useState("");
- const [businessArea, setBusinessArea] = useState("");
- const [concept, setConcept] = useState("");
- const [grain, setGrain] = useState("overall");
- const [resultShape, setResultShape] = useState("scalar");
+ const [name, setName] = useState(prefill?.name || "");
+ const [description, setDescription] = useState(prefill?.description || "");
+ const [businessArea, setBusinessArea] = useState(prefill?.business_area || "");
+ // A suggestion's `identifier` is `<concept>__<slug>`; concept has no field of its own on
+ // `KpiSuggestion`, so the same split `AddKpiAiStep`'s cards don't need but the form does.
+ const [concept, setConcept] = useState(prefill?.concept || prefill?.identifier?.split("__")[0] || "");
+ const [grain, setGrain] = useState(prefill?.grain || "overall");
+ const [resultShape, setResultShape] = useState(prefill?.result_shape || "scalar");
  const [unit, setUnit] = useState("");
  const [level, setLevel] = useState("");
- const [sql, setSql] = useState("");
- const [sourceTables, setSourceTables] = useState(() => new Set());
+ const [sql, setSql] = useState(prefill?.proposed_sql || "");
+ const [sourceTables, setSourceTables] = useState(() => new Set(prefill?.derived_from_tables || []));
  const [tableState, setTableState] = useState({ status: "loading", tables: [], error: null });
  const [error, setError] = useState(null);
+ // The draft's `identifier` (`<concept>__<slug>`) is only valid for the name/concept it was
+ // derived from -- a snapshot, not state, since nothing here should re-run when it changes.
+ // `submit` below only resends it while `name`/`concept` still match; edited past that, the
+ // server derives a fresh one from whatever is actually being saved, same as a plain manual add.
+ const prefillOrigin = useRef({ name: name, concept: concept });
 
  useEffect(() => {
   const controller = new AbortController();
@@ -85,6 +105,11 @@ export default function AddKpiManualStep({
  if (sourceTables.size === 0) missing.push("at least one source table");
  const canSave = missing.length === 0 && !saving;
 
+ const identifierStillValid =
+  !!prefill?.identifier &&
+  name.trim() === prefillOrigin.current.name &&
+  concept.trim() === prefillOrigin.current.concept;
+
  const submit = async () => {
   if (!canSave) return;
   onSavingChange?.(true);
@@ -101,6 +126,17 @@ export default function AddKpiManualStep({
     source_tables: [...sourceTables],
     ...(unit.trim() ? { unit: unit.trim() } : {}),
     ...(level ? { level } : {}),
+    // Carried through from an AI-assisted draft, unedited -- same fields `handleAdopt`
+    // (`KpiDiscoveryPage.jsx`) sends for a suggestion adopted without a detour through this
+    // form. `identifier` only while it still names what is actually being saved (above);
+    // the rest describe the KPI, not its identity, so they ride along regardless.
+    ...(identifierStillValid ? { identifier: prefill.identifier } : {}),
+    ...(prefill ? { subject_area: prefill.concept ?? null } : {}),
+    ...(prefill?.rationale != null ? { rationale: prefill.rationale } : {}),
+    ...(prefill?.business_value != null ? { business_value: prefill.business_value } : {}),
+    ...(prefill?.formula_explanation != null ? { formula_explanation: prefill.formula_explanation } : {}),
+    ...(prefill?.column_usage != null ? { column_usage: prefill.column_usage } : {}),
+    ...(prefill?.table_usage != null ? { table_usage: prefill.table_usage } : {}),
    });
   } catch (err) {
    // Aborted means the page is gone (it aborts its in-flight create on unmount); there is
@@ -120,6 +156,41 @@ export default function AddKpiManualStep({
 
  return (
   <>
+   {prefill && (
+    <div className="mb-4 rounded-lg border border-primary/25 bg-primary-light/30 px-3 py-2.5 dark:bg-primary/10">
+     <div className="flex items-center justify-between gap-2">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+       <Sparkles size={12} />
+       Pre-filled from your description -- review before saving.
+      </p>
+      {onBack && (
+       <button
+        type="button"
+        onClick={onBack}
+        disabled={saving}
+        className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary disabled:opacity-60"
+       >
+        <ArrowLeft size={11} />
+        Different draft
+       </button>
+      )}
+     </div>
+     {(prefill.rationale || prefill.business_value) && (
+      <div className="mt-1.5 space-y-0.5 text-[11px] text-text-secondary">
+       {prefill.rationale && (
+        <p>
+         <span className="font-semibold text-text-primary">{SUGGESTION_RATIONALE_LABEL}:</span> {prefill.rationale}
+        </p>
+       )}
+       {prefill.business_value && (
+        <p>
+         <span className="font-semibold text-text-primary">{SUGGESTION_VALUE_LABEL}:</span> {prefill.business_value}
+        </p>
+       )}
+      </div>
+     )}
+    </div>
+   )}
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
     <div className="sm:col-span-2">
      <label htmlFor="kpi-name" className={LABEL}>Name</label>

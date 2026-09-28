@@ -69,17 +69,16 @@ def suggest(
 
         knowledge = ontology = None
         if with_prose:
-            from egpt.knowledge.knowledge import Knowledge
+            # One assembly, shared with the playground's knowledge mode: two copies of this
+            # would be two places deciding which embedder the prose and ontology indexes are
+            # built from, and `knowledge/embedding.py` exists so that is decided once. The
+            # vector backend is chosen inside it by `knowledge/vector.py`, so this path and
+            # `load-knowledge` cannot end up on different stores.
+            from egpt_retail.app.stores import build_knowledge_stores
 
-            from egpt_retail.knowledge.embedding import resolve_knowledge_embedder
-            from egpt_retail.knowledge.vector import build_knowledge_vector_db
-            from egpt_retail.ontology.store import OntologyStore
-
-            embedder = resolve_knowledge_embedder(mode=settings.retail_provider_mode)
-            knowledge = Knowledge(
-                vector_db=build_knowledge_vector_db(settings, embedder.embedder)
-            )
-            ontology = OntologyStore(driver=driver, embedder=embedder.embedder)
+            stores = build_knowledge_stores(settings, driver)
+            knowledge = stores.knowledge
+            ontology = stores.ontology
 
         # Example values, read from the warehouse for this pass only. The graph never holds
         # them (rows stay in the warehouse), and without them the KPI agent's three-run

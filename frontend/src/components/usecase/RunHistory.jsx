@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Clock, ExternalLink, FlaskConical, Play, Ref
 import { RunResultView } from "./PlatformRunPanel";
 import { money, runStats } from "../../domain/use-case-platform";
 import { relativeTimeFromNow as _rel } from "../../domain/alerts-view";
+import EmptyState from "../ui/EmptyState";
 
 const rel = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
 const STATUS = { succeeded: "bg-status-success-light text-status-success", failed: "bg-status-critical-light text-status-critical", blocked: "bg-status-warning-light text-status-warning", running: "bg-status-info-light text-status-info", queued: "bg-surface-secondary text-text-secondary", cancelled: "bg-surface-secondary text-text-muted" };
@@ -77,7 +78,7 @@ export default function RunHistory({ runs, onRefresh, refreshing = false, refres
            <span className="bg-status-critical-dot" style={{ width: `${(s.exceptions / maxReceived) * 100}%` }} />
            <span className="bg-status-warning-dot" style={{ width: `${(s.held / maxReceived) * 100}%` }} />
           </span>
-          {s.report && s.scored ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.scored.open.toLocaleString()}</strong> quotes scored, <strong className="text-status-critical">{s.scored.atRiskInRange}</strong> at risk in range → {s.scored.recommendations} recommendation{s.scored.recommendations === 1 ? "" : "s"}, {s.scored.alerts} alert{s.scored.alerts === 1 ? "" : "s"} {s.scored.alertsStatus === "sent" ? <strong className="text-status-success">emailed</strong> : s.scored.alertsStatus === "held" ? "composed" : s.scored.alertsStatus || ""}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
+          {s.report && s.scored ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.scored.open.toLocaleString()}</strong> quotes scored, <strong className="text-status-critical">{s.scored.atRiskInRange}</strong> of {s.scored.withinRange} in their window at risk → {s.scored.recommendations} recommendation{s.scored.recommendations === 1 ? "" : "s"}, {s.scored.alerts} of them {s.scored.alertsStatus === "sent" ? <strong className="text-status-success">alerted to reps</strong> : s.scored.alertsStatus === "held" ? "alerts composed" : s.scored.alertsStatus || ""}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
           : s.report ? <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> {s.diagnosed ? `KPI${s.received === 1 ? "" : "s"} diagnosed` : s.compared ? "KPIs compared" : "KPIs read"} → report {s.notify === "sent" ? <strong className="text-status-success">emailed</strong> : s.notify === "held" ? "composed, not sent" : "in-app"}{s.headline ? <span className="text-text-muted"> · {s.headline}</span> : null}</span>
           : <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.hasValue && s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>}
           {Object.keys(s.byClass).length > 0 && (
@@ -107,7 +108,7 @@ export default function RunHistory({ runs, onRefresh, refreshing = false, refres
     })}
    </ul>
    {idleCount > 0 && <button type="button" onClick={() => setShowIdle((v) => !v)} className="mt-2 text-xs font-semibold text-text-muted hover:text-primary">{showIdle ? "Hide" : "Show"} {idleCount} quiet poll{idleCount === 1 ? "" : "s"} that found nothing new</button>}
-   {runs.length === 0 && <p className="mt-2 text-sm text-text-muted">No runs yet.</p>}
+   {runs.length === 0 && <EmptyState icon={<Clock size={20} aria-hidden className="text-text-muted" />} title="No runs yet." />}
   </section>
  );
 }

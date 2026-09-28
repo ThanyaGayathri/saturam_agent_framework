@@ -30,6 +30,7 @@ import {
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 import { fetchSources } from "../../services/sources-api";
+import { listUseCases } from "../../services/use-cases-api";
 
 // Polling cadence while a source's KPI suggestions are being generated: the standing list is read
 // every 3s, every 6s once it has been going for a minute, and given up at 5 minutes -- the backend's
@@ -151,6 +152,13 @@ export default function KpiDiscoveryPage() {
  // rows above render immediately regardless of this state. A failure is a small note, not a
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
+ // The platform's own use cases (K16's `/use-cases`), fetched once, additive like
+ // `realKpiState` above: a KPI's "Powered by" chips and the detail panel's "Mapping detail
+ // -> Use cases" list read `linked_kpi_ids` off these rather than the frontend-only demo
+ // catalog (`kpi-usecase-links.js`), which never heard of a use case this deployment
+ // actually stored. A failure here is a small note, not a crash -- the "Powered by" column
+ // just falls back to the demo catalog entries alone.
+ const [realUseCaseState, setRealUseCaseState] = useState({ status: "loading", useCases: [] });
  // The business areas, from `GET /business-areas` on page load: the options the focus prompt
  // offers (supported ones selectable, with K9's evidence; the rest greyed with its reason) and
  // the labels real rows are grouped under. Held here, not in the per-profile localStorage list
@@ -339,6 +347,34 @@ export default function KpiDiscoveryPage() {
    cancelled = true;
   };
  }, []);
+
+ useEffect(() => {
+  let cancelled = false;
+  listUseCases()
+   .then((useCases) => {
+    if (!cancelled) setRealUseCaseState({ status: "ready", useCases });
+   })
+   .catch(() => {
+    if (!cancelled) setRealUseCaseState({ status: "error", useCases: [] });
+   });
+  return () => {
+   cancelled = true;
+  };
+ }, []);
+
+ // identifier -> [{id, title}], from every stored use case's `linked_kpi_ids` (K16's own
+ // `spec.kpi_identifiers`, unchanged since -- see `usecases/service.py`'s `catalog_view`).
+ // A KPI with no use case pointing at it is simply absent, not an empty-array entry.
+ const realUseCasesByKpiId = useMemo(() => {
+  const map = new Map();
+  for (const uc of realUseCaseState.useCases) {
+   for (const kpiId of uc.linked_kpi_ids || []) {
+    if (!map.has(kpiId)) map.set(kpiId, []);
+    map.get(kpiId).push({ id: uc.id, title: uc.title });
+   }
+  }
+  return map;
+ }, [realUseCaseState.useCases]);
 
  // Retriable (the prompt offers a Retry when the graph could not be asked), hence a function
  // the effect calls rather than the effect itself. On success the persisted focus is reconciled
@@ -821,7 +857,15 @@ export default function KpiDiscoveryPage() {
    // to" links to. A name in the first but not the second belongs to someone else and stays
    // a plain, non-clickable label -- `MapsToCell` does the matching.
    dashboardNames: k.dashboard_names || [],
+   // The subset of `dashboardNames` this caller may actually open, carrying the id "Maps to"
+   // links to (contract 1.16.0). A name in `dashboardNames` but absent here belongs to
+   // someone else and stays a plain, non-clickable label -- `MapsToCell` does the matching.
    dashboards: k.dashboards || [],
+   // Stored use cases whose `linked_kpi_ids` name this KPI -- the "Powered by" column and
+   // the detail panel's "Mapping detail -> Use cases" list. Same reasoning as
+   // `dashboardNames`: always empty for a suggestion, which has no registry identifier for a
+   // use case to reference yet.
+   linkedUseCases: realUseCasesByKpiId.get(k.identifier) || [],
    // Null for a hand-authored KPI or one adopted before the registry kept them; the panel
    // renders the section only when at least one is present.
    rationale: k.rationale || "",
@@ -879,8 +923,8 @@ export default function KpiDiscoveryPage() {
 
  const realRows = useMemo(
   () => realKpiState.kpis.map((k, index) => rowFromRegistryKpi(k, index)),
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `rowFromRegistryKpi` closes over `realAreaLabelById` only.
-  [realKpiState.kpis, realAreaLabelById]
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `rowFromRegistryKpi` closes over `realAreaLabelById` and `realUseCasesByKpiId` only.
+  [realKpiState.kpis, realAreaLabelById, realUseCasesByKpiId]
  );
 
  // Live suggestions, mapped to rows the same way the static array used to be. A suggestion the
@@ -987,7 +1031,13 @@ export default function KpiDiscoveryPage() {
     onToggleActive={handleToggleActive}
     togglingActiveIds={togglingActiveIds}
     profileId={profileId}
-    onOpenUseCase={(cid) => navigate(useCaseActivationPath(cid))}
+    onOpenUseCase={(entry) =>
+     navigate(
+      entry.kind === "real"
+       ? `/use-cases/platform/${encodeURIComponent(entry.id)}`
+       : useCaseActivationPath(entry.id)
+     )
+    }
     onOpenDashboard={(id) => navigate(`/kpis/dashboards/${id}`)}
    />
 

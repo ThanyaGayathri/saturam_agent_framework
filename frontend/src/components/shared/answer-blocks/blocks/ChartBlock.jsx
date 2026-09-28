@@ -25,28 +25,47 @@ function toNumber(v) {
 function SimpleBar({ data, xKey, yKey, height = 180 }) {
   const rows = data.map((row) => ({ label: String(row[xKey] ?? ""), value: toNumber(row[yKey]) }));
   const max = Math.max(1, ...rows.map((r) => r.value));
+  // A percentage height only resolves against a parent with an explicit (non-percentage,
+  // non-auto) height -- the per-bar wrapper here is an auto-sized flex column, so `height:
+  // X%` on the bar itself computed against nothing and every bar silently collapsed to the
+  // 4px `minHeight` floor, whatever its real value. Observed directly: a real 10-brand
+  // dataset with values from 295 to 938 rendered as ten identical flat lines. Reserving a
+  // fixed pixel height for the bar area and computing each bar's height in pixels, in JS,
+  // sidesteps the whole percentage-resolution question rather than fighting it in CSS.
+  const labelHeight = 28;
+  const barAreaHeight = Math.max(20, height - labelHeight);
   return (
-    <div className="flex items-end gap-2" style={{ height }}>
-      {rows.map((r, i) => {
-        const heightPct = (r.value / max) * 100;
-        return (
-          <div key={`${r.label}-${i}`} className="flex flex-1 flex-col items-center gap-1 min-w-0">
+    <div style={{ height }}>
+      <div className="flex items-end gap-2" style={{ height: barAreaHeight }}>
+        {rows.map((r, i) => (
+          <div
+            key={`${r.label}-${i}`}
+            className="flex flex-1 min-w-0 flex-col justify-end"
+            style={{ height: barAreaHeight }}
+          >
             <div
               className="w-full rounded-t transition-all"
               style={{
-                height: `${heightPct}%`,
+                height: Math.max(4, (r.value / max) * barAreaHeight),
                 backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
-                minHeight: 4,
               }}
               title={`${r.label}: ${formatChartNumber(r.value)}`}
               aria-label={`${r.label}: ${formatChartNumber(r.value)}`}
             />
-            <span className="w-full truncate text-center text-[10px] text-text-muted">
-              {r.label}
-            </span>
           </div>
-        );
-      })}
+        ))}
+      </div>
+      <div className="mt-1 flex gap-2">
+        {rows.map((r, i) => (
+          <span
+            key={`${r.label}-${i}`}
+            className="flex-1 min-w-0 truncate text-center text-[10px] text-text-muted"
+            title={r.label}
+          >
+            {r.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -134,6 +153,58 @@ function SimplePie({ data, labelKey, valueKey, size = 160 }) {
   );
 }
 
+/**
+ * A real line chart: every point plotted, labeled by its own `label` (a month, a week,
+ * whatever the data actually names), hover shows that label -- not `DemoAreaSpark`'s
+ * generic "WEEK N", which is a different component built for a small inline glyph with no
+ * per-point labels or ticks. `chartKind: "spark"` still uses that one; `"line"` is the
+ * user's explicit ask for a real trend chart and needs its own.
+ */
+function SimpleLine({ data, xKey, yKey, height = 180 }) {
+  const rows = data.map((row) => ({ label: String(row[xKey] ?? ""), value: toNumber(row[yKey]) }));
+  const values = rows.map((r) => r.value);
+  const max = Math.max(...values);
+  const min = Math.min(0, ...values);
+  const range = max - min || 1;
+  const width = 100;
+  const step = rows.length > 1 ? width / (rows.length - 1) : 0;
+  const points = rows.map((r, i) => ({
+    ...r,
+    x: rows.length > 1 ? i * step : width / 2,
+    y: 100 - ((r.value - min) / range) * 100,
+  }));
+  const path = points.map((p) => `${p.x},${p.y}`).join(" ");
+  return (
+    <div style={{ height }}>
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        className="h-[calc(100%-20px)] w-full overflow-visible"
+        role="img"
+        aria-label="Trend chart"
+      >
+        <polyline points={path} fill="none" stroke={BAR_COLORS[0]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        {points.map((p, i) => (
+          <circle key={`${p.label}-${i}`} cx={p.x} cy={p.y} r="2" fill={BAR_COLORS[0]} vectorEffect="non-scaling-stroke">
+            <title>{`${p.label}: ${formatChartNumber(p.value)}`}</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="mt-1 flex justify-between" style={{ height: 20 }}>
+        {rows.map((r, i) => (
+          <span
+            key={`${r.label}-${i}`}
+            className="flex-1 truncate text-center text-[10px] text-text-muted"
+            title={`${r.label}: ${formatChartNumber(r.value)}`}
+          >
+            {r.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function renderChart(block) {
   const kind = block.chartKind;
   const cfg = block.config || {};
@@ -143,7 +214,7 @@ function renderChart(block) {
     return <p className="text-sm text-text-muted">No data available for this view.</p>;
   }
 
-  if (kind === "spark" || kind === "line") {
+  if (kind === "spark") {
     const yKey = cfg.yKey || Object.keys(data[0] || {}).find((k) => typeof data[0][k] === "number") || "value";
     const series = data.map((row) => toNumber(row[yKey]));
     return (
@@ -153,6 +224,9 @@ function renderChart(block) {
         color={cfg.color}
       />
     );
+  }
+  if (kind === "line") {
+    return <SimpleLine data={data} xKey={cfg.xKey || "label"} yKey={cfg.yKey || "value"} height={cfg.height} />;
   }
   if (kind === "bar") {
     return <SimpleBar data={data} xKey={cfg.xKey || "label"} yKey={cfg.yKey || "value"} height={cfg.height} />;

@@ -383,7 +383,7 @@ function describe(st, spec, reads) {
   case "recommend":
    return {
     title: `Chooses a play for each at-risk quote; ends in ${slotValue(spec, "outcome")}`,
-    detail: "By rule from the catalogue, never by the model: the account's last loss first (specification, price, competitor, decision), then its churn state and RFM segment, a channel account still in qualification, a low-value quote past twice the usual (release), high risk above the territory's typical quote (escalate), else re-engage. Each record carries the play, who owns it, by when and why; written to the recommendations store where Decision Intelligence and the Recommendations screen read them. An open record is refreshed by the next run; a decided one is kept.",
+    detail: "By rule from the catalogue, never by the model: the account's last loss first (specification, price, competitor, decision), then its churn state, a channel account still in qualification, a low-value quote past twice the usual (release), high risk on a Champions or Cannot-lose-them account (escalate, whatever the quote's size), a new account stalling (decision support), high risk above the territory's typical quote (escalate), else re-engage. Each record carries the play, who owns it, by when and why; written to the recommendations store where Decision Intelligence and the dashboard read them. An open record is refreshed by the next run; a decided one is kept.",
    };
   case "send_alerts":
    return {

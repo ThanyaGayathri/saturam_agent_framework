@@ -1,19 +1,26 @@
 // Active chat conversation in Playground
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronLeft } from "lucide-react";
+import { ArrowDown, ChevronLeft } from "lucide-react";
 import logoSvg from "../assets/retailgpt-logo.svg";
 import PlaygroundAssistantMessage from "./shared/PlaygroundAssistantMessage";
 import PlaygroundHubComposerOptions from "./shared/PlaygroundHubComposerOptions";
 import HeaderNotificationsAndProfile from "./shared/HeaderNotificationsAndProfile";
+import ChatHistorySidebar from "./shared/ChatHistorySidebar";
+import { EnterpriseProductMark } from "./shared/EnterpriseProductMark";
+import { useChatConversations } from "../hooks/useChatConversations";
+import { legacySessionId } from "../storage/chat-conversations";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { MIDDLEBY_PROFILE_ID } from "../domain/demo-profiles";
 import { useChatSession } from "../hooks/useChatSession";
-import { CHAT_SESSIONS } from "../storage/idb/chat-db";
 import { getPlaygroundChatSeed } from "../storage/chat-seeds";
 import { PLAYGROUND_HUB_CHAT_MESSAGE_KEY, HUB_CHAT_ATTACH_HANDOFF_KEY, BUILDER_PREFILL_FROM_TEMPLATE_KEY, PLAYGROUND_HUB_SHOW_PREVIEW_KEY } from "../storage/keys";
 import { lensDisplayToHorizon, parsePlaygroundHubHandoff } from "../domain/playground-hub-handoff";
-import { resolvePlaygroundAssistantReplyAsync } from "../domain/resolve-playground-assistant";
+// The playground answers from R11 only -- no scripted fallback. `resolve-playground-assistant`
+// remains the use-case builder's resolver; see `resolve-playground-reply.js`.
+import { resolvePlaygroundReply as resolvePlaygroundAssistantReplyAsync } from "../domain/resolve-playground-reply";
+import { readPlaygroundMode } from "../storage/playground-mode";
+import PlaygroundModePicker from "./shared/PlaygroundModePicker";
 import { collapseAdjacentDuplicateUserMessages } from "../domain/chat-message-utils";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { PendingAttachmentChips, SentAttachmentChips } from "./shared/ChatAttachmentChips";
@@ -22,7 +29,6 @@ import { MicErrorMessage } from "./shared/MicButton";
 import ChatComposerTextarea from "./shared/ChatComposerTextarea";
 import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
 import { getMiddlebyPlaygroundChatPlaceholder } from "../domain/middleby-composer-hints";
-import { BLOCKS_PREVIEW_TRIGGER } from "../domain/answer-blocks/preview-message";
 import { Sparkles, Bookmark, Calendar, Zap, FileText } from "lucide-react";
 import { useSavedPrompts } from "../hooks/useSavedPrompts";
 import { useScheduledRuns } from "../hooks/useScheduledRuns";
@@ -50,7 +56,7 @@ export default function PlaygroundActiveChat() {
   const messagesEndRef = useRef(null);
   const latestAssistantRef = useRef(null);
   const inputBoxRef = useRef(null);
-  const { profileId, role, sessionForChat } = useDemoProfile();
+  const { profileId, role } = useDemoProfile();
   const isMiddleby = profileId === MIDDLEBY_PROFILE_ID;
   const savedPrompts = useSavedPrompts(profileId);
   const scheduledRuns = useScheduledRuns(profileId);
@@ -62,8 +68,31 @@ export default function PlaygroundActiveChat() {
   const [reportOpen, setReportOpen] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState(null);
   const { entries: catalogEntries, hydrated: catalogHydrated } = useUseCaseCatalog();
-  const sessionId = sessionForChat(CHAT_SESSIONS.PLAYGROUND);
-  const chatSeed = useMemo(() => getPlaygroundChatSeed(profileId), [profileId]);
+  // One session per conversation: the id IS the conversation, which is what lets the sidebar
+  // switch between them without the message store knowing anything new.
+  const conversations = useChatConversations();
+  const sessionId = conversations.activeId;
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  // The demo transcript belongs to the original conversation only. A chat you just started is
+  // empty, the way "New chat" implies; seeding it would put words in your mouth.
+  const isSeededConversation = sessionId === legacySessionId(profileId);
+  // Openers for an empty chat. Phrased as questions this deployment can actually answer from
+  // what is connected, so the first click does not dead-end.
+  const emptyStatePrompts = isMiddleby
+    ? [
+        "Which funnel step lost the most sessions this week?",
+        "Which brands have the biggest gap between traffic and quotes?",
+        "What changed this week across traffic, errors and quotes?",
+      ]
+    : [
+        "Where are we losing margin this month?",
+        "Which SKUs are at risk of stocking out?",
+        "What changed this week across orders and returns?",
+      ];
+  const chatSeed = useMemo(
+    () => (isSeededConversation ? getPlaygroundChatSeed(profileId) : []),
+    [profileId, isSeededConversation]
+  );
   const { messages, ready, send } = useChatSession(sessionId, chatSeed);
   const attachments = useChatAttachments();
 
@@ -77,6 +106,13 @@ export default function PlaygroundActiveChat() {
    * (`calc(100vh - …)`) so this overflow-y-auto region actually scrolls (flex-1 alone grows with content
    * and silently moves scroll to the window).
    */
+  /** The true bottom of the transcript, for the jump control and for composer growth. */
+  const scrollToEnd = useCallback(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
   const pinchScrollToBottom = useCallback(() => {
     // For assistant messages (which can be tall answer-block responses), scroll
     // so the START of the latest answer is visible  -  otherwise the user lands
@@ -140,16 +176,19 @@ export default function PlaygroundActiveChat() {
               ...(lens ? { lens } : {}),
             }
           : undefined;
-      // Scroll to bottom first so existing history is visible, then show the pending bubble
-      pinchScrollToBottom();
+      // A question asked on the Playground opens its own chat. Appending it to whatever was
+      // last open buried the ask and its answer under an unrelated transcript.
+      conversations.startNew();
       requestAnimationFrame(() => {
-        pinchScrollToBottom();
+        scrollToEnd();
         setTimeout(() => setPendingHandoff({ qText, lensLabel, userMeta, exploreHub }), 100);
       });
     } catch {
       sessionStorage.removeItem(PLAYGROUND_HUB_CHAT_MESSAGE_KEY);
     }
-  }, [ready, pinchScrollToBottom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per handoff, which is
+    // consumed from sessionStorage above; `conversations` changes on every keystroke of a title.
+  }, [ready, scrollToEnd]);
 
   const seedContextCatalogId = useMemo(() => {
     if (hubSeedCatalogId) return hubSeedCatalogId;
@@ -227,13 +266,22 @@ export default function PlaygroundActiveChat() {
   useEffect(() => {
     if (!pendingHandoff) return;
     const { qText, lensLabel: _l, userMeta, exploreHub } = pendingHandoff;
+    // A chat opened from the hub is named after the question that opened it, the same way a
+    // chat started by typing is. Only `handleSend` did this before, so these stayed "New chat".
+    conversations.touch(sessionId, qText);
     const timer = setTimeout(async () => {
       setPendingHandoff(null);
       try {
         // Enrich with the current period filter so a hand-off from the home
         // hub (or a previous session) still respects the user's period pick.
+        // The active playground mode rides on the message, so a retry of this turn repeats it
+        // in the same mode rather than falling back to the default. Without this `prevUser.meta`
+        // never carries a mode and the retry fix above would be a no-op.
+        const activeMode = readPlaygroundMode(profileId);
         const enrichedMeta = {
           ...(userMeta || {}),
+          playgroundMode: userMeta?.playgroundMode ?? activeMode.mode,
+          scopeId: userMeta?.scopeId ?? activeMode.scopeId,
           period: chatFilters.period,
           ...(chatFilters.period === "custom" && chatFilters.fromDate && chatFilters.toDate
             ? { fromDate: chatFilters.fromDate, toDate: chatFilters.toDate }
@@ -299,13 +347,63 @@ export default function PlaygroundActiveChat() {
       // scroll — the user wants to stay where they clicked.
       if (Date.now() - lastMessageChangeAtRef.current > USER_INTERACTION_GRACE_MS) return;
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (dist < STICKY_BOTTOM_THRESHOLD_PX) pinchScrollToBottom();
+      const bottom = dist < STICKY_BOTTOM_THRESHOLD_PX;
+      atBottomRef.current = bottom;
+      setAtBottom(bottom);
+      if (bottom) pinchScrollToBottom();
     });
     ro.observe(inner);
     return () => ro.disconnect();
   }, [ready, pinchScrollToBottom, messages.length]);
 
+  // The composer grows as you type, which shortens the transcript. A reader parked at the
+  // bottom should stay there rather than watch the last turn slide out of view; a reader who
+  // has scrolled up is left where they are.
+  const composerRef = useRef(null);
+  const atBottomRef = useRef(true);
+  useEffect(() => {
+    const node = composerRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => {
+      if (atBottomRef.current) scrollToEnd();
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [scrollToEnd]);
+
   const [thinking, setThinking] = useState(false);
+
+  // Stop: a reply already in flight is discarded rather than rendered, and a reply still
+  // revealing is completed at once. The request itself is not cancellable from here, so what
+  // Stop promises is what it delivers: nothing further appears.
+  const generationRef = useRef(0);
+  const [atBottom, setAtBottom] = useState(true);
+  const [announcement, setAnnouncement] = useState("");
+
+  // Ids already on screen when this conversation opened. Anything arriving after that is new,
+  // and only new assistant replies are typed out.
+  const seenMessageIdsRef = useRef(null);
+  const [animatingMessageId, setAnimatingMessageId] = useState(null);
+  useEffect(() => {
+    seenMessageIdsRef.current = null;
+    setAnimatingMessageId(null);
+  }, [sessionId]);
+  useEffect(() => {
+    if (!ready) return;
+    if (seenMessageIdsRef.current === null) {
+      seenMessageIdsRef.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+    const last = messages[messages.length - 1];
+    if (!last || seenMessageIdsRef.current.has(last.id)) return;
+    seenMessageIdsRef.current.add(last.id);
+    if (last.role !== "user") {
+      setAnimatingMessageId(last.id);
+      // Announced once per reply, not per revealed character: a live region that fires on
+      // every frame is unusable with a screen reader.
+      setAnnouncement(String(last.meta?.intro || last.text || "Enterprise GPT replied.").slice(0, 240));
+    }
+  }, [messages, ready]);
 
   const sendPrompt = useCallback(async (promptText, userMeta) => {
     const trimmed = String(promptText || "").trim();
@@ -349,10 +447,12 @@ export default function PlaygroundActiveChat() {
   // Inject just an assistant preview message without a user bubble.
   const showFormatPreview = useCallback(async () => {
     try {
-      const { text, meta } = await resolvePlaygroundAssistantReplyAsync(
-        BLOCKS_PREVIEW_TRIGGER,
-        profileId
-      );
+      // Rendered locally, never sent to R11. This is a developer aid that draws one of every
+      // answer-block type; routing it through the resolver POSTed the literal trigger string
+      // to the real agent, which cannot produce those block kinds and would answer the string
+      // as if it were a question.
+      const { buildBlocksPreviewReply } = await import("../domain/answer-blocks/preview-message");
+      const { text, meta } = buildBlocksPreviewReply();
       await send(text, "assistant", meta);
     } catch (e) {
       console.error("[PlaygroundActiveChat] showFormatPreview failed", e);
@@ -376,6 +476,10 @@ export default function PlaygroundActiveChat() {
     if (dictation.listening) dictation.stop();
     setMessage("");
     const textToSend = trimmed || (hasStaged ? "(attached files)" : "");
+    conversations.touch(sessionId, textToSend);
+    atBottomRef.current = true;
+    setAtBottom(true);
+    const generation = ++generationRef.current;
     setThinking(true);
     try {
       let userMeta;
@@ -409,19 +513,49 @@ export default function PlaygroundActiveChat() {
       if (elapsed < MIN_THINK_MS) {
         await new Promise((r) => setTimeout(r, MIN_THINK_MS - elapsed));
       }
+      // Stopped while this was in flight: drop the answer instead of having it appear after
+      // the user has said they no longer want it.
+      if (generationRef.current !== generation) return;
       const metaWithMode = meta ? { ...meta, chatModeAtWrite: chatMode } : meta;
       await send(text, "assistant", metaWithMode);
     } catch (e) {
       console.error("[PlaygroundActiveChat] send failed", e);
       setMessage(trimmed);
     } finally {
-      setThinking(false);
+      if (generationRef.current === generation) setThinking(false);
     }
   };
 
+  /** The reveal finished on its own: drop the animating state so send returns. */
+  const handleRevealComplete = useCallback((id) => {
+    setAnimatingMessageId((current) => (!id || current === id ? null : current));
+  }, []);
+
+  // A safety net, not the mechanism: if a reveal never reports finishing - an unmount
+  // mid-animation, a message shape nobody anticipated - the composer must not be left
+  // showing "stop" with no way back to sending.
+  useEffect(() => {
+    if (!animatingMessageId) return undefined;
+    const timer = setTimeout(() => setAnimatingMessageId(null), 15000);
+    return () => clearTimeout(timer);
+  }, [animatingMessageId]);
+
+  /** Stop: discard a reply still being fetched, or finish revealing one already on screen. */
+  const handleStop = () => {
+    generationRef.current += 1;
+    setThinking(false);
+    setAnimatingMessageId(null);
+  };
+
   return (
-    <div className="flex h-full max-h-[100dvh] w-full min-w-0 min-h-0 flex-col overflow-hidden bg-transparent">
-      <header className="sticky top-0 z-40 shrink-0 border-b border-border bg-surface px-3 sm:px-6 lg:px-8">
+    // Header across the top, then the two panels beneath it: the history rail and the
+    // conversation. Only the transcript scrolls; the header and the composer are fixed.
+    // A viewport unit, not `h-full`: a percentage height needs a definite parent and silently
+    // collapses when it does not get one, while `flex-1` alone lets the column grow past the
+    // screen and hands the scroll to the document. `100dvh` is definite in both directions, so
+    // the chat always owns exactly one screen and only the transcript scrolls.
+    <div className="flex h-[100dvh] max-h-[100dvh] w-full min-w-0 min-h-0 flex-col overflow-hidden bg-transparent">
+      <header className="z-40 w-full shrink-0 border-b border-border bg-surface px-3 sm:px-6 lg:px-8">
         <div className="flex h-[72px] w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
             <Link
@@ -454,19 +588,32 @@ export default function PlaygroundActiveChat() {
           <HeaderNotificationsAndProfile />
         </div>
       </header>
+
+      <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+        <ChatHistorySidebar
+          conversations={conversations.conversations}
+          activeId={conversations.activeId}
+          onSelect={conversations.select}
+          onNew={conversations.startNew}
+          onRename={conversations.rename}
+          onDelete={conversations.remove}
+          collapsed={historyCollapsed}
+          onToggleCollapsed={() => setHistoryCollapsed((v) => !v)}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {showSeedBuilderCta ? (
-          <div className="shrink-0 border-b border-border bg-primary-light dark:border-primary/25 dark:bg-gradient-to-r dark:from-surface-secondary dark:via-surface-tertiary/80 dark:to-surface-secondary">
-            <div className="mx-auto w-full max-w-[1145px] px-4 py-4 sm:px-8">
-              <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 lg:gap-8">
-                <p className="min-w-0 flex-1 text-sm leading-relaxed text-text-primary">
+          <div className="shrink-0 border-b border-border/60 bg-primary-light/30 backdrop-blur-sm dark:border-primary/20 dark:bg-primary/[0.06]">
+            <div className="mx-auto w-full max-w-[1145px] px-4 py-2 sm:px-8">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-secondary">
                   Chat helps you explore and sharpen the idea. When you are ready to productionize it, continue in
                   the Use Case Builder. We prefill from this catalog template and your latest question.
                 </p>
                 <button
                   type="button"
                   onClick={handleContinueToBuilder}
-                  className="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
+                  className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
                 >
                   Continue in Use Case Builder
                 </button>
@@ -475,16 +622,18 @@ export default function PlaygroundActiveChat() {
           </div>
         ) : null}
         {showMiddlebyInsightCta ? (
-          <div className="shrink-0 border-b border-border bg-primary-light/60 dark:border-primary/25 dark:bg-primary/10">
-            <div className="mx-auto w-full max-w-[1145px] px-4 py-3 sm:px-8">
-              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-                <p className="min-w-0 flex-1 text-sm leading-relaxed text-text-primary">
-                  Want more than the chat answer? Open this use case's full insight session to see the <span className="font-semibold">Monitor</span> (track it over time) and <span className="font-semibold">Automate</span> (run follow-up workflows) views.
+          /* A note about the page, not part of the conversation: it sits back behind a light
+             wash so the page shows through, and stays out of the transcript's weight class. */
+          <div className="shrink-0 border-b border-border/60 bg-primary-light/30 backdrop-blur-sm dark:border-primary/20 dark:bg-primary/[0.06]">
+            <div className="mx-auto w-full max-w-[1145px] px-4 py-2 sm:px-8">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-secondary">
+                  Want more than the chat answer? The full insight session adds <span className="font-semibold text-text-primary">Monitor</span> (track it over time) and <span className="font-semibold text-text-primary">Automate</span> (run follow-up workflows).
                 </p>
                 <button
                   type="button"
                   onClick={handleOpenInsightSession}
-                  className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
+                  className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm ring-1 ring-primary/20 transition hover:bg-primary-hover dark:ring-primary/40"
                 >
                   Open insight session
                 </button>
@@ -494,6 +643,12 @@ export default function PlaygroundActiveChat() {
         ) : null}
         <div
           ref={messagesScrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICKY_BOTTOM_THRESHOLD_PX;
+            atBottomRef.current = bottom;
+            setAtBottom(bottom);
+          }}
           className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-6 sm:px-8"
         >
           <div className="mx-auto max-w-[768px] space-y-6">
@@ -505,6 +660,32 @@ export default function PlaygroundActiveChat() {
 
             {!ready ? (
               <p className="text-sm text-text-secondary">Loading conversation…</p>
+            ) : messages.length === 0 && !pendingHandoff && !thinking ? (
+              /* A chat with nothing in it yet: a greeting and a few openers, rather than a
+                 blank column that gives no clue what this can answer. */
+              <div className="flex min-h-[42vh] flex-col items-center justify-center gap-5 text-center">
+                <EnterpriseProductMark size="lg" shape="circle" className="bg-surface shadow-sm ring-1 ring-border" />
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight text-text-primary">
+                    What do you want to look into?
+                  </h2>
+                  <p className="mt-1.5 text-sm text-text-secondary">
+                    Ask about your connected data, or start from one of these.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {emptyStatePrompts.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => setMessage(prompt)}
+                      className="max-w-[320px] rounded-xl border border-border bg-surface px-3.5 py-2.5 text-left text-sm text-text-secondary shadow-sm transition hover:border-primary/40 hover:text-text-primary"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               collapseAdjacentDuplicateUserMessages(messages).map((msg, msgIdx, arr) => {
                 const userLensLine =
@@ -556,12 +737,28 @@ export default function PlaygroundActiveChat() {
                     ) : (
                       <PlaygroundAssistantMessage
                         msg={msg}
+                        animate={msg.id === animatingMessageId}
+                        onRevealTick={pinchScrollToBottom}
+                        onRevealComplete={handleRevealComplete}
                         chatMode={msg.meta?.chatModeAtWrite ?? chatMode}
                         isLatestAssistant={msgIdx === arr.length - 1 || arr.slice(msgIdx + 1).every((m) => m.role !== "assistant")}
                         onRetry={async () => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           if (!prevUser?.text) return;
-                          const { text: rText, meta: rMeta } = await resolvePlaygroundAssistantReplyAsync(prevUser.text, profileId);
+                          // `prevUser.meta` carries the mode and scope the original turn ran
+                          // in. Dropping it made a retry silently re-ask in `data` mode against
+                          // a different tool set than the answer being retried.
+                          // `exploreHub` is NOT bound in the component body -- its only
+                          // declarations are inside two useEffect closures -- so naming it
+                          // here threw ReferenceError and retry silently did nothing.
+                          // `prevUser.meta` is the right source regardless: it carries the
+                          // mode and scope the original turn ran in.
+                          const { text: rText, meta: rMeta } = await resolvePlaygroundAssistantReplyAsync(
+                            prevUser.text,
+                            profileId,
+                            undefined,
+                            prevUser.meta
+                          );
                           await send(rText, "assistant", rMeta);
                         }}
                         onFollowUpSelect={(prompt) => {
@@ -584,28 +781,28 @@ export default function PlaygroundActiveChat() {
                             try { window.open(item.payload.href, "_blank", "noreferrer"); } catch { /* ignore */ }
                           }
                         }}
-                        onSaveMessage={isMiddleby ? () => {
+                        onSaveMessage={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const text = prevUser?.text?.trim();
                           if (!text) return;
                           savedPrompts.savePrompt({ text });
                           setSavedOpen(true);
-                        } : undefined}
-                        onScheduleMessage={isMiddleby ? () => {
+                        }}
+                        onScheduleMessage={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const text = prevUser?.text?.trim();
                           if (!text) return;
                           setScheduleTarget(text);
-                        } : undefined}
+                        }}
                         activeReportTitle={report.activeReport?.title}
-                        isMessagePinned={isMiddleby && report.activeItems.some((it) => (msg.meta?.blocks || []).some((b) => b.id === it.block.id))}
-                        onAddMessageToReport={isMiddleby ? () => {
+                        isMessagePinned={report.activeItems.some((it) => (msg.meta?.blocks || []).some((b) => b.id === it.block.id))}
+                        onAddMessageToReport={() => {
                           const prevUser = arr.slice(0, msgIdx).reverse().find((m) => m.role === "user");
                           const sourceQuestion = prevUser?.text?.trim() || msg.meta?.intro || "";
                           for (const block of msg.meta?.blocks || []) {
                             report.pin({ block, sourceQuestion, catalogId: msg.meta?.catalogId });
                           }
-                        } : undefined}
+                        }}
                       />
                     )}
                   </div>
@@ -659,30 +856,47 @@ export default function PlaygroundActiveChat() {
           </div>
         </div>
 
-        <div className="z-20 shrink-0 px-4 pb-4 sm:px-8">
+        <div ref={composerRef} className="relative z-20 shrink-0 px-4 pb-3 sm:px-8">
+          {/* Reading back through a long thread should not mean losing the live end of it. */}
+          {!atBottom ? (
+            <button
+              type="button"
+              onClick={scrollToEnd}
+              className="absolute -top-12 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text-secondary shadow-md transition hover:border-primary/40 hover:text-primary"
+            >
+              <ArrowDown size={14} />
+              Jump to latest
+            </button>
+          ) : null}
+          {/* Announced once per reply. The transcript itself is not a live region: with a
+              typewriter reveal it would be read out character by character. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </p>
           <div className="mx-auto max-w-[768px]">
-            {isMiddleby ? (
-              <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+            {/* Period, quick summary, saved, scheduled and report are the same chat tools for
+                every customer profile; the state behind each is already profile-scoped. */}
+              <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-1 px-1">
                 <PeriodFilterChip chatFilters={chatFilters} />
                 <button
                   type="button"
                   onClick={toggleBrief}
                   title={isBrief ? "Quick summary is on  -  future answers show only the one-minute read. Click to turn off." : "When on, answers show only a short headline + a few bullets. Good for a quick read."}
                   aria-pressed={isBrief}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition ${
                     isBrief
-                      ? "border-primary bg-primary text-white"
-                      : "border-border bg-surface-default text-text-secondary hover:border-primary/40 hover:text-primary"
+                      ? "bg-primary text-white"
+                      : "text-text-muted hover:bg-surface-secondary hover:text-primary"
                   }`}
                 >
                   <Zap size={12} />
-                  {isBrief ? "Quick summary is on" : "Turn on quick summary"}
+                  {isBrief ? "Quick summary" : "Quick summary"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSavedOpen(true)}
                   title="Open the list of questions you've saved"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-default px-3 py-1 text-xs font-medium text-text-secondary transition hover:border-primary/40 hover:text-primary"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-text-muted transition hover:bg-surface-secondary hover:text-primary"
                 >
                   <Bookmark size={12} />
                   Saved
@@ -696,7 +910,7 @@ export default function PlaygroundActiveChat() {
                   type="button"
                   onClick={() => setScheduledOpen(true)}
                   title="Open your scheduled questions"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-default px-3 py-1 text-xs font-medium text-text-secondary transition hover:border-primary/40 hover:text-primary"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-text-muted transition hover:bg-surface-secondary hover:text-primary"
                 >
                   <Calendar size={12} />
                   Scheduled
@@ -710,10 +924,10 @@ export default function PlaygroundActiveChat() {
                   type="button"
                   onClick={() => setReportOpen(true)}
                   title="Open your reports. 'Add to report' clicks pin blocks to whichever report is shown here."
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-default px-3 py-1 text-xs font-medium text-text-secondary transition hover:border-primary/40 hover:text-primary"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-text-muted transition hover:bg-surface-secondary hover:text-primary"
                 >
                   <FileText size={12} />
-                  <span>Adding to:</span>
+                  <span>Report:</span>
                   <span className="max-w-[140px] truncate font-semibold text-primary">
                     {report.activeReport?.title || " - "}
                   </span>
@@ -724,7 +938,6 @@ export default function PlaygroundActiveChat() {
                   ) : null}
                 </button>
               </div>
-            ) : null}
             <div
               ref={inputBoxRef}
               className={`w-full shadow-[0px_9px_9px_0px_rgba(0,0,0,0.01)] ${
@@ -735,7 +948,7 @@ export default function PlaygroundActiveChat() {
                 if (!inputBoxRef.current?.contains(e.relatedTarget)) setInputFocused(false);
               }}
             >
-              <div className="flex flex-col justify-between rounded-[14px] bg-surface px-4 py-4 sm:px-[18px]">
+              <div className="flex flex-col justify-between rounded-[14px] bg-surface px-3 py-2 sm:px-4">
                 <PendingAttachmentChips
                   staged={attachments.staged}
                   onRemove={attachments.removeStaged}
@@ -752,6 +965,9 @@ export default function PlaygroundActiveChat() {
                   placeholder={chatPlaceholder}
                   ariaLabel={chatPlaceholder}
                 />
+                <div className="mt-2">
+                  <PlaygroundModePicker profileId={profileId} />
+                </div>
                 <MicErrorMessage error={dictation.error} />
                 {attachments.lastError ? (
                   <p className="mt-1 text-xs text-red-600" role="status">
@@ -762,19 +978,20 @@ export default function PlaygroundActiveChat() {
                   attachments={attachments}
                   dictation={dictation}
                   menuDirection="up"
+                  busy={thinking || Boolean(animatingMessageId)}
+                  onStop={handleStop}
                   onSend={() => void handleSend()}
                 />
               </div>
             </div>
-            <p className="mx-auto mt-2 max-w-[530px] text-center text-xs text-text-muted">
+            <p className="mx-auto mt-1.5 max-w-[640px] text-center text-[11px] leading-snug text-text-muted">
               AI-generated insights are based on connected data sources. Critical business decisions should be verified by domain experts.
             </p>
           </div>
         </div>
       </div>
 
-      {isMiddleby ? (
-        <>
+      {/* The drawers those toolbar buttons open, likewise for every profile. */}
           <SavedPromptsDrawer
             open={savedOpen}
             onClose={() => setSavedOpen(false)}
@@ -817,8 +1034,8 @@ export default function PlaygroundActiveChat() {
             onUnpin={report.unpin}
             onClear={report.clear}
           />
-        </>
-      ) : null}
+        </div>
+      </div>
     </div>
   );
 }

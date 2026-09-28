@@ -11,15 +11,14 @@ the factory must hand each backend exactly what the call-sites handed ``PgVector
 from __future__ import annotations
 
 import importlib.util
-
 import sys
 import types
 from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
-
 from egpt.vectordb.search import SearchType
+
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.knowledge.vector import build_knowledge_vector_db
 
@@ -272,6 +271,26 @@ def test_no_entrypoint_names_a_backend_or_the_deprecated_shim(name: str) -> None
     so its wiring is checked at the source rather than by driving it; the same check covers
     ``load_knowledge`` for symmetry with the behavioural test above."""
     source = (_ENTRYPOINTS / name).read_text()
-    assert "build_knowledge_vector_db" in source
     assert "PgVector(" not in source
     assert "egpt.vectordb.pgvector" not in source, "the deprecated shim import"
+
+
+def test_load_knowledge_takes_its_store_from_the_factory() -> None:
+    assert (
+        "build_knowledge_vector_db" in (_ENTRYPOINTS / "load_knowledge.py").read_text()
+    )
+
+
+def test_suggest_reaches_the_factory_through_the_shared_assembly() -> None:
+    """``suggest`` no longer builds the prose store itself: it takes it from
+    ``app/stores.py``'s ``build_knowledge_stores``, the one assembly the playground's
+    knowledge mode shares. The factory requirement therefore moves with the wiring -- the
+    entrypoint must delegate to that assembly, and the assembly must be what calls the
+    factory -- so ``suggest`` and ``load-knowledge`` still cannot land on different stores."""
+    suggest_source = (_ENTRYPOINTS / "suggest.py").read_text()
+    assert "build_knowledge_stores" in suggest_source
+
+    stores_source = (_ENTRYPOINTS.parent / "app" / "stores.py").read_text()
+    assert "build_knowledge_vector_db" in stores_source
+    assert "PgVector(" not in stores_source
+    assert "egpt.vectordb.pgvector" not in stores_source, "the deprecated shim import"

@@ -19,19 +19,24 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from egpt.answer_provenance import alist_provenance_by_use_case, aread_provenance
 from egpt.memory.types import MemoryQuery, Scope
+from egpt.utils.log import log_warning
 from egpt.workflow.types import StepInput
 
 from egpt_retail.app.db import build_control_plane_engine
-from egpt_retail.app.semantic import open_semantic_reader
+from egpt_retail.app.semantic import open_semantic_reader, semantic_driver
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.app.stores import abuild_knowledge_stores
 from egpt_retail.executors.gold import read_gold
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
+from egpt_retail.playground.grounding import agrounded_read_instructions
 from egpt_retail.retrieval.legs import aretail_unified_read
+from egpt_retail.warehouse.schema import SILVER_SCHEMA
 
 __all__ = ["PlaygroundMode", "ModeScope", "resolve_mode_scope", "aresolve_mode_scope"]
 
@@ -65,16 +70,26 @@ def resolve_mode_scope(
     scope_id: Optional[str],
     *,
     settings: Optional[RetailSettings] = None,
+    user_id: Optional[str] = None,
+    model: Any = None,
 ) -> ModeScope:
-    """The bounded tool set for one mode. Synchronous: the only I/O at resolution time is
-    ``business_area``'s ontology file read (local disk, not the network); everything else
-    below constructs closures that open their own connection per call, not at resolution
-    time, so a chat session never holds a driver or engine open across turns."""
+    """The bounded tool set for one mode.
+
+    Synchronous, and two things now happen at resolution time rather than per call, both
+    deliberately: ``business_area``'s ontology file read (local disk), and ``knowledge``'s
+    memory provider, which opens the pgvector engine and provisions its schema. Both are paid
+    here because ``aresolve_mode_scope`` runs this on a worker thread, so the cost lands off
+    the event loop; doing either inside a tool closure would block the loop on the first
+    question instead. Everything else still opens its own connection per call.
+
+    ``model`` is the resolved model for this request's tier. It reaches ``data`` mode's SQL
+    sub-agent, which would otherwise be built with no model at all -- see ``query_warehouse``.
+    """
     settings = settings or RetailSettings()
     if mode is PlaygroundMode.DATA:
-        return _data_scope()
+        return _data_scope(settings, model)
     if mode is PlaygroundMode.KNOWLEDGE:
-        return _knowledge_scope(settings)
+        return _knowledge_scope(settings, user_id)
     if mode is PlaygroundMode.USE_CASE:
         return _use_case_scope(scope_id, settings)
     if mode is PlaygroundMode.BUSINESS_AREA:
@@ -89,17 +104,42 @@ async def aresolve_mode_scope(
     scope_id: Optional[str],
     *,
     settings: Optional[RetailSettings] = None,
+    user_id: Optional[str] = None,
+    model: Any = None,
 ) -> ModeScope:
     """:func:`resolve_mode_scope` off the event loop."""
     return await asyncio.to_thread(
-        resolve_mode_scope, mode, scope_id, settings=settings
+        resolve_mode_scope,
+        mode,
+        scope_id,
+        settings=settings,
+        user_id=user_id,
+        model=model,
     )
 
 
-def _data_scope() -> ModeScope:
-    """Semantic-layer-grounded: gold-only reads through R6's guard, the same seam R13's
-    dashboards read through (``executors/gold.py``'s own "the seam an interactive playground
-    reads through")."""
+def _data_scope(settings: RetailSettings, model: Any = None) -> ModeScope:
+    """Chat with data: gold for what a KPI *is*, guarded SQL for everything else (G21).
+
+    Two tools, and the split is the point. ``read_kpi_data`` answers "what is KPI X" from
+    materialised gold -- stamped with source and computation time, which is the alignment
+    rule's whole reason for gold existing. ``query_warehouse`` answers the open-ended "why did
+    it move" questions no registered KPI covers, by putting a model in front of silver.
+
+    Not one or the other: a model writing SQL to recompute a number that already exists as a
+    governed gold row would produce an answer nobody could trace, which is exactly what gold's
+    stamps exist to prevent. Gold stays authoritative; SQL is for exploration.
+
+    **G21 is the instructions this provider runs under.** ``DEFAULT_READ_INSTRUCTIONS``
+    substitutes ``{schema}`` and nothing else, so without grounding the sub-agent sees
+    ``crm_deal`` and two columns called ``amount`` and cannot learn which is a quote, that this
+    customer says "RFQ", or that every quote query carries a scoping filter -- while the
+    semantic layer holds all of it, reviewed and accepted through K7.
+
+    Both paths run inside R6's guard. ``build_warehouse_read_guard`` is the same call R5's
+    materialiser and ``read_gold`` make, so "no SQL runs outside the guard" holds for the SQL
+    tool by construction rather than by the sub-agent behaving.
+    """
 
     async def read_kpi_data(kpi_identifiers: List[str]) -> Dict[str, Any]:
         """Materialised values for the named KPIs, through the guard. A KPI with nothing
@@ -109,26 +149,220 @@ def _data_scope() -> ModeScope:
         # Narrowing cast, not an assumption: `read_gold` always returns a dict content.
         return cast(Dict[str, Any], output.content)
 
+    async def query_warehouse(question: str) -> Dict[str, Any]:
+        """Answer a question from silver by reading it, grounded in the semantic layer.
+
+        **The sub-agent is given an explicit model.** ``DatabaseContextProvider`` passes its
+        ``model`` straight to the agent it builds, and an agent with no model and no
+        ``model_provider`` falls through to ``get_model("openai-responses:gpt-5.4")`` --
+        ``agent/_init.py``'s own docstring says that path "would ship tenant prompts to
+        api.openai.com with nothing in the log to say why". Everything this tool handles is
+        exactly what must not go there: the grounding block (personal-data field names and
+        compliance tags included), the schema of every silver table, and up to ``row_cap``
+        rows of real customer data. Routing it through R8's small tier is also what keeps it
+        inside the routing table rather than invisible to it.
+
+        **Both engines are the read-only one.** ``sql_engine`` is what the provider would bind
+        to the *write* agent, and although ``write=False`` means that agent is never built,
+        handing a writable warehouse engine to an interactive surface leaves one boolean
+        between the playground and it. ``app/db.py`` argues for three layers, none of them the
+        whole story alone; this is the cheapest of the three. It also means the ``api`` role no
+        longer needs ``EGPT_RETAIL_WAREHOUSE_DB_URL``, which its own contract says it should
+        never have.
+
+        Engines come from the pooled accessor rather than ``create_engine`` per call: two
+        fresh pools per question is how a burst of chat exhausts ``max_connections``.
+        """
+        from egpt.integrations.context.database.provider import DatabaseContextProvider
+
+        from egpt_retail.app.db import pooled_warehouse_readonly_engine
+        from egpt_retail.app.sql_guard import build_warehouse_read_guard
+
+        engine = pooled_warehouse_readonly_engine(settings)
+        with open_semantic_reader(settings) as reader:
+            instructions = await agrounded_read_instructions(reader)
+            guard = build_warehouse_read_guard(reader)
+            provider = DatabaseContextProvider(
+                id="warehouse",
+                sql_engine=engine,
+                readonly_engine=engine,
+                schema=SILVER_SCHEMA,
+                read_instructions=instructions,
+                read_guard=guard,
+                model=model,
+                # Read-only by construction, not by instruction: the write agent is never
+                # built, so no prompt has to be trusted to keep the playground off the
+                # write path.
+                write=False,
+            )
+            answer = await provider.aquery(question)
+        content = getattr(answer, "content", answer)
+        # NO PROVENANCE ROW, and it is not an oversight. "Every answer writes a provenance
+        # record" is an alignment rule, and this path breaks it -- but the record is keyed by
+        # `run_id`, which only the run route mints, and `RequestContext` carries `user_id`,
+        # `session_id` and `tenant_id` and no run id. A tool closure therefore cannot write a
+        # correctly-keyed row, and writing a wrongly-keyed one is worse than none: the citation
+        # panel would show sources that belong to no run anyone can find. Threading the run id
+        # into the factory context is a framework change and is deliberately not smuggled in
+        # here. `read_kpi_data` has the same gap; this tool does not widen it, it inherits it.
+        return {
+            "answer": content,
+            "schema": SILVER_SCHEMA,
+            "grounded": "## The semantic layer" in instructions,
+        }
+
     return ModeScope(
         mode=PlaygroundMode.DATA,
         scope_id=None,
-        tools=(read_kpi_data,),
-        description="Gold-only reads over every ready KPI, through R6's guard.",
+        tools=(read_kpi_data, query_warehouse),
+        description="Gold for KPI values, guarded and grounded SQL over silver for the rest.",
     )
 
 
-def _knowledge_scope(settings: RetailSettings) -> ModeScope:
-    """The knowledge base through K10's unified retrieval. Wires the semantic leg (table and
-    concept names from the deployment's own semantic layer); the ontology leg additionally
-    needs a resolved embedder (``ontology/store.py``'s ``OntologyStore``), which is out of
-    this mode's own scope -- a real, working K10 call either way, just one leg lighter than
-    the full four-store fan-out K10 itself supports."""
+@lru_cache(maxsize=4)
+def _memory_provider_for(slug: str) -> Optional[Any]:
+    """One memory provider per tenant slug, per process.
+
+    Cached because construction is not cheap: ``build_memory_provider_for`` opens the pgvector
+    engine and provisions its schema (``app/factory.py`` says so, which is why K1's own wiring
+    is a lifespan rather than part of ``build_agent_os``). Building one per tool call would
+    open an engine per question asked.
+
+    Built at *resolution* time, not inside the tool closure, so the cost lands on the thread
+    ``aresolve_mode_scope`` already runs the resolver in rather than on the event loop.
+
+    The import is function-local: ``app/components.py`` imports this module at module scope,
+    so naming it at the top of this one is a cycle.
+
+    **Not closed.** It lives for the process, which is what a shared provider is for -- but it
+    is a second provider alongside the one K1's lifespan builds and closes, so this process
+    holds two engines where it could hold one. Threading the lifespan's provider into the
+    agent factory instead is the better shape and is flagged for review rather than guessed at
+    here: it needs the factory to receive something the lifespan populates after startup, and
+    that is a change to how the factory is constructed, not to this module.
+    """
+    from egpt_retail.app.components import build_memory_provider
+
+    settings = RetailSettings()
+    if (settings.retail_customer_slug or "").strip() != slug:
+        # The cache key must be the thing the provider is built for. A caller whose settings
+        # disagree with the key would otherwise get another tenant's provider.
+        return None
+    return build_memory_provider(settings)
+
+
+def _shared_memory_provider(settings: RetailSettings) -> Optional[Any]:
+    """The cached provider for these settings, or ``None`` when no slug is configured."""
+    slug = (settings.retail_customer_slug or "").strip()
+    if not slug:
+        return None
+    try:
+        return _memory_provider_for(slug)
+    except Exception as exc:  # noqa: BLE001 -- no memory is a degraded answer, not a failed one
+        log_warning(
+            f"playground: memory leg unavailable ({exc.__class__.__name__}: {exc}); "
+            "answering from the prose, ontology and semantic legs only."
+        )
+        return None
+
+
+def _knowledge_scope(
+    settings: RetailSettings, user_id: Optional[str] = None
+) -> ModeScope:
+    """The knowledge base through K10's full four-leg fan-out.
+
+    All four legs, which is the point: domain prose, the shipped ontology, this deployment's
+    semantic layer and memory, fused by reciprocal rank fusion so a question needing a domain
+    rule *and* a table name gets both. The first cut wired the semantic leg alone, so "chat
+    with the knowledge base" searched table and column names and never reached the knowledge
+    base; the prose and ontology stores it was missing are ``app/stores.py``'s, the same ones
+    ``entrypoints/suggest.py`` builds.
+
+    **The memory leg reads as tenant + user, never tenant alone.** ``MEMORY_SCOPE.md``'s read
+    table is explicit that a tenant-wide read returns every row, including every *other*
+    user's -- so fanning memory in under the tenant-only scope this mode used to build would
+    have made one person's playground answer cite another person's memories. ``user_id`` is
+    threaded from the verified ``RequestContext``, never from anything the caller sends, and
+    an absent one drops the leg rather than widening it: no memory is the honest answer for an
+    unidentified caller, and "all of them" is the one answer that must not be.
+
+    A store that cannot be built (no embedder installed, graph unreachable) drops its leg and
+    logs; the remaining legs still answer. K10's own contract distinguishes a leg that ran and
+    matched nothing from one that did not run, and degrading to fewer legs is visible in the
+    per-hit ``origin`` the tool returns.
+    """
+
+    memory = _shared_memory_provider(settings) if user_id else None
 
     async def search_knowledge(query: str, limit: int = 5) -> Dict[str, Any]:
-        scope = Scope(tenant_id=settings.retail_customer_slug or "unscoped")
+        slug = settings.retail_customer_slug or "unscoped"
+        scope = (
+            Scope(tenant_id=slug, user_id=user_id) if user_id else Scope(tenant_id=slug)
+        )
         mem_query = MemoryQuery(text=query, limit=limit)
-        with open_semantic_reader(settings) as reader:
-            result = await aretail_unified_read(scope, mem_query, semantic=reader)
+        # One driver for both graph readers: OntologyStore and SemanticGraphStore read the
+        # same Neo4j, and opening two pools for one fan-out is two pools for one question.
+        #
+        # Inside the tolerant path, not above it: `semantic_driver` raises when the URI is
+        # unset, and an api role deployed without the graph -- a documented-as-optional
+        # dependency -- got a hard tool exception on every knowledge question instead of the
+        # prose and memory answer this mode's docstring promises.
+        try:
+            driver = semantic_driver(settings)
+        except Exception as exc:  # noqa: BLE001 -- no graph is a degraded answer, not a failure
+            log_warning(
+                f"playground knowledge mode: no semantic graph ({exc}); answering from the "
+                "prose and memory legs only."
+            )
+            stores = None
+            try:
+                stores = await abuild_knowledge_stores(settings, None)
+            except Exception:  # noqa: BLE001
+                pass
+            result = await aretail_unified_read(
+                scope,
+                mem_query,
+                memory=memory,
+                knowledge=stores.knowledge if stores is not None else None,
+            )
+            return {
+                "results": [
+                    {
+                        "content": hit.content,
+                        "score": hit.score,
+                        "origin": hit.origin,
+                        "id": hit.id,
+                    }
+                    for hit in result.fused()
+                ]
+            }
+        try:
+            with open_semantic_reader(settings, driver=driver) as reader:
+                # Store construction and the fan-out are separate, and only construction is
+                # tolerated. The first version wrapped both, so a memory or semantic *leg*
+                # failure was logged as "the prose and ontology legs could not be built" --
+                # the wrong cause -- and then re-ran the same two failing legs a second time.
+                # `aunified_read` re-raises the first leg exception, so that was reachable.
+                # A leg failure now propagates; only a store that will not build degrades.
+                stores = None
+                try:
+                    stores = await abuild_knowledge_stores(settings, driver)
+                except Exception as exc:  # noqa: BLE001 -- a missing leg is not a failed answer
+                    log_warning(
+                        "playground knowledge mode: the prose and ontology stores could not "
+                        f"be built ({exc.__class__.__name__}: {exc}); answering from the "
+                        "semantic and memory legs only."
+                    )
+                result = await aretail_unified_read(
+                    scope,
+                    mem_query,
+                    memory=memory,
+                    knowledge=stores.knowledge if stores is not None else None,
+                    ontology=stores.ontology if stores is not None else None,
+                    semantic=reader,
+                )
+        finally:
+            driver.close()
         return {
             "results": [
                 {
@@ -145,7 +379,7 @@ def _knowledge_scope(settings: RetailSettings) -> ModeScope:
         mode=PlaygroundMode.KNOWLEDGE,
         scope_id=None,
         tools=(search_knowledge,),
-        description="Unified retrieval over the semantic layer (K10).",
+        description="Unified retrieval over prose, ontology, the semantic layer and memory (K10).",
     )
 
 

@@ -644,7 +644,16 @@ export default function KpiDetailPanel({
  // Fall back to the "blocked" look for an unmapped verdict, matching bucketFor's own
  // "no verdict is not known ready" rule.
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] || FEASIBILITY_STYLE.blocked : null;
- const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
+ // Same merge as `KpiDiscovery.jsx`'s `PoweredByCell`: use cases actually stored on the
+ // platform (`linked_kpi_ids`, K16) first, then the frontend-only demo catalog, each tagged
+ // with `kind` so the link below can send a real one to its own page rather than the gallery.
+ const useCases = [
+  ...(Array.isArray(detailRow.kpi.linkedUseCases) ? detailRow.kpi.linkedUseCases : []).map((e) => ({
+   ...e,
+   kind: "real",
+  })),
+  ...getCatalogEntriesForKpiName(detailRow.kpi.name, profileId).map((e) => ({ ...e, kind: "catalog" })),
+ ];
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
  const datasetIds = Array.isArray(detailRow.kpi.datasetIds) ? detailRow.kpi.datasetIds : [];
  // Real and always present on a registry KPI's formula (unlike `datasetIds`, which nothing
@@ -1028,9 +1037,13 @@ export default function KpiDetailPanel({
  <li className="text-sm text-text-muted">No use cases reference this KPI yet.</li>
  ) : (
  useCases.map((uc) => (
- <li key={uc.id}>
+ <li key={`${uc.kind}:${uc.id}`}>
  <Link
- to={useCaseActivationPath(uc.id)}
+ to={
+  uc.kind === "real"
+   ? `/use-cases/platform/${encodeURIComponent(uc.id)}`
+   : useCaseActivationPath(uc.id)
+ }
  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-secondary px-3 py-2 text-sm text-primary hover:bg-primary-light dark:bg-primary/20"
  onClick={onClose}
  >

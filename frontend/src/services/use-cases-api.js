@@ -220,3 +220,12 @@ export function setRecommendationStatus(recommendationId, { status, note, by }) 
 export function fetchDiagnosisOptions({ kpiIdentifier, window, asOf }, { signal } = {}) {
   return apiJson("/use-cases/analytics/diagnosis-options", "POST", { kpi_identifier: kpiIdentifier, window: window || null, as_of: asOf || null }, { signal });
 }
+
+/** `POST /use-cases/{id}/ask` (K26 demo): one of the ten questions the at-risk data answers, as
+ *  an answer-block payload; `GET .../ask/questions` lists the ten. */
+export function askUseCase(useCaseId, question, { signal } = {}) {
+  return apiJson(`/use-cases/${encodeURIComponent(useCaseId)}/ask`, "POST", { question }, { signal });
+}
+export function fetchAskQuestions(useCaseId, { signal } = {}) {
+  return apiJson(`/use-cases/${encodeURIComponent(useCaseId)}/ask/questions`, "GET", undefined, { signal });
+}

@@ -1902,10 +1902,13 @@ def _summary_of(result: Optional[Mapping[str, Any]]) -> str:
             recs = (result.get("recommendation_result") or {}).get("summary") or {}
             alerts = result.get("alerts") or {}
             what = (
-                f"{summary.get('open_quotes', 0)} open quotes scored, "
-                f"{summary.get('at_risk_within_range', 0)} at risk in range; "
+                f"{summary.get('open_quotes', 0)} open quotes scored: "
+                f"{summary.get('stalled', 0)} already stalled, "
+                f"{summary.get('within_range', 0)} in their window of which "
+                f"{summary.get('at_risk_within_range', 0)} at risk; "
                 f"{recs.get('recommendations', 0)} recommendation(s), "
-                f"{recs.get('alerts', 0)} alert(s) {alerts.get('status') or 'composed'}"
+                f"{recs.get('alerts', 0)} of them alerted to reps "
+                f"({alerts.get('status') or 'composed'})"
             )
         elif isinstance(result.get("diagnosis"), Mapping):
             what = "1 KPI diagnosed"

@@ -30,6 +30,7 @@ __all__ = [
     "build_control_plane_engine",
     "build_warehouse_engine",
     "build_warehouse_readonly_engine",
+    "pooled_warehouse_readonly_engine",
     "pooled_control_plane_connection",
     "pooled_control_plane_engine",
     "psycopg_dsn",
@@ -187,3 +188,34 @@ def build_warehouse_readonly_engine(settings: RetailSettings) -> Engine:
         future=True,
         execution_options={"postgresql_readonly": True},
     )
+
+
+@lru_cache(maxsize=None)
+def _pooled_warehouse_readonly_engine(db_url: str) -> Engine:
+    """One pooled read-only warehouse ``Engine`` per DSN, for the process's lifetime.
+
+    Same posture and the same reasoning as :func:`_pooled_control_plane_engine`, added for the
+    interactive read path. ``build_warehouse_readonly_engine`` calls ``create_engine`` every
+    time, which is right for a job that runs once and exits -- and wrong for a chat tool called
+    per question: each call builds a fresh QueuePool (5 + 10 overflow) that nothing disposes,
+    so a burst of questions holds N pools until the garbage collector happens to reach them,
+    and Postgres runs out of ``max_connections`` first.
+    """
+    return create_engine(
+        db_url,
+        pool_pre_ping=True,
+        future=True,
+        execution_options={"postgresql_readonly": True},
+    )
+
+
+def pooled_warehouse_readonly_engine(settings: RetailSettings) -> Engine:
+    """The shared read-only warehouse engine. Refuses when the DSN is unset, like its
+    non-pooled twin -- the refusal is the useful signal, not a silent fallback."""
+    if not settings.retail_warehouse_readonly_db_url:
+        raise RuntimeError(
+            "EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL is not set, so there is no read-only "
+            "warehouse connection for R6's SQL guard to sit above. Run warehouse-migrate "
+            "first to create the egpt_reader role (065_readonly_role.sql)."
+        )
+    return _pooled_warehouse_readonly_engine(settings.retail_warehouse_readonly_db_url)

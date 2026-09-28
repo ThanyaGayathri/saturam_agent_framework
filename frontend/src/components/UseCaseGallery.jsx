@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Blocks, Clock, FileText, Plus, RefreshCw } from "lucide-react";
-import { clearSpecDraft, loadSpecDraft } from "../domain/use-case-draft-spec";
+import { clearSpecDraft } from "../domain/use-case-draft-spec";
 import { cadenceLabel } from "../domain/use-case-platform";
 import { relativeTimeFromNow as _rel } from "../domain/alerts-view";
 const relativeTimeFromNow = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
@@ -51,8 +51,6 @@ export default function UseCaseGallery() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
-  const draft = useMemo(() => loadSpecDraft(), []);
-  const draftInProgress = draft?.goal && !draft.activation;
 
   const load = () => {
     setError(null);
@@ -82,13 +80,6 @@ export default function UseCaseGallery() {
         <div data-tour-uc="tabs"><UseCasePageNav current="gallery" /></div>
 
         <div className={`${catalogSectionBelowNav} space-y-6`}>
-          {draftInProgress && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-gradient-to-br from-surface to-primary-light px-4 py-3 shadow-sm dark:border-primary/40 dark:from-surface-secondary dark:to-primary/20">
-              <div className="min-w-0 text-sm"><p className="font-semibold text-text-primary">Draft in progress: {draft.title || draft.goal}</p><p className="text-text-secondary">Not on the platform yet. Continue in the builder to rehearse and activate it.</p></div>
-              <Button onClick={() => navigate("/use-cases/builder/compose")}>Continue</Button>
-            </div>
-          )}
-
           <div className="flex flex-wrap items-center gap-3">
             <CatalogSearchToolbar value={search} onValueChange={setSearch} placeholder="Search your use cases" />
             <button type="button" onClick={load} className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-primary"><RefreshCw size={12} /> Refresh</button>

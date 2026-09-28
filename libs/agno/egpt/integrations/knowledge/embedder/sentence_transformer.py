@@ -42,6 +42,37 @@ class SentenceTransformerEmbedder(Embedder):
         # Initialize the SentenceTransformer model eagerly to avoid race conditions in async contexts
         if self.sentence_transformer_client is None:
             self.sentence_transformer_client = SentenceTransformer(model_name_or_path=self.id)
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        """Run one throwaway encode, single-threaded, at construction.
+
+        Constructing the model is **not** the same as initializing it. `SentenceTransformer(...)`
+        loads weights, but the first `encode()` is what allocates the backend's compute context
+        (Metal on macOS, and the lazy kernel setup torch does generally). Two threads entering
+        that first `encode()` concurrently deadlock: both processes sit at ~300% CPU and neither
+        returns, indefinitely.
+
+        The eager construction above was already there for this reason -- "to avoid race
+        conditions in async contexts" -- it just stopped one step short of the call that
+        actually does the initializing.
+
+        Reproduced on a fresh instance: two threads whose *first* call is concurrent never
+        return; the same two threads after a single warm-up call finish in 0.0s. It surfaced
+        through a retrieval fan-out that ran a prose leg (pgvector `hybrid_search`) and an
+        ontology leg (`search_vector`) concurrently over one shared embedder -- neither leg
+        being at fault, and each fine on its own.
+
+        Cheap: one encode of one short string, once per instance. Failures are swallowed, since
+        a warm-up that cannot run is not a reason to refuse to construct an embedder -- the real
+        call will raise on its own terms, with its own text, if the model is genuinely broken.
+        """
+        try:
+            self.sentence_transformer_client.encode(  # type: ignore[union-attr]
+                "warm up", prompt=self.prompt, normalize_embeddings=self.normalize_embeddings
+            )
+        except Exception as e:  # noqa: BLE001 -- see docstring
+            log_warning(f"SentenceTransformer warm-up failed, first concurrent encode may block: {e}")
 
     def get_embedding(self, text: Union[str, List[str]]) -> List[float]:
         if self.sentence_transformer_client is None:

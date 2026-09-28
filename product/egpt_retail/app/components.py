@@ -31,6 +31,7 @@ factory. Provider and tenant are two halves of one fix; either alone leaves memo
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, List, Optional, Union, cast
 
@@ -40,7 +41,9 @@ from egpt.factory import RequestContext
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory.config import build_memory_provider_for
 from egpt.memory.provider import MemoryProvider
+from egpt.providers.model_provider import ModelResolveRequest
 from egpt.registry.registry import Registry
+from egpt.utils.log import log_warning
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
 from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
@@ -93,7 +96,13 @@ from egpt_retail.routing.table import (
 )
 from egpt_retail.skills.funnel_explanation import FunnelExplanation
 from egpt_retail.skills.join_path_explainer import JoinExplanation
-from egpt_retail.skills.playground import PlaygroundAnswer
+from egpt_retail.skills.playground import (
+    ENRICHMENT_PROMPT,
+    AnswerBlock,
+    AnswerBlockKind,
+    PlaygroundAnswer,
+    PlaygroundEnrichment,
+)
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
 __all__ = [
@@ -348,6 +357,61 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     return agents
 
 
+def _verified_user_id(ctx: Any) -> Optional[str]:
+    """The caller's identity, but only when something verified it.
+
+    ``RequestContext.user_id`` is **not** a verified value. Its own docstring says "From form
+    field or request.state": ``build_request_context`` takes the multipart ``user_id`` form
+    field verbatim, and the run route overrides it only when middleware stamped an identity.
+    Two reachable states leave the raw form field standing -- authorization off (retail's
+    documented local posture, ``app/scopes.py``), and a token that decodes but carries no
+    ``sub`` (``os/middleware/jwt.py`` sets ``request.state.user_id = None`` *explicitly*).
+
+    That matters because this value becomes the memory read scope. Trusting it would let
+    ``curl -F 'user_id=someone-else'`` read another person's memories -- cross-user, not
+    cross-tenant, and exactly what MEMORY_SCOPE.md's read table exists to prevent.
+
+    So: take the identity only from ``ctx.trusted``, which ``factory/utils.py`` documents as
+    "Populated by verified middleware only", and fall back to ``None``. ``None`` drops the
+    memory leg rather than widening it -- no memory is the honest answer for an unidentified
+    caller, and "everyone's" is the one answer that must never be returned.
+
+    This is the same posture ``api/routers/playground.py``'s ``_owner`` takes for saved
+    prompts and reports, which refuses rather than collapsing callers onto a shared identity.
+    The difference is the consequence: ``_owner`` raises 401 because an unowned prompt cannot
+    be stored, while here a degraded answer is better than a refused one -- the other three
+    legs still work without memory.
+    """
+    trusted = getattr(ctx, "trusted", None)
+    claims = getattr(trusted, "claims", None) or {}
+    # `sub` is the JWT's subject, placed here by AuthMiddleware after the token verified.
+    # `TrustedContext` has exactly two fields -- `claims` and `scopes` -- and no `user_id`:
+    # reading `trusted.user_id` returns None on every request, which closes the hole by
+    # killing the feature, and leaves the next person to "fix" it reaching for `ctx.user_id`,
+    # which is the unverified form field this function exists to refuse.
+    subject = claims.get("sub") if isinstance(claims, dict) else None
+    if subject:
+        return str(subject)
+
+    # Authorization off is a legitimate deployment posture (`app/scopes.py`), not an attack.
+    # There is exactly one caller then, so `_owner`'s "local" stand-in is the right identity --
+    # and it is chosen HERE, from the deployment's own configuration, never from the request.
+    request = getattr(ctx, "request", None)
+    state = getattr(request, "state", None) if request is not None else None
+    if state is not None and not getattr(state, "authorization_enabled", False):
+        return "local"
+
+    # Authorization on, but the token carried no subject. `jwt.py` sets `request.state.user_id`
+    # to None *explicitly* for that case, so there is no identity to key a private read on and
+    # the form field must not stand in. Drop the leg: no memory is the honest answer for an
+    # unidentified caller, and "everyone's" is the one answer that must never come back.
+    log_warning(
+        "playground: this request carries no verified subject claim, so the memory leg is "
+        "dropped. An unverified user_id must never scope a memory read (MEMORY_SCOPE.md)."
+    )
+    return None
+
+
 def build_playground_agent_factory(
     settings: RetailSettings, db: PostgresDb, providers: TierProviders
 ) -> AgentFactory:
@@ -370,12 +434,132 @@ def build_playground_agent_factory(
     """
     prompt = _PLAYGROUND_PROMPT.read_text()
 
+    def _question_text(run_output: Any) -> str:
+        raw = getattr(run_output, "input", None)
+        if isinstance(raw, str):
+            return raw
+        return str(getattr(raw, "content", "") or "")
+
+    _tool_result_text_re = re.compile(r"text=(['\"])(?P<text>.*)\1\)", re.DOTALL)
+
+    def _tool_result_texts(run_output: Any) -> List[str]:
+        """The full prose behind each tool call this run made, recovered from the framework's
+        stringified ``ToolExecution.result`` -- not a block's ``content``, which is
+        deliberately kept short (playground.md's own rule) to keep the main response inside
+        its token budget. A ranking over ten categories names two of them in that short
+        prose and no more, so the enrichment call below sees only two points if this is its
+        only source. The tool's own full answer never got shortened; it is still sitting
+        right here, unread until now.
+        """
+        texts: List[str] = []
+        for tool in getattr(run_output, "tools", None) or []:
+            result = getattr(tool, "result", None)
+            if not isinstance(result, str):
+                continue
+            match = _tool_result_text_re.search(result)
+            if match:
+                texts.append(match.group("text"))
+        return texts
+
+    async def _enrich_playground_answer(run_output: Any) -> None:
+        """Post-hook: fills chart data, table rows, follow-ups and a recommendation from the
+        prose the main call already wrote, when the main call left them empty.
+
+        A second, narrow call rather than a stronger instruction in the first -- see
+        ``PlaygroundEnrichment``'s own docstring for why. Runs only when something is
+        actually missing, so a response the main call already filled costs nothing extra.
+        Reads only ``content`` already written and verified by the main call, so it can
+        restructure a number but never introduce one that was not already in the answer.
+        """
+        content = run_output.content
+        if not isinstance(content, PlaygroundAnswer) or not content.blocks:
+            return
+
+        chart_blocks = [
+            b for b in content.blocks if b.kind == AnswerBlockKind.CHART and not b.data
+        ]
+        table_blocks = [
+            b for b in content.blocks if b.kind == AnswerBlockKind.TABLE and not b.rows
+        ]
+        # Fewer than three still counts as needing a top-up, not only zero: the main call
+        # sometimes writes one real follow-up and stops, and a chat that promises three
+        # should not silently ship with one.
+        needs_follow_ups = len(content.follow_ups) < 3
+        has_recommendation = any(
+            b.kind == AnswerBlockKind.RECOMMENDATION for b in content.blocks
+        )
+        if not (
+            chart_blocks or table_blocks or needs_follow_ups or not has_recommendation
+        ):
+            return
+
+        narrative = "\n\n".join(
+            [b.content for b in content.blocks if b.content]
+            + _tool_result_texts(run_output)
+        )
+        if not narrative:
+            return
+
+        model = provider_for(tier_for(PLAYGROUND_AGENT_ID), providers).resolve(
+            ModelResolveRequest(agent_id=PLAYGROUND_AGENT_ID)
+        )
+        enrich_agent = Agent(
+            id="playground-enrichment",
+            model=model,
+            output_schema=PlaygroundEnrichment,
+            instructions=ENRICHMENT_PROMPT,
+        )
+        try:
+            enrich_run = await enrich_agent.arun(
+                f"QUESTION: {_question_text(run_output)}\n\nINPUT_TEXT:\n{narrative}"
+            )
+        except Exception as exc:
+            log_warning(f"playground enrichment call failed: {exc}")
+            return
+
+        enrichment = enrich_run.content
+        if not isinstance(enrichment, PlaygroundEnrichment):
+            return
+
+        if chart_blocks and enrichment.chart_data:
+            for chart_block in chart_blocks:
+                chart_block.data = enrichment.chart_data
+                if not chart_block.chart_kind:
+                    chart_block.chart_kind = enrichment.chart_kind or "bar"
+        if table_blocks and enrichment.table_columns and enrichment.table_rows:
+            for table_block in table_blocks:
+                table_block.columns = enrichment.table_columns
+                table_block.rows = enrichment.table_rows
+        if needs_follow_ups and enrichment.follow_ups:
+            merged = list(content.follow_ups) + [
+                q for q in enrichment.follow_ups if q not in content.follow_ups
+            ]
+            content.follow_ups = merged[:3]
+        if not has_recommendation and enrichment.recommendations:
+            content.blocks.append(
+                AnswerBlock(
+                    id=f"blk_{len(content.blocks) + 1}",
+                    kind=AnswerBlockKind.RECOMMENDATION,
+                    title="What to try next",
+                    items=enrichment.recommendations,
+                    source="playground_enrichment(derived from the answer above)",
+                )
+            )
+
     async def build_playground_agent(ctx: RequestContext) -> Agent:
         # `RequestContext.input` is typed as `BaseModel | dict | None` because a factory
         # can declare any schema; `input_schema=PlaygroundModeInput` below is what EgptOS
         # actually validates it against before this function ever runs.
         cfg = cast(PlaygroundModeInput, ctx.input)
-        scope = await aresolve_mode_scope(cfg.mode, cfg.scope_id, settings=settings)
+        scope = await aresolve_mode_scope(
+            cfg.mode,
+            cfg.scope_id,
+            settings=settings,
+            user_id=_verified_user_id(ctx),
+            model=provider_for(tier_for(PLAYGROUND_AGENT_ID), providers).resolve(
+                ModelResolveRequest(agent_id=PLAYGROUND_AGENT_ID)
+            ),
+        )
         if scope.refused:
             instructions = (
                 f"{prompt}\n\n"
@@ -397,6 +581,7 @@ def build_playground_agent_factory(
             tools=tools,
             output_schema=PlaygroundAnswer,
             db=db,
+            post_hooks=[_enrich_playground_answer] if not scope.refused else None,
         )
         # `model_provider` is not an `Agent` constructor argument -- the framework reads it
         # as a plain attribute (`routing/providers.py`'s `route_agents` does the same thing

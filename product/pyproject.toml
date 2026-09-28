@@ -101,6 +101,13 @@ egpt_retail = [
   "contracts/_fixtures/*.json",
   "contracts/_fixtures/landing/raw/*/*/*.ndjson",
   "skills/*.md",
+  # The metric catalogue the KPI suggestion agents read at the start of every run, and the
+  # domain prose `load-knowledge` ingests from the package when nothing else is configured.
+  # Missing from here, both are present in an editable install and absent from the image:
+  # the suggestion run died with FileNotFoundError before its first phase, and the corpus
+  # loaded as empty.
+  "kpi/*.json",
+  "knowledge/corpus/*.md",
   "api/openapi/*.yaml",
   "api/openapi/*.json",
   "api/openapi/paths/*.yaml",

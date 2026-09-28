@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ExternalLink, Loader2, MessageSquare, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import PlatformRunPanel from "./PlatformRunPanel";
 import RunHistory from "./RunHistory";
 import PlanViews from "./PlanViews";
-import RecommendationsPanel from "./RecommendationsPanel";
+import UseCaseAskDrawer from "./UseCaseAskDrawer";
 import { STATUS_PILL } from "../UseCaseGallery";
 import { cadenceLabel, specFromPlatform } from "../../domain/use-case-platform";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -13,6 +13,8 @@ import { relativeTimeFromNow as _rel } from "../../domain/alerts-view";
 const relativeTimeFromNow = (ts) => _rel(typeof ts === "string" ? new Date(ts).getTime() : ts);
 import { activateUseCase, deleteUseCase, fetchUseCase, fetchUseCaseSpec, listUseCaseRuns, pauseUseCase } from "../../services/use-cases-api";
 import { fetchDashboardList } from "../../services/dashboards-api";
+import { catalogH1 } from "../shared/useCaseCatalogPageStyles";
+import Tabs from "../ui/Tabs";
 
 /**
  * One use case on the platform (K20): what it is, how it is triggered, its run history with
@@ -50,6 +52,7 @@ export default function UseCasePlatformPage() {
   // "How it runs": the plan derived from the spec the platform holds -- the same views the
   // person approved in the builder, without reopening the builder or touching the draft.
   const [tab, setTab] = useState("runs");
+  const [askOpen, setAskOpen] = useState(false);
   // An Analytics Automation composes a dashboard at activation, named after the use case
   // (K23). Found by that name under KPIs -> Dashboards; the page links to it.
   const [dashboard, setDashboard] = useState(null);
@@ -95,13 +98,18 @@ export default function UseCasePlatformPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
       <button type="button" onClick={() => navigate("/use-cases/gallery")} className="inline-flex items-center gap-1 text-xs font-semibold text-text-muted hover:text-text-primary"><ArrowLeft size={12} /> User built use cases</button>
-      {error && <p className="rounded-lg border border-status-critical-border bg-status-critical-light px-3 py-2 text-sm text-status-critical">{error}</p>}
-      {!useCase ? <p className="text-sm text-text-muted">Reading the platform…</p> : (
-        <>
+      {error && <p className="flex items-center gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-3 text-sm text-status-critical"><AlertTriangle size={16} aria-hidden className="shrink-0" />{error}</p>}
+      {!useCase ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface py-20">
+          <Loader2 size={22} aria-hidden className="animate-spin text-text-muted" />
+          <p className="text-sm text-text-muted">Reading the platform…</p>
+        </div>
+      ) : (
+        <div className="space-y-5 rounded-2xl border border-border bg-surface px-6 py-8 sm:px-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-bold text-text-primary">{useCase.title}</h1>
+                <h1 className={catalogH1}>{useCase.title}</h1>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill.cls}`}>{pill.label}</span>
                 <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-xs text-text-secondary">v{useCase.version}</span>
               </div>
@@ -109,11 +117,12 @@ export default function UseCasePlatformPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {dashboard && <button type="button" onClick={() => navigate(`/kpis/dashboards/${dashboard.id}`)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-light/80"><ExternalLink size={14} /> Dashboard</button>}
+              {atRisk && <button type="button" onClick={() => setAskOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary-light px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-light/80"><MessageSquare size={14} /> Ask</button>}
               <button type="button" onClick={edit} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary"><Pencil size={14} /> Edit</button>
               {useCase.status === "activated"
                 ? <button type="button" disabled={busy} onClick={pause} className="inline-flex items-center gap-1.5 rounded-lg border border-status-warning-border bg-status-warning-light px-3 py-2 text-sm font-semibold text-status-warning disabled:opacity-60"><Pause size={14} /> Pause</button>
                 : <button type="button" disabled={busy} onClick={resume} className="inline-flex items-center gap-1.5 rounded-lg border border-status-success-border bg-status-success-light px-3 py-2 text-sm font-semibold text-status-success disabled:opacity-60"><Play size={14} /> {useCase.status === "paused" ? "Resume" : "Activate"}</button>}
-              <button type="button" disabled={busy} onClick={remove} title="Delete this use case, its runs and golden cases" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-muted hover:border-status-critical-border hover:bg-status-critical-light hover:text-status-critical disabled:opacity-60"><Trash2 size={14} /> Delete</button>
+              <button type="button" disabled={busy} onClick={remove} title="Delete this use case, its runs and golden cases" className="inline-flex items-center gap-1.5 rounded-lg border border-status-critical-border bg-surface px-3 py-2 text-sm font-semibold text-status-critical hover:bg-status-critical-light disabled:opacity-60"><Trash2 size={14} /> Delete</button>
             </div>
           </div>
 
@@ -123,32 +132,23 @@ export default function UseCasePlatformPage() {
               ["Autonomy", `${useCase.autonomy} · level ${useCase.level}`],
               ["Last run", useCase.last_run ? `${useCase.last_run.status} · ${relativeTimeFromNow(useCase.last_run.started_at)}` : "none yet"],
               ["Live runs, all time", String(live.length)],
-            ].map(([k, v]) => <div key={k} className="rounded-xl border border-border bg-surface px-3 py-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{k}</p><p className="mt-0.5 text-sm font-semibold text-text-primary">{v}</p></div>)}
+            ].map(([k, v]) => <div key={k} className="rounded-xl border border-border bg-surface-secondary px-3 py-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{k}</p><p className="mt-0.5 text-sm font-semibold text-text-primary">{v}</p></div>)}
           </div>
 
-          <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
-            {[["runs", "Runs"], ...(atRisk ? [["recommendations", "Recommendations"]] : []), ["flow", "How it runs"]].map(([v, label]) => (
-              <button key={v} type="button" onClick={() => setTab(v)} aria-pressed={tab === v} className={`rounded-md px-3 py-1 ${tab === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
-            ))}
-          </div>
+          <Tabs size="sm" activeTab={tab} onChange={setTab} tabs={[["runs", "Runs"], ["flow", "How it runs"]].map(([value, label]) => ({ value, label }))} />
 
           {tab === "flow" && (fullSpec ? <PlanViews spec={fullSpec} /> : <p className="text-sm text-text-muted">Reading the specification…</p>)}
 
-          {tab === "recommendations" && (
-            <div className="space-y-2">
-              <p className="text-xs text-text-secondary">What this use case hands to Decision Intelligence: one record per at-risk quote with the play the catalogue chose, who owns it and why. Accepting or dismissing here is the same write a consuming use case makes; a decided record is kept by later runs, an open one is refreshed.</p>
-              <RecommendationsPanel useCaseId={id} />
-            </div>
-          )}
 
           {tab === "runs" && useCase.status === "activated" && (
             <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description={atRisk ? "Trains the risk model on the closed history, scores every open quote, chooses a play for each at-risk one, writes the recommendations, checks the briefing's figures, sends the report and the reps' alerts: the same run the schedule makes." : (useCase.tags || []).includes("metric_diagnosis") ? "Reads the KPI, finds where its change sits by arithmetic, has the AI step write the sentence from that ranking, checks every figure, and sends the report: the same run the schedule makes." : (useCase.tags || []).includes("analytics_automation") ? "Reads the KPIs from gold (and the baseline's when one is chosen), writes and checks the narrative, and sends the report: the same run the schedule makes." : "Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new."} createdAs="draft" onFinished={load} />
           )}
 
           {tab === "runs" && <RunHistory runs={runs} onRefresh={load} refreshing={refreshing} refreshedAt={refreshedAt} createdAs="draft" />}
-          {tab === "runs" && <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : (useCase.tags || []).includes("analytics_automation") ? "Each run reads today's gold (and the baseline date's when a comparison is chosen); the report and its numbers are kept on the run." : ""}</p>}
-        </>
+          {tab === "runs" && <p className="text-xs leading-relaxed text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : (useCase.tags || []).includes("analytics_automation") ? "Each run reads today's gold (and the baseline date's when a comparison is chosen); the report and its numbers are kept on the run." : ""}</p>}
+        </div>
       )}
+      {atRisk && <UseCaseAskDrawer useCaseId={id} title={useCase?.title || ""} open={askOpen} onClose={() => setAskOpen(false)} />}
     </div>
   );
 }

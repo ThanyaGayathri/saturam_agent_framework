@@ -297,9 +297,31 @@ class TestScoreRisk:
         } <= set(first)
         assert first["account"]["segment"] in RFM_SEGMENTS
         assert 0.0 <= first["risk"] <= 1.0
-        # Still-in-range quotes come before the stalled ones.
+        # Still-in-range quotes come before the stalled ones; within each, by the value
+        # at risk weighted by what the account is worth.
         stalled_flags = [s["stalled"] for s in risk["subjects"]]
         assert stalled_flags == sorted(stalled_flags)
+        in_range = [s for s in risk["subjects"] if not s["stalled"]]
+        assert [s["priority"] for s in in_range] == sorted(
+            (s["priority"] for s in in_range), reverse=True
+        )
+        assert all(
+            abs(
+                s["priority"]
+                - round(s["value_at_risk"] * s["account"]["importance"], 2)
+            )
+            < 0.02
+            for s in risk["subjects"]
+        )
+        assert {s["account"]["importance"] for s in risk["subjects"]} <= {
+            0.8,
+            0.9,
+            1.0,
+            1.2,
+            1.4,
+            1.5,
+        }
+        assert all({"r", "f", "m"} <= set(s["account"]) for s in risk["subjects"])
         assert risk_of(StepInput(previous_step_content=out.content)) == risk
 
     def test_churn_window_slot_flags_accounts(self, stubbed_warehouse):
@@ -336,3 +358,63 @@ class TestScoreRisk:
         )
         assert risk_of(step) == {"summary": {}}
         assert risk_of(StepInput(previous_step_content="text")) is None
+
+
+class TestFocus:
+    def test_the_weeks_ten_blend_value_winnability_urgency_and_the_account(self):
+        from egpt_retail.executors.predict import focus_of
+
+        def subject(i, value, p_convert, age, importance=1.0, lost=None, level=None):
+            risk = 1 - p_convert
+            return {
+                "quote_id": i,
+                "value": value,
+                "p_convert": p_convert,
+                "risk": risk,
+                "value_at_risk": value * risk,
+                "age_days": age,
+                "usual_days": 28,
+                "level": level or ("high" if risk >= 0.7 else "medium"),
+                "last_lost_reason": lost,
+                "account": {"importance": importance},
+            }
+
+        pool = [subject(i, 1000 + i * 10, 0.5, 5) for i in range(30)]
+        pool += [
+            subject(
+                100, 9800, 0.45, 20, 1.4, "Chosen Competitor"
+            ),  # value, key account, lever
+            subject(
+                101, 9500, 0.15, 27
+            ),  # high value but nearly lost and closing today
+            subject(102, 3000, 0.55, 10, 1.5),  # key account, low-hanging
+            subject(103, 400, 0.05, 1, 0.8, level="low"),  # low risk: not in the pool
+        ]
+        focus = focus_of(pool)
+        ids = [q["quote_id"] for q in focus["quotes"]]
+        assert len(ids) == 10 and 103 not in ids
+        assert ids[0] == 100
+        first = focus["quotes"][0]
+        assert {"high value", "key account", "known lever"} <= set(first["factors"])
+        assert first["days_left"] == 8
+        closing = next(q for q in focus["quotes"] if q["quote_id"] == 101)
+        assert "closing soon" in closing["factors"] and closing["days_left"] == 1
+        low_hanging = next(q for q in focus["quotes"] if q["quote_id"] == 102)
+        assert (
+            "low-hanging" in low_hanging["factors"]
+            and "key account" in low_hanging["factors"]
+        )
+        assert focus["days"] == 7
+        assert abs(focus["value"] - sum(q["value"] for q in focus["quotes"])) < 0.01
+        assert (
+            abs(focus["at_risk"] - sum(q["value_at_risk"] for q in focus["quotes"]))
+            < 0.01
+        )
+        assert focus["closest_days"] == min(q["days_left"] for q in focus["quotes"])
+        assert focus["factor_counts"]["known lever"] >= 1
+
+    def test_empty_when_nothing_is_at_risk(self):
+        from egpt_retail.executors.predict import focus_of
+
+        assert focus_of([])["quotes"] == []
+        assert focus_of([{"level": "low"}])["quotes"] == []

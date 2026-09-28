@@ -47,7 +47,13 @@ A JSON object:
   `usual_days`, `drivers[]` (each a `text` in words), `account` (`segment`, `at_risk`,
   `recency_days`), `play` (`title`, `because`, `owner`, `sla_hours`), `value_at_stake_text`.
 - `plays[]` -- each `{play, count}`: how many recommendations carry each play, by its title.
-- `alerts` -- `count`, `reps` (how many reps), `by_rep` (rep → count).
+- `alerts` -- `count`, `reps` (how many reps), `by_rep` (rep → count). The alerts are
+  the high-risk subset of the recommendations, also sent to their reps -- never add them
+  to the recommendations; say "N of them".
+- `this_weeks_ten` -- the ten quotes to attack in the next `days`: `count`, `value_text`
+  (what they are worth), `at_risk_text` (what would otherwise be lost), `factor_counts`
+  (how many are high value / low-hanging / closing soon / key account / known lever). One
+  finding may say what the ten are worth and what they have in common; never list them.
 - `tracked_so_far` -- per risk level, of the earlier recommendations whose horizon has
   ended: `named`, `did_not_convert`, `rate`. Empty on a first run.
 - `kpis[]` -- the registry KPIs read for context, each `name`, `current`, `unit`.

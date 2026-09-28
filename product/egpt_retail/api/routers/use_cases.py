@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_engine
@@ -275,6 +276,89 @@ async def set_recommendation_status(
         by=body.by or "",
     )
     return wire.Recommendation.model_validate(updated)
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+@router.post("/use-cases/{use_case_id}/ask")
+async def ask_use_case(
+    use_case_id: str,
+    body: AskRequest,
+    service: UseCaseService = Depends(use_case_service),
+    _: None = Depends(require_scopes("use-cases:read")),
+) -> Dict[str, Any]:
+    """Ask the at-risk use case one of its ten questions (K26 demo surface): the answer
+    computed over the quote fact and the use case's latest succeeded run, as the
+    interface's answer-block payload. Not in the contract on purpose -- a demo, not a
+    product endpoint."""
+    from egpt_retail.app.db import build_warehouse_engine
+    from egpt_retail.usecases.ask import QUESTIONS, ask, kpi_match
+
+    if await service.store.aget(use_case_id) is None:
+        raise _not_found(use_case_id)
+    runs = await service.store.alist_runs(use_case_id, limit=20)
+    last = next(
+        (
+            r
+            for r in runs
+            if r.get("status") == "succeeded"
+            and isinstance(r.get("result"), dict)
+            and r["result"].get("risk")
+        ),
+        None,
+    )
+    settings = RetailSettings()
+
+    # The registry is read so a question that names a KPI is answered from its own
+    # definition and its gold value, never from anything invented here.
+    def answer() -> Dict[str, Any]:
+        from egpt_retail.app.db import pooled_control_plane_connection
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        connection = pooled_control_plane_connection(settings)
+        try:
+            registry = [
+                {
+                    "identifier": k.identifier,
+                    "name": k.name,
+                    "description": k.description,
+                    "unit": k.unit,
+                    "grain": getattr(k.grain, "value", k.grain),
+                }
+                for k in KpiRegistryStore(connection).list()
+                if k.active
+            ]
+        finally:
+            connection.close()
+        # A question that names a KPI is answered from the registry and gold alone, so it
+        # holds on a use case that has never run; the ten read the run and need one.
+        result = last["result"] if last is not None else {}
+        if last is None and kpi_match(body.question, registry)[0] is None:
+            return {
+                "matched": None,
+                "variant": "answer-block",
+                "intro": "Run the use case once first; these questions read its latest run.",
+                "blocks": [],
+                "followUps": [q["label"] for q in QUESTIONS[:4]],
+            }
+        engine = build_warehouse_engine(settings)
+        try:
+            return ask(engine, body.question, result, registry=registry)
+        finally:
+            engine.dispose()
+
+    return await asyncio.to_thread(answer)
+
+
+@router.get("/use-cases/{use_case_id}/ask/questions")
+async def ask_questions(
+    use_case_id: str, _: None = Depends(require_scopes("use-cases:read"))
+) -> List[Dict[str, str]]:
+    from egpt_retail.usecases.ask import QUESTIONS
+
+    return [{"id": q["id"], "label": q["label"]} for q in QUESTIONS]
 
 
 def _suggest_analytics_sync(question: str, recipient: str) -> Dict[str, Any]:

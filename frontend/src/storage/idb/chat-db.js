@@ -116,6 +116,44 @@ export async function getMessagesForSession(sessionId) {
   }
 }
 
+/**
+ * Delete a conversation's messages and attachments.
+ *
+ * Deleting a chat used to remove only its row from the index, leaving every message behind.
+ * They were invisible but not gone: the next load saw a session with messages in it and
+ * offered the "cleared" conversation straight back.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function deleteSession(sessionId) {
+  try {
+    const db = await openDb();
+    if (!db) return false;
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([IDB.STORE_MESSAGES, IDB.STORE_ATTACHMENTS], "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve(true);
+      for (const storeName of [IDB.STORE_MESSAGES, IDB.STORE_ATTACHMENTS]) {
+        const store = tx.objectStore(storeName);
+        if (store.indexNames.contains("sessionId")) {
+          const req = store.index("sessionId").getAllKeys(sessionId);
+          req.onsuccess = () => (req.result || []).forEach((key) => store.delete(key));
+          continue;
+        }
+        // No index on this store yet: fall back to a scan rather than leaving rows behind.
+        const all = store.getAll();
+        all.onsuccess = () =>
+          (all.result || [])
+            .filter((row) => row.sessionId === sessionId)
+            .forEach((row) => store.delete(row.id));
+      }
+    });
+  } catch {
+    invalidateDb();
+    return false;
+  }
+}
+
 /** @returns {Promise<boolean>} */
 export async function putMessage(sessionId, message) {
   try {

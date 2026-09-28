@@ -6967,6 +6967,40 @@ nine for that goal. `vite build` clean; suite 1517 passed.
 
 ---
 
+### PA07 -- the Middleby extracts curated into Middleby's world; "why we lost", specifically (22 Sep 2026)
+
+**Status:** PASS. `PA07_middleby_us_curation.py` rewrites the four delivered extracts
+deterministically (every choice keyed on an id) and `PA04` reloads them; all 29 `rfq__` KPIs
+recomputed through `POST /kpis/{id}/compute`; the at-risk use case rerun live.
+
+**Why:** a sales lead's review. The delivered data was a generator's: Indian territories in
+two spellings each, Indian states and rep names, Dutch customer names, consumer brands
+(Toyota, Levi, Adidas), placeholder products ("Widget Quantum"), word-shuffled lost reasons
+and chat types, a `quote_month` of "2026-02" on every row, a `quote_status` contradicting
+`pipeline_stage`. Middleby is a US commercial-kitchen manufacturer.
+
+**What the curation changes, and what it does not:** ids, dates, values, stages, outcomes and
+every link between sessions, chats, quotes and accounts stay -- the closed-won rate is still
+50.7%, the model's holdout AUC 0.803 (was 0.806). Changed: five US regions (Northeast,
+Southeast, Midwest, West, Central), one per account with a state inside it, the quote's
+territory and state following the account (0 inconsistencies); 20 reps, four per region, an
+account keeping its rep; business names by segment (a dealer, a chain, a hospital dining
+service), consumers keeping a person's name; Middleby brands by category (Pitco, Blodgett,
+TurboChef, Southbend, Star, Follett, Middleby Marshall, Lincoln...) with products named
+brand + model and SKUs prefixed by category; six canonical lost reasons (the 32 "No Chosen"
+rows folded into Chosen Competitor), four chat types, four channels; `quote_month` =
+month of `quote_date`; `quote_status` = the stage's status.
+
+**"Why we lost", specifically:** the scoring SQL now carries the account's last lost quote
+-- reason, quote id, close date, category -- and its won / lost counts; every recommendation
+and every one of the week's ten shows two lines on the dashboard, in the report drawer, the
+run view and the email: *Why at risk* (the model's drivers in words) and *Lost before*
+(the reason in plain words -- "lost to an alternative specification" -- the quote, when,
+and "this account: 0 won, 1 lost of 1 earlier quotes"). Only when the account has a loss;
+a first-time account shows the drivers alone.
+
+---
+
 ### K26 -- the at-risk kind: who or what is at risk, ending in a recommendation
 
 **Package:** K26, branch `usecase_processautomation`. Contract 1.13.0 (additive):

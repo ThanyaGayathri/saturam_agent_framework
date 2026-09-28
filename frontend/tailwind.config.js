@@ -108,6 +108,13 @@ export default {
           "card-hover": "#eceef5",
           border: "#e4e6ed",
         },
+        // Use case builder chrome: the cool grey-lavender rail panel and the border shared by
+        // the rail and the sheet beside it, so the two read as one pair. Fixed values like
+        // `gallery` above -- dark mode is handled by `dark:` utilities at the call site.
+        builder: {
+          rail: "#e9ebf4",
+          border: "#dcdfeb",
+        },
       },
       borderRadius: {
         sm: "4px",
@@ -118,6 +125,11 @@ export default {
       boxShadow: {
         sm: "0 1px 2px 0 rgba(0,0,0,0.05)",
         DEFAULT: "0 1px 3px 0 rgba(0,0,0,0.1)",
+        // The scale jumped from a 3px shadow straight to a 25px one, so every `shadow-md` and
+        // `shadow-lg` in the app was falling through to Tailwind's stock values -- harder and
+        // greyer than this theme. These two close the gap in its own idiom.
+        md: "0 2px 4px -1px rgba(24,29,39,0.06), 0 4px 10px -2px rgba(24,29,39,0.06)",
+        lg: "0 4px 6px -2px rgba(24,29,39,0.05), 0 10px 20px -4px rgba(24,29,39,0.08)",
         xl: "0 20px 25px -5px rgba(0,0,0,0.1)",
         "gallery-card":
           "0 1px 2px rgba(24, 29, 39, 0.04), 0 4px 12px rgba(105, 65, 198, 0.06)",

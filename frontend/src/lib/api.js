@@ -152,3 +152,18 @@ export function apiForm(path, fields, { signal } = {}) {
 export async function apiJson(path, method, body, { signal } = {}) {
   return request(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal });
 }
+
+/** POST a multipart `FormData` body, parsed as JSON. Same error contract as `apiJson`;
+ * `apiForm` above is the urlencoded flat-field variant the workflow run endpoints take.
+ *
+ * The framework's run endpoint (`POST /agents/{id}/runs`) is multipart, not JSON — `message`,
+ * `factory_input` and `stream` arrive as form fields. `apiJson` would `JSON.stringify` the
+ * FormData into `"[object FormData]"`, so this exists rather than a flag on that function:
+ * a body that must not be serialized is a different call, not a variation of the same one.
+ *
+ * No `Content-Type` is set here on purpose. `fetch` computes it from the FormData, including
+ * the multipart boundary, and setting it by hand omits that boundary and makes the request
+ * unparseable server-side. `request` already only defaults the header for string bodies. */
+export async function apiMultipart(path, method, formData, { signal } = {}) {
+  return request(path, { method, body: formData, signal });
+}

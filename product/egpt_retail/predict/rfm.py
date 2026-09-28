@@ -10,7 +10,26 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 import numpy as np
 
-__all__ = ["RFM_SEGMENTS", "rfm_segments", "segment_of"]
+__all__ = ["RFM_SEGMENTS", "IMPORTANCE", "importance_of", "rfm_segments", "segment_of"]
+
+#: How much an account's segment weighs in the ranking of what to save first: a quote
+#: from an account that buys a lot and has gone quiet outranks the same money from a
+#: one-off buyer. Multipliers on the value at risk, around 1.0 for the middle.
+IMPORTANCE = {
+    "Cannot lose them": 1.5,
+    "Champions": 1.4,
+    "Loyal": 1.2,
+    "At risk": 1.2,
+    "Potential": 1.0,
+    "New": 1.0,
+    "Hibernating": 0.9,
+    "Lost": 0.8,
+}
+
+
+def importance_of(segment: object) -> float:
+    return IMPORTANCE.get(str(segment or ""), 1.0)
+
 
 RFM_SEGMENTS = (
     "Champions",
