@@ -342,11 +342,19 @@ class TestNeedsReviewHasAWayOut:
 
 
 class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
-    """KPI suggestions are proposed for a source when its harvest ends, so the KPIs page has no
-    "Suggest KPIs" button, no run panel (stepper, stopwatch, cancel, receipt) and no "AI generated
-    KPI" tab in Add KPI -- which started the same run. What remains is a notice while a run works
-    and a failure banner with one retry. The frontend has no test runner; these read the JS source,
-    so reintroducing the manual flow fails in the ordinary unit run."""
+    """KPI suggestions **for a connected source** are proposed when its harvest ends, so the KPIs
+    page has no "Suggest KPIs" button and no run panel (stepper, stopwatch, cancel, receipt).
+    What remains on that page is a notice while a run works and a failure banner with one retry.
+
+    Add KPI's AI-assisted path is a different caller and is deliberately allowed: it sends an
+    `ask` and **no** `source_id`, reads the deployment's own warehouse rather than a source, and
+    is polled by run id because a source-less run never joins the standing "current suggestions"
+    list. What P5 removed was a second way to trigger *a source's* suggestions from a button;
+    a person asking for a KPI a harvest never proposed is not that, and these tests say so
+    rather than forbidding the file outright.
+
+    The frontend has no test runner; these read the JS source, so putting the page-level manual
+    flow back fails in the ordinary unit run."""
 
     @staticmethod
     def _read(path: Path) -> str:
@@ -354,12 +362,21 @@ class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
             pytest.skip("frontend not checked out alongside product")
         return path.read_text()
 
-    def test_the_run_panel_and_the_ai_step_are_deleted(self) -> None:
+    def test_the_run_panel_is_deleted(self) -> None:
         if not KPI_DIR.exists():
             pytest.skip("frontend not checked out alongside product")
         assert not (KPI_DIR / "SuggestionRunPanel.jsx").exists()
-        assert not (KPI_DIR / "add-kpi" / "AddKpiAiStep.jsx").exists()
         assert (KPI_DIR / "SuggestionStatus.jsx").exists()
+
+    def test_the_ai_step_asks_for_a_kpi_and_never_starts_a_source_run(self) -> None:
+        """The one rule that has to hold for Add KPI's AI path: it may start a run of its own,
+        but never a source's -- that is what the harvest does, on its own."""
+        js = self._read(KPI_DIR / "add-kpi" / "AddKpiAiStep.jsx")
+        calls = re.findall(r"startKpiSuggestionRun\(([^)]*)\)", js)
+        assert calls, "the AI step starts no run at all"
+        for call in calls:
+            assert "sourceId" not in call and "source_id" not in call, call
+            assert "ask" in call, call
 
     def test_the_page_has_no_way_to_start_a_run_from_a_button(self) -> None:
         js = self._read(KPI_DIR / "KpiDiscoveryPage.jsx")
@@ -381,7 +398,9 @@ class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
         calls = re.findall(r"startKpiSuggestionRun\(([^)]*)\)", js)
         assert calls == ["{ sourceId }"], calls
 
-    def test_the_service_sends_only_a_source_id(self) -> None:
+    def test_the_service_starts_a_source_retry_or_an_ask_never_both(self) -> None:
+        """`ask` and `business_areas` belong to Add KPI's caller; a source retry still sends
+        nothing but its `source_id`, and neither is a filter on what gets proposed."""
         js = self._read(FRONTEND_KPIS_API)
         match = re.search(
             r"export function startKpiSuggestionRun\(.*?\n\}\n", js, flags=re.DOTALL
@@ -389,8 +408,11 @@ class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
         assert match is not None
         body = match.group(0)
         assert "source_id" in body
-        assert "business_areas" not in body and "body.ask" not in body
-        assert "fetchKpiSuggestionRun" not in js  # nothing reads a run by id any more
+        # Each optional field is sent only when the caller passed it, so a source retry still
+        # sends a bare source_id.
+        for optional in ("body.ask", "body.business_areas"):
+            assert optional in body, optional
+            assert re.search(rf"if \(.*\)\s*{re.escape(optional)} =", body), optional
 
     def test_what_remains_is_a_notice_while_generating_and_a_failure_banner(
         self,
@@ -403,16 +425,9 @@ class TestKpiSuggestionsAreAutomaticSoThereIsNoManualTrigger:
             assert gone not in status, gone
         assert "Try again" in status
 
-    def test_add_kpi_is_the_manual_form_only(self) -> None:
+    def test_add_kpi_offers_the_manual_form_and_the_ai_path(self) -> None:
+        """Manual creation is never taken away by the AI path; both are reachable from the
+        same picker."""
         modal = self._read(KPI_DIR / "add-kpi" / "AddKpiModal.jsx")
-        assert "AddKpiManualStep" in modal
-        for gone in (
-            "AddKpiAiStep",
-            "onStartAi",
-            "ModeCard",
-            "runInFlight",
-            "focusAreaLabels",
-        ):
-            assert gone not in modal, gone
-        manual = self._read(KPI_DIR / "add-kpi" / "AddKpiManualStep.jsx")
-        assert "Change how" not in manual and "onBack" not in manual
+        assert "AddKpiManualStep" in modal and "AddKpiAiStep" in modal
+        assert (KPI_DIR / "add-kpi" / "AddKpiManualStep.jsx").exists()
