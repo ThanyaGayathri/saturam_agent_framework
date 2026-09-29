@@ -10,9 +10,11 @@ deploy/vm/
 ├── compose.vm.yaml         postgres · neo4j · migrate · warehouse-migrate · api (+ poller) · consolidator
 ├── egpt.env.example        -> ~/egpt/egpt.env on the VM: model keys, tenant, CORS
 ├── frontend.env.example    -> ~/egpt/frontend.env on the VM: VITE_API_URL, /api/llm and login
+├── site.env.example        -> ~/egpt/site.env on the VM: SITE hostname/IP, HTTP_ONLY (no cert yet)
 ├── egpt-frontend.service   systemd: node frontend/server.mjs on 127.0.0.1:8081
-├── nginx.site              /backend/ -> api :7777 (SSE, no buffering) · / -> frontend :8081
-├── setup.sh                one-time, on the VM: docker, env files, unit, nginx site
+├── nginx.site              TLS: /backend/ -> api :7777 (SSE, no buffering) · / -> frontend :8081
+├── nginx.http.site         the same on plain :80, default_server, for a VM without a certificate
+├── setup.sh                one-time, on the VM: docker, nginx, node, env files, unit, nginx site
 ├── deploy.sh               every time, on the VM: checkout branch, build, up, frontend, nginx, health
 └── sync-data.sh            from the laptop: copy the local demo databases + graph to the VM
 ```
@@ -39,15 +41,35 @@ Push the branch first -- the VM pulls from origin, it does not receive local com
 
 ## First-time setup of a VM
 
-1. Clone the repository to `~/saturam-agent-framework` and run `bash deploy/vm/setup.sh`.
-   It installs Docker, creates `~/egpt/{egpt,frontend}.env` from the examples, installs the
-   systemd unit and the nginx site (available, not enabled). Open a new ssh session afterwards
-   so the docker group membership applies.
-2. Fill in `~/egpt/egpt.env` (at least `AZURE_OPENAI_API_KEY` and the endpoint) and
-   `~/egpt/frontend.env` (`RETAILGPT_LLM_API_KEY`, the login password and secret).
-3. `deploy.sh <branch>`.
-4. `deploy/vm/sync-data.sh` from the laptop, to carry the demo data over (below). Without it
+1. Get the repository onto the VM at `~/saturam-agent-framework`. The repository is private
+   and the organisation has deploy keys disabled, so a VM either carries a personal GitHub
+   token (`gh auth login`, the original VM) or -- preferred, no credential on the VM -- a bare
+   repository the laptop pushes to over ssh (the second VM, `sat-egpt-vm`):
+
+   ```bash
+   ssh -i <key> azureuser@<vm> 'git init --bare ~/git/saturam-agent-framework.git'
+   git remote add vm-sat ssh://azureuser@<vm>/home/azureuser/git/saturam-agent-framework.git
+   git push vm-sat origin/main:refs/heads/main
+   ssh -i <key> azureuser@<vm> 'git clone ~/git/saturam-agent-framework.git ~/saturam-agent-framework'
+   ```
+
+   With `GIT_SSH_COMMAND="ssh -i <key>"` on the push if the key is not in the ssh config.
+   `deploy.sh <branch>` then fetches `origin/<branch>` from the bare repository, so "push the
+   branch first" means pushing it to the VM rather than to GitHub.
+2. Run `bash deploy/vm/setup.sh`. It installs Docker, nginx and Node 20 where missing,
+   creates `~/egpt/{egpt,frontend}.env` from the examples, installs the systemd unit and the
+   nginx site (available, not enabled). Open a new ssh session afterwards so the docker group
+   membership applies.
+3. Fill in `~/egpt/egpt.env` (at least `AZURE_OPENAI_API_KEY` and the endpoint) and
+   `~/egpt/frontend.env` (`RETAILGPT_LLM_API_KEY`, the login password and secret). On a VM
+   without a domain yet, also create `~/egpt/site.env` from `site.env.example` with the public
+   IP as `SITE` and `HTTP_ONLY=1`; `EGPT_CORS_ORIGIN_LIST` and `VITE_API_URL` then use
+   `http://<ip>`. Once the domain and its Certbot certificate exist, change `SITE`, drop
+   `HTTP_ONLY`, fix the two URLs, and redeploy.
+4. `deploy.sh <branch>`.
+5. `deploy/vm/sync-data.sh` from the laptop, to carry the demo data over (below). Without it
    the stack is up but empty: no warehouse rows, no ontology, no KPIs, no use cases.
+   `VM_HOST` and `VM_KEY` select the VM.
 
 The nginx site assumes the Certbot certificate for `enterprisegpt.saturam.com` is already on
 the machine (it is, from the prototype's deployment); `deploy.sh` disables the prototype's

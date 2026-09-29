@@ -9,13 +9,17 @@
 # values from ~/egpt/frontend.env, restart the frontend service, switch nginx to the egpt site
 # if it is not already, and check /health end to end. Safe to re-run; a failed step stops it.
 #
+# ~/egpt/site.env (site.env.example) sets SITE and HTTP_ONLY; absent, the original demo VM's
+# TLS site for enterprisegpt.saturam.com is assumed.
 # Environment overrides: REPO, ENV_DIR, SKIP_FRONTEND=1 (api only), SKIP_API=1 (frontend only).
 set -euo pipefail
 
 BRANCH="${1:-demo/retail-prep}"
 REPO="${REPO:-$HOME/saturam-agent-framework}"
 ENV_DIR="${ENV_DIR:-$HOME/egpt}"
-SITE=enterprisegpt.saturam.com
+[ -f "$ENV_DIR/site.env" ] && . "$ENV_DIR/site.env"
+SITE="${SITE:-enterprisegpt.saturam.com}"
+if [ -n "${HTTP_ONLY:-}" ]; then NGINX_TEMPLATE=nginx.http.site; SCHEME=http; else NGINX_TEMPLATE=nginx.site; SCHEME=https; fi
 COMPOSE=(docker compose -f "$REPO/deploy/vm/compose.vm.yaml" --env-file "$ENV_DIR/egpt.env")
 export EGPT_VM_ENV_FILE="$ENV_DIR/egpt.env"
 
@@ -63,12 +67,13 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
 fi
 
 echo "== nginx"
+sudo install -m 644 "$REPO/deploy/vm/$NGINX_TEMPLATE" "/etc/nginx/sites-available/$SITE.egpt"
 if [ "$(readlink -f /etc/nginx/sites-enabled/$SITE)" != "/etc/nginx/sites-available/$SITE.egpt" ]; then
-    sudo install -m 644 "$REPO/deploy/vm/nginx.site" "/etc/nginx/sites-available/$SITE.egpt"
     sudo ln -sfn "/etc/nginx/sites-available/$SITE.egpt" "/etc/nginx/sites-enabled/$SITE"
-    echo "   switched $SITE to the egpt site (the prototype's config stays in sites-available)"
-else
-    sudo install -m 644 "$REPO/deploy/vm/nginx.site" "/etc/nginx/sites-available/$SITE.egpt"
+    echo "   switched $SITE to the egpt site ($NGINX_TEMPLATE; any previous config stays in sites-available)"
+fi
+if [ -n "${HTTP_ONLY:-}" ] && [ -e /etc/nginx/sites-enabled/default ]; then
+    sudo rm -f /etc/nginx/sites-enabled/default   # the egpt site is the default_server on :80
 fi
 sudo nginx -t >/dev/null && sudo systemctl reload nginx
 if systemctl is-active --quiet retailgpt; then
@@ -77,6 +82,6 @@ if systemctl is-active --quiet retailgpt; then
 fi
 
 echo "== end to end"
-curl -fsS -o /dev/null -w "https://$SITE/            -> %{http_code}\n" "https://$SITE/"
-curl -fsS -w "\nhttps://$SITE/backend/health -> %{http_code}\n" "https://$SITE/backend/health"
+curl -fsS -o /dev/null -w "$SCHEME://$SITE/            -> %{http_code}\n" "$SCHEME://$SITE/"
+curl -fsS -w "\n$SCHEME://$SITE/backend/health -> %{http_code}\n" "$SCHEME://$SITE/backend/health"
 echo "deployed $BRANCH @ $(git -C "$REPO" rev-parse --short HEAD)"
