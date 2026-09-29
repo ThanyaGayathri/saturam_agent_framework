@@ -89,7 +89,22 @@ wholesale, so anything created on the VM since the last sync is lost -- sync bef
 not after.
 
 Container names default to the laptop's (`smv1-pgvector-5532`, `egpt-retail-neo4j`); override
-with `LOCAL_PG` / `LOCAL_NEO4J`. `RESTORE_ONLY=1` skips the dump and upload and restores what
+with `LOCAL_PG` / `LOCAL_NEO4J`.
+
+To clone one VM's demo state onto another instead of the laptop's -- the two drift, because
+each runs its own poller and each was synced from the laptop at a different time -- name the
+source with `SOURCE_VM_HOST` / `SOURCE_VM_KEY`:
+
+```bash
+SOURCE_VM_HOST=azureuser@20.64.179.94 SOURCE_VM_KEY=~/AICoE/pem/egpt-azure.pem \
+    VM_HOST=azureuser@20.169.82.164 VM_KEY=~/AICoE/pem/mcfadyen_egpt.pem \
+    deploy/vm/sync-data.sh
+```
+
+The dumps stream through the laptop rather than landing on the source VM's disk, and the
+source's Neo4j is stopped for the few seconds the archive takes (a remote `trap` starts it
+again even if the ssh dies), so the *source* VM's own site is briefly without its graph.
+Both VMs must carry the same `EGPT_RETAIL_NEO4J_PASSWORD`, for the reason below. `RESTORE_ONLY=1` skips the dump and upload and restores what
 `~/egpt/sync` on the VM already holds (`restore-data.sh` is the same thing run from the VM).
 
 **The Neo4j password travels with the data.** Neo4j 5 keeps its users in the `system`
