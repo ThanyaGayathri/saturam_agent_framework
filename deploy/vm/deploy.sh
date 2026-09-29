@@ -76,7 +76,11 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
 fi
 
 echo "== nginx"
-sed "s/__SITE__/$SITE/g" "$REPO/deploy/vm/$NGINX_TEMPLATE" | sudo install -m 644 /dev/stdin "/etc/nginx/sites-available/$SITE.egpt"
+# Rendered to a temp file first: `sudo install` cannot read /dev/stdin from a pipe.
+RENDERED="$(mktemp)"
+sed "s/__SITE__/$SITE/g" "$REPO/deploy/vm/$NGINX_TEMPLATE" > "$RENDERED"
+sudo install -m 644 "$RENDERED" "/etc/nginx/sites-available/$SITE.egpt"
+rm -f "$RENDERED"
 if [ "$(readlink -f /etc/nginx/sites-enabled/$SITE)" != "/etc/nginx/sites-available/$SITE.egpt" ]; then
     sudo ln -sfn "/etc/nginx/sites-available/$SITE.egpt" "/etc/nginx/sites-enabled/$SITE"
     echo "   switched $SITE to the egpt site ($NGINX_TEMPLATE; any previous config stays in sites-available)"

@@ -65,7 +65,11 @@ sudo install -m 644 "$HERE/egpt-frontend.service" /etc/systemd/system/egpt-front
 sudo systemctl daemon-reload
 
 echo "== nginx site $SITE from $NGINX_TEMPLATE (available, not yet enabled)"
-sed "s/__SITE__/$SITE/g" "$HERE/$NGINX_TEMPLATE" | sudo install -m 644 /dev/stdin "/etc/nginx/sites-available/$SITE.egpt"
+# Rendered to a temp file first: `sudo install` cannot read /dev/stdin from a pipe.
+RENDERED="$(mktemp)"
+sed "s/__SITE__/$SITE/g" "$HERE/$NGINX_TEMPLATE" > "$RENDERED"
+sudo install -m 644 "$RENDERED" "/etc/nginx/sites-available/$SITE.egpt"
+rm -f "$RENDERED"
 sudo nginx -t -c /etc/nginx/nginx.conf >/dev/null && echo "   current nginx config still valid"
 
 echo
