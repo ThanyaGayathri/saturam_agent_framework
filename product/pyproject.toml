@@ -53,7 +53,7 @@ dependencies = [
   # #304: AzureKeyVaultSecretStore (configure/secrets.py), the production home for a
   # registered data source's credential. Not inherited: egpt[os] carries no Azure SDK at all.
   "azure-keyvault-secrets",
-  "sqlalchemy",
+  "sqlalchemy[asyncio]",
   # R6's SQL guard (product/egpt_retail/app/sql_guard.py imports egpt.guardrails.sql_guard,
   # which imports sqlglot unconditionally). Not inherited: egpt[os] carries no sqlglot, only
   # egpt[sql] does, and this product depends on egpt[os] directly rather than egpt[sql].

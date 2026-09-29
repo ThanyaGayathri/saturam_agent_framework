@@ -9,13 +9,17 @@
 # values from ~/egpt/frontend.env, restart the frontend service, switch nginx to the egpt site
 # if it is not already, and check /health end to end. Safe to re-run; a failed step stops it.
 #
+# ~/egpt/site.env (site.env.example) sets SITE and HTTP_ONLY; absent, the original demo VM's
+# TLS site for enterprisegpt.saturam.com is assumed.
 # Environment overrides: REPO, ENV_DIR, SKIP_FRONTEND=1 (api only), SKIP_API=1 (frontend only).
 set -euo pipefail
 
 BRANCH="${1:-demo/retail-prep}"
 REPO="${REPO:-$HOME/saturam-agent-framework}"
 ENV_DIR="${ENV_DIR:-$HOME/egpt}"
-SITE=enterprisegpt.saturam.com
+[ -f "$ENV_DIR/site.env" ] && . "$ENV_DIR/site.env"
+SITE="${SITE:-enterprisegpt.saturam.com}"
+if [ -n "${HTTP_ONLY:-}" ]; then NGINX_TEMPLATE=nginx.http.site; SCHEME=http; else NGINX_TEMPLATE=nginx.site; SCHEME=https; fi
 COMPOSE=(docker compose -f "$REPO/deploy/vm/compose.vm.yaml" --env-file "$ENV_DIR/egpt.env")
 export EGPT_VM_ENV_FILE="$ENV_DIR/egpt.env"
 
@@ -31,6 +35,15 @@ git fetch --prune origin "$BRANCH"
 git checkout -q -B "$BRANCH" "origin/$BRANCH"
 git reset -q --hard "origin/$BRANCH"
 git log --oneline -1
+
+# The checkout just replaced this file, and bash reads a script as it runs: the rest of an
+# updated deploy.sh would be read from the new bytes at the old offset. Re-exec the fresh copy
+# once (the environment, so SKIP_API/SKIP_FRONTEND, survives exec) and let it redo the
+# checkout, which is idempotent.
+if [ -z "${EGPT_DEPLOY_REEXEC:-}" ]; then
+    export EGPT_DEPLOY_REEXEC=1
+    exec bash "$REPO/deploy/vm/deploy.sh" "$BRANCH"
+fi
 
 if [ -z "${SKIP_API:-}" ]; then
     echo "== build image"
@@ -63,12 +76,34 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
 fi
 
 echo "== nginx"
+# Rendered to a temp file first: `sudo install` cannot read /dev/stdin from a pipe.
+RENDERED="$(mktemp)"
+sed "s/__SITE__/$SITE/g" "$REPO/deploy/vm/$NGINX_TEMPLATE" > "$RENDERED"
+sudo install -m 644 "$RENDERED" "/etc/nginx/sites-available/$SITE.egpt"
+rm -f "$RENDERED"
 if [ "$(readlink -f /etc/nginx/sites-enabled/$SITE)" != "/etc/nginx/sites-available/$SITE.egpt" ]; then
-    sudo install -m 644 "$REPO/deploy/vm/nginx.site" "/etc/nginx/sites-available/$SITE.egpt"
     sudo ln -sfn "/etc/nginx/sites-available/$SITE.egpt" "/etc/nginx/sites-enabled/$SITE"
-    echo "   switched $SITE to the egpt site (the prototype's config stays in sites-available)"
-else
-    sudo install -m 644 "$REPO/deploy/vm/nginx.site" "/etc/nginx/sites-available/$SITE.egpt"
+    echo "   switched $SITE to the egpt site ($NGINX_TEMPLATE; any previous config stays in sites-available)"
+fi
+if [ -n "${HTTP_ONLY:-}" ] && [ -e /etc/nginx/sites-enabled/default ]; then
+    sudo rm -f /etc/nginx/sites-enabled/default   # the egpt site is the default_server on :80
+fi
+# An earlier deploy under a different SITE (the public IP, before the domain existed) left its
+# own enabled site behind, and two HTTP_ONLY sites both claim default_server -- `nginx -t`
+# then fails and the reload below never happens. Only this script's own sites are touched.
+for link in /etc/nginx/sites-enabled/*; do
+    [ -e "$link" ] || continue
+    case "$(readlink -f "$link")" in
+        */"$SITE".egpt) ;;
+        *.egpt) sudo rm -f "$link"; echo "   removed the stale enabled site $(basename "$link")" ;;
+    esac
+done
+# `sudo test`, not `[ -e ]`: /etc/letsencrypt/live is root-only, so the unprivileged check
+# says "missing" for a certificate that is in fact there.
+if [ -z "${HTTP_ONLY:-}" ] && ! sudo test -e "/etc/letsencrypt/live/$SITE/fullchain.pem"; then
+    echo "no certificate for $SITE -- run: sudo certbot --nginx -d $SITE"
+    echo "(or keep HTTP_ONLY=1 in $ENV_DIR/site.env until there is one)"
+    exit 1
 fi
 sudo nginx -t >/dev/null && sudo systemctl reload nginx
 if systemctl is-active --quiet retailgpt; then
@@ -77,6 +112,6 @@ if systemctl is-active --quiet retailgpt; then
 fi
 
 echo "== end to end"
-curl -fsS -o /dev/null -w "https://$SITE/            -> %{http_code}\n" "https://$SITE/"
-curl -fsS -w "\nhttps://$SITE/backend/health -> %{http_code}\n" "https://$SITE/backend/health"
+curl -fsS -o /dev/null -w "$SCHEME://$SITE/            -> %{http_code}\n" "$SCHEME://$SITE/"
+curl -fsS -w "\n$SCHEME://$SITE/backend/health -> %{http_code}\n" "$SCHEME://$SITE/backend/health"
 echo "deployed $BRANCH @ $(git -C "$REPO" rev-parse --short HEAD)"
