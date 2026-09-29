@@ -98,7 +98,9 @@ for link in /etc/nginx/sites-enabled/*; do
         *.egpt) sudo rm -f "$link"; echo "   removed the stale enabled site $(basename "$link")" ;;
     esac
 done
-if [ -z "${HTTP_ONLY:-}" ] && [ ! -e "/etc/letsencrypt/live/$SITE/fullchain.pem" ]; then
+# `sudo test`, not `[ -e ]`: /etc/letsencrypt/live is root-only, so the unprivileged check
+# says "missing" for a certificate that is in fact there.
+if [ -z "${HTTP_ONLY:-}" ] && ! sudo test -e "/etc/letsencrypt/live/$SITE/fullchain.pem"; then
     echo "no certificate for $SITE -- run: sudo certbot --nginx -d $SITE"
     echo "(or keep HTTP_ONLY=1 in $ENV_DIR/site.env until there is one)"
     exit 1
