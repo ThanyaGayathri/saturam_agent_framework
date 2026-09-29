@@ -36,6 +36,15 @@ git checkout -q -B "$BRANCH" "origin/$BRANCH"
 git reset -q --hard "origin/$BRANCH"
 git log --oneline -1
 
+# The checkout just replaced this file, and bash reads a script as it runs: the rest of an
+# updated deploy.sh would be read from the new bytes at the old offset. Re-exec the fresh copy
+# once (the environment, so SKIP_API/SKIP_FRONTEND, survives exec) and let it redo the
+# checkout, which is idempotent.
+if [ -z "${EGPT_DEPLOY_REEXEC:-}" ]; then
+    export EGPT_DEPLOY_REEXEC=1
+    exec bash "$REPO/deploy/vm/deploy.sh" "$BRANCH"
+fi
+
 if [ -z "${SKIP_API:-}" ]; then
     echo "== build image"
     "${COMPOSE[@]}" build --pull migrate
@@ -75,6 +84,16 @@ fi
 if [ -n "${HTTP_ONLY:-}" ] && [ -e /etc/nginx/sites-enabled/default ]; then
     sudo rm -f /etc/nginx/sites-enabled/default   # the egpt site is the default_server on :80
 fi
+# An earlier deploy under a different SITE (the public IP, before the domain existed) left its
+# own enabled site behind, and two HTTP_ONLY sites both claim default_server -- `nginx -t`
+# then fails and the reload below never happens. Only this script's own sites are touched.
+for link in /etc/nginx/sites-enabled/*; do
+    [ -e "$link" ] || continue
+    case "$(readlink -f "$link")" in
+        */"$SITE".egpt) ;;
+        *.egpt) sudo rm -f "$link"; echo "   removed the stale enabled site $(basename "$link")" ;;
+    esac
+done
 if [ -z "${HTTP_ONLY:-}" ] && [ ! -e "/etc/letsencrypt/live/$SITE/fullchain.pem" ]; then
     echo "no certificate for $SITE -- run: sudo certbot --nginx -d $SITE"
     echo "(or keep HTTP_ONLY=1 in $ENV_DIR/site.env until there is one)"
