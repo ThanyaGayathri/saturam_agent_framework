@@ -67,13 +67,18 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
 fi
 
 echo "== nginx"
-sudo install -m 644 "$REPO/deploy/vm/$NGINX_TEMPLATE" "/etc/nginx/sites-available/$SITE.egpt"
+sed "s/__SITE__/$SITE/g" "$REPO/deploy/vm/$NGINX_TEMPLATE" | sudo install -m 644 /dev/stdin "/etc/nginx/sites-available/$SITE.egpt"
 if [ "$(readlink -f /etc/nginx/sites-enabled/$SITE)" != "/etc/nginx/sites-available/$SITE.egpt" ]; then
     sudo ln -sfn "/etc/nginx/sites-available/$SITE.egpt" "/etc/nginx/sites-enabled/$SITE"
     echo "   switched $SITE to the egpt site ($NGINX_TEMPLATE; any previous config stays in sites-available)"
 fi
 if [ -n "${HTTP_ONLY:-}" ] && [ -e /etc/nginx/sites-enabled/default ]; then
     sudo rm -f /etc/nginx/sites-enabled/default   # the egpt site is the default_server on :80
+fi
+if [ -z "${HTTP_ONLY:-}" ] && [ ! -e "/etc/letsencrypt/live/$SITE/fullchain.pem" ]; then
+    echo "no certificate for $SITE -- run: sudo certbot --nginx -d $SITE"
+    echo "(or keep HTTP_ONLY=1 in $ENV_DIR/site.env until there is one)"
+    exit 1
 fi
 sudo nginx -t >/dev/null && sudo systemctl reload nginx
 if systemctl is-active --quiet retailgpt; then

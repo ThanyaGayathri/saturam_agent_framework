@@ -1,13 +1,14 @@
-# nginx site for the single-VM stack. setup.sh installs it as
-# /etc/nginx/sites-available/enterprisegpt.saturam.com, keeping the Certbot-managed TLS lines
-# from the file already there.
+# nginx site for the single-VM stack, TLS. __SITE__ is replaced with $SITE (~/egpt/site.env,
+# default enterprisegpt.saturam.com) when setup.sh or deploy.sh installs this as
+# /etc/nginx/sites-available/<site>.egpt, so a second VM with its own hostname uses the same
+# file. The certificate for $SITE must already exist: `certbot --nginx -d <site>`.
 #
 #   /backend/  -> the retail API (compose api service, 127.0.0.1:7777), prefix stripped.
 #                 Buffering is off so agent runs stream (SSE) instead of arriving at the end.
 #   /          -> the frontend (systemd egpt-frontend, 127.0.0.1:8081): dist/ and /api/*.
 
 server {
-    server_name enterprisegpt.saturam.com;
+    server_name __SITE__;
 
     client_max_body_size 50m;
 
@@ -40,19 +41,19 @@ server {
 
     listen 443 ssl; # managed by Certbot
     listen [::]:443 ssl ipv6only=on; # managed by Certbot
-    ssl_certificate /etc/letsencrypt/live/enterprisegpt.saturam.com/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/enterprisegpt.saturam.com/privkey.pem; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/__SITE__/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/__SITE__/privkey.pem; # managed by Certbot
     include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
 }
 
 server {
-    if ($host = enterprisegpt.saturam.com) {
+    if ($host = __SITE__) {
         return 301 https://$host$request_uri;
     } # managed by Certbot
 
     listen 80;
     listen [::]:80;
-    server_name enterprisegpt.saturam.com;
+    server_name __SITE__;
     return 404; # managed by Certbot
 }

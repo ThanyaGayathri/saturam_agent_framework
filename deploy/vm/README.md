@@ -14,6 +14,7 @@ deploy/vm/
 ├── egpt-frontend.service   systemd: node frontend/server.mjs on 127.0.0.1:8081
 ├── nginx.site              TLS: /backend/ -> api :7777 (SSE, no buffering) · / -> frontend :8081
 ├── nginx.http.site         the same on plain :80, default_server, for a VM without a certificate
+│                           (both carry __SITE__, replaced with $SITE when installed)
 ├── setup.sh                one-time, on the VM: docker, nginx, node, env files, unit, nginx site
 ├── deploy.sh               every time, on the VM: checkout branch, build, up, frontend, nginx, health
 └── sync-data.sh            from the laptop: copy the local demo databases + graph to the VM
@@ -71,8 +72,13 @@ Push the branch first -- the VM pulls from origin, it does not receive local com
    the stack is up but empty: no warehouse rows, no ontology, no KPIs, no use cases.
    `VM_HOST` and `VM_KEY` select the VM.
 
-The nginx site assumes the Certbot certificate for `enterprisegpt.saturam.com` is already on
-the machine (it is, from the prototype's deployment); `deploy.sh` disables the prototype's
+Both nginx templates carry `__SITE__` where the hostname goes, replaced with `$SITE` as they
+are installed, so a second VM needs no edit -- only `~/egpt/site.env`. The TLS template also
+names `$SITE` in its `ssl_certificate` paths, so that certificate must exist before a deploy
+without `HTTP_ONLY`: `sudo certbot --nginx -d <site>` (install `certbot python3-certbot-nginx`
+first on a VM that has never had one). `deploy.sh` stops with that instruction rather than
+leaving nginx failing its config test. On the original VM the certificate was already there
+from the prototype's deployment; `deploy.sh` disables the prototype's
 `retailgpt.service` when it switches the site over, and leaves its config in
 `sites-available` so `ln -sfn` back is the rollback to the prototype.
 

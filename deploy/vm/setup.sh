@@ -65,7 +65,7 @@ sudo install -m 644 "$HERE/egpt-frontend.service" /etc/systemd/system/egpt-front
 sudo systemctl daemon-reload
 
 echo "== nginx site $SITE from $NGINX_TEMPLATE (available, not yet enabled)"
-sudo install -m 644 "$HERE/$NGINX_TEMPLATE" "/etc/nginx/sites-available/$SITE.egpt"
+sed "s/__SITE__/$SITE/g" "$HERE/$NGINX_TEMPLATE" | sudo install -m 644 /dev/stdin "/etc/nginx/sites-available/$SITE.egpt"
 sudo nginx -t -c /etc/nginx/nginx.conf >/dev/null && echo "   current nginx config still valid"
 
 echo
