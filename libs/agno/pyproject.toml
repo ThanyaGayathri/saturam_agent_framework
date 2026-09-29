@@ -65,7 +65,7 @@ dev = [
   "xlwt",
   "types-greenlet",
   "opentelemetry-sdk",
-  "sqlalchemy",
+  "sqlalchemy[asyncio]",
   "sqlglot",
   "aiosqlite",
   "greenlet",
@@ -76,7 +76,7 @@ dev = [
 ]
 
 # AgentOS server bundle
-os = ["fastapi", "python-multipart>=0.0.18", "uvicorn", "websockets", "sqlalchemy", "PyJWT", "opentelemetry-sdk", "openinference-instrumentation-agno", "egpt[scheduler]"]
+os = ["fastapi", "python-multipart>=0.0.18", "uvicorn", "websockets", "sqlalchemy[asyncio]", "PyJWT", "opentelemetry-sdk", "openinference-instrumentation-agno", "egpt[scheduler]"]
 mcp = ["mcp>=1.9.2,<2.0.0", "fastmcp>=2.14.1,<3.0.0"]
 scheduler = ["croniter>=1.3", "pytz>=2023.3"]
 
@@ -172,8 +172,8 @@ gcs = ["google-cloud-storage"]
 mysql = ["pymysql", "asyncmy"]
 postgres = ["psycopg-binary"]
 redis = ["redis", "redisvl>=0.12.1"]
-sql = ["sqlalchemy", "sqlglot"]
-sqlite = ["sqlalchemy", "aiosqlite"]
+sql = ["sqlalchemy[asyncio]", "sqlglot"]
+sqlite = ["sqlalchemy[asyncio]", "aiosqlite"]
 
 # Dependencies for Vector databases
 # Pinned to the 11.x line, not the newer 12.0.0: 12.0.0 is a fully regenerated low-level client
@@ -192,7 +192,7 @@ pgvector = ["pgvector"]
 pinecone = ["pinecone==5.4.2"]
 pylance = ["pylance"]
 qdrant = ["qdrant-client"]
-singlestore = ["sqlalchemy"]
+singlestore = ["sqlalchemy[asyncio]"]
 surrealdb = ["surrealdb>=1.0.4"]
 upstash = ["upstash-vector"]
 weaviate = ["weaviate-client"]
@@ -404,7 +404,7 @@ integration-tests = [
     "exa_py>=2.0.0",
     "ddgs",
     "yfinance",
-    "sqlalchemy",
+    "sqlalchemy[asyncio]",
     "Pillow",
     "egpt[mcp]",
     "PyJWT",
@@ -453,7 +453,7 @@ demo = [
     "pillow",
     "psycopg[binary]",
     "pypdf",
-    "sqlalchemy",
+    "sqlalchemy[asyncio]",
     "yfinance",
     "youtube-transcript-api",
     "claude-agent-sdk",
