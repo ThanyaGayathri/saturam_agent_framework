@@ -246,6 +246,10 @@ def _activation_level(body: Any) -> Optional[int]:
     if not isinstance(body, dict) or "level" not in body:
         return None
     level_type = generated_models.ActivationRequest.model_fields["level"].annotation
+    if level_type is None:
+        # pydantic types FieldInfo.annotation as optional; the generated model always
+        # annotates ``level``, so a missing one is a broken contract, not a missing level.
+        raise TypeError("ActivationRequest.level has no type annotation")
     try:
         return TypeAdapter(level_type).validate_python(body["level"])
     except ValidationError:

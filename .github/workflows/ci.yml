@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      # Customer release branches take the same checks as main: a merge there is a delivery.
+      - release/middleby
   # PR runs are gated on the `run-ci` label to cut Actions spend on this repo's high PR
   # volume: an unlabeled PR costs one ~10s ci-success job (which fails, asking for the label);
   # adding the label fires the `labeled` event and runs the full suite. The trigger has to
@@ -13,6 +15,7 @@ on:
   pull_request:
     branches:
       - main
+      - release/middleby
     types: [opened, synchronize, reopened, labeled]
   # Ad-hoc runs on any branch. These show on the commit but do NOT satisfy PR checks (above).
   workflow_dispatch:
