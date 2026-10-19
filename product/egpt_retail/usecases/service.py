@@ -1227,11 +1227,18 @@ class UseCaseService:
             return None
         from egpt.integrations.models.azure import AzureOpenAI
 
+        from egpt_retail.routing.providers import (
+            AZURE_PROVIDER_KEY,
+            prompt_cache_config,
+        )
+
         settings = self.settings or RetailSettings()
+        cache_config = prompt_cache_config(settings, AZURE_PROVIDER_KEY)
         if role == "explanation":
             model = AzureOpenAI(
                 id=settings.retail_azure_small_deployment
-                or settings.retail_azure_deployment
+                or settings.retail_azure_deployment,
+                **cache_config,
             )
             return build_explanation_agent(
                 model,
@@ -1239,7 +1246,7 @@ class UseCaseService:
                 diagnosis=template_id == "metric_diagnosis",
                 at_risk=template_id == "at_risk",
             )
-        model = AzureOpenAI(id=settings.retail_azure_deployment)
+        model = AzureOpenAI(id=settings.retail_azure_deployment, **cache_config)
         return build_extraction_agent(model, agent_id=agent_id, template_id=template_id)
 
     def build_run_options(

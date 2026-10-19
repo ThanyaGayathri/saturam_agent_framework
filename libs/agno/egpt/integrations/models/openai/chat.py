@@ -68,6 +68,9 @@ class OpenAIChat(Model):
     top_p: Optional[float] = None
     service_tier: Optional[str] = None  # "auto" | "default" | "flex" | "priority", defaults to "auto" when not set
     strict_output: bool = True  # When True, guarantees schema adherence for structured outputs. When False, attempts to follow schema as a guide but may occasionally deviate
+    # Prompt caching: requests sharing a prefix and the same key are routed to the same cache.
+    prompt_cache_key: Optional[str] = None
+    prompt_cache_retention: Optional[Literal["in_memory", "24h"]] = None
     extra_headers: Optional[Any] = None
     extra_query: Optional[Any] = None
     extra_body: Optional[Any] = None
@@ -226,6 +229,8 @@ class OpenAIChat(Model):
             "extra_body": self.extra_body,
             "metadata": self.metadata,
             "service_tier": self.service_tier,
+            "prompt_cache_key": self.prompt_cache_key,
+            "prompt_cache_retention": self.prompt_cache_retention,
         }
 
         # Handle response format - always use JSON schema approach
@@ -303,6 +308,8 @@ class OpenAIChat(Model):
                 "extra_query": self.extra_query,
                 "extra_body": self.extra_body,
                 "service_tier": self.service_tier,
+                "prompt_cache_key": self.prompt_cache_key,
+                "prompt_cache_retention": self.prompt_cache_retention,
             }
         )
         cleaned_dict = {k: v for k, v in model_dict.items() if v is not None}

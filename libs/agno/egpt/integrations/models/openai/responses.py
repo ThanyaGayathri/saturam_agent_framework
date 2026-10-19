@@ -64,6 +64,9 @@ class OpenAIResponses(Model):
         2.0  # Interval in seconds between polling attempts when background mode is enabled.
     )
     background_max_wait: float = 600.0  # Maximum time in seconds to wait for a background response before cancelling it and raising an error. Defaults to 10 minutes, matching OpenAI's storage window.
+    # Prompt caching: requests sharing a prefix and the same key are routed to the same cache.
+    prompt_cache_key: Optional[str] = None
+    prompt_cache_retention: Optional[Literal["in_memory", "24h"]] = None
     extra_headers: Optional[Any] = None
     extra_query: Optional[Any] = None
     extra_body: Optional[Any] = None
@@ -298,6 +301,8 @@ class OpenAIResponses(Model):
             "truncation": self.truncation,
             "user": self.user,
             "service_tier": self.service_tier,
+            "prompt_cache_key": self.prompt_cache_key,
+            "prompt_cache_retention": self.prompt_cache_retention,
             "extra_headers": self.extra_headers,
             "extra_query": self.extra_query,
             "extra_body": self.extra_body,

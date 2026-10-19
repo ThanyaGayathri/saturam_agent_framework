@@ -55,11 +55,16 @@ def drafting_agent() -> Optional[Any]:
     from egpt.agent import Agent
     from egpt.integrations.models.azure import AzureOpenAI
 
+    from egpt_retail.routing.providers import AZURE_PROVIDER_KEY, prompt_cache_config
+
     settings = RetailSettings()
     return Agent(
         id="extraction_template_drafter",
         name="extraction_template_drafter",
-        model=AzureOpenAI(id=settings.retail_azure_deployment),
+        model=AzureOpenAI(
+            id=settings.retail_azure_deployment,
+            **prompt_cache_config(settings, AZURE_PROVIDER_KEY),
+        ),
         instructions=draft_instructions(),
         output_schema=TemplateDraft,
     )

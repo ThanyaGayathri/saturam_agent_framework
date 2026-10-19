@@ -15,6 +15,25 @@ try:
 except ImportError:
     raise ImportError("`openai` not installed. Please install using `pip install openai`")
 
+#: The dated Azure OpenAI API version an ``AzureOpenAI`` model sends when ``api_version`` is
+#: unset. A pin, deliberately: the model does not read ``AZURE_OPENAI_API_VERSION`` on its own,
+#: so exporting that variable changes nothing until a caller passes it through
+#: ``resolve_api_version`` -- a deployment that moves every Azure call to a preview version
+#: (which can change structured-output and reasoning-parameter behaviour) does so by choice.
+DEFAULT_API_VERSION = "2024-10-21"
+
+
+def resolve_api_version(explicit: Optional[str] = None) -> str:
+    """``explicit``, else the ``AZURE_OPENAI_API_VERSION`` environment variable, else
+    ``DEFAULT_API_VERSION``.
+
+    The opt-in chain, for a caller that wants the environment to name the version:
+    ``AzureOpenAI(id=..., api_version=resolve_api_version())``. ``AzureOpenAI`` itself never
+    consults the variable, so a request field that only a newer version accepts can be
+    validated against exactly the version the caller is about to send.
+    """
+    return explicit or getenv("AZURE_OPENAI_API_VERSION") or DEFAULT_API_VERSION
+
 
 @dataclass
 class AzureOpenAI(OpenAILike):
@@ -27,7 +46,8 @@ class AzureOpenAI(OpenAILike):
         name (str): The model name to use.
         provider (str): The provider to use.
         api_key (Optional[str]): The API key to use.
-        api_version (str): The API version to use.
+        api_version (Optional[str]): The API version to use; ``DEFAULT_API_VERSION`` when
+            unset. Pass ``resolve_api_version()`` to take it from ``AZURE_OPENAI_API_VERSION``.
         azure_endpoint (Optional[str]): The Azure endpoint to use.
         azure_deployment (Optional[str]): The Azure deployment to use.
         base_url (Optional[str]): The base URL to use.
@@ -45,7 +65,7 @@ class AzureOpenAI(OpenAILike):
     supports_native_structured_outputs: bool = True
 
     api_key: Optional[str] = None
-    api_version: Optional[str] = "2024-10-21"
+    api_version: Optional[str] = None
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
     base_url: Optional[str] = None
@@ -104,7 +124,7 @@ class AzureOpenAI(OpenAILike):
 
         params_mapping = {
             "api_key": api_key,
-            "api_version": self.api_version,
+            "api_version": self.api_version or DEFAULT_API_VERSION,
             "organization": self.organization,
             "azure_endpoint": azure_endpoint,
             "azure_deployment": azure_deployment,

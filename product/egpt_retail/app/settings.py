@@ -412,6 +412,46 @@ class RetailSettings(BrandedSettings):
         "the same code path -- the build plan defers the in-VPC GPU pool -- so 'small' is a cheaper "
         "deployment/model, not a different provider from the frontier tier. Same credential rule.",
     )
+    retail_prompt_cache_enabled: bool = Field(
+        default=False,
+        description="Turn on provider prompt caching for both model tiers and the directly built "
+        "Azure extraction, explanation and drafting models (EGPT_RETAIL_PROMPT_CACHE_ENABLED). "
+        "Azure OpenAI and OpenAI get a prompt_cache_key so requests sharing a prefix land on the "
+        "same cache; Anthropic needs retail_prompt_cache_anthropic as well; other providers are "
+        "left untouched. Off by default: whether the deployment behind retail_azure_deployment "
+        "accepts the field is only known from a live call (a non-OpenAI model served through a "
+        "Foundry resource rejects it with 400 'Unrecognized request argument supplied: "
+        "prompt_cache_key', on every request, with nothing failing at startup), so a switch "
+        "nobody threw must not change what is sent. Probe the deployment once, then set this per "
+        "deployment (deploy/vm/egpt.env.example). On, the Azure models also take their "
+        "api-version from AZURE_OPENAI_API_VERSION (off, the framework's pin is sent and the "
+        "variable is ignored), and boot refuses a version older than 2024-10-01-preview, the "
+        "first version Azure lists automatic caching under. That floor is not a confirmation "
+        "that the field is accepted; only the live probe is.",
+    )
+    retail_prompt_cache_anthropic: bool = Field(
+        default=False,
+        description="With retail_prompt_cache_enabled, also turn on Anthropic's cache_system_prompt "
+        "and cache_tools (EGPT_RETAIL_PROMPT_CACHE_ANTHROPIC). Its own switch because Anthropic bills "
+        "a cache write above a plain input token: on a prompt that varies between calls (datetime, "
+        "dynamic context) every request pays the write and reads nothing, so enabling it before the "
+        "stable-prefix split lands costs more than it saves. Off by default; ignored while "
+        "retail_prompt_cache_enabled is off.",
+    )
+    retail_prompt_cache_key: str = Field(
+        default="egpt-retail",
+        description="The prompt_cache_key sent to Azure OpenAI / OpenAI "
+        "(EGPT_RETAIL_PROMPT_CACHE_KEY). Requests with the same key and prefix are routed to the "
+        "same cache; change it to separate one deployment's cache from another's.",
+    )
+    retail_prompt_cache_retention: Optional[Literal["in_memory", "24h"]] = Field(
+        default=None,
+        description="Cache retention sent to Azure OpenAI / OpenAI (EGPT_RETAIL_PROMPT_CACHE_RETENTION). "
+        "Unset sends nothing and leaves the provider default (in-memory). Set '24h' only on a "
+        "deployment whose model supports extended retention -- Azure lists it for gpt-5 and later "
+        "only -- since an unsupported value is a vendor error on the first call, not at startup. "
+        "Ignored while retail_prompt_cache_enabled is off.",
+    )
     retail_small_context_window: int = Field(
         default=128_000,
         gt=0,
