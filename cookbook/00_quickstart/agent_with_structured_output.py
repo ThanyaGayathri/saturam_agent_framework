@@ -18,6 +18,7 @@ Example prompts to try:
 - "What's the investment case for Apple?"
 """
 
+from pprint import pprint
 from typing import List, Optional
 
 from egpt.agent import Agent
@@ -96,6 +97,7 @@ agent_with_structured_output = Agent(
     add_history_to_context=True,
     num_history_runs=5,
     markdown=True,
+    debug_mode=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -104,6 +106,18 @@ agent_with_structured_output = Agent(
 if __name__ == "__main__":
     # Get structured output
     response = agent_with_structured_output.run("Analyze NVIDIA")
+
+    print("\nMessages and model response:")
+    pprint([message.to_dict() for message in response.messages or []])
+    print("\nStructured model response:")
+    print(response.content)
+    if response.metrics is not None:
+        print("\nToken usage:")
+        print(f"Input: {response.metrics.input_tokens}")
+        print(f"Output: {response.metrics.output_tokens}")
+        print(f"Total: {response.metrics.total_tokens}")
+    else:
+        print("\nToken usage is unavailable for this run.")
 
     # Access the typed data
     analysis: StockAnalysis = response.content

@@ -110,6 +110,7 @@ agent_with_typed_input_output = Agent(
     add_history_to_context=True,
     num_history_runs=5,
     markdown=True,
+    debug_mode=True
 )
 
 # ---------------------------------------------------------------------------
